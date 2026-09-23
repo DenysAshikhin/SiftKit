@@ -435,7 +435,7 @@ class GetChatSessionEndpoint implements RouteEndpoint {
     session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     if (!session) throw new Error('Chat session disappeared during synchronous reconciliation.');
     const config = readConfig(configPath);
-    sendJson(res, 200, buildChatSessionResponse(config, session, recovery));
+    sendJson(res, 200, buildChatSessionResponse(config, runtimeRoot, session, recovery));
     return;
   }
 }
@@ -500,7 +500,7 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
       updated.planRepoRoot = resolve(updateRequest.planRepoRoot);
     }
     saveChatSessionMetadata(runtimeRoot, updated);
-    sendJson(res, 200, buildChatSessionResponse(currentConfig, updated));
+    sendJson(res, 200, buildChatSessionResponse(currentConfig, runtimeRoot, updated));
     return;
   }
 }
@@ -560,7 +560,7 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
     }
     const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)) || result.session;
     ctx.chatSessionOperations.getBroadcast(sessionId)?.notifyHistoryRevised();
-    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
+    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), runtimeRoot, session));
     return;
   }
 }
@@ -596,7 +596,7 @@ class DeleteChatMessageImageEndpoint implements RouteEndpoint {
       return;
     }
     ctx.chatSessionOperations.getBroadcast(sessionId)?.notifyHistoryRevised();
-    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
+    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), runtimeRoot, session));
   }
 }
 
@@ -648,7 +648,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       messages: [],
     };
     saveChatSessionMetadata(runtimeRoot, session);
-    sendJson(res, 200, buildChatSessionResponse(currentConfig, session));
+    sendJson(res, 200, buildChatSessionResponse(currentConfig, runtimeRoot, session));
     return;
   }
 }
@@ -691,6 +691,7 @@ class ChatMessageTurn {
 
   constructor(
     private readonly ctx: ServerContext,
+    private readonly runtimeRoot: string,
     private readonly res: ServerResponse,
     private readonly session: ChatSession,
     private readonly config: SiftConfig,
@@ -758,7 +759,7 @@ class ChatMessageTurn {
   }
 
   private respond(session: ChatSession): void {
-    sendJson(this.res, 200, buildChatSessionResponse(this.config, session));
+    sendJson(this.res, 200, buildChatSessionResponse(this.config, this.runtimeRoot, session));
   }
 
   private fail(error: Error): ChatOperationOutcome {
@@ -853,6 +854,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       saveChatSessionMetadata(runtimeRoot, selected.session);
       const turn = new ChatMessageTurn(
         ctx,
+        runtimeRoot,
         res,
         selected.session,
         selectedImages.effectiveConfig,
@@ -1049,7 +1051,7 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
         }),
       }));
       sendJson(res, 200, {
-        ...buildChatSessionResponse(config, result.updatedSession),
+        ...buildChatSessionResponse(config, runtimeRoot, result.updatedSession),
         repoSearch: result.repoSearch,
       });
       return { failure: result.failure };
@@ -1176,7 +1178,7 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
         readRouteMockResponses(new JsonRecordReader(request.parsedBody), 'mockResponses'),
         createServerJsonLogger(serverLogger, 'condense', request.session.id),
       );
-      sendJson(res, 200, buildChatSessionResponse(config, updatedSession));
+      sendJson(res, 200, buildChatSessionResponse(config, getRuntimeRoot(), updatedSession));
       return { failure: null };
     } catch (error) {
       if (requireChatRunRecorder(request).stopRequested || requireChatRunRecorder(request).sessionDeleted) throw error;

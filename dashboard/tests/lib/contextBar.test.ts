@@ -5,21 +5,21 @@ import { formatLiveContextTokens, resolveLiveContextUsage } from '../../src/lib/
 import { getLiveMessageTokenDisplay, sumLiveTokenDisplays } from '../../src/lib/format';
 import type { ChatStreamPromptEvent } from '@siftkit/contracts';
 import type { ChatMessage, ContextUsage } from '../../src/types';
+import { CONTEXT_USAGE } from '../fixtures.js';
 
 const USAGE: ContextUsage = {
-  contextWindowTokens: 100,
-  usedTokens: 20,
-  chatUsedTokens: 20,
-  thinkingUsedTokens: 0,
-  toolUsedTokens: 0,
-  imageUsedTokens: 0,
-  totalUsedTokens: 20,
-  remainingTokens: 80,
-  warnThresholdTokens: 80,
-  shouldCondense: false,
-  providerOverheadTokens: 5,
-  estimatedTokenFallbackTokens: 0,
+  ...CONTEXT_USAGE, chatUsedTokens: 20, totalUsedTokens: 20, remainingTokens: 80, providerOverheadTokens: 5,
 };
+
+test('resolveLiveContextUsage marks an unmeasured idle total as an estimate', () => {
+  const result = resolveLiveContextUsage({
+    contextUsage: { ...USAGE, usedTokensMeasured: false },
+    liveTokenBase: null,
+    streamedCharsSinceBase: 0,
+    busy: false,
+  });
+  assert.deepEqual(result, { usedTokens: 20, contextWindowTokens: 100, ratio: 0.2, exact: false });
+});
 
 function liveMessage(overrides: {
   id: string;

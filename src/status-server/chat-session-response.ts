@@ -1,6 +1,6 @@
 import { ChatSessionSchema, ChatSessionResponseSchema, ChatSessionSummarySchema, PersistedChatTranscriptMessageSchema, type ChatRecoveryReport } from '@siftkit/contracts';
 import type { SiftConfig } from '../config/types.js';
-import type { ChatSession, StoredChatSessionSummary } from '../state/chat-sessions.js';
+import { readChatMeasuredContext, type ChatSession, type StoredChatSessionSummary } from '../state/chat-sessions.js';
 import { buildChatPromptContext } from './chat-prompt-context.js';
 import { buildContextUsage, resolveChatSessionContextWindow, resolveChatSessionModel } from './chat.js';
 import { buildChatSessionThroughput } from './chat-turn-telemetry.js';
@@ -31,7 +31,8 @@ export function toWireChatSessionSummary(summary: StoredChatSessionSummary) {
   return ChatSessionSummarySchema.parse(summary);
 }
 
-export function buildChatSessionResponse(config: SiftConfig, session: ChatSession, recovery: readonly ChatRecoveryReport[] = []) {
+export function buildChatSessionResponse(config: SiftConfig, runtimeRoot: string, session: ChatSession, recovery: readonly ChatRecoveryReport[] = []) {
   const readableSession = recovery.some(report => report.status === 'recovery_failed') ? session : withPromptContext(config, session);
-  return ChatSessionResponseSchema.parse({ session: toWireChatSession(config, readableSession), contextUsage: buildContextUsage(config, session), recovery });
+  const contextUsage = buildContextUsage(config, session, readChatMeasuredContext(runtimeRoot, session.id));
+  return ChatSessionResponseSchema.parse({ session: toWireChatSession(config, readableSession), contextUsage, recovery });
 }

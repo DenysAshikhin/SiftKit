@@ -94,6 +94,7 @@ import { getActiveModelPreset } from '../../src/config/getters.js';
 import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { getRuntimeRoot } from '../../src/config/paths.js';
 import { saveChatSession } from '../../src/state/chat-sessions.js';
+import { CONTEXT_USAGE as BASE_CONTEXT_USAGE } from './fixtures.js';
 
 /** Every rendered token badge, in DOM order, so an assertion names the badges and not the markup. */
 function readTokenBadges(html: string): string[] {
@@ -366,10 +367,8 @@ const SESSION_B = {
 } satisfies ChatSession;
 
 const CONTEXT_USAGE = {
-  shouldCondense: false, chatUsedTokens: 90, thinkingUsedTokens: 0, toolUsedTokens: 0, imageUsedTokens: 0,
-  totalUsedTokens: 90, remainingTokens: 10, warnThresholdTokens: 50, contextWindowTokens: 100,
-  usedTokens: 90, estimatedTokenFallbackTokens: 0, providerOverheadTokens: 5,
-  effectiveImagePixelCeiling: 1_000_000,
+  ...BASE_CONTEXT_USAGE, chatUsedTokens: 90, totalUsedTokens: 90, remainingTokens: 10, warnThresholdTokens: 50,
+  providerOverheadTokens: 5, effectiveImagePixelCeiling: 1_000_000,
 } satisfies ContextUsage;
 
 type ChatTabProps = React.ComponentProps<typeof ChatTab>;
@@ -1870,7 +1869,7 @@ test('the approval mode control stays enabled when another client owns the run',
 });
 
 test('the context bar and label grow with the calibrated streaming tail while a turn streams', () => {
-  const usage = { ...CONTEXT_USAGE, totalUsedTokens: 40, usedTokens: 40, chatUsedTokens: 40, remainingTokens: 60 };
+  const usage = { ...CONTEXT_USAGE, totalUsedTokens: 40, chatUsedTokens: 40, remainingTokens: 60 };
   const idle = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: usage });
@@ -1937,4 +1936,32 @@ test('shows the loading spinner instead of the transcript while the selected ses
   const html = renderToStaticMarkup(<ChatTab {...buildProps({ selectedSessionLoading: true })} />);
   assert.match(html, /session-loading/u);
   assert.match(html, /Loading session…/u);
+});
+
+function renderUsagePopover(contextUsage: ContextUsage): string {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_A.id, '')
+    .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage });
+  const view = renderComponent(<ChatTab {...buildProps({
+    showSettings: true, selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+  })} />);
+  const text = view.container.querySelector('.composer-settings-popover')?.textContent ?? '';
+  view.unmount();
+  return text;
+}
+
+test('the usage popover headlines the measured next prompt instead of the row sums', () => {
+  const text = renderUsagePopover({
+    ...CONTEXT_USAGE, totalUsedTokens: 70, chatUsedTokens: 40, remainingTokens: 30, estimatedTokenFallbackTokens: 12,
+  });
+  assert.match(text, /Context: 70 \/ 100 tokens \(measured\)/u);
+  assert.doesNotMatch(text, /with tools|unavailable/u);
+});
+
+test('the usage popover keeps the row estimate breakdown for an unmeasured session', () => {
+  const text = renderUsagePopover({
+    ...CONTEXT_USAGE, usedTokensMeasured: false, totalUsedTokens: 70, chatUsedTokens: 40, remainingTokens: 30,
+  });
+  assert.match(text, /Context: 40 \/ 100 tokens/u);
+  assert.match(text, /40 \(70 with tools\)/u);
 });

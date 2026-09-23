@@ -313,7 +313,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
         res.on('close', () => broadcast.detach(subscriber));
       }
     } else if (res && !res.writableEnded && !res.destroyed) {
-      sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), session));
+      sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), getRuntimeRoot(), session));
     }
   }
 

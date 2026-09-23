@@ -16,7 +16,7 @@ import {
   type ChatRunStart,
 } from './chat-journal-schema.js';
 import { digestStableJson } from '../lib/json-digest.js';
-import { ChatRunTerminalCauseSchema, type ChatRecoveryIssueCode } from '@siftkit/contracts';
+import { ChatRunTerminalCauseSchema, type ChatRecoveryIssueCode, type ChatStreamUsageEvent } from '@siftkit/contracts';
 import type { RuntimeDatabase } from './database-handle.js';
 import { ChatRuntimeOwnerSchema } from './chat-runtime-owner.js';
 
@@ -51,6 +51,8 @@ const EventRowSchema = z.object({
   payload_digest: z.string(),
 });
 const EventRowsSchema = z.array(EventRowSchema);
+/** The columns `EventRowSchema` parses, selected by every event read. */
+const EVENT_COLUMNS = 'operation_id, sequence, event_id, version, recorded_at_utc, body_json, payload_digest';
 
 const MaxRunOrderRowSchema = z.object({ next_order: z.number().int() });
 
@@ -331,7 +333,7 @@ export class ChatJournalStore {
     const cursor = z.number().int().nonnegative().parse(afterSequence);
     const pageSize = z.number().int().positive().parse(limit);
     const rows = EventRowsSchema.parse(this.database.prepare(`
-      SELECT operation_id, sequence, event_id, version, recorded_at_utc, body_json, payload_digest
+      SELECT ${EVENT_COLUMNS}
       FROM chat_run_events
       WHERE operation_id = ? AND sequence > ?
       ORDER BY sequence
@@ -371,7 +373,7 @@ export class ChatJournalStore {
         last = row.sequence;
       }
       const page = EventRowsSchema.parse(this.database.prepare(`
-        SELECT operation_id, sequence, event_id, version, recorded_at_utc, body_json, payload_digest
+        SELECT ${EVENT_COLUMNS}
         FROM chat_run_events WHERE operation_id = ? AND sequence > ? AND sequence <= ? ORDER BY sequence
       `).all(id, cursor, last));
       if (page.length === 0) throw new ChatRecoveryInvariantError('sequence_gap', id, 'Chat journal is missing committed evidence.');
@@ -391,9 +393,25 @@ export class ChatJournalStore {
 
   readApprovalRequests(operationId: string): ChatJournalEnvelope[] {
     return EventRowsSchema.parse(this.database.prepare(`
-      SELECT operation_id, sequence, event_id, version, recorded_at_utc, body_json, payload_digest
+      SELECT ${EVENT_COLUMNS}
       FROM chat_run_events WHERE operation_id = ? AND kind = 'approval_requested' ORDER BY sequence
     `).all(z.string().uuid().parse(operationId))).map(toEnvelope);
+  }
+
+  /** The last turn-usage frame a run committed; null when the run never measured a turn. */
+  readLatestUsage(operationId: string): ChatStreamUsageEvent | null {
+    const raw = this.database.prepare(`
+      SELECT ${EVENT_COLUMNS}
+      FROM chat_run_events
+      WHERE operation_id = ? AND kind = 'display' AND json_extract(body_json, '$.event.kind') = 'usage'
+      ORDER BY sequence DESC LIMIT 1
+    `).get(z.string().uuid().parse(operationId));
+    if (raw == null) return null;
+    const event = toEnvelope(EventRowSchema.parse(raw)).event;
+    if (event.kind !== 'display' || event.event.kind !== 'usage') {
+      throw new Error(`Chat run ${operationId} usage query returned a non-usage event.`);
+    }
+    return event.event.usage;
   }
 
   listSessionRuns(sessionId: string): ChatRun[] {
@@ -405,7 +423,7 @@ export class ChatJournalStore {
 
   private readEventById(operationId: string, eventId: string): ChatJournalEnvelope | null {
     const raw = this.database.prepare(`
-      SELECT operation_id, sequence, event_id, version, recorded_at_utc, body_json, payload_digest
+      SELECT ${EVENT_COLUMNS}
       FROM chat_run_events WHERE operation_id = ? AND event_id = ?
     `).get(operationId, eventId);
     return raw == null ? null : toEnvelope(EventRowSchema.parse(raw));

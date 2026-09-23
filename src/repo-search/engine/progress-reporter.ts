@@ -102,7 +102,7 @@ export class ProgressReporter {
       throw new Error(`Token usage record missing for turn ${turn}.`);
     }
     this.emit({
-      kind: 'usage', turn, maxTurns: this.maxTurns, record,
+      kind: 'usage', turn, maxTurns: this.maxTurns, record: { ...record },
       totals: foldTurnTokenRecords(records),
       charsPerToken: resolveCharsPerToken(records),
       elapsedMs: this.elapsedMs(),

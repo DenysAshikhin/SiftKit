@@ -18,7 +18,7 @@ import type { OptionalJsonValue } from '../src/lib/json-types.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { getConfigPath } from '../src/config/index.js';
-import { readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
+import { readChatMeasuredContext, readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
 import { writeRuntimeLaunchSnapshot } from '../src/status-server/runtime-launch-snapshot.js';
 import {
   LIVE_TEXT_FLUSH_MAX_LATENCY_MS,
@@ -680,7 +680,14 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
       .reduce((sum, message) => sum + Number(message.outputTokensEstimate || 0), 0);
     assert.equal(toolTokens > 0, true);
     assert.equal(Number(planUsage.toolUsedTokens), toolTokens);
-    assert.equal(Number(planUsage.totalUsedTokens), Number(planUsage.chatUsedTokens) + Number(planUsage.toolUsedTokens));
+    // A completed run reports its final turn's prompt plus answer; the mock plan has no reasoning.
+    const measured = readChatMeasuredContext(runtimeRoot, sessionId);
+    assert.ok(measured);
+    assert.equal(measured.thinkingTokens, 0);
+    assert.ok(measured.outputTokens > 0);
+    assert.equal(planUsage.usedTokensMeasured, true);
+    assert.equal(Number(planUsage.totalUsedTokens), measured.promptTokens + measured.outputTokens);
+    assert.equal(Number(planUsage.remainingTokens), Number(planUsage.contextWindowTokens) - Number(planUsage.totalUsedTokens));
     const repoSearch = d(planMessage.body.repoSearch);
     const repoScorecard = d(repoSearch.scorecard);
     const repoTotals = d(repoScorecard.totals);

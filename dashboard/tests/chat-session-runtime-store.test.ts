@@ -6,6 +6,7 @@ import { DEFAULT_APPROVAL_MODE, type ChatProjectionTerminalRecord, type DurableC
 import type { ChatSessionResponse } from '../src/types';
 import { buildUsageFrame } from './usage-frame';
 import { chatSnapshot } from './chat-snapshot-fixture.js';
+import { CONTEXT_USAGE } from './fixtures.js';
 
 const PROMPT_FRAME = { turn: 1, maxTurns: 20, promptTokens: 900, charsPerToken: 4 } as const;
 const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
@@ -80,20 +81,7 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
     sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
     messages: [],
   },
-  contextUsage: {
-    contextWindowTokens: 100,
-    usedTokens: 0,
-    chatUsedTokens: 0,
-    thinkingUsedTokens: 0,
-    toolUsedTokens: 0,
-    imageUsedTokens: 0,
-    totalUsedTokens: 0,
-    remainingTokens: 100,
-    warnThresholdTokens: 80,
-    shouldCondense: false,
-    estimatedTokenFallbackTokens: 0,
-    providerOverheadTokens: 0,
-  },
+  contextUsage: CONTEXT_USAGE,
 };
 
 test('apply routes every transition through one copy-on-write path', () => {

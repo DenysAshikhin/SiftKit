@@ -103,8 +103,7 @@ export class TerminalSynthesizer {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;
         }
         const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse, synthesisPromptTokenCount, synthesisTurn);
-        this.options.tokenUsage.addOutputTokens(resolved.completionTokens, synthesisTurn, resolved.completionTokensEstimated);
-        this.options.progress.usageForTurn(synthesisTurn, this.options.tokenUsage.turnRecords());
+        this.options.tokenUsage.recordTurnOutput(synthesisTurn, resolved, this.options.progress);
 
         const text = String(synthesisResponse.text || '').trim();
         if (!synthesisResponse.mockExhausted && text) {

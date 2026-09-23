@@ -345,3 +345,18 @@ test('terminal synthesis publishes its own usage frame', async () => {
   assert.equal(usage.record.turn, synthesisTurn);
   assert.ok(usage.record.outputTokens > 0);
 });
+
+test('a terminal synthesis retry keeps the turn prompt at one request', async () => {
+  const tokenUsage = new TokenUsageTracker(undefined);
+  const progressEvents: RepoSearchProgressEvent[] = [];
+  const synthesizer = makeCollectingSynthesizer(tokenUsage, progressEvents);
+  await synthesizer.synthesize({ ...synthesisInput(), mockResponses: [{ content: '' }, { content: 'synthesized answer' }] });
+
+  // Each attempt re-sends the same prompt; the turn's prompt is what one request carried.
+  const usages = progressEvents.filter((event) => event.kind === 'usage');
+  assert.equal(usages.length, 2);
+  const [first, last] = usages;
+  assert.ok(first?.kind === 'usage' && last?.kind === 'usage');
+  assert.ok(first.record.promptTokens > 0);
+  assert.equal(last.record.promptTokens, first.record.promptTokens);
+});

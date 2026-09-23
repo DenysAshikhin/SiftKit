@@ -699,11 +699,17 @@ function SettingsPopover(props: {
 }) {
   const { contextUsage, liveToolPromptTokenCount, isRepoToolMode, chatBusy, onCondense } = props;
   if (!contextUsage) { return null; }
-  const hasEstimatedUsage = Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0;
+  const measured = contextUsage.usedTokensMeasured;
+  // A measured total does not depend on the row estimates, so their fallbacks cannot hide it.
+  const hasEstimatedUsage = !measured && Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0;
   return (
     <div className={contextUsage.shouldCondense ? 'composer-settings-popover usage warning' : 'composer-settings-popover usage'}>
       <strong>
-        {hasEstimatedUsage ? (
+        {measured ? (
+          <span title="Backend-measured prompt the next request re-sends.">
+            Context: {formatNumber(contextUsage.totalUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens (measured)
+          </span>
+        ) : hasEstimatedUsage ? (
           <span title="Replayable chat context token count is unavailable because this session contains fallback estimates.">
             Context: token count unavailable
           </span>
@@ -719,11 +725,10 @@ function SettingsPopover(props: {
         </span>
       ) : (
         <>
-          <span title="Format: chat_tokens (total_tokens_including_tool_outputs).">
+          <span title={measured ? undefined : 'Format: chat_tokens (total_tokens_including_tool_outputs).'}>
             Remaining: {formatNumber(contextUsage.remainingTokens)}
             {' | '}
-            {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
-            {' | '}
+            {measured ? null : <>{formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools){' | '}</>}
             Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
           </span>
           <span title="Tokens from preserved assistant thinking/reasoning text that can be replayed into the next request.">

@@ -16,7 +16,7 @@ import {
   ChatRunTerminalCauseSchema,
   InferenceThroughputSchema,
 } from '@siftkit/contracts';
-import type { ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
+import type { ChatSessionOperationKind, ChatTurnTokenRecord, ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
@@ -25,6 +25,7 @@ import {
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
+import { ChatJournalStore } from './chat-journal.js';
 import { chatMetadataKey } from './chat-metadata-keys.js';
 import { CHAT_MESSAGES_COLUMNS } from './runtime-schema.js';
 import { recordChatHistoryRevision, removeChatImageEvidence, resolveOriginalChatImageIndex } from './chat-history-revisions.js';
@@ -402,6 +403,27 @@ export function readChatSessionFromDatabase(database: ReturnType<typeof getRunti
     ...mapSessionRow(session),
     messages: attachRunOutcomes(database, sessionId, messages.map((message) => mapMessageRow(message))),
   };
+}
+
+/** Whether a run's final turn is the prompt the next request re-sends; condense measures its own summary prompt. */
+const MEASURES_NEXT_PROMPT = {
+  message: true, plan: true, 'repo-search': true, 'repo-agent': true, condense: false,
+} as const satisfies Record<ChatSessionOperationKind, boolean>;
+
+/**
+ * The final measured turn of the session's latest settled run: what the next request re-sends.
+ * Null when that run did not complete, does not measure the next prompt, or a baseline/history edit came after it.
+ */
+export function readChatMeasuredContext(runtimeRoot: string, sessionId: string): ChatTurnTokenRecord | null {
+  const store = new ChatJournalStore(getSessionDatabase(runtimeRoot));
+  const latest = store.listSessionRuns(sessionId)
+    .filter(run => run.recordKind !== 'execution' || run.terminalCause !== null)
+    .at(-1);
+  if (!latest || latest.recordKind !== 'execution' || latest.operationKind === null
+    || !MEASURES_NEXT_PROMPT[latest.operationKind] || latest.terminalCause !== 'completed') {
+    return null;
+  }
+  return store.readLatestUsage(latest.operationId)?.record ?? null;
 }
 
 function mapSessionRow(session: z.infer<typeof SessionRowSchema>): Omit<ChatSession, 'messages' | 'promptContext'> {

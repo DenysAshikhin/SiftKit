@@ -1,6 +1,6 @@
 # Measured Idle Context Usage Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not commit; the user commits.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking. Do not commit; the user commits.
 
 **Goal:** When a chat session is idle, the web-UI context bar shows what the next request will actually re-send, measured by the backend, instead of a sum over persisted transcript rows that overcounts by 10–20% after repo-agent runs.
 
@@ -20,11 +20,13 @@ It also undercounts the real system prompt and tool schemas. The follow-up's fir
 
 ## Task 0: Confirm the diagnosis with real logs (primary agent, no code)
 
-- [ ] **Step 1:** Use the `find-logs` skill on one repo-agent session where the drop was seen. Extract:
+> **Result:** Accepted after a fix. The final turn's journaled `usage` frame always had `outputTokens: 0`, because `task-loop.ts` emitted it before adding the answer's tokens. The finish and invalid-parse paths now republish usage after adding them. With the answer counted, the next prompt matched the measurement within 0.3–0.4%.
+
+- [x] **Step 1:** *(Done with a read-only SQLite probe of `.siftkit/runtime.sqlite` instead of `find-logs`: the user ruled out SiftKit for this session.)* Use the `find-logs` skill on one repo-agent session where the drop was seen. Extract:
   - (a) the final run's last `usage` frame: `record.promptTokens`, `record.outputTokens`, `record.thinkingTokens`
   - (b) the follow-up run's first `prompt` presentation frame: `promptTokens`
   - (c) the summed `thinkingTokens` of all `assistant_thinking` rows of the final run
-- [ ] **Step 2:** Accept the design if `b ≈ a.promptTokens + a.outputTokens (+ a.thinkingTokens when reasoning content is replayed) + new user message tokens`, within ~1%. If it is off by more, stop and report the numbers before implementing.
+- [x] **Step 2:** Accept the design if `b ≈ a.promptTokens + a.outputTokens (+ a.thinkingTokens when reasoning content is replayed) + new user message tokens`, within ~1%. If it is off by more, stop and report the numbers before implementing.
 
 ---
 
@@ -58,7 +60,7 @@ Test commands (Windows PowerShell, repo root):
 - Modify: `src/state/chat-journal.ts` (add method to `ChatJournalStore`, next to `readApprovalRequests` ~line 391)
 - Modify: `src/state/chat-sessions.ts` (add export after `readChatSessionFromDatabase` ~line 405)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/chat-measured-context.test.ts`:
 
@@ -164,12 +166,12 @@ test('an in-flight run keeps the previous measurement', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npm run build:test`
 Expected: FAIL to compile with `Module '"../src/state/chat-sessions.js"' has no exported member 'readChatMeasuredContext'`.
 
-- [ ] **Step 3: Add `readLatestUsage` to `ChatJournalStore`** (`src/state/chat-journal.ts`)
+- [x] **Step 3: Add `readLatestUsage` to `ChatJournalStore`** (`src/state/chat-journal.ts`)
 
 Add `type ChatStreamUsageEvent` to the existing `@siftkit/contracts` import on line 19:
 
@@ -197,7 +199,7 @@ Add this method directly after `readApprovalRequests`:
   }
 ```
 
-- [ ] **Step 4: Add `readChatMeasuredContext`** (`src/state/chat-sessions.ts`)
+- [x] **Step 4: Add `readChatMeasuredContext`** (`src/state/chat-sessions.ts`)
 
 Extend the contracts import on line 19:
 
@@ -230,7 +232,7 @@ export function readChatMeasuredContext(runtimeRoot: string, sessionId: string):
 }
 ```
 
-- [ ] **Step 5: Run to verify pass**
+- [x] **Step 5: Run to verify pass**
 
 Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests\chat-measured-context.test.ts`
 Expected: 6 tests PASS.
@@ -247,7 +249,7 @@ Expected: 6 tests PASS.
 - Modify: `src/status-server/routes/chat-session-operation-endpoint.ts:316`
 - Modify: `tests/context-usage-stored-fields.test.ts`, `tests/status-server-chat.test.ts`, `tests/chat-measured-context.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Replace the whole of `tests/context-usage-stored-fields.test.ts` with:
 
@@ -329,12 +331,12 @@ test('the session response reports the measured context of the latest completed 
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npm run build:test`
 Expected: FAIL to compile. `buildContextUsage` expects 2 arguments, `usedTokensMeasured` does not exist on `ContextUsage`, and `buildChatSessionResponse` receives a string where a session is expected.
 
-- [ ] **Step 3: Extend the contract** (`packages/contracts/src/chat.ts`)
+- [x] **Step 3: Extend the contract** (`packages/contracts/src/chat.ts`)
 
 ```ts
 export const ContextUsageSchema = z.object({
@@ -348,7 +350,7 @@ export const ContextUsageSchema = z.object({
 });
 ```
 
-- [ ] **Step 4: Prefer the measurement in `buildContextUsage`** (`src/status-server/chat.ts`)
+- [x] **Step 4: Prefer the measurement in `buildContextUsage`** (`src/status-server/chat.ts`)
 
 Add `ChatTurnTokenRecord` to the `@siftkit/contracts` type import on line 4:
 
@@ -429,7 +431,7 @@ export function buildContextUsage(config: SiftConfig, session: ChatSession, meas
 }
 ```
 
-- [ ] **Step 5: Read the measurement in the session response** (`src/status-server/chat-session-response.ts`)
+- [x] **Step 5: Read the measurement in the session response** (`src/status-server/chat-session-response.ts`)
 
 Add `readChatMeasuredContext` to the `../state/chat-sessions.js` import (it becomes a value import):
 
@@ -447,7 +449,7 @@ export function buildChatSessionResponse(config: SiftConfig, runtimeRoot: string
 }
 ```
 
-- [ ] **Step 6: Update the 9 call sites**
+- [x] **Step 6: Update the 9 call sites**
 
 `src/status-server/routes/chat.ts` already imports `getRuntimeRoot` from `../paths.js` (line 85). Where a `runtimeRoot` local is in scope (handlers at lines 404, 519, 553), use it. Otherwise pass `getRuntimeRoot()`:
 
@@ -468,13 +470,13 @@ export function buildChatSessionResponse(config: SiftConfig, runtimeRoot: string
       sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), getRuntimeRoot(), session));
 ```
 
-- [ ] **Step 7: Keep the existing estimate tests on the estimate path**
+- [x] **Step 7: Keep the existing estimate tests on the estimate path**
 
 In `tests/status-server-chat.test.ts`, change every `buildContextUsage(<config>, <session>)` call (8 of them) to `buildContextUsage(<config>, <session>, null)`. Leave their assertions unchanged. To list them:
 
 Run: `rg -n "buildContextUsage\(" tests/status-server-chat.test.ts`
 
-- [ ] **Step 8: Run to verify pass**
+- [x] **Step 8: Run to verify pass**
 
 Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests\context-usage-stored-fields.test.ts tests\chat-measured-context.test.ts tests\status-server-chat.test.ts tests\status-server-chat-routes.test.ts`
 Expected: all PASS.
@@ -488,7 +490,7 @@ Expected: all PASS.
 - Modify: `dashboard/tests/lib/contextBar.test.ts`
 - Modify: every `ContextUsage` literal (each object containing `shouldCondense:`) in `dashboard/tests/fixtures.ts`, `dashboard/tests/chat-session-runtime-store.test.ts`, `dashboard/tests/chat-tab.test.tsx`, `dashboard/tests/hooks/useChatSessions.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `dashboard/tests/lib/contextBar.test.ts`, add `usedTokensMeasured: true,` to the `USAGE` constant after `estimatedTokenFallbackTokens: 0,`. Then add:
 
@@ -504,12 +506,12 @@ test('resolveLiveContextUsage marks an unmeasured idle total as an estimate', ()
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npm run build:test; node .\dist\test-runner\run-tests.js dashboard\tests\lib\contextBar.test.ts`
 Expected: the new test FAILS: `exact` is `true`, expected `false`.
 
-- [ ] **Step 3: Implement** (`dashboard/src/lib/contextBar.ts`)
+- [x] **Step 3: Implement** (`dashboard/src/lib/contextBar.ts`)
 
 Replace the doc comment's first sentence and the idle branch:
 
@@ -530,13 +532,13 @@ Replace the doc comment's first sentence and the idle branch:
   }
 ```
 
-- [ ] **Step 4: Update the remaining fixtures**
+- [x] **Step 4: Update the remaining fixtures**
 
 Add `usedTokensMeasured: true,` to every `ContextUsage` object literal in the four fixture/test files listed above. Existing expectations assume the idle total is exact.
 
 Run: `rg -n "shouldCondense:" dashboard/tests`. Each hit is one literal to update.
 
-- [ ] **Step 5: Run to verify pass**
+- [x] **Step 5: Run to verify pass**
 
 Run: `npm run test:dashboard`
 Expected: all dashboard tests PASS.
@@ -545,13 +547,22 @@ Expected: all dashboard tests PASS.
 
 ## Task 4: Full verification (primary agent)
 
-- [ ] **Step 1:** `npm run typecheck`. Expected: exit 0. This also runs lint and the dashboard/test/bench typechecks.
-- [ ] **Step 2:** `npm run lint`. Expected: exit 0.
-- [ ] **Step 3:** `npm run test 2>&1 | siftkit summary --question "Return pass/fail, failing tests, root errors, and relevant file:line anchors."`. Expected: no failures.
-- [ ] **Step 4:** Check in the web UI:
+- [x] **Step 1:** `npm run typecheck`. Expected: exit 0. This also runs lint and the dashboard/test/bench typechecks.
+- [x] **Step 2:** `npm run lint`. Expected: exit 0.
+- [x] **Step 3:** *(Run raw, without SiftKit, at the user's request.)* `npm run test 2>&1 | siftkit summary --question "Return pass/fail, failing tests, root errors, and relevant file:line anchors."`. Expected: no failures.
+- [ ] **Step 4:** *(Not yet done.)* Check in the web UI:
   1. Run a repo-agent task with thinking on until it finishes. Note the idle bar value; it should have no `~`.
   2. Send a short follow-up. The first streamed value should be about the idle value plus the new message (well under 1%), not a 10–20% drop.
   3. Delete a message. The idle value should switch to the `~` estimate.
+
+## Changes beyond the plan (approved by the user after the drift review)
+
+- The engine republishes a turn's usage after adding its answer tokens (`TokenUsageTracker.recordTurnOutput`). Before this, the last frame always had `outputTokens: 0`.
+- A turn's `promptTokens` is one request's prompt. Before this, synthesis retries summed it.
+- Reasoning replay and provider overhead follow the session's effective preset.
+- `ContextUsage.usedTokens` was removed as a duplicate of `totalUsedTokens`. The usage popover shows the measured total as its headline.
+- Which operations measure the next prompt is an exhaustive table in `chat-sessions.ts`. Condense is the one that does not.
+- Task 1's red step was not observed before implementing. The follow-up fixes were written test-first.
 
 ## Out of scope
 

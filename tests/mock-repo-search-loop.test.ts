@@ -377,6 +377,33 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
 
 // The real request path with no live-text subscriber: every streamed frame still reaches the
 // writer as activity, while the text itself is neither built nor forwarded.
+test('runTaskLoop publishes the final turn usage with the answer output tokens', async () => {
+  const progress = new CollectingProgressWriter<RepoSearchProgressEvent>();
+  const result = await runTaskLoop(
+    { id: 'final-usage', question: 'Answer.' },
+    {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        { content: 'the final answer text' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      mockCommandResults: {},
+      progressWriter: progress,
+    },
+  );
+
+  assert.equal(result.reason, 'finish');
+  // The last usage frame is what the next request re-sends, so it must carry the answer.
+  const usage = progress.events.filter((event) => event.kind === 'usage').at(-1);
+  assert.ok(usage);
+  assert.equal(usage.kind, 'usage');
+  assert.equal(usage.turn, 1);
+  assert.ok(usage.record.outputTokens > 0);
+});
+
 test('runTaskLoop reports streamed provider frames as writer activity without live text', async () => {
   const frames = ['done', ' —', ' streamed', ' headless'];
   const server = http.createServer((req, res) => {

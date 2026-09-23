@@ -756,7 +756,7 @@ export class TaskLoop {
   }
 
   private handleInvalidParse(turn: number, response: PlannerActionResponse, error: Error, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, turn, resolvedTokens.completionTokensEstimated);
+    this.tokenUsage.recordTurnOutput(turn, resolvedTokens, this.progress);
     if (error instanceof NativePlannerToolCallError) {
       // A rejected native call is journalled like any other rejection, so the next turn can correct it.
       const outcome = this.toolActions.recordInvalidResponse(turn, {
@@ -795,7 +795,7 @@ export class TaskLoop {
   }
 
   private handleFinishAction(turn: number, action: AgentLoopFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, turn, resolvedTokens.completionTokensEstimated);
+    this.tokenUsage.recordTurnOutput(turn, resolvedTokens, this.progress);
     const finishEvaluation = evaluateFinishAttempt({
       loopKind: this.loopKind,
       finalOutput: action.text,

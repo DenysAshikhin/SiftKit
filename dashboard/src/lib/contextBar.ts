@@ -11,7 +11,8 @@ export type LiveContextUsage = {
 };
 
 /**
- * Drives the bar and label beneath the composer. At rest it mirrors the persisted usage. While
+ * Drives the bar and label beneath the composer. At rest it mirrors the persisted usage, which is
+ * the measured next prompt when the last run measured one and a row estimate otherwise. While
  * a run streams it sits on the base the backend measured for the turn now generating and adds
  * the tail streamed since, so the bar moves from the first character. The base is never
  * estimated: a turn publishes its prompt frame before it emits any text, so a tail only ever
@@ -35,7 +36,7 @@ export function resolveLiveContextUsage(input: {
     exact,
   });
   if (!input.busy || !liveTokenBase) {
-    return finish(contextUsage.totalUsedTokens, true);
+    return finish(contextUsage.totalUsedTokens, contextUsage.usedTokensMeasured);
   }
   const tailTokens = Math.ceil(input.streamedCharsSinceBase / liveTokenBase.charsPerToken);
   return finish(liveTokenBase.promptTokens + tailTokens, tailTokens === 0);

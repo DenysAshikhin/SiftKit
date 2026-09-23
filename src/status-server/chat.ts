@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ChatRunRecorder } from './chat-run-recorder.js';
 import { buildChatMessageId, DEFAULT_REASONING_EFFORT, isReplayableChatMessage, resolveEffectiveImagePixelCeiling, sumImageTokens } from '@siftkit/contracts';
-import type { ContextUsage, ReasoningEffort, ReplayableChatMessage } from '@siftkit/contracts';
+import type { ChatTurnTokenRecord, ContextUsage, ReasoningEffort, ReplayableChatMessage } from '@siftkit/contracts';
 import {
   getActiveModelPreset,
   getConfiguredCompactionReserveTokens,
@@ -86,7 +86,6 @@ type ContextUsageTokenTotals = {
   toolUsedTokens: number;
   imageUsedTokens: number;
   totalUsedTokens: number;
-  remainingTokens: number;
   estimatedTokenFallbackTokens: number;
 };
 
@@ -150,34 +149,53 @@ export function resolveChatSessionConfig(config: SiftConfig, session: ChatSessio
 }
 
 class ContextUsageBuilder {
+  /** The session's own request shape: its preset snapshot once the live active preset moved on. */
+  private readonly effectiveConfig: SiftConfig;
+
   constructor(
     private readonly config: SiftConfig,
     private readonly session: ChatSession,
-  ) {}
+    private readonly measured: ChatTurnTokenRecord | null,
+  ) {
+    this.effectiveConfig = resolveChatSessionConfig(config, session);
+  }
 
   build(): ContextUsage {
     const totals = this.buildTokenTotals();
+    const measuredTokens = this.resolveMeasuredTokens();
+    const totalUsedTokens = measuredTokens ?? totals.totalUsedTokens;
+    const remainingTokens = Math.max(totals.contextWindowTokens - totalUsedTokens, 0);
     const warnThresholdTokens = Math.max(5000, Math.ceil(totals.contextWindowTokens * 0.1));
-    const effectiveConfig = resolveChatSessionConfig(this.config, this.session);
-    const activePreset = getActiveModelPreset(effectiveConfig);
+    const activePreset = getActiveModelPreset(this.effectiveConfig);
     return {
       contextWindowTokens: totals.contextWindowTokens,
-      usedTokens: totals.totalUsedTokens,
       chatUsedTokens: totals.chatUsedTokens,
       thinkingUsedTokens: totals.thinkingUsedTokens,
       toolUsedTokens: totals.toolUsedTokens,
       imageUsedTokens: totals.imageUsedTokens,
-      totalUsedTokens: totals.totalUsedTokens,
-      remainingTokens: totals.remainingTokens,
+      totalUsedTokens,
+      remainingTokens,
       warnThresholdTokens,
-      shouldCondense: totals.remainingTokens <= warnThresholdTokens,
+      shouldCondense: remainingTokens <= warnThresholdTokens,
       estimatedTokenFallbackTokens: totals.estimatedTokenFallbackTokens,
       providerOverheadTokens: this.getProviderOverheadTokens(),
+      usedTokensMeasured: measuredTokens !== null,
       effectiveImagePixelCeiling: resolveEffectiveImagePixelCeiling(
         resolveImageTokenBudget(activePreset),
         activePreset.VisionMaxImagePixels,
       ),
     };
+  }
+
+  /** What the next request re-sends: the last measured prompt plus the answer it produced. */
+  private resolveMeasuredTokens(): number | null {
+    if (this.measured === null) return null;
+    return this.measured.promptTokens + this.measured.outputTokens
+      + (this.replaysReasoning ? this.measured.thinkingTokens : 0);
+  }
+
+  private get replaysReasoning(): boolean {
+    return this.session.thinkingEnabled !== false && shouldReplayReasoningContent(this.effectiveConfig);
   }
 
   private buildTokenTotals(): ContextUsageTokenTotals {
@@ -199,14 +217,13 @@ class ContextUsageBuilder {
       toolUsedTokens,
       imageUsedTokens,
       totalUsedTokens,
-      remainingTokens: Math.max(contextWindowTokens - totalUsedTokens, 0),
       estimatedTokenFallbackTokens: chatUsedTokens + estimatedToolTokens,
     };
   }
 
   private getProviderOverheadTokens(): number {
     const thinkingEnabled = this.session.thinkingEnabled !== false;
-    const config = this.config;
+    const config = this.effectiveConfig;
     const preset = getActiveModelPreset(config);
     // Derive the shape from the real request builder so the overhead estimate
     // cannot drift from what is actually sent; contents are counted separately.
@@ -222,7 +239,7 @@ class ContextUsageBuilder {
       maxTokens: 0,
       thinking: {
         enabled: thinkingEnabled,
-        reasoningContent: thinkingEnabled && shouldReplayReasoningContent(config),
+        reasoningContent: this.replaysReasoning,
         preserve: shouldPreserveThinking(config, thinkingEnabled),
         effort: resolveReasoningEffort(config),
       },
@@ -231,8 +248,8 @@ class ContextUsageBuilder {
   }
 }
 
-export function buildContextUsage(config: SiftConfig, session: ChatSession): ContextUsage {
-  return new ContextUsageBuilder(config, session).build();
+export function buildContextUsage(config: SiftConfig, session: ChatSession, measured: ChatTurnTokenRecord | null): ContextUsage {
+  return new ContextUsageBuilder(config, session, measured).build();
 }
 
 

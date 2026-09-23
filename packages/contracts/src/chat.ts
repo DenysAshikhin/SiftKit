@@ -315,10 +315,15 @@ export const ChatSessionSummarySchema = ChatSessionSchema
 export type ChatSessionSummary = z.infer<typeof ChatSessionSummarySchema>;
 
 export const ContextUsageSchema = z.object({
-  contextWindowTokens: z.number(), usedTokens: z.number(), chatUsedTokens: z.number(), thinkingUsedTokens: z.number(),
+  contextWindowTokens: z.number(),
+  /** Row estimates summed from the persisted transcript; they describe its parts, not the measured total. */
+  chatUsedTokens: z.number(), thinkingUsedTokens: z.number(),
   toolUsedTokens: z.number(), imageUsedTokens: z.number().int().nonnegative(),
+  /** The next request's size: measured when `usedTokensMeasured`, otherwise chat plus tool row estimates. */
   totalUsedTokens: z.number(), remainingTokens: z.number(), warnThresholdTokens: z.number(),
   shouldCondense: z.boolean(), estimatedTokenFallbackTokens: z.number(), providerOverheadTokens: z.number(),
+  /** True when the total is the backend-measured next prompt; false when it is summed from rows. */
+  usedTokensMeasured: z.boolean(),
   effectiveImagePixelCeiling: z.number().int().positive().optional(),
 });
 export type ContextUsage = z.infer<typeof ContextUsageSchema>;

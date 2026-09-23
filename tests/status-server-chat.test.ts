@@ -28,6 +28,7 @@ import { z } from '../src/lib/zod.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockModelPreset } from './helpers/mock-config.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 import {
   ChatTranscriptMessageKindSchema,
   ChatTranscriptRoleSchema,
@@ -293,7 +294,7 @@ test('buildContextUsage uses the resolved active-model context', () => {
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'stale-model', NumCtx: 30_000 }),
     messages: [],
-  }));
+  }), null);
   assert.equal(usage.contextWindowTokens, 150_000);
   assert.equal(usage.effectiveImagePixelCeiling, 500_000);
 });
@@ -458,10 +459,9 @@ test('buildContextUsage sums stored session token fields instead of provider pro
     + 52403
     + 2288
     + expectedThinkingTokens;
-  const usage = buildContextUsage(createConfig(), session);
+  const usage = buildContextUsage(createConfig(), session, null);
 
   assert.equal(usage.chatUsedTokens, expectedChatTokens);
-  assert.equal(usage.usedTokens, expectedChatTokens);
   assert.equal(usage.thinkingUsedTokens, expectedThinkingTokens);
   assert.equal(usage.toolUsedTokens, 0);
   assert.equal(usage.totalUsedTokens, expectedChatTokens);
@@ -494,7 +494,7 @@ test('buildContextUsage sums stored thinking and tool token fields', () => {
     ],
   });
 
-  const usage = buildContextUsage(createConfig(), session);
+  const usage = buildContextUsage(createConfig(), session, null);
 
   assert.equal(usage.thinkingUsedTokens, 42);
   assert.equal(
@@ -697,7 +697,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
     ],
   };
 
-  const usage = buildContextUsage(createConfig(), session);
+  const usage = buildContextUsage(createConfig(), session, null);
 
   assert.equal(usage.chatUsedTokens, estimateTokenCount('general, coder friendly assistant') + 161239 + 42073 + 2048);
   assert.equal(usage.toolUsedTokens, 42073);
@@ -749,7 +749,7 @@ test('buildContextUsage excludes every compressed message cost and counts the ac
   });
   const config = createConfig();
 
-  const usage = buildContextUsage(config, session);
+  const usage = buildContextUsage(config, session, null);
   const replay = buildChatHistoryMessages(config, session);
 
   assert.deepEqual(replay.map((message) => message.role), ['assistant', 'user']);
@@ -906,7 +906,7 @@ test('buildContextUsage counts persisted image tokens', () => {
     createdAtUtc: '2026-08-08T00:00:00.000Z',
   };
   const session = createSession();
-  const withoutImages = buildContextUsage(config, mockChatSession({ ...session, messages: [baseMessage] }));
+  const withoutImages = buildContextUsage(config, mockChatSession({ ...session, messages: [baseMessage] }), null);
   const withImages = buildContextUsage(config, mockChatSession({
     ...session,
     messages: [{
@@ -924,7 +924,7 @@ test('buildContextUsage counts persisted image tokens', () => {
         caption: null,
       })],
     }],
-  }));
+  }), null);
 
   assert.equal(withoutImages.imageUsedTokens, 0);
   assert.equal(withImages.imageUsedTokens, 1024);
@@ -936,7 +936,7 @@ test('buildChatSessionResponse mirrors the stored repo root onto the wire sessio
   const config = createConfig();
   const session = createSession();
 
-  const response = buildChatSessionResponse(config, mockChatSession({ ...session, planRepoRoot: 'C:/srv/pinned' }));
+  const response = buildChatSessionResponse(config, createManagedTempDir('chat-response-root-'), mockChatSession({ ...session, planRepoRoot: 'C:/srv/pinned' }));
 
   assert.equal(response.session.planRepoRoot, 'C:/srv/pinned');
 });

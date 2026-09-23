@@ -3,6 +3,7 @@ import type { SiftConfig } from '../../config/index.js';
 import { emptyInferenceThroughput, mergeInferenceThroughput } from '../../lib/inference-throughput.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
+import type { ProgressReporter } from './progress-reporter.js';
 import {
   foldTurnTokenRecords,
   type TurnTokenRecord,
@@ -92,8 +93,9 @@ export class TokenUsageTracker {
     turn: number,
   ): Promise<ResolvedResponseTokens> {
     const record = this.recordFor(turn);
+    // A retry re-sends the same prompt, so the turn's prompt is one request's, not their sum.
     if (Number.isFinite(promptTokenCount) && promptTokenCount >= 0) {
-      record.promptTokens += promptTokenCount;
+      record.promptTokens = promptTokenCount;
     }
     const completion = await this.resolveTextTokens(response.text);
     const thinking = await this.resolveTextTokens(response.thinkingText);
@@ -137,6 +139,12 @@ export class TokenUsageTracker {
     if (estimated && tokens > 0) {
       record.outputTokensEstimated = true;
     }
+  }
+
+  /** Adds a turn's answer tokens and republishes its usage, so the turn's last frame carries them. */
+  recordTurnOutput(turn: number, resolved: ResolvedResponseTokens, progress: ProgressReporter): void {
+    this.addOutputTokens(resolved.completionTokens, turn, resolved.completionTokensEstimated);
+    progress.usageForTurn(turn, this.records);
   }
 
   addToolTokens(tokens: number, turn: number): void {

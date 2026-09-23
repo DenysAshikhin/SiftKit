@@ -23,7 +23,7 @@ import {
   useChatSessions,
 } from '../../src/hooks/useChatSessions';
 import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
-import { MANAGED_PRESET } from '../fixtures.js';
+import { CONTEXT_USAGE as BASE_CONTEXT_USAGE, MANAGED_PRESET } from '../fixtures.js';
 import type { ChatMessage, ChatSession } from '../../src/types';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -153,20 +153,7 @@ test('useChatSessions surfaces the initial selected session id without an immedi
   assert.match(markup, /"selectedSession":null/);
 });
 
-const CONTEXT_USAGE = {
-  contextWindowTokens: 100,
-  usedTokens: 0,
-  chatUsedTokens: 0,
-  thinkingUsedTokens: 0,
-  toolUsedTokens: 0,
-  imageUsedTokens: 0,
-  totalUsedTokens: 0,
-  remainingTokens: 100,
-  warnThresholdTokens: 50,
-  shouldCondense: false,
-  estimatedTokenFallbackTokens: 0,
-  providerOverheadTokens: 0,
-};
+const CONTEXT_USAGE = { ...BASE_CONTEXT_USAGE, warnThresholdTokens: 50 };
 
 const RUNTIME_STATUS = {
   activePresetId: 'vision',
@@ -895,7 +882,6 @@ test('a compacting stream completion installs the boundary and corrected usage w
   };
   const correctedUsage = {
     ...CONTEXT_USAGE,
-    usedTokens: 12,
     chatUsedTokens: 12,
     totalUsedTokens: 12,
     remainingTokens: 88,
