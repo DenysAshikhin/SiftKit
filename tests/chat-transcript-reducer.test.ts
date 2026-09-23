@@ -44,7 +44,7 @@ test('chat transcript reducer applies cumulative and appended text in turn order
   ]);
 });
 
-test('chat transcript reducer replaces progress and upserts tool lifecycle state', () => {
+test('chat transcript reducer keeps narration across tool starts, replaces progress, and upserts tool lifecycle state', () => {
   let messages: ChatTranscriptMessage[] = [];
   messages = reduceChatTranscript(messages, {
     kind: 'narration',
@@ -90,7 +90,7 @@ test('chat transcript reducer replaces progress and upserts tool lifecycle state
   }, metadata);
 
   assert.deepEqual(messages.map((message) => message.kind), [
-    'assistant_progress',
+    'assistant_narration',
     'assistant_progress',
     'assistant_tool_call',
   ]);
@@ -102,6 +102,28 @@ test('chat transcript reducer replaces progress and upserts tool lifecycle state
   assert.equal(tool?.toolCallOutputSnippet, 'file text');
   assert.equal(tool?.toolCallPromptTokenCount, 4);
   assert.equal(tool?.outputTokensEstimated, false);
+});
+
+test('narration keeps its kind across a tool start and a later answer for its turn promotes it', () => {
+  let messages: ChatTranscriptMessage[] = [];
+  messages = reduceChatTranscript(messages, { kind: 'narration', delta: { turn: 1, offset: 0, text: 'Reading.' } }, metadata);
+  messages = reduceChatTranscript(messages, {
+    kind: 'tool',
+    tool: {
+      kind: 'tool_start', toolCallId: 'read-1', turn: 1, maxTurns: 3,
+      activityKind: 'read', activitySubject: { kind: 'none' }, command: 'read path="a.ts"', promptTokenCount: 0,
+    },
+  }, metadata);
+  assert.deepEqual(messages.map((message) => [message.id, message.kind]), [
+    ['test-narration-1', 'assistant_narration'],
+    ['test-tool-read-1', 'assistant_tool_call'],
+  ]);
+
+  messages = reduceChatTranscript(messages, { kind: 'answer', delta: { turn: 1, offset: 0, text: 'Done.' } }, metadata);
+  assert.deepEqual(messages.map((message) => [message.id, message.kind, message.content]), [
+    ['test-narration-1', 'assistant_answer', 'Done.'],
+    ['test-tool-read-1', 'assistant_tool_call', 'read path="a.ts"'],
+  ]);
 });
 
 test('stopped transcript finalization preserves partial output and terminals running tools', () => {

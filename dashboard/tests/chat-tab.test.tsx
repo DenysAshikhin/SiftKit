@@ -1703,7 +1703,7 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
     selectedRuntime: store.get(SESSION_B.id),
     sessionRuntimes: store.getAll(),
   });
-  assert.ok(!html.includes('PROGRESS_MARKER_ONE'), 'a newer progress event must replace the previous bar text');
+  assert.ok(!html.includes('PROGRESS_MARKER_ONE'), 'a newer progress event must replace the previous row text');
   assert.ok(!html.includes('PROGRESS_MARKER_TWO'), 'closed progress must leave the DOM');
   assert.ok(!html.includes('turn-progress-bar'), 'raw model progress must not render as an exposed block');
   const logicStart = html.indexOf('<details class="internal-logic">');
@@ -1713,6 +1713,37 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
   assert.ok(!logic.includes('PROGRESS_MARKER_TWO'), 'closed Internal Logic stays unmounted');
   assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /PROGRESS_MARKER_TWO/u);
   assert.ok(html.includes('Recent activity'), 'the friendly activity ring remains visible before the answer');
+});
+
+test('the latest status update stays visible until a newer one or the answer replaces it', () => {
+  const storeFor = (steps: LiveTranscriptStep[]) => (
+    buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_STATUS' }, steps)
+  );
+  const renderSteps = (steps: LiveTranscriptStep[]) => {
+    const store = storeFor(steps);
+    return render({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id), sessionRuntimes: store.getAll() });
+  };
+  const first: LiveTranscriptStep[] = [
+    { kind: 'narration', delta: { turn: 1, offset: 0, text: 'STATUS_ONE' } },
+    { kind: 'tool', tool: {
+      kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+      activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
+    } },
+  ];
+  const second: LiveTranscriptStep[] = [...first, { kind: 'narration', delta: { turn: 2, offset: 0, text: 'STATUS_TWO' } }];
+
+  const whileTool = renderSteps(first);
+  assert.match(whileTool, /STATUS_ONE/u, 'the status stays visible while its tool runs');
+  assert.match(whileTool, /Recent activity/u, 'the activity ring stays visible beside the status');
+
+  const replaced = renderSteps(second);
+  assert.match(replaced, /STATUS_TWO/u, 'a newer status takes the visible slot');
+  assert.doesNotMatch(replaced, /STATUS_ONE/u, 'the older status moves into closed Internal Logic');
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: storeFor(second).get(SESSION_B.id) }), /STATUS_ONE/u);
+
+  const answered = renderSteps([...second, { kind: 'answer', delta: { turn: 3, offset: 0, text: 'FINAL_MARKER' } }]);
+  assert.match(answered, /FINAL_MARKER/u, 'the answer replaces the status');
+  assert.doesNotMatch(answered, /STATUS_TWO/u, 'the replaced status moves into closed Internal Logic');
 });
 
 const QUEUE_ONE_ID = '4f9c1f9a-0000-4000-8000-000000000001';

@@ -164,7 +164,7 @@ test('a run projects its committed evidence into display rows carrying complete 
   const messages = projectedMessages(runtimeRoot);
   assert.deepEqual(messages.map((message) => message.kind), [
     'user_text',
-    'assistant_progress',
+    'assistant_narration',
     'assistant_tool_call',
     'assistant_answer',
   ]);
@@ -358,7 +358,7 @@ test('a retained history revision is checkpointed so later reconciliations stay 
   const { database, runtimeRoot } = openSession('chat-run-projection-revision-incremental-');
   const operationId = writeRun(database, runEvents());
   reconcileChatRun(database, operationId);
-  const narration = projectedMessages(runtimeRoot).find(message => message.kind === 'assistant_progress');
+  const narration = projectedMessages(runtimeRoot).find(message => message.kind === 'assistant_narration');
   assert.ok(narration);
   recordChatHistoryRevision(database, SESSION_ID, { action: 'message_deleted', messageIds: [narration.id] });
   reconcileChatRun(database, operationId);

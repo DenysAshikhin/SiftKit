@@ -386,3 +386,68 @@ test('a live answer joining its own segment keeps the key its thinking establish
   assert.deepEqual(withAnswer.map((turn) => turn.key), ['assistant-segment:live-thinking-1']);
   assert.equal(withAnswer[0]?.main?.id, 'live-answer');
 });
+
+test('a live status update keeps the main slot while its tool runs', () => {
+  const messages = [
+    message({ id: 'n1', kind: 'assistant_narration', content: 'Reading the config.' }),
+    message({ id: 'tc1', kind: 'assistant_tool_call', toolCallExecutionState: 'executing', toolCallStatus: 'running' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set(['n1', 'tc1']));
+  assert.equal(turns[0]?.main?.id, 'n1');
+  assert.deepEqual(turns[0]?.steps, []);
+  assert.deepEqual(turns[0]?.recentActivities.flatMap((group) => group.messages.map((tool) => tool.id)), ['tc1']);
+});
+
+test('a newer status update replaces the visible one and the older moves to Internal Logic', () => {
+  const messages = [
+    message({ id: 'n1', kind: 'assistant_narration', content: 'Reading the config.' }),
+    message({ id: 'tc1', kind: 'assistant_tool_call' }),
+    message({ id: 'n2', kind: 'assistant_narration', content: 'Editing the loader.' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set(['n1', 'tc1', 'n2']));
+  assert.equal(turns[0]?.main?.id, 'n2');
+  assert.deepEqual(turns[0]?.steps.map((step) => step.id), ['n1']);
+});
+
+test('a blank status update does not replace the visible one', () => {
+  const messages = [
+    message({ id: 'n1', kind: 'assistant_narration', content: 'Reading the config.' }),
+    message({ id: 'tc1', kind: 'assistant_tool_call' }),
+    message({ id: 'n2', kind: 'assistant_narration', content: '  ' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set(['n1', 'tc1', 'n2']));
+  assert.equal(turns[0]?.main?.id, 'n1');
+  assert.deepEqual(turns[0]?.steps.map((step) => step.id), ['n2']);
+});
+
+test('a status update stays visible over a later tool image', () => {
+  const messages = [
+    message({ id: 'n1', kind: 'assistant_narration', content: 'Inspecting the screenshot.' }),
+    message({ id: 'img', kind: 'tool_image' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set(['n1', 'img']));
+  assert.equal(turns[0]?.main?.id, 'n1');
+  assert.deepEqual(turns[0]?.steps.map((step) => step.id), ['img']);
+});
+
+test('the answer replaces the live status update', () => {
+  const messages = [
+    message({ id: 'n1', kind: 'assistant_narration', content: 'Reading the config.' }),
+    message({ id: 'tc1', kind: 'assistant_tool_call' }),
+    message({ id: 'ans', kind: 'assistant_answer', content: 'Done.' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set(['n1', 'tc1', 'ans']));
+  assert.equal(turns[0]?.main?.id, 'ans');
+  assert.deepEqual(turns[0]?.steps.map((step) => step.id), ['n1', 'tc1']);
+});
+
+test('a settled run keeps its status updates in Internal Logic under the answer', () => {
+  const messages = [
+    message({ id: 'n1', kind: 'assistant_narration', content: 'Reading the config.', sourceRunId: 'run-1' }),
+    message({ id: 'tc1', kind: 'assistant_tool_call', sourceRunId: 'run-1' }),
+    message({ id: 'ans', kind: 'assistant_answer', content: 'Done.', sourceRunId: 'run-1' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set());
+  assert.equal(turns[0]?.main?.id, 'ans');
+  assert.deepEqual(turns[0]?.steps.map((step) => step.id), ['n1', 'tc1']);
+});

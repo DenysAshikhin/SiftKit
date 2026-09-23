@@ -86,8 +86,8 @@ test('incident-scale journal: appends stay per-delta, reads are paged, and repla
   const toolContext = history.messages.filter(message => message.role === 'tool');
   assert.equal(toolContext.length, PERFORMANCE_TOOL_RESULTS);
   assert.equal(toolContext.every(message => typeof message.content === 'string' && message.content.length > PERFORMANCE_RESULT_BYTES), true);
-  // Narration that precedes a tool start in its turn is displayed as progress, one row per turn.
-  assert.equal(rows.filter(message => message.kind === 'assistant_progress').length, PERFORMANCE_MODEL_TURNS);
+  // Narration that precedes a tool start keeps its kind, one row per turn.
+  assert.equal(rows.filter(message => message.kind === 'assistant_narration').length, PERFORMANCE_MODEL_TURNS);
 
   // Attach transfers are bounded frames; no frame carries the whole transcript, and nothing is lost.
   const capture = new ChatOperationSnapshotReader(recorder.operationId).capture(database, { approval: null, controlOperationId: null, activeOperation: null });

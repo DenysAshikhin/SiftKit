@@ -67,7 +67,7 @@ Shared contracts validate narration deltas at the SSE boundary. Tool markup stay
 Add a live-only `assistant_narration` message kind with an ID scoped to its model turn.
 
 - A narration delta creates or updates the visible narration box using the current smoothing behavior.
-- A `tool_start` for that turn demotes its narration message to `assistant_progress`, placing it inside closed Internal Logic while leaving the activity ring visible.
+- A `tool_start` for that turn leaves the narration visible; it stays in the main slot until a newer non-blank narration or the answer replaces it, then moves into closed Internal Logic.
 - An accepted `answer` for that turn promotes the same narration message to `assistant_answer` and applies the authoritative answer delta. The stable identity and already-visible text prevent an all-at-once appearance.
 - If no narration message exists, answer streaming follows the existing answer path.
 - `done` replaces live state with the persisted session as it does today.

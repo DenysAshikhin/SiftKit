@@ -426,7 +426,7 @@ test('stopping a message stream persists the complete generated transcript in tu
     assert.deepEqual(doneMessages.map((message) => message.kind), [
       'user_text',
       'assistant_thinking',
-      'assistant_progress',
+      'assistant_narration',
       'assistant_tool_call',
       'assistant_tool_call',
       'assistant_thinking',

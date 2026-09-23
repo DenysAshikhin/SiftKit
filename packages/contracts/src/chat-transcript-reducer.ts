@@ -158,10 +158,10 @@ function reduceTextEvent(
   const promotedNarration = event.kind === 'answer'
     ? messages.find((message) => (
       message.id === narrationId
-      && (message.kind === 'assistant_narration' || message.kind === 'assistant_progress' || message.kind === 'assistant_answer')
+      && (message.kind === 'assistant_narration' || message.kind === 'assistant_answer')
     ))
     : undefined;
-  // Progress is one row for the whole run; a new turn arrives as `offset: 0` and replaces the bar text.
+  // Progress is one row for the whole run; a new turn arrives as `offset: 0` and replaces the row text.
   const id = promotedNarration?.id ?? buildChatMessageId(metadata.messageIdPrefix,
     event.kind === 'progress' ? { kind: 'progress' } : { kind: event.kind, turn: event.delta.turn });
   const existing = messages.find((message) => message.id === id);
@@ -181,20 +181,12 @@ function reduceToolEvent(
 ): ChatTranscriptMessage[] {
   const tool = event.tool;
   const toolMessageId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: tool.toolCallId });
-  const narrationId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'narration', turn: tool.turn });
   const existing = messages.find((message) => message.id === toolMessageId);
   if (existing && existing.kind !== 'assistant_tool_call') throw new Error('Tool progress conflicts with an existing message identity.');
   // A live frame only ever advances the state; a journal-derived outcome is what settles it.
   const hasFullResult = typeof existing?.toolCallOutput === 'string';
   const executionState = hasFullResult ? existing.toolCallExecutionState
     : tool.kind === 'tool_result' ? 'completed' : existing?.toolCallExecutionState ?? 'executing';
-  const beforeTool = tool.kind === 'tool_start'
-    ? messages.map((message) => (
-      message.id === narrationId && message.kind === 'assistant_narration'
-        ? ChatTranscriptMessageSchema.parse({ ...message, kind: 'assistant_progress' })
-        : message
-    ))
-    : [...messages];
   const message = ChatTranscriptMessageSchema.parse({
     ...existing,
     id: toolMessageId,
@@ -221,7 +213,7 @@ function reduceToolEvent(
     toolCallExecutionState: executionState,
     toolCallStatus: toolCallStatusForExecutionState(executionState),
   });
-  return upsertMessage(beforeTool, message);
+  return upsertMessage(messages, message);
 }
 
 /**

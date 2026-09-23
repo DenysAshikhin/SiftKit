@@ -24,7 +24,11 @@ function isAnswerMessage(message: ChatMessage): boolean {
 
 function isStepMessage(message: ChatMessage): boolean {
   const kind = message.kind;
-  return kind === 'assistant_thinking' || kind === 'assistant_tool_call' || kind === 'assistant_progress';
+  return kind === 'assistant_thinking' || kind === 'assistant_tool_call' || kind === 'assistant_narration' || kind === 'assistant_progress';
+}
+
+function isStatusUpdate(message: ChatMessage): boolean {
+  return message.kind === 'assistant_narration' && message.content.trim() !== '';
 }
 
 function isThinkingMessage(message: ChatMessage): boolean {
@@ -45,47 +49,46 @@ function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
   return runId ? `run:${runId}` : `solo:${message.id}`;
 }
 
-function pickMainMessage(turn: ChatTurn): ChatMessage | null {
-  const answer = turn.messages.find(isAnswerMessage);
+function pickMainMessage(turn: ChatTurn, answer: ChatMessage | undefined): ChatMessage | null {
   if (answer) return answer;
-  // No answer: surface the last non-step message (e.g. a lone user_text message,
+  // The newest status update holds the slot until a newer one or the answer replaces it.
+  const statusUpdates = turn.messages.filter(isStatusUpdate);
+  const status = statusUpdates[statusUpdates.length - 1];
+  if (status) return status;
+  // No answer or status: surface the last non-step message (e.g. a lone user_text message,
   // or the live user bubble before the assistant side starts). A run that is
   // only thinking/tool steps has no main slot.
   const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message));
   return nonStepMessages[nonStepMessages.length - 1] ?? null;
 }
 
-function pickLiveThinking(turn: ChatTurn): ChatMessage[] {
-  // Settled turns keep every step in Internal Logic; the stack is live-only.
-  if (!turn.isLive) return [];
-  // Once the answer streams, the turn settles into the ordinary shape.
-  if (turn.messages.some(isAnswerMessage)) return [];
+function pickLiveThinking(turn: ChatTurn, liveUnanswered: boolean): ChatMessage[] {
+  // Settled or answering turns keep every step in Internal Logic; the stack is live-only.
+  if (!liveUnanswered) return [];
   return turn.messages.filter(isThinkingMessage).slice(-LIVE_THINKING_STACK_DEPTH);
 }
 
-function pickRecentActivities(turn: ChatTurn): ToolActivityGroup[] {
-  if (!turn.isLive) return [];
-  if (turn.messages.some(isAnswerMessage)) return [];
+function pickRecentActivities(turn: ChatTurn, liveUnanswered: boolean): ToolActivityGroup[] {
+  if (!liveUnanswered) return [];
   return buildToolActivityRing(turn.messages.filter(isToolCallMessage));
 }
 
 function finalizeTurn(turn: ChatTurn): void {
-  const main = pickMainMessage(turn);
-  const liveThinking = pickLiveThinking(turn);
-  const recentActivities = pickRecentActivities(turn);
-  const hideLiveTools = turn.isLive && !turn.messages.some(isAnswerMessage);
+  const answer = turn.messages.find(isAnswerMessage);
+  // Once the answer streams, a live turn settles into the ordinary shape.
+  const liveUnanswered = turn.isLive && answer === undefined;
+  const main = pickMainMessage(turn, answer);
+  const liveThinking = pickLiveThinking(turn, liveUnanswered);
   turn.main = main;
   turn.liveThinking = liveThinking;
-  turn.recentActivities = recentActivities;
-  turn.showRecentActivity = turn.isLive
-    && turn.messages.some((message) => message.role === 'assistant')
-    && !turn.messages.some(isAnswerMessage);
+  turn.recentActivities = pickRecentActivities(turn, liveUnanswered);
+  turn.showRecentActivity = liveUnanswered && turn.messages.some((message) => message.role === 'assistant');
   // Live tools belong only to the recent ring. Everything else that is not the
-  // main slot, thinking stack, or progress bar stays in Internal Logic.
+  // main slot or thinking stack stays in Internal Logic.
   turn.steps = turn.messages.filter((message) => (
     message !== main
     && !liveThinking.includes(message)
-    && !(hideLiveTools && isToolCallMessage(message))
+    && !(liveUnanswered && isToolCallMessage(message))
   ));
 }
 

@@ -26,6 +26,11 @@ function fixture() {
   return { database, recorder, reader, capture: () => reader.capture(database, NO_LIVE_BINDING) };
 }
 
+/** The kinds of the messages an update sent as whole-row replacements. */
+function replacedMessageKinds(records: readonly ChatProjectionRecord[]): string[] {
+  return records.flatMap(record => record.kind === 'message' ? [record.message.kind] : []);
+}
+
 /** Encodes, decodes and applies an update, asserting the receiver lands exactly on `after`. */
 function roundTrip(before: ChatProjectionCapture, after: ChatProjectionCapture): ChatProjectionRecord[] {
   const frames = [...encodeChatProjectionRecords(createChatUpdateRecords(before, after), TRANSFER_ID)];
@@ -120,7 +125,7 @@ test('growing text comparisons do not serialize the accumulated message body', (
   assert.equal(largeMessageStringifyCalls, 0);
 });
 
-test('a rewrite and kind conversion use replacements while usage changes use metadata updates', () => {
+test('a rewrite uses a replacement while usage changes use metadata updates', () => {
   const { recorder, capture } = fixture();
   recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 0, text: 'first draft' } });
   recorder.recordDisplay({ kind: 'answer', delta: { turn: 2, offset: 0, text: 'partial' } });
@@ -132,12 +137,22 @@ test('a rewrite and kind conversion use replacements while usage changes use met
     activityKind: 'command', activitySubject: { kind: 'file', value: 'a.ts' }, maxTurns: 200, promptTokenCount: 0, executionState: 'proposed' });
   const after = capture();
   const records = roundTrip(before, after);
-  const replaced = records.filter(record => record.kind === 'message').map(record => record.kind === 'message' ? record.message.kind : '');
-  assert.deepEqual(replaced.sort(), ['assistant_progress', 'assistant_tool_call']);
+  const replaced = replacedMessageKinds(records);
+  assert.deepEqual(replaced.sort(), ['assistant_narration', 'assistant_tool_call']);
   assert.equal(records.filter(record => record.kind === 'append_text').length, 1);
   assert.equal(records.some(record => record.kind === 'append_text' && record.text === ''), true);
   assert.deepEqual(records.filter(record => record.kind === 'tool').length, 1);
   assert.deepEqual(records.filter(record => record.kind === 'token_turn').length, 1);
+});
+
+test('promoting narration to the answer travels as a replacement', () => {
+  const { recorder, capture } = fixture();
+  recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 0, text: 'first draft' } });
+  const before = capture();
+  recorder.recordDisplay({ kind: 'answer', delta: { turn: 1, offset: 0, text: 'final' } });
+  const records = roundTrip(before, capture());
+  const replaced = replacedMessageKinds(records);
+  assert.deepEqual(replaced, ['assistant_answer']);
 });
 
 test('a history deletion advances only the revision and travels as a removal', () => {
