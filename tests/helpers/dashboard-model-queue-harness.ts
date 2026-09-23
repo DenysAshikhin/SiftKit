@@ -19,6 +19,7 @@ import {
   closeHttpServer,
   requestJson,
   requestSse,
+  type Dict,
   type SseResponse,
 } from './dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
@@ -408,14 +409,15 @@ export class DashboardModelQueueHarness {
     throw new Error(`Timed out waiting for ${count} active model request(s) "${kind}".`);
   }
 
-  async waitForQueuedRequest(kind: string): Promise<void> {
+  /** Returns the first queued model request that reports `kind`. */
+  async waitForQueuedRequest(kind: string): Promise<Dict> {
     const deadline = Date.now() + QUEUE_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       const response = await requestJson(`${this.getBaseUrl()}/status`);
       const queuedRequests = asObjectArray(asObject(response.body.modelRequests).queuedRequests);
       for (const request of queuedRequests) {
         if (request.kind === kind) {
-          return;
+          return request;
         }
       }
       await delay(QUEUE_POLL_INTERVAL_MS);

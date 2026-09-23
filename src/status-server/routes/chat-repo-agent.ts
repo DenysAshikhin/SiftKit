@@ -60,6 +60,7 @@ type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
 import { requireChatOperationBroadcast } from './chat.js';
 import { startRepoAgentRun } from './repo-agent.js';
+import { WEB_UI_MODEL_QUEUE_TIMEOUT } from '../server-ops.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
   approval: ApprovalModeSchema,
@@ -209,6 +210,7 @@ export async function executeChatRepoAgentOperation(options: {
   const progressWriter = new ChatStreamProgressWriter(options.stream, null, true, options.recorder);
   const started = startRepoAgentRun(options.ctx, {
     evidenceRecorder: options.recorder,
+    modelQueueTimeout: WEB_UI_MODEL_QUEUE_TIMEOUT,
     requestId: engineRequestId,
     presetId: settings.presetId,
     prompt: options.content,

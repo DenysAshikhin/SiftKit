@@ -45,8 +45,11 @@ export type ModelRequestLock = {
   /** Force-releases a holder that has gone silent for a full inactivity window. */
   inactivityTimeoutHandle: NodeJS.Timeout | null;
 };
+/** A queued wait's deadline in milliseconds, or `'none'` to wait until admitted or cancelled. */
+export type ModelQueueTimeout = number | 'none';
 export type ModelRequestWaitOptions = {
-  timeoutMs?: number;
+  /** Omission uses the server's default queue window. */
+  queueTimeout?: ModelQueueTimeout;
   ownerRunId?: string | null;
   abortSignal?: AbortSignal;
   /** Requested model; omission means the current non-preset model. */
@@ -70,7 +73,8 @@ export type ModelRequestWaiter = {
   cancelled: boolean;
   grantedLock: ModelRequestLock | null;
   timeoutHandle: NodeJS.Timeout | null;
-  timeoutMs: number;
+  /** `'none'`: only grant, cancellation, or an invalid target removes the waiter. */
+  queueTimeout: ModelQueueTimeout;
   /** Queue index at the last timeout refresh; only a decrease (an earlier waiter leaving) restarts the window. */
   lastQueueIndex: number;
   resolveLock(lock: ModelRequestLock | null): void;

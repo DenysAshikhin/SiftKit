@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { asObject, asObjectArray, requestJson } from './helpers/dashboard-http.js';
+import { asObject, asObjectArray, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
+import { readChatStream } from './helpers/chat-stream-views.js';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 
 test('DashboardModelQueueHarness validates options before acquiring process resources', () => {
   const previousCwd = process.cwd();
@@ -177,6 +180,127 @@ test('model queue harness closes an active request once without waiting for its 
     assert.equal(await heldOutcome, 'rejected');
     assert.equal(sharedConcurrentPromise, true);
     assert.equal(sharedLaterPromise, true);
+  } finally {
+    await harness.close();
+  }
+});
+
+type HolderTurn = { sessionId: string; stream: Promise<SseResponse> };
+
+/** Holds the only model slot with a Web chat turn until the test releases its engine response. */
+async function startHolderTurn(harness: DashboardModelQueueHarness): Promise<HolderTurn> {
+  const sessionId = await harness.createChatSession('holder', 'model-a');
+  const stream = harness.startChatStream(sessionId, 'holder turn');
+  await harness.waitForActiveRequests('dashboard_chat_stream');
+  return { sessionId, stream };
+}
+
+function assertStreamCompleted(response: SseResponse, sessionId: string): void {
+  const { terminal, failure } = readChatStream(response, sessionId);
+  assert.equal(failure, null, JSON.stringify(response.events));
+  assert.notEqual(terminal, null, JSON.stringify(response.events));
+}
+
+/** A Web waiter carries no queue deadline, and it is admitted once the holder releases the slot. */
+async function assertQueuedWithoutDeadline(harness: DashboardModelQueueHarness, requestKind: string, holder: HolderTurn): Promise<void> {
+  assert.equal((await harness.waitForQueuedRequest(requestKind)).hasDeadline, false);
+  harness.releaseChatResponse('holder answer');
+  assertStreamCompleted(await holder.stream, holder.sessionId);
+}
+
+const WEBUI_STREAM_CASES = [
+  { operationKind: 'message', requestKind: 'dashboard_chat_stream' },
+  { operationKind: 'plan', requestKind: 'dashboard_plan_stream' },
+  { operationKind: 'repo-search', requestKind: 'dashboard_repo_search_stream' },
+] as const;
+
+for (const streamCase of WEBUI_STREAM_CASES) {
+  test(`webui ${streamCase.operationKind} stream waits in the queue without a deadline and is admitted`, async () => {
+    const harness = new DashboardModelQueueHarness(`siftkit-http-queue-unbounded-${streamCase.operationKind}-`, { parallelSlots: 1 });
+    await harness.start();
+    try {
+      const holder = await startHolderTurn(harness);
+      const sessionId = await harness.createChatSession(`unbounded ${streamCase.operationKind}`, 'model-a');
+      const stream = harness.startChatOperationStream(streamCase.operationKind, sessionId, `wait for the slot ${streamCase.operationKind}`);
+      await assertQueuedWithoutDeadline(harness, streamCase.requestKind, holder);
+      harness.releaseChatResponse('admitted answer');
+      assertStreamCompleted(await stream, sessionId);
+      await harness.waitForModelQueueIdle();
+    } finally {
+      await harness.close();
+    }
+  });
+}
+
+test('webui non-stream message waits in the queue without a deadline and is admitted', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-http-queue-unbounded-json-', { parallelSlots: 1 });
+  await harness.start();
+  try {
+    const holder = await startHolderTurn(harness);
+    const sessionId = await harness.createChatSession('unbounded json', 'model-a');
+    harness.registerChatPrompt(sessionId, 'wait for the slot json');
+    const turn = requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 30_000,
+      body: JSON.stringify({ content: 'wait for the slot json' }),
+    });
+    await assertQueuedWithoutDeadline(harness, 'dashboard_chat', holder);
+    harness.releaseChatResponse('admitted json answer');
+    const response = await turn;
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    await harness.waitForModelQueueIdle();
+  } finally {
+    await harness.close();
+  }
+});
+
+test('webui condense waits in the queue without a deadline and is admitted', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-http-queue-unbounded-condense-', { parallelSlots: 1 });
+  await harness.start();
+  try {
+    const sessionId = await harness.createChatSession('unbounded condense', 'model-a');
+    const seeded = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content: 'seed question', assistantContent: 'seed answer' }),
+    });
+    assert.equal(seeded.statusCode, 200, JSON.stringify(seeded.body));
+    const holder = await startHolderTurn(harness);
+    const condense = requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/condense`, {
+      method: 'POST',
+      timeoutMs: 30_000,
+      body: JSON.stringify({ mockResponses: [{ content: 'condensed summary' }] }),
+    });
+    await assertQueuedWithoutDeadline(harness, 'dashboard_chat_condense', holder);
+    const response = await condense;
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    await harness.waitForModelQueueIdle();
+  } finally {
+    await harness.close();
+  }
+});
+
+test('webui repo-agent run waits in the queue without a deadline and is admitted', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-http-queue-unbounded-repo-agent-', { parallelSlots: 1 });
+  await harness.start();
+  try {
+    const holder = await startHolderTurn(harness);
+    const sessionId = await harness.createChatSession('unbounded repo-agent', 'model-a');
+    const stream = requestSse(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
+      method: 'POST',
+      timeoutMs: 30_000,
+      body: JSON.stringify({
+        content: 'wait for the slot repo-agent',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: randomUUID(),
+        submissionId: randomUUID(),
+        mockResponses: repoAgentFinishResponses('repo-agent admitted'),
+        mockCommandResults: {},
+      }),
+    });
+    await assertQueuedWithoutDeadline(harness, 'repo_search', holder);
+    assertStreamCompleted(await stream, sessionId);
+    await harness.waitForModelQueueIdle();
   } finally {
     await harness.close();
   }

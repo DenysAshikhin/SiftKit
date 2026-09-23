@@ -24,6 +24,7 @@ export const ModelRequestQueueDiagnosticsSchema = z.object({
     kind: z.string(),
     enqueuedAtUtc: z.string(),
     waitMs: z.number(),
+    hasDeadline: z.boolean(),
   })),
 });
 export type ModelRequestQueueDiagnostics = z.infer<typeof ModelRequestQueueDiagnosticsSchema>;

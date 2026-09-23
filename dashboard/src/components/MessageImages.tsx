@@ -35,12 +35,14 @@ export function MessageImages({ sessionId, messageId, images, imageMeta, removed
 }) {
   const [captionStates, setCaptionStates] = useState<Record<number, CaptionState>>({});
   const [zoomedIndex, setZoomedIndex] = useState<number | null>(null);
-  const mountedRef = useRef(true);
+  // Unmounting aborts in-flight captions, which also frees their queued model wait on the server.
+  const captionAbortRef = useRef(new AbortController());
 
   useEffect(() => {
-    mountedRef.current = true;
+    const controller = new AbortController();
+    captionAbortRef.current = controller;
     return () => {
-      mountedRef.current = false;
+      controller.abort();
     };
   }, []);
 
@@ -61,15 +63,16 @@ export function MessageImages({ sessionId, messageId, images, imageMeta, removed
       return { ...previous, [index]: { status: 'pending' } };
     });
     if (!shouldRequest) return;
+    const signal = captionAbortRef.current.signal;
     try {
-      const response = await requestImageCaption(sessionId, messageId, index);
-      if (!mountedRef.current) return;
+      const response = await requestImageCaption(sessionId, messageId, index, signal);
+      if (signal.aborted) return;
       setCaptionStates((previous) => ({
         ...previous,
         [index]: { status: 'ready', caption: response.caption },
       }));
     } catch (error) {
-      if (!mountedRef.current) return;
+      if (signal.aborted) return;
       const message = error instanceof Error ? error.message : String(error);
       setCaptionStates((previous) => ({
         ...previous,

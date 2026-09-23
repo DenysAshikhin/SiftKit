@@ -119,3 +119,22 @@ test('guards in-flight caption requests across identity changes and unmounts', a
   });
   assert.equal(view.container.textContent, '');
 });
+
+test('unmounting aborts the in-flight caption request so the server stops waiting for a model slot', async () => {
+  const signals: AbortSignal[] = [];
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (_input: string, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal);
+      return new Promise<Response>(() => undefined);
+    },
+  });
+  const view = render(<MessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
+
+  await openDetails(view);
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0]?.aborted, false);
+
+  view.unmount();
+  assert.equal(signals[0]?.aborted, true);
+});

@@ -25,8 +25,8 @@ const streamedError = {
     activeRequests: [],
     queueLength: 2,
     queuedRequests: [
-      { kind: 'summary', enqueuedAtUtc: '2026-07-22T12:00:00.000Z', waitMs: 25 },
-      { kind: 'repo_search', enqueuedAtUtc: '2026-07-22T12:00:01.000Z', waitMs: 10 },
+      { kind: 'summary', enqueuedAtUtc: '2026-07-22T12:00:00.000Z', waitMs: 25, hasDeadline: true },
+      { kind: 'repo_search', enqueuedAtUtc: '2026-07-22T12:00:01.000Z', waitMs: 10, hasDeadline: true },
     ],
   },
 };

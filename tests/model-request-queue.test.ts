@@ -10,6 +10,7 @@ import {
   DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS,
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
+  acquireWebUiModelRequest,
   getModelRequestQueueDiagnostics,
   isIdle,
   renewModelRequestActivity,
@@ -18,6 +19,7 @@ import {
 } from '../src/status-server/server-ops.js';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
+import { ServerModelLockAdapter } from '../src/status-server/repo-agent-lock-adapter.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
 import type { ModelLifecycleActionResult } from '@siftkit/contracts';
@@ -615,7 +617,7 @@ test('queued model request times out, cancels, and logs the dropped request', as
 
     const capture = OutputCapture.start(process.stdout);
     try {
-      const queuedPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
+      const queuedPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { queueTimeout: 25 });
       assert.equal(ctx.modelRequestQueue.length, 1);
       t.mock.timers.tick(25);
       assert.equal(await queuedPromise, null);
@@ -642,8 +644,8 @@ test('queued model request timeout resets when an earlier queued request drops',
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
 
-    const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 30 });
-    const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { timeoutMs: 60 });
+    const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { queueTimeout: 30 });
+    const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { queueTimeout: 60 });
     assert.equal(ctx.modelRequestQueue.length, 2);
 
     // At t=30 the summary waiter times out; dashboard_chat's position improves (3 -> 2),
@@ -677,8 +679,8 @@ test('queued model request still times out after its reset window expires', asyn
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
 
-    const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
-    const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { timeoutMs: 35 });
+    const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { queueTimeout: 25 });
+    const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { queueTimeout: 35 });
 
     // summary drops at t=25, resetting dashboard_chat's 35ms window from t=25 (fires at t=60).
     t.mock.timers.tick(25);
@@ -694,6 +696,182 @@ test('queued model request still times out after its reset window expires', asyn
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {
     t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('a queued model request with no queue timeout has no deadline and is admitted on release', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const queuedPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', undefined, undefined, { queueTimeout: 'none' });
+    const waiter = ctx.modelRequestQueue[0];
+    assert.equal(waiter?.kind, 'dashboard_chat_stream');
+    assert.equal(waiter?.queueTimeout, 'none');
+    assert.equal(waiter?.timeoutHandle, null);
+
+    // Far past the default window: nothing is armed, so nothing can drop the waiter.
+    t.mock.timers.tick(DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS * 2);
+    assert.equal(ctx.modelRequestQueue.length, 1);
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    const queuedLock = await queuedPromise;
+    assert.ok(queuedLock);
+    assert.equal(queuedLock.kind, 'dashboard_chat_stream');
+    assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('an earlier waiter timing out does not arm a deadline on a no-deadline waiter', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const boundedPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { queueTimeout: 25 });
+    const unboundedPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', undefined, undefined, { queueTimeout: 'none' });
+
+    // The bounded waiter leaves, which improves the unbounded waiter's position and refreshes its window.
+    t.mock.timers.tick(25);
+    assert.equal(await boundedPromise, null);
+    assert.equal(ctx.modelRequestQueue.length, 1);
+    assert.equal(ctx.modelRequestQueue[0]?.kind, 'dashboard_chat_stream');
+    assert.equal(ctx.modelRequestQueue[0]?.timeoutHandle, null);
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    const unboundedLock = await unboundedPromise;
+    assert.ok(unboundedLock);
+    assert.equal(releaseModelRequest(ctx, unboundedLock.token), true);
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('a no-deadline waiter still leaves the queue when its operation aborts', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const controller = new AbortController();
+    const queuedPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', undefined, undefined, {
+      queueTimeout: 'none',
+      abortSignal: controller.signal,
+    });
+    assert.equal(ctx.modelRequestQueue.length, 1);
+    controller.abort();
+    assert.equal(await queuedPromise, null);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+  } finally {
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('an omitted timeout still resolves to the default queue window', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const queuedPromise = acquireModelRequestWithWait(ctx, 'summary');
+    assert.equal(ctx.modelRequestQueue[0]?.queueTimeout, DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS);
+    assert.notEqual(ctx.modelRequestQueue[0]?.timeoutHandle, null);
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    const queuedLock = await queuedPromise;
+    assert.ok(queuedLock);
+    assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
+  } finally {
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+for (const invalidTimeout of [0, -1, 1.5, Number.NaN]) {
+  test(`an invalid explicit queue timeout (${invalidTimeout}) is rejected before queueing`, async () => {
+    const ctx = createQueueContext();
+    try {
+      await assert.rejects(
+        acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { queueTimeout: invalidTimeout }),
+        /Model queue timeout must be a positive integer/u,
+      );
+      assert.equal(ctx.modelRequestQueue.length, 0);
+      assert.equal(ctx.activeModelRequests.size, 0);
+    } finally {
+      await ctx.inferenceRunFlushQueue.close();
+    }
+  });
+}
+
+test('queue diagnostics report whether each queued request has a deadline', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+    const boundedPromise = acquireModelRequestWithWait(ctx, 'summary');
+    const unboundedPromise = acquireWebUiModelRequest(ctx, 'dashboard_chat_stream');
+
+    assert.deepEqual(
+      getModelRequestQueueDiagnostics(ctx).queuedRequests.map(({ kind, hasDeadline }) => ({ kind, hasDeadline })),
+      [{ kind: 'summary', hasDeadline: true }, { kind: 'dashboard_chat_stream', hasDeadline: false }],
+    );
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    const boundedLock = await boundedPromise;
+    assert.ok(boundedLock);
+    assert.equal(releaseModelRequest(ctx, boundedLock.token), true);
+    const unboundedLock = await unboundedPromise;
+    assert.ok(unboundedLock);
+    assert.equal(releaseModelRequest(ctx, unboundedLock.token), true);
+  } finally {
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('repo-agent lock adapter forwards a no-deadline queue timeout and stays abortable', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const controller = new AbortController();
+    const acquisition = new ServerModelLockAdapter(ctx, 'none').acquire('webui-run', controller.signal);
+    assert.equal(ctx.modelRequestQueue[0]?.ownerRunId, 'webui-run');
+    assert.equal(ctx.modelRequestQueue[0]?.queueTimeout, 'none');
+    assert.equal(ctx.modelRequestQueue[0]?.timeoutHandle, null);
+
+    controller.abort();
+    assert.equal(await acquisition, null);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+  } finally {
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('repo-agent lock adapter without a queue timeout uses the default window', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const controller = new AbortController();
+    const acquisition = new ServerModelLockAdapter(ctx, undefined).acquire('cli-run', controller.signal);
+    assert.equal(ctx.modelRequestQueue[0]?.queueTimeout, DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS);
+
+    controller.abort();
+    assert.equal(await acquisition, null);
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+  } finally {
     await ctx.inferenceRunFlushQueue.close();
   }
 });
@@ -1418,7 +1596,7 @@ test('repeated affinity bypass does not extend an older waiter\u0027s timeout', 
     assert.ok(seed);
     const bPromise = acquireModelRequestWithWait(ctx, 'older-b', undefined, undefined, {
       intent: { presetId: 'repo-search', model: null },
-      timeoutMs: 100,
+      queueTimeout: 100,
     });
     for (let bypass = 0; bypass < 3; bypass += 1) {
       const bypassLock = await acquireModelRequestWithWait(ctx, `bypass-${bypass}`);

@@ -496,6 +496,7 @@ export function requestImageCaption(
   sessionId: string,
   messageId: string,
   imageIndex: number,
+  signal: AbortSignal,
 ): Promise<ImageCaptionResponse> {
   return fetchJson(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/images/caption`,
@@ -504,6 +505,7 @@ export function requestImageCaption(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageId, imageIndex }),
+      signal,
     },
   );
 }

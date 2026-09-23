@@ -88,7 +88,8 @@ import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js'
 import { RouteTable,type RouteEndpoint,type RouteMatch } from '../route-table.js';
 import { createServerJsonLogger,serverLogger } from '../server-logger.js';
 import {
-acquireModelRequestWithWait,
+UncancelledModelWaitError,
+acquireWebUiModelRequest,
 releaseModelRequest,
 } from '../server-ops.js';
 import type { ModelRequestLock,ServerContext } from '../server-types.js';
@@ -211,8 +212,6 @@ function registerChatAbort<T>(
   }
 }
 
-const CHAT_STREAM_NOT_ADMITTED_ERROR = 'The turn was not admitted before the model queue wait ended.';
-
 export function requireChatOperationBroadcast<T>(
   ctx: ServerContext,
   request: ChatSessionOperationRequest<T>,
@@ -239,14 +238,20 @@ async function acquireChatModelRequest(
   res: ServerResponse,
   request: { recorder: ChatRunRecorder | null },
 ): Promise<ModelRequestLock | ChatOperationOutcome> {
+  const recorder = requireChatRunRecorder(request);
+  let lock: ModelRequestLock | null;
   try {
-    const lock = await acquireModelRequestWithWait(ctx, lockKind, req, res, { abortSignal: requireChatRunRecorder(request).abortSignal });
-    return lock ?? { failure: 'Model request could not be acquired.' };
+    lock = await acquireWebUiModelRequest(ctx, lockKind, req, res, recorder.abortSignal);
   } catch (error) {
     const message = toError(error).message;
     sendJson(res, 503, { error: message });
     return { failure: message };
   }
+  if (lock) return lock;
+  // The run record settles Stop, deletion, and a closed client as cancellations.
+  if (recorder.stopRequested || recorder.sessionDeleted || res.destroyed) return { failure: null };
+  throwIfAborted(recorder.abortSignal);
+  throw new UncancelledModelWaitError(lockKind);
 }
 
 /**
@@ -273,14 +278,16 @@ async function openChatOperationStream<TParsed extends { content: string; images
   const recorder = requireChatRunRecorder(request);
   let modelRequestLock: ModelRequestLock | null;
   try {
-    modelRequestLock = await acquireModelRequestWithWait(ctx, lockKind, undefined, undefined, { abortSignal: recorder.abortSignal });
+    modelRequestLock = await acquireWebUiModelRequest(ctx, lockKind, undefined, undefined, recorder.abortSignal);
   } catch (error) {
     return fail(503, toError(error).message);
   }
   if (!modelRequestLock) {
     if (recorder.stopRequested || recorder.sessionDeleted) return { failure: null };
     throwIfAborted(recorder.abortSignal);
-    return fail(503, CHAT_STREAM_NOT_ADMITTED_ERROR);
+    const defect = new UncancelledModelWaitError(lockKind);
+    fail(503, defect.message);
+    throw defect;
   }
   const activeSession = readChatSessionFromPath(request.sessionPath);
   if (!activeSession) {

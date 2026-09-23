@@ -24,7 +24,7 @@ import {
   upsertRepoSearchAdmission,
 } from '../repo-search-admissions.js';
 import type { RepoSearchRouteRequest } from '../route-request-normalizers.js';
-import type { ServerContext } from '../server-types.js';
+import type { ModelQueueTimeout, ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { streamSessionBoundary } from './repo-search.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
@@ -105,6 +105,8 @@ export type StartRepoAgentRunInput = {
   queue?: { owner: ChatMessageQueue; sessionId: string; modelPreset: ModelRuntimePreset; forceId?: string };
   /** Durable chat evidence writer; supplied by Web operations, absent for standalone runs. */
   evidenceRecorder?: ChatRunRecorder;
+  /** Model queue deadline; Web runs wait until admitted, standalone runs omit it for the server default. */
+  modelQueueTimeout?: ModelQueueTimeout;
 };
 
 export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunInput): {
@@ -140,7 +142,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
     admission,
     approvalMode: input.approvalMode,
     approvalDelivery: input.approvalDelivery,
-    locks: new ServerModelLockAdapter(ctx),
+    locks: new ServerModelLockAdapter(ctx, input.modelQueueTimeout),
     approvalGates: ctx.approvalGates,
     engineRequest: {
       presetId: input.presetId,

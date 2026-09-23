@@ -45,6 +45,7 @@ import {
 } from '../state/status-artifacts.js';
 import type {
   DatabaseInstance,
+  ModelQueueTimeout,
   ModelRequestQueueDiagnostics,
   ModelRequestLock,
   ModelRequestSelection,
@@ -305,6 +306,7 @@ export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelReques
       kind: entry.kind,
       enqueuedAtUtc: entry.enqueuedAtUtc,
       waitMs: getElapsedMsSinceIso(entry.enqueuedAtUtc),
+      hasDeadline: entry.queueTimeout !== 'none',
     })),
   };
 }
@@ -454,9 +456,12 @@ function clearModelRequestWaiterTimeout(waiter: ModelRequestWaiter): void {
 
 function startModelRequestWaiterTimeout(ctx: ServerContext, waiter: ModelRequestWaiter): void {
   clearModelRequestWaiterTimeout(waiter);
+  if (waiter.queueTimeout === 'none') {
+    return;
+  }
   const timeoutHandle = setTimeout(() => {
     cancelModelRequestWaiter(ctx, waiter, 'model_queue_timeout');
-  }, waiter.timeoutMs);
+  }, waiter.queueTimeout);
   timeoutHandle.unref?.();
   waiter.timeoutHandle = timeoutHandle;
 }
@@ -470,7 +475,7 @@ function restartModelRequestWaiterTimeout(ctx: ServerContext, waiter: ModelReque
 
 function refreshQueuedModelRequestTimeouts(ctx: ServerContext): void {
   for (const waiter of ctx.modelRequestQueue) {
-    if (waiter.cancelled || waiter.grantedLock) {
+    if (waiter.cancelled || waiter.grantedLock || waiter.queueTimeout === 'none') {
       continue;
     }
     const queueIndex = ctx.modelRequestQueue.indexOf(waiter);
@@ -691,6 +696,38 @@ function admitCompatibleProfileWithoutCoordinator(
   persistAppliedModelSelection(ctx.configPath, config, selection.context.modelPreset);
 }
 
+function resolveModelRequestQueueTimeout(requested: ModelQueueTimeout | undefined): ModelQueueTimeout {
+  if (requested === undefined) return readModelRequestQueueTimeoutMs();
+  if (requested !== 'none' && !(Number.isInteger(requested) && requested > 0)) {
+    throw new Error(`Model queue timeout must be a positive integer of milliseconds or 'none'; received ${requested}.`);
+  }
+  return requested;
+}
+
+/** A wait with no deadline ends without a lock only through cancellation; any other ending is a queue defect. */
+export class UncancelledModelWaitError extends Error {
+  constructor(kind: string) {
+    super(`Model wait for ${kind} ended without admission or cancellation.`);
+    this.name = 'UncancelledModelWaitError';
+  }
+}
+
+/** Web UI work waits for a model slot until admitted or cancelled: Stop, deletion, or a closed client. */
+export const WEB_UI_MODEL_QUEUE_TIMEOUT = 'none' satisfies ModelQueueTimeout;
+
+export function acquireWebUiModelRequest(
+  ctx: ServerContext,
+  kind: string,
+  request?: IncomingMessage,
+  response?: ServerResponse,
+  abortSignal?: AbortSignal,
+): Promise<ModelRequestLock | null> {
+  return acquireModelRequestWithWait(ctx, kind, request, response, {
+    queueTimeout: WEB_UI_MODEL_QUEUE_TIMEOUT,
+    abortSignal,
+  });
+}
+
 export async function acquireModelRequestWithWait(
   ctx: ServerContext,
   kind: string,
@@ -698,15 +735,13 @@ export async function acquireModelRequestWithWait(
   response?: ServerResponse,
   options: ModelRequestWaitOptions = {},
 ): Promise<ModelRequestLock | null> {
+  const queueTimeout = resolveModelRequestQueueTimeout(options.queueTimeout);
   if (options.abortSignal?.aborted) return null;
   ctx.modelIdleController?.clearForIncomingRequest();
   ctx.assistant?.onInteractiveRequest();
   logIncomingModelRequest(ctx, kind);
   clearIdleSummaryTimer(ctx);
   const initialQueueIndex = ctx.modelRequestQueue.length;
-  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
-    ? Math.trunc(Number(options.timeoutMs))
-    : readModelRequestQueueTimeoutMs();
   let resolveWaiterLock: (resolvedLock: ModelRequestLock | null) => void = () => {};
   let rejectWaiterLock: (error: Error) => void = () => {};
   const waiterLockPromise = new Promise<ModelRequestLock | null>((resolve, reject) => {
@@ -723,7 +758,7 @@ export async function acquireModelRequestWithWait(
     cancelled: false,
     grantedLock: null,
     timeoutHandle: null,
-    timeoutMs,
+    queueTimeout,
     lastQueueIndex: initialQueueIndex,
     resolveLock: resolveWaiterLock,
     rejectLock: rejectWaiterLock,

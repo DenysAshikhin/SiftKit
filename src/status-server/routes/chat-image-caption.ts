@@ -25,7 +25,8 @@ import {
 } from './chat-session-operation-endpoint.js';
 import type { ModelRequestLock, ServerContext } from '../server-types.js';
 import {
-  acquireModelRequestWithWait,
+  UncancelledModelWaitError,
+  acquireWebUiModelRequest,
   releaseModelRequest,
 } from '../server-ops.js';
 
@@ -100,14 +101,18 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
 
     let modelRequestLock: ModelRequestLock | null;
     try {
-      modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_image_caption', req, res);
+      modelRequestLock = await acquireWebUiModelRequest(ctx, 'dashboard_image_caption', req, res);
     } catch (error) {
       // Admission readies the model before granting; a refused target or failed load lands here.
       const message = toError(error).message;
       sendJson(res, 503, { error: message });
       return { failure: message };
     }
-    if (!modelRequestLock) return { failure: 'Model request could not be acquired.' };
+    if (!modelRequestLock) {
+      // A caption is not a run, so Stop cannot reach it; only its closed client ends the wait.
+      if (res.destroyed) return { failure: null };
+      throw new UncancelledModelWaitError('dashboard_image_caption');
+    }
     try {
       const authoritativeSession = readChatSessionFromPath(request.sessionPath);
       if (!authoritativeSession) {

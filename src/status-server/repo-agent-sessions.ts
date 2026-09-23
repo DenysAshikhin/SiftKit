@@ -62,7 +62,7 @@ export type RepoAgentModelLockHandle = {
 };
 
 export type RepoAgentModelLockAdapter = {
-  /** Resolves once the model lock is held and the preset is ready; null on queue timeout. */
+  /** Resolves once the model lock is held and the preset is ready; null on queue timeout or abort. */
   acquire(runId: string, abortSignal: AbortSignal): Promise<RepoAgentModelLockHandle | null>;
   queueLength(): number;
 };
