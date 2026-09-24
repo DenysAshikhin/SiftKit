@@ -88,9 +88,7 @@
     "packages/contracts",
     "dashboard"
   ],
-  "bundleDependencies": [
-    "@siftkit/contracts"
-  ],
+  "bundleDependencies": true,
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "@napi-rs/image": "1.14.0",

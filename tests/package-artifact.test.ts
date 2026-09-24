@@ -7,7 +7,7 @@ import { parseJsonText } from '../src/lib/json.js';
 import { z } from '../src/lib/zod.js';
 
 const PackageMetadataSchema = z.object({
-  bundleDependencies: z.array(z.string()).optional(),
+  bundleDependencies: z.union([z.boolean(), z.array(z.string())]).optional(),
 });
 
 const PackOutputSchema = z.array(z.object({
@@ -16,16 +16,17 @@ const PackOutputSchema = z.array(z.object({
 
 const repoRoot = process.cwd();
 
-test('package metadata bundles the private contracts workspace', () => {
+// Bundling every runtime dependency lets the global refresh install the tarball offline.
+test('package metadata bundles every runtime dependency', () => {
   const packageJson = parseJsonText(
     fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
     PackageMetadataSchema,
   );
 
-  assert.deepEqual(packageJson.bundleDependencies, ['@siftkit/contracts']);
+  assert.equal(packageJson.bundleDependencies, true);
 });
 
-test('prebuilt npm pack manifest includes the compiled contracts entrypoint', () => {
+test('prebuilt npm pack manifest includes the contracts entrypoint and registry dependencies', () => {
   const artifacts = parseJsonText(
     fs.readFileSync(path.join(repoRoot, '.test-build', 'npm-pack-dry-run.json'), 'utf8'),
     PackOutputSchema,
@@ -33,12 +34,7 @@ test('prebuilt npm pack manifest includes the compiled contracts entrypoint', ()
   const artifact = artifacts[0];
   assert.ok(artifact);
 
-  let contractsEntrypointFound = false;
-  for (const file of artifact.files) {
-    if (file.path === 'node_modules/@siftkit/contracts/dist/index.js') {
-      contractsEntrypointFound = true;
-      break;
-    }
-  }
-  assert.equal(contractsEntrypointFound, true);
+  const packedPaths = new Set(artifact.files.map((file) => file.path));
+  assert.equal(packedPaths.has('node_modules/@siftkit/contracts/dist/index.js'), true);
+  assert.equal(packedPaths.has('node_modules/zod/package.json'), true);
 });

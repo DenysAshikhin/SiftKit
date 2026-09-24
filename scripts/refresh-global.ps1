@@ -195,7 +195,8 @@ $tarballName = Get-SiftKitPackageTarballName
 # advisory POST can stall forever with no client-side timeout, hanging the refresh after
 # `reify:save` has already completed. See .npmrc for the full rationale.
 Write-Host 'Reconciling workspace install before packing...'
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('install', '--loglevel', 'error') -Description 'Reconciling workspace install'
+# --offline: refresh must not depend on the registry; a lockfile ahead of node_modules fails loudly here.
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('install', '--offline', '--loglevel', 'error') -Description 'Reconciling workspace install'
 
 $cargoTauriPath = Join-Path (Get-SiftKitDesktopToolingRoot) 'cargo\bin\cargo-tauri.exe'
 if (-not (Test-Path -LiteralPath $cargoTauriPath)) {
@@ -204,7 +205,15 @@ if (-not (Test-Path -LiteralPath $cargoTauriPath)) {
 }
 
 Write-Host 'Building the desktop shell...'
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('run', 'desktop:build') -Description 'Building the desktop shell' -MaxAttempts 1
+# Crates must come from the local cargo cache; a missing crate fails instead of fetching.
+$previousCargoNetOffline = $env:CARGO_NET_OFFLINE
+$env:CARGO_NET_OFFLINE = 'true'
+try {
+    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('run', 'desktop:build') -Description 'Building the desktop shell' -MaxAttempts 1
+}
+finally {
+    $env:CARGO_NET_OFFLINE = $previousCargoNetOffline
+}
 
 Write-Host 'Packing current repo...'
 Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--workspaces=false', '--loglevel', 'error') -Description 'Packing current repo'
@@ -216,7 +225,8 @@ Write-Host 'Installing packed tarball globally...'
 # config against the global prefix), so the repo's audit=false never reaches this call, and
 # arborist gates the audit solely on `options.audit === false` with no exemption for global
 # installs. Without the flag this step keeps the original hang.
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--no-audit', '--loglevel', 'error') -Description 'Installing packed tarball globally'
+# --offline: every runtime dependency is bundled in the tarball (bundleDependencies: true).
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--no-audit', '--offline', '--loglevel', 'error') -Description 'Installing packed tarball globally'
 
 Write-Host 'Resolving freshly installed global siftkit command...'
 $globalSiftKit = Get-GlobalSiftKitCommandPath
