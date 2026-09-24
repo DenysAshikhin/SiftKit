@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { z } from 'zod';
 import { createManagedTempDir } from '../helpers/temp-dirs.js';
 import { WheelOptionsSchema, validateWheelSource, selectBuiltWheel, buildJobCount, readMsvcEnvironment } from '../../scripts/build-exllamav3-wheel.js';
+
+test('production wheel command targets the current source and build environment', () => {
+  const packagePath = path.resolve('package.json');
+  const packageSchema = z.object({ scripts: z.object({ 'exl3:build-wheel': z.string() }) });
+  const manifest = packageSchema.parse(JSON.parse(readFileSync(packagePath, 'utf8')));
+  const command = manifest.scripts['exl3:build-wheel'];
+  assert.ok(command.includes('--repo C:\\AI\\exl3\\prod-20260924\\src'));
+  assert.ok(command.includes('--python C:\\AI\\exl3\\prod-20260924\\venv\\Scripts\\python.exe'));
+});
 
 function git(repo: string, args: string[]): string {
   const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', windowsHide: true });
