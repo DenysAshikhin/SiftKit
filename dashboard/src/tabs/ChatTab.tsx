@@ -41,8 +41,7 @@ import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { useLatest } from '../lib/use-latest';
-import { useSmoothedText } from '../hooks/useSmoothedText';
-import { MarkdownBlocks } from '../components/MarkdownContent';
+import { LiveStreamedText } from '../components/LiveStreamedText';
 import { chunkAtTurnStarts, groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
 import { buildCompactionSegments, markEarlierRunsCompacted, splitAfterLastSummary, type CompactionSegment } from '../lib/compaction-segments';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
@@ -122,7 +121,7 @@ const SESSION_INDICATOR_LABELS: Record<SessionIndicator, string> = {
 
 function SessionIndicatorMark({ indicator }: { indicator: SessionIndicator }) {
   if (indicator === 'streaming') {
-    return <span className="typing"><i /><i /><i /></span>;
+    return <span className="live-dot" />;
   }
   if (indicator === 'tool') {
     return <span className="sp" />;
@@ -903,8 +902,7 @@ function MessageHeader({ message, tokenDisplay, isLive, isPending, chatBusy, onD
 }
 
 function ThinkingBody({ message, isLive }: { message: ChatMessage; isLive: boolean }) {
-  const content = useSmoothedText(message.content, isLive);
-  return <div className="think">{content}</div>;
+  return <div className="think"><LiveStreamedText text={message.content} live={isLive} format="plain" /></div>;
 }
 
 function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
@@ -912,7 +910,6 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
   isLive: boolean;
   isDirectChatMode: boolean;
 }) {
-  const content = useSmoothedText(message.content, isLive);
   const [expandedThinking, setExpandedThinking] = React.useState(false);
   const messageKind = message.kind;
   const groundingStatusLabel = messageKind === 'assistant_answer'
@@ -927,7 +924,7 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
           {expandedThinking ? <pre className="mono">{message.thinkingContent}</pre> : null}
         </details>
       ) : null}
-      <MarkdownBlocks content={content} />
+      <LiveStreamedText text={message.content} live={isLive} format="markdown" />
     </div>
   );
 }

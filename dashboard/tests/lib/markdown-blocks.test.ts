@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitMarkdownBlocks } from '../../src/lib/markdown-blocks';
+import { splitMarkdownBlocks, streamTailStart } from '../../src/lib/markdown-blocks';
 
 test('splits at blank lines before unindented non-list lines and preserves every character', () => {
   const markdown = '# Title\n\nFirst paragraph\nstill first.\n\n- a\n- b\n\nLast';
@@ -47,4 +47,30 @@ test('text with cross-block constructs stays one block', () => {
   ]) {
     assert.deepEqual(splitMarkdownBlocks(markdown), [markdown]);
   }
+});
+
+test('a streamed prefix tail starts at its last block, right after the separating newline', () => {
+  const markdown = 'First **one**\n\nSecond\n\nThi';
+  const { start, inFence } = streamTailStart(markdown);
+  assert.equal(markdown.slice(start), 'Thi');
+  assert.deepEqual(splitMarkdownBlocks(markdown.slice(0, start - 1)), ['First **one**\n', 'Second\n']);
+  assert.equal(inFence, false);
+});
+
+test('a single-block prefix has its whole text in the tail', () => {
+  assert.deepEqual(streamTailStart(''), { start: 0, inFence: false });
+  assert.deepEqual(streamTailStart('Only para\nstill it\n\n'), { start: 0, inFence: false });
+});
+
+test('an open fence stays in the tail and is reported; a closed one does not', () => {
+  const open = 'Intro\n\n```ts\nconst a = 1;\n\nconst b';
+  assert.deepEqual(streamTailStart(open), { start: 'Intro\n\n'.length, inFence: true });
+  const closed = `${open} = 2;\n\`\`\`\n\nAfter`;
+  const { start, inFence } = streamTailStart(closed);
+  assert.equal(closed.slice(start), 'After');
+  assert.equal(inFence, false);
+});
+
+test('a prefix with cross-block constructs keeps everything in the tail', () => {
+  assert.deepEqual(streamTailStart('See [docs][d].\n\n[d]: https://example.com\n\nMore'), { start: 0, inFence: false });
 });

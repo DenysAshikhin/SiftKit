@@ -577,6 +577,25 @@ test('a token frame replaces only the live half; the runtime and the runtimes ma
   assert.equal(next.getLive('s1').liveMessages[0]?.content, 'hello');
 });
 
+test('a value-equal prompt re-sent with a usage update keeps the liveTokenBase identity', () => {
+  const operationId = '4f9c1f9a-0000-4000-8000-0000000000c3';
+  const first = chatSnapshot({ sessionId: 's1', operationId, cursor: { operationId, sequence: 1 },
+    tokenTurns: [{ turn: 1, prompt: PROMPT_FRAME, usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 10 } }) }] });
+  const second = { ...first, cursor: { operationId, sequence: 2 },
+    tokenTurns: [{ turn: 1, prompt: { ...PROMPT_FRAME }, usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 12 } }) }] };
+  const store = new ChatSessionRuntimeStore().ensureSession('s1', '')
+    .apply({ kind: 'snapshot', sessionId: 's1', snapshot: first });
+  const next = store.apply({ kind: 'snapshot', sessionId: 's1', snapshot: second });
+  assert.equal(next.get('s1'), store.get('s1'));
+  assert.equal(next.runtimes, store.runtimes);
+  assert.notEqual(next.getLive('s1'), store.getLive('s1'));
+  const changed = { ...second, cursor: { operationId, sequence: 3 },
+    tokenTurns: [{ turn: 1, prompt: { ...PROMPT_FRAME, promptTokens: 950 }, usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 14 } }) }] };
+  const after = next.apply({ kind: 'snapshot', sessionId: 's1', snapshot: changed });
+  assert.notEqual(after.get('s1').liveTokenBase, next.get('s1').liveTokenBase);
+  assert.equal(after.get('s1').liveTokenBase?.promptTokens, 950);
+});
+
 test('a transition that changes nothing returns the same store', () => {
   const store = new ChatSessionRuntimeStore().ensureSession('s1', '');
   assert.equal(store.apply({ kind: 'approval-clear', sessionId: 's1' }), store);

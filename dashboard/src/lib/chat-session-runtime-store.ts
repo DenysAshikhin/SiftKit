@@ -184,12 +184,17 @@ function applyTransition(state: SessionState, transition: ChatSessionRuntimeTran
       const activity: ChatSessionActivity = snapshot.terminalCause !== null ? { kind: 'idle' }
         : snapshot.controlOperationId !== null ? { kind: 'local', operationKind: snapshot.operationKind, operationId: snapshot.controlOperationId }
           : { kind: 'remote', operationKind: snapshot.operationKind };
+      const latestPrompt = [...snapshot.tokenTurns].reverse().find(turn => turn.prompt !== null)?.prompt ?? null;
+      // A usage-only update re-sends a value-equal prompt; reusing the base keeps the runtime identical.
+      const liveTokenBase = runtime.liveTokenBase !== null && latestPrompt !== null
+        ? reuse(runtime.liveTokenBase, latestPrompt)
+        : latestPrompt;
       return {
         // Every frame rebuilds these values; reusing equal ones keeps the runtime identical per token.
         runtime: { ...runtime, recoveryStatus: snapshot.status, activity: reuse(runtime.activity, activity),
           awaitingResponse: false,
           pendingApproval: snapshot.approval?.actionable ? snapshot.approval : null,
-          liveTokenBase: [...snapshot.tokenTurns].reverse().find(turn => turn.prompt !== null)?.prompt ?? null,
+          liveTokenBase,
           warnings: reuse(runtime.warnings, snapshot.warnings),
           error: snapshot.status === 'recovery_failed' ? 'Chat recovery requires repair before continuing.' : null },
         live: { journalSnapshot: snapshot, liveMessages: snapshot.messages,

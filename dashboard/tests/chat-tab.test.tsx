@@ -1013,6 +1013,15 @@ test('busy A stays visible while selected B remains interactive', () => {
   assert.doesNotMatch(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
 });
 
+test('a streaming session shows a static live dot in the rail, with no typing animation', () => {
+  const store = buildDefaultStore('session-a').apply({
+    kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,
+  });
+  const markup = render({ runtimeHub: new ChatRuntimeHub(store) });
+  assert.match(markup, /class="live-dot"/u);
+  assert.doesNotMatch(markup, /class="typing"/u);
+});
+
 test('selected busy A disables mutable controls except Stop', () => {
   const store = buildDefaultStore('session-a').apply({
     kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,

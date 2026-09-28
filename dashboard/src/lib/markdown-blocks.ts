@@ -7,14 +7,10 @@ const LIST_ITEM_PATTERN = /^(?:[-*+]|\d{1,9}[.)])(?:\s|$)/u;
  */
 const CROSS_BLOCK_PATTERN = /^ {0,3}(?:\[[^\]\n]+\]:|<(?:pre|script|style|textarea)(?:[\s>]|$)|<!--|<\?|<![A-Za-z[])/imu;
 
-/**
- * Splits markdown into top-level blocks that render exactly as the whole document does, so a streamed
- * answer's finished blocks keep identical text and only the growing tail needs re-parsing. Text whose
- * blocks could interact across a boundary stays whole.
- */
-export function splitMarkdownBlocks(markdown: string): string[] {
+/** The top-level blocks and whether the last one is still inside an unclosed code fence. */
+function scanMarkdownBlocks(markdown: string): { blocks: string[]; inFence: boolean } {
   if (CROSS_BLOCK_PATTERN.test(markdown)) {
-    return [markdown];
+    return { blocks: [markdown], inFence: false };
   }
   const blocks: string[] = [];
   let current: string[] = [];
@@ -37,5 +33,20 @@ export function splitMarkdownBlocks(markdown: string): string[] {
     previousBlank = openFence === null && line.trim() === '';
   }
   blocks.push(current.join('\n'));
-  return blocks;
+  return { blocks, inFence: openFence !== null };
+}
+
+/**
+ * Splits markdown into top-level blocks that render exactly as the whole document does, so a streamed
+ * answer's finished blocks keep identical text and only the growing tail needs re-parsing. Text whose
+ * blocks could interact across a boundary stays whole.
+ */
+export function splitMarkdownBlocks(markdown: string): string[] {
+  return scanMarkdownBlocks(markdown).blocks;
+}
+
+/** Where a streamed prefix's last, still-growing block starts (after its separating newline), and whether it is an open fence. */
+export function streamTailStart(markdown: string): { start: number; inFence: boolean } {
+  const { blocks, inFence } = scanMarkdownBlocks(markdown);
+  return { start: blocks.slice(0, -1).reduce((offset, block) => offset + block.length + 1, 0), inFence };
 }
