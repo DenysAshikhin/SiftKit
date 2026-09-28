@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../../src/lib/chatTurns';
+import { chunkAtTurnStarts, groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../../src/lib/chatTurns';
 import { ChatMessageSchema, type ChatMessage } from '../../src/types';
 
 function message(overrides: Partial<ChatMessage>): ChatMessage {
@@ -458,4 +458,26 @@ test('show_image rows surface on the turn and stay out of Internal Logic', () =>
   const [turn] = groupMessagesIntoTurns([shown, answer], new Set());
   assert.deepEqual(turn?.shownImages.map((row) => row.id), ['img']);
   assert.equal(turn?.steps.some((row) => row.id === 'img'), false);
+});
+
+test('chunkAtTurnStarts starts a new chunk only at a user row once the chunk is full, keyed by its first row', () => {
+  const rows = ['u1', 'a1', 'a2', 'u2', 'a3', 'u3', 'a4'].map((id) => message(id.startsWith('u') ? { id, role: 'user', kind: 'user_text' } : { id }));
+  const ids = (chunks: ReturnType<typeof chunkAtTurnStarts>) => chunks.map((chunk) => chunk.messages.map((row) => row.id));
+  assert.deepEqual(ids(chunkAtTurnStarts(rows, 2)), [['u1', 'a1', 'a2'], ['u2', 'a3'], ['u3', 'a4']]);
+  assert.deepEqual(ids(chunkAtTurnStarts(rows, 4)), [['u1', 'a1', 'a2', 'u2', 'a3'], ['u3', 'a4']]);
+  assert.deepEqual(ids(chunkAtTurnStarts(rows, 100)), [['u1', 'a1', 'a2', 'u2', 'a3', 'u3', 'a4']]);
+  assert.deepEqual(chunkAtTurnStarts(rows, 2).map((chunk) => chunk.key), ['u1', 'u2', 'u3']);
+});
+
+test('chunkAtTurnStarts cuts wherever turn grouping starts a turn, including a user approval row', () => {
+  const approval = message({ id: 'r1', role: 'user', kind: 'repo_agent_approval', approvalDecision: 'approve', approvalToolName: 'bash', approvalCommand: 'ls', approvalReason: null });
+  const rows = [message({ id: 'u1', role: 'user', kind: 'user_text' }), message({ id: 'a1' }), approval, message({ id: 'a2' })];
+  assert.deepEqual(chunkAtTurnStarts(rows, 2).map((chunk) => chunk.key), ['u1', 'r1']);
+  assert.deepEqual(groupMessagesIntoTurns(rows, new Set()).filter((turn) => turn.key.startsWith('user:')).map((turn) => turn.key), ['user:u1', 'user:r1']);
+});
+
+test('chunkAtTurnStarts never splits a turn and returns no chunks for no rows', () => {
+  const turn = ['u1', 'a1', 'a2', 'a3'].map((id) => message(id.startsWith('u') ? { id, role: 'user', kind: 'user_text' } : { id }));
+  assert.deepEqual(chunkAtTurnStarts(turn, 1).map((chunk) => chunk.messages.length), [4]);
+  assert.deepEqual(chunkAtTurnStarts([], 25), []);
 });

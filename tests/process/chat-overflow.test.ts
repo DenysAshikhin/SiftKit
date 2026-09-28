@@ -1,15 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { OrchestratorRunStateSchema } from '@siftkit/contracts';
-import { parseJsonText } from '../../src/lib/json.js';
-import { PAGE_HTML, bundleBrowserPage, findChrome } from '../helpers/browser-page.js';
-import { HOSTILE_PATH, OVERFLOW_PRESENT, OverflowResultSchema, UNBROKEN } from '../../dashboard/tests/chat-overflow-content.js';
+import { HeadlessChrome, bundleBrowserPage, bundleResponse } from '../helpers/browser-page.js';
+import { HOSTILE_PATH, OVERFLOW_PRESENT, OverflowReportSchema, UNBROKEN } from '../../dashboard/tests/chat-overflow-content.js';
 
-const execFileAsync = promisify(execFile);
 const AT = '2026-09-23T12:00:00.000Z';
 const CHECK = { kind: 'command', command: `npm test -- ${UNBROKEN}`, cwd: '.', expectedExitCode: 0 } as const;
 const TASK = { id: 'task', title: UNBROKEN, dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: [HOSTILE_PATH],
@@ -33,36 +29,40 @@ const RUN = OrchestratorRunStateSchema.parse({
     command: `rm -rf ${HOSTILE_PATH}`, reviewPayload: UNBROKEN },
 });
 
-/** Serves the page and the one orchestrator run it lists; its event stream closes at once on the same state. */
-function serve(files: Map<string, string>): Promise<http.Server> {
-  const routes = new Map<string, [string, string]>([
-    ['/', ['text/html', PAGE_HTML]],
-    ['/page.js', ['text/javascript', files.get('page.js') ?? '']],
-    ['/page.css', ['text/css', files.get('page.css') ?? '']],
-    ['/orchestrator/runs', ['application/json', JSON.stringify({ runs: [RUN] })]],
-    ['/orchestrator/events', ['text/event-stream', `event: result\ndata: ${JSON.stringify(RUN)}\n\n`]],
+/** Serves the page at /page/ and the one orchestrator run it lists; its event stream closes at once on the same state. */
+function serve(bundles: ReadonlyMap<string, Map<string, string>>): Promise<http.Server> {
+  const routes = new Map([
+    ['/orchestrator/runs', { contentType: 'application/json', body: JSON.stringify({ runs: [RUN] }) }],
+    ['/orchestrator/events', { contentType: 'text/event-stream', body: `event: result
+data: ${JSON.stringify(RUN)}
+
+` }],
   ]);
   const server = http.createServer((request, response) => {
-    const route = routes.get(new URL(request.url ?? '/', 'http://localhost').pathname);
-    response.writeHead(route ? 200 : 404, { 'Content-Type': route?.[0] ?? 'text/plain' }).end(route?.[1] ?? 'not found');
+    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    const route = routes.get(pathname) ?? bundleResponse(bundles, pathname);
+    if (route === null) {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { 'Content-Type': route.contentType }).end(route.body);
   });
   return new Promise((resolve) => { server.listen(0, '127.0.0.1', () => resolve(server)); });
 }
 
-test('no chat content scrolls the transcript sideways or escapes its bubble in a real browser', { timeout: 120_000 }, async () => {
-  const server = await serve(await bundleBrowserPage(path.join('dashboard', 'tests', 'chat-overflow-page.tsx')));
+test('no chat content scrolls sideways, escapes its box, or loses its alignment in a real browser', { timeout: 120_000 }, async () => {
+  const server = await serve(new Map([['page', await bundleBrowserPage(path.join('dashboard', 'tests', 'chat-overflow-page.tsx'))]]));
+  const chrome = await HeadlessChrome.launch();
   try {
     const address = server.address();
     if (address === null || typeof address === 'string') assert.fail('The page server has no TCP port.');
-    const { stdout } = await execFileAsync(findChrome(), ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-      '--window-size=1000,1400', '--virtual-time-budget=10000', '--dump-dom', `http://127.0.0.1:${address.port}/`], { timeout: 90_000, maxBuffer: 64 * 1024 * 1024 });
-    const output = /<script type="application\/json" id="overflow-result">([\s\S]*?)<\/script>/u.exec(stdout)?.[1];
-    if (output === undefined) assert.fail('The page never reported a measurement.');
-    const result = parseJsonText(output, OverflowResultSchema);
-    if ('error' in result) assert.fail(result.error);
-    assert.deepEqual(result.report.present, OVERFLOW_PRESENT);
-    assert.deepEqual(result.report.scenarios, ['question', 'approval', 'orchestrator'].map((name) => ({ name, sideways: [0, 0], escapes: [] })));
+    const page = await chrome.open(`http://127.0.0.1:${String(address.port)}/page/`, 'runOverflow');
+    const report = await page.evaluate('window.runOverflow()', true, OverflowReportSchema);
+    assert.deepEqual(report.present, OVERFLOW_PRESENT);
+    assert.deepEqual(report.scenarios, ['question', 'approval', 'orchestrator']
+      .map((name) => ({ name, sideways: [0, 0], escapes: [], misaligned: [], estimateErrors: [] })));
   } finally {
+    await chrome.close();
     server.close();
   }
 });

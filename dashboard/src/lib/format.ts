@@ -42,11 +42,14 @@ export function writeSearchParams(update: Record<string, string | null>): void {
   window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
 }
 
+// One formatter: toLocaleString() builds a new one per call, and token badges format on every streamed frame.
+const NUMBER_FORMAT = new Intl.NumberFormat();
+
 export function formatNumber(value: number | null): string {
   if (!Number.isFinite(value)) {
     return '-';
   }
-  return Number(value).toLocaleString();
+  return NUMBER_FORMAT.format(Number(value));
 }
 
 export function formatTokenLabel(value: number | null, exactLabel = 'tokens'): string {

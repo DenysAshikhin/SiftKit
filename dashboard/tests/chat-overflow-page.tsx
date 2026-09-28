@@ -4,12 +4,11 @@ import { DurableChatApprovalSchema, DurableChatQuestionSchema } from '@siftkit/c
 import '../src/styles.css';
 import { ChatTab } from '../src/tabs/ChatTab';
 import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';
-import { toError } from '../../src/lib/errors.js';
 import { chatSnapshot } from './chat-snapshot-fixture.js';
-import { HOSTILE_PATH, OVERFLOW_PRESENT, UNBROKEN, type OverflowReport } from './chat-overflow-content.js';
+import { HOSTILE_PATH, OVERFLOW_PRESENT, SHORT_ANSWER, SHORT_QUESTION, UNBROKEN, type OverflowReport } from './chat-overflow-content.js';
 import { REPO_AGENT_PRESET, SESSION_A, buildDefaultStore, buildProps, msg, orchestratorProps } from './chat-tab-fixture.js';
 
-/** Real ChatTab scenarios filled with content that cannot wrap; tests/process/chat-overflow.test.ts loads this page in headless Chrome. */
+/** Real ChatTab scenarios filled with content that cannot wrap; tests/process/chat-overflow.test.ts drives this page in headless Chrome. */
 const WIDE_TABLE = [
   `| ${Array.from({ length: 12 }, (_, index) => `heading ${index}`).join(' | ')} |`,
   `| ${Array.from({ length: 12 }, () => '---').join(' | ')} |`,
@@ -29,6 +28,8 @@ const SESSION = { ...SESSION_A, planRepoRoot: `C:/${HOSTILE_PATH}`, messages: [
   msg({ id: 'a', kind: 'assistant_answer', content: MARKDOWN, sourceRunId: 'run-1' }),
   msg({ id: 'd', role: 'user', kind: 'repo_agent_approval', content: '', approvalDecision: 'approve', approvalToolName: 'bash',
     approvalCommand: `npm test -- ${UNBROKEN}`, approvalReason: null, sourceRunId: 'run-1' }),
+  msg({ id: 's', role: 'user', kind: 'user_text', content: SHORT_QUESTION }),
+  msg({ id: 'r', kind: 'assistant_answer', content: SHORT_ANSWER, sourceRunId: 'run-2' }),
 ] };
 const TIMES = { requestedAtUtc: '2026-09-22T00:00:00.000Z', expiresAtUtc: '2999-01-01T00:00:00.000Z', outcome: null, decidedAtUtc: null, actionable: true };
 const question = DurableChatQuestionSchema.parse({ questionId: '4f9c1f9a-0000-4000-8000-00000000000e', toolCallId: 'call',
@@ -54,6 +55,10 @@ const SCENARIOS = {
   orchestrator: orchestratorProps({ selectedSession: { ...SESSION, planRepoRoot: 'C:/repo' } }),
 };
 
+declare global {
+  interface Window { runOverflow?: () => Promise<OverflowReport> }
+}
+
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
 }
@@ -62,35 +67,60 @@ function describe(element: Element): string {
   return `${element.tagName.toLowerCase()}${[...element.classList].map((name) => `.${name}`).join('')} "${(element.textContent ?? '').slice(0, 30)}"`;
 }
 
-/** Descendants whose box crosses the root's right edge; a clipping box scrolls its own content, so its inside is skipped. */
-function escapesFrom(root: Element): string[] {
-  const edge = root.getBoundingClientRect().right + 0.5;
+/** Boxes that cross their parent's right edge; a parent that scrolls owns its overflow, and out-of-flow boxes are placed on purpose. */
+function escapesWithin(root: Element): string[] {
   const found: string[] = [];
-  const visit = (element: Element): void => {
-    for (const child of element.children) {
-      if (child.getBoundingClientRect().right > edge) found.push(`${describe(child)} escapes ${describe(root)}`);
-      if (getComputedStyle(child).overflowX === 'visible') visit(child);
+  const visit = (parent: Element): void => {
+    const edge = parent.getBoundingClientRect().right + 0.5;
+    const scrolls = getComputedStyle(parent).overflowX !== 'visible';
+    for (const child of parent.children) {
+      const { position } = getComputedStyle(child);
+      const placed = position === 'absolute' || position === 'fixed';
+      if (!scrolls && !placed && child.getBoundingClientRect().right > edge) found.push(`${describe(child)} escapes ${describe(parent)}`);
+      visit(child);
     }
   };
   visit(root);
   return found;
 }
 
+/** Outermost user bubbles sit on the right of their column and assistant bubbles on the left; a short bubble hugs its content. */
+function misalignedWithin(scenario: Element): string[] {
+  const outermost = [...scenario.querySelectorAll('.msg')].filter((bubble) => bubble.parentElement?.closest('.msg') === null);
+  return outermost.flatMap((bubble) => {
+    const parent = bubble.parentElement;
+    if (!parent) return [`${describe(bubble)} has no column`];
+    const box = bubble.getBoundingClientRect();
+    const column = parent.getBoundingClientRect();
+    const maxWidth = column.width * Number.parseFloat(getComputedStyle(bubble).maxWidth) / 100;
+    const short = [SHORT_QUESTION, SHORT_ANSWER].some((text) => (bubble.textContent ?? '').includes(text));
+    return [
+      bubble.classList.contains('user') && Math.abs(box.right - column.right) > 1 ? `${describe(bubble)} is not right-aligned` : '',
+      bubble.classList.contains('ai') && Math.abs(box.left - column.left) > 1 ? `${describe(bubble)} is not left-aligned` : '',
+      short && box.width >= maxWidth - 1 ? `${describe(bubble)} takes its full max width` : '',
+    ].filter(Boolean);
+  });
+}
+
+/** A chunk's placeholder height must resolve to the row estimate times the chunk size ChatTab sets on it. */
+function estimateErrorsWithin(scenario: Element): string[] {
+  return [...scenario.querySelectorAll('.msgs-chunk')].flatMap((chunk) => {
+    const style = getComputedStyle(chunk);
+    const expected = `auto ${String(Number(style.getPropertyValue('--chunk-rows')) * Number.parseFloat(style.getPropertyValue('--row-estimate')))}px`;
+    const actual = style.getPropertyValue('contain-intrinsic-block-size');
+    return actual === expected ? [] : [`${describe(chunk)} estimates "${actual}", not "${expected}"`];
+  });
+}
+
 function measure(scenario: Element): OverflowReport['scenarios'][number] {
   const main = scenario.querySelector('.chat-main');
   const log = scenario.querySelector('.msgs');
   if (!main || !log) throw new Error('The chat tab did not render its log.');
-  const roots = [...main.children, ...scenario.querySelectorAll('.msgs-content > *')];
   return { name: scenario.getAttribute('data-scenario') ?? '', sideways: [main, log].map((element) => element.scrollWidth - element.clientWidth),
-    escapes: roots.flatMap(escapesFrom) };
+    escapes: escapesWithin(main), misaligned: misalignedWithin(scenario), estimateErrors: estimateErrorsWithin(scenario) };
 }
 
-async function run(): Promise<OverflowReport> {
-  const host = document.getElementById('root');
-  if (!host) throw new Error('The overflow page has no root.');
-  createRoot(host).render(<>{Object.entries(SCENARIOS).map(([name, props]) => (
-    <div key={name} className="view on" data-scenario={name} style={{ width: 760, height: 1600, flex: 'none' }}><ChatTab {...props} /></div>
-  ))}</>);
+async function runOverflow(): Promise<OverflowReport> {
   for (let tries = 0; !document.querySelector('.orchestrator-run') && tries < 200; tries += 1) await pause(20);
   for (const button of document.querySelectorAll('button')) if (button.textContent === 'Reject…') button.click();
   // Opening a disclosure can reveal nested ones, so open until none is left closed.
@@ -102,10 +132,9 @@ async function run(): Promise<OverflowReport> {
     scenarios: [...document.querySelectorAll('[data-scenario]')].map(measure) };
 }
 
-void run().then((report) => ({ report }), (caught) => ({ error: toError(caught).message })).then((result) => {
-  const output = document.createElement('script');
-  output.type = 'application/json';
-  output.id = 'overflow-result';
-  output.textContent = JSON.stringify(result);
-  document.body.append(output);
-});
+const host = document.getElementById('root');
+if (!host) throw new Error('The overflow page has no root.');
+createRoot(host).render(<>{Object.entries(SCENARIOS).map(([name, props]) => (
+  <div key={name} className="view on" data-scenario={name} style={{ width: 760, height: 1600, flex: 'none' }}><ChatTab {...props} /></div>
+))}</>);
+window.runOverflow = runOverflow;

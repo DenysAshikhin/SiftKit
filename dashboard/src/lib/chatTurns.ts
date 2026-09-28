@@ -46,11 +46,16 @@ function isShownImageMessage(message: ChatMessage): message is ChatToolCallMessa
   return isToolCallMessage(message) && isDisplayOnlyImageMessage(message) && (message.images?.length ?? 0) > 0;
 }
 
+/** A user row always owns its own turn; grouping and chunking both cut only here. */
+function startsUserTurn(message: ChatMessage): boolean {
+  return message.role === 'user';
+}
+
 function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
   // A user message always owns its own turn. Keying it as 'live' too would fold the
   // optimistic bubble into the assistant's live turn, where the streaming answer takes
   // the main slot and the user's own words get demoted into Internal Logic.
-  if (message.role === 'user') return `user:${message.id}`;
+  if (startsUserTurn(message)) return `user:${message.id}`;
   if (isLive) return 'live';
   const runId = typeof message.sourceRunId === 'string' ? message.sourceRunId.trim() : '';
   return runId ? `run:${runId}` : `solo:${message.id}`;
@@ -101,6 +106,19 @@ function finalizeTurn(turn: ChatTurn): void {
   ));
 }
 
+export type MessageChunk = { key: string; messages: ChatMessage[] };
+
+/** Splits rows into chunks of at least `size` rows, cutting only where a user row starts a turn; keyed by the first row. */
+export function chunkAtTurnStarts(messages: ChatMessage[], size: number): MessageChunk[] {
+  const chunks: MessageChunk[] = [];
+  for (const message of messages) {
+    const current = chunks.at(-1);
+    if (current && (current.messages.length < size || !startsUserTurn(message))) current.messages.push(message);
+    else chunks.push({ key: message.id, messages: [message] });
+  }
+  return chunks;
+}
+
 export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: Set<string>): ChatTurn[] {
   const turns: ChatTurn[] = [];
   let lastGroupingKey: string | null = null;
@@ -112,7 +130,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
       lastTurn.messages.push(message);
     } else {
       turns.push({
-        key: message.role === 'user' ? `user:${message.id}` : `assistant-segment:${message.id}`,
+        key: startsUserTurn(message) ? `user:${message.id}` : `assistant-segment:${message.id}`,
         isLive,
         messages: [message],
         steps: [],

@@ -143,3 +143,16 @@ test('a basename shared by the default and process suites resolves to both files
     path.join('.test-build', 'tests', 'runtime-status-server.test.js'),
   ]);
 });
+
+test('perf option resolves tests/perf, runs one file at a time, and no other run includes it', () => {
+  const perfTarget = path.join('.test-build', 'tests', 'perf', 'chat-stream-load.test.js');
+  const args = buildNodeTestArgs(process.cwd(), ['--perf']);
+  assert.equal(args.includes(perfTarget), true);
+  assert.equal(args.includes('--test-concurrency=1'), true);
+  assert.equal(args.includes('--perf'), false);
+  for (const other of [[], ['--process'], ['--dashboard']]) assert.equal(buildNodeTestArgs(process.cwd(), other).includes(perfTarget), false);
+});
+
+test('a perf test named on its own still runs one file at a time', () => {
+  assert.equal(buildNodeTestArgs(process.cwd(), ['chat-stream-load.test.ts']).includes('--test-concurrency=1'), true);
+});

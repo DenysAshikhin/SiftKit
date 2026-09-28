@@ -10,6 +10,14 @@ export type ChatStreamStart =
   | { kind: 'owned'; operationKind: ChatSessionOperationKind; operationId: string; submissionId?: string }
   | { kind: 'attached' };
 
+/** What one non-terminal transition of a submission this client owns applies: itself, then the phase it implies. */
+export function ownedStreamTransitions(
+  transition: ChatSessionRuntimeTransition, sessionId: string, submissionId: string,
+): ChatSessionRuntimeTransition[] {
+  const phase = transition.kind === 'snapshot' ? 'streaming' : transition.kind === 'interrupted' ? 'reconnecting' : null;
+  return phase ? [transition, { kind: 'submission-phase', sessionId, submissionId, phase }] : [transition];
+}
+
 /**
  * Turns one chat stream into the runtime transitions it implies. Yields data only, so the
  * caller owns how state is published and two streams can be drained concurrently.

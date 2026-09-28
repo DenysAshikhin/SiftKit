@@ -4,7 +4,7 @@ import type { ChatRunTerminalCause } from '@siftkit/contracts';
 import { createLiveMessage } from '../src/lib/chat-live-messages';
 import assert from 'node:assert/strict';
 
-import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
+import { ownedStreamTransitions, toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatSessionBusyError, ChatStreamHttpError } from '../src/api';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
@@ -242,4 +242,15 @@ test('a definite HTTP rejection fails instead of reconnecting', async () => {
     throw new ChatStreamHttpError(400, 'Request failed (400): invalid request');
   }
   assert.deepEqual(await collectKinds(rejectedStream(), 'message', true), ['begin', 'failure']);
+});
+
+test('an owned stream moves its submission to streaming on a view and to reconnecting on an interruption', () => {
+  const snapshot: ChatSessionRuntimeTransition = { kind: 'snapshot', sessionId: 's1', snapshot: chatProjectionCapture({ sessionId: 's1' }).snapshot };
+  const interrupted: ChatSessionRuntimeTransition = { kind: 'interrupted', sessionId: 's1', message: 'lost' };
+  const detach: ChatSessionRuntimeTransition = { kind: 'detach', sessionId: 's1' };
+  const phaseOf = (transition: ChatSessionRuntimeTransition) => ownedStreamTransitions(transition, 's1', SUBMISSION_ID)
+    .map((applied) => applied.kind === 'submission-phase' ? applied.phase : applied.kind);
+  assert.deepEqual(phaseOf(snapshot), ['snapshot', 'streaming']);
+  assert.deepEqual(phaseOf(interrupted), ['interrupted', 'reconnecting']);
+  assert.deepEqual(phaseOf(detach), ['detach']);
 });

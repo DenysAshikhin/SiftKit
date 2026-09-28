@@ -52,7 +52,7 @@ import type { ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-s
 import { ChatRuntimeHub } from '../lib/chat-runtime-hub';
 import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
 import { useLatest } from '../lib/use-latest';
-import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
+import { ownedStreamTransitions, toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
 import { ChatSessionSummarySchema } from '../types';
 import type { ChatSession, ChatSessionResponse, ChatSessionSummary } from '../types';
@@ -603,9 +603,7 @@ export function useChatSessions(deps: {
             }
             continue;
           }
-          const phase = transition.kind === 'snapshot' ? 'streaming' as const : transition.kind === 'interrupted' ? 'reconnecting' as const : null;
-          runtimeHub.apply(transition,
-            ...(phase ? [{ kind: 'submission-phase' as const, sessionId, submissionId: submission.payload.submissionId, phase }] : []));
+          runtimeHub.apply(...ownedStreamTransitions(transition, sessionId, submission.payload.submissionId));
           if (transition.kind === 'interrupted') interrupted = true;
           if (transition.kind === 'failure' || transition.kind === 'remote-begin') ownedElsewhere = true;
         }

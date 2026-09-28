@@ -121,13 +121,13 @@ http.request = new Proxy(http.request, requestGuard);
 https.request = new Proxy(https.request, requestGuard);
 globalThis.fetch = new Proxy(globalThis.fetch, fetchGuard);
 
-// The default suite is hermetic: node:test files may start no child process. Process-suite
-// files (tests/process/) may, and hand that permission to their descendants through env.
+// The default suite is hermetic: node:test files may start no child process. Process- and perf-suite
+// files (tests/process/, tests/perf/) may, and hand that permission to their descendants through env.
 const SPAWN_ALLOWED_ENV = 'SIFTKIT_GUARD_SPAWN_ALLOWED';
 const spawnViolations: string[] = [];
 
-function isProcessSuiteFile(entrypoint: string | undefined): boolean {
-  return entrypoint !== undefined && entrypoint.split(path.sep).join('/').includes('/tests/process/');
+function isSpawnSuiteFile(entrypoint: string | undefined): boolean {
+  return entrypoint !== undefined && /\/tests\/(?:process|perf)\//u.test(entrypoint.split(path.sep).join('/'));
 }
 
 function forbidSpawn<T extends object>(target: T, name: string): T {
@@ -146,7 +146,7 @@ function forbidSpawn<T extends object>(target: T, name: string): T {
 }
 
 if (process.env.NODE_TEST_CONTEXT && process.env[SPAWN_ALLOWED_ENV] !== '1') {
-  if (isProcessSuiteFile(process.argv[1])) {
+  if (isSpawnSuiteFile(process.argv[1])) {
     process.env[SPAWN_ALLOWED_ENV] = '1';
   } else {
     // Nothing outside this process may read the runtime databases, so they need no file.

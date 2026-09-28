@@ -11,7 +11,9 @@ const TEST_RUNNER_OPTIONS_WITH_VALUES = new Set([
 const DEFAULT_TEST_TIMEOUT_MS = 30_000;
 const DEFAULT_TEST_CONCURRENCY = 12;
 const TEST_BUILD_DIRECTORY = '.test-build';
-const SUITE_OPTIONS = new Map<string, TestBuildManifest['tests'][number]['suite']>([['--dashboard', 'dashboard'], ['--process', 'process']]);
+const SUITE_OPTIONS = new Map<string, TestBuildManifest['tests'][number]['suite']>([['--dashboard', 'dashboard'], ['--process', 'process'], ['--perf', 'perf']]);
+/** Perf tests measure CPU time, so no other test file may run beside them. */
+const SERIAL_SUITE = 'perf';
 const TIMEOUT_OPTION = '--test-timeout';
 const CONCURRENCY_OPTION = '--test-concurrency';
 
@@ -105,7 +107,8 @@ function resolveTestArguments(repoRoot: string, rawArgs: string[]) {
     resolvedArgs.push(...targets);
     targetCount += targets.length;
   }
-  return { args: resolvedArgs, targetCount, tests: manifest.tests };
+  const serialTargets = new Set(manifest.tests.filter((entry) => entry.suite === SERIAL_SUITE).map((entry) => toPlatformPath(entry.entrypoint)));
+  return { args: resolvedArgs, targetCount, tests: manifest.tests, serial: resolvedArgs.some((arg) => serialTargets.has(arg)) };
 }
 
 export function resolveTestTargets(repoRoot: string, rawArgs: string[]): string[] {
@@ -123,7 +126,7 @@ export function buildNodeTestArgs(repoRoot: string, rawArgs: string[]): string[]
     defaultArgs.push(`${TIMEOUT_OPTION}=${DEFAULT_TEST_TIMEOUT_MS}`);
   }
   if (!hasExplicitOption(rawArgs, CONCURRENCY_OPTION)) {
-    defaultArgs.push(`${CONCURRENCY_OPTION}=${DEFAULT_TEST_CONCURRENCY}`);
+    defaultArgs.push(`${CONCURRENCY_OPTION}=${resolved.serial ? 1 : DEFAULT_TEST_CONCURRENCY}`);
   }
   return [
     ...defaultArgs,

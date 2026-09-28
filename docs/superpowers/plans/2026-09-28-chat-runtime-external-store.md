@@ -1367,3 +1367,26 @@ Review findings 1-10, 12, 13 from `/reflect-session-drift`. TDD per item; do not
 - [x] **D7 (#9, #10) Real-browser overflow test.** `tests/process/chat-overflow.test.ts` lives in the process suite, because the default suite forbids child processes. It bundles `dashboard/tests/chat-overflow-page.tsx` with esbuild in memory. The page renders the real ChatTab in question, approval and orchestrator scenarios, with hostile content and all disclosures opened; `dashboard/tests/chat-tab-fixture.ts` now shares `buildProps` with chat-tab tests. The test serves the page and one orchestrator run over local HTTP. `chrome --headless=new --virtual-time-budget --dump-dom` loads it, and Chrome's temporary profile is removed on exit. The test asserts no sideways scroll and nothing escaping its bubble. Mutations confirm it catches removing `.approval-actions > *`, `minmax(0, 1fr)` or `overflow-wrap: anywhere`. `chat-layout-css.test.ts` is deleted. `.send`/`.mini-btn` drop `flex: none`; only the composer row and `.err-banner` pin their buttons. `.approval-actions > *` is deleted.
 - [x] **D9 (#5)** `appendTextRow` rejects non-text rows via `ChatTextRowKindSchema`, not a hardcoded kind list; covered by a compaction-summary append test.
 - [x] **D8** Full suite, typecheck and lint.
+
+---
+
+## Streaming load and render cost (2026-09-28)
+
+`npm run test:perf` runs `tests/perf/chat-stream-load.test.ts`: the real server encoder streams 1,000 tokens at 100/s over SSE into the real stream client, runtime hub and `ChatTab` in headless Chrome, and DevTools reports main-thread and per-process CPU. The `perf` suite runs one file at a time and no other run includes it.
+
+- [x] **P1 Off-screen history is skipped.** A trace showed every past row revisited per frame (compositing inputs for each code-block and table scroller, layout, paint). `.msgs-content > *` gets `content-visibility: auto`.
+- [x] **P2 History is chunked.** `chunkAtTurnStarts` wraps settled rows in chunks of `HISTORY_CHUNK_MESSAGES`, cut only where turn grouping starts a turn and keyed by the first row, so per-frame work follows chunks. A chunk's placeholder height is `--row-estimate × --chunk-rows`, with `--chunk-rows` set from the TS constant.
+- [x] **P3 Block flow, not grid.** A growing live row re-lays out only itself; bubbles align with `width: fit-content` and `margin-left: auto`.
+- [x] **P4 `formatNumber` reuses one `Intl.NumberFormat`.**
+- [x] **P5 Measured, not adopted:** render coalescing per animation frame (about 10–15%, inside run-to-run noise).
+- Result: about 1.1 ms of main thread per token for 0, 200 and 1,000 history rows (was 2.0 at 200); 60 fps; no long tasks. The test fails if a long history costs over 1.25× the empty one.
+
+### Drift fixes, round 2
+
+- [x] **E1** `ownedStreamTransitions` is the one step `useChatSessions` and the load page apply per transition.
+- [x] **E2** One Chrome driver: `HeadlessChrome`/`BrowserPage` in `tests/helpers/browser-page.ts` with one flag list; both browser tests use it, and `bundleResponse` serves bundles (404 for unknown ones).
+- [x] **E3** Load scenarios have typed ids; a missing measurement fails loudly.
+- [x] **E4** `startsUserTurn` is the only turn-start rule, shared by grouping and chunking.
+- [x] **E5** The chunk estimate derives from the chunk size; the overflow test checks it resolves.
+- [x] **E6** The overflow test asserts bubble alignment and that short bubbles hug their content, and checks escapes generically (no box past its parent unless the parent scrolls or it is out of flow).
+- [x] **E7** Timing assertions live in the serial `perf` suite.

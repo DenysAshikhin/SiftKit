@@ -38,8 +38,8 @@ interface ChildEnvOptions {
   statusPort?: number;
   /** Runs the probe as a node:test file of the given kind; omit to inherit this file's context. */
   testContext?: 'default-suite' | 'outside-runner';
-  /** Places the probe under a tests/process/ directory, as a process-suite test file would be. */
-  processSuitePath?: boolean;
+  /** Places the probe under tests/<suite>/, as a process- or perf-suite test file would be. */
+  suiteDirectory?: 'process' | 'perf';
 }
 
 function buildChildEnv(options: ChildEnvOptions): NodeJS.ProcessEnv {
@@ -83,7 +83,7 @@ async function getAvailablePort(): Promise<number> {
 function runGuardedChild(childSource: string, options: ChildEnvOptions = {}): ChildResult {
   assert.ok(fs.existsSync(guardPath), `${guardPath} is missing; run "npm run build:test" before this suite.`);
   const tempRoot = createManagedTempDir('siftkit-guard-probe-');
-  const probeDirectory = options.processSuitePath ? path.join(tempRoot, 'tests', 'process') : tempRoot;
+  const probeDirectory = options.suiteDirectory ? path.join(tempRoot, 'tests', options.suiteDirectory) : tempRoot;
   fs.mkdirSync(probeDirectory, { recursive: true });
   const childPath = path.join(probeDirectory, 'probe.mjs');
   fs.writeFileSync(childPath, childSource, 'utf8');
@@ -280,11 +280,22 @@ test('a process-suite test file may start child processes and passes that permis
     "const grandchild = spawnSync(process.execPath, ['-e', \"require('node:child_process').spawnSync(process.execPath, ['--version']); process.stdout.write('grandchild-ok')\"], { encoding: 'utf8' });",
     'process.stderr.write(grandchild.stderr);',
     'process.stdout.write(grandchild.stdout);',
-  ].join('\n'), { preloadGuard: true, testContext: 'default-suite', processSuitePath: true });
+  ].join('\n'), { preloadGuard: true, testContext: 'default-suite', suiteDirectory: 'process' });
 
   assertChildFinished(result);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'grandchild-ok');
+});
+
+test('a perf-suite test file may start child processes too', () => {
+  const result = runGuardedChild([
+    "import { spawnSync } from 'node:child_process';",
+    "process.stdout.write(spawnSync(process.execPath, ['--version'], { encoding: 'utf8' }).status === 0 ? 'perf-ok' : 'perf-failed');",
+  ].join('\n'), { preloadGuard: true, testContext: 'default-suite', suiteDirectory: 'perf' });
+
+  assertChildFinished(result);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'perf-ok');
 });
 
 // Hermetic files keep runtime databases in memory; process-suite files share real files with their children.
@@ -298,7 +309,7 @@ test('a default-suite test file selects in-memory runtime database storage', () 
 });
 
 test('a process-suite test file keeps file-backed runtime database storage', () => {
-  const result = runGuardedChild(STORAGE_PROBE_SOURCE, { preloadGuard: true, testContext: 'default-suite', processSuitePath: true });
+  const result = runGuardedChild(STORAGE_PROBE_SOURCE, { preloadGuard: true, testContext: 'default-suite', suiteDirectory: 'process' });
 
   assertChildFinished(result);
   assert.equal(result.stdout, 'unset');
@@ -341,7 +352,7 @@ test('a default-suite test file that writes outside the temp directory fails des
 });
 
 test('a process-suite test file writes its temp files to disk', () => {
-  const result = runGuardedChild(TEMP_FILE_PROBE_SOURCE, { preloadGuard: true, testContext: 'default-suite', processSuitePath: true });
+  const result = runGuardedChild(TEMP_FILE_PROBE_SOURCE, { preloadGuard: true, testContext: 'default-suite', suiteDirectory: 'process' });
 
   assertChildFinished(result);
   assert.equal(result.status, 0, result.stderr);

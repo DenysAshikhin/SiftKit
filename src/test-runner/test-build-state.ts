@@ -22,7 +22,7 @@ const TestBuildTestSchema = z.object({
   source: ManifestPathSchema,
   entrypoint: ManifestPathSchema,
   bundle: ManifestPathSchema,
-  suite: z.enum(['node', 'dashboard', 'process']),
+  suite: z.enum(['node', 'dashboard', 'process', 'perf']),
 }).strict();
 
 const TestBuildManifestSchema = z.object({
@@ -134,7 +134,8 @@ function isTestSourcePath(sourcePath: string): boolean {
 
 function getTestSuite(source: string): TestBuildManifest['tests'][number]['suite'] {
   if (source.startsWith('dashboard/tests/')) return 'dashboard';
-  return source.startsWith('tests/process/') ? 'process' : 'node';
+  if (source.startsWith('tests/process/')) return 'process';
+  return source.startsWith('tests/perf/') ? 'perf' : 'node';
 }
 
 function createTestEntries(inputPaths: string[]): TestBuildManifest['tests'] {

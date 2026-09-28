@@ -43,7 +43,7 @@ import { useChatScroll } from '../hooks/useChatScroll';
 import { useLatest } from '../lib/use-latest';
 import { useSmoothedText } from '../hooks/useSmoothedText';
 import { MarkdownBlocks } from '../components/MarkdownContent';
-import { groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
+import { chunkAtTurnStarts, groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
 import { buildCompactionSegments, markEarlierRunsCompacted, splitAfterLastSummary, type CompactionSegment } from '../lib/compaction-segments';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
 import { hasSamePresetExecutionContext } from '../dashboard-presets';
@@ -708,12 +708,19 @@ type TranscriptRowProps = {
   onDeleteTurn(messageIds: string[]): Promise<void>;
 };
 
+/** Settled rows per chunk: each chunk is one box the browser can skip, so per-frame work follows chunks, not rows. */
+const HISTORY_CHUNK_MESSAGES = 25;
+/** The chunk's placeholder height is the CSS row estimate times this, so the estimate follows the chunk size. */
+const HISTORY_CHUNK_STYLE: React.CSSProperties & { '--chunk-rows': number } = { '--chunk-rows': HISTORY_CHUNK_MESSAGES };
+
 /** Stored history; memoized so composer edits and stream frames never reconcile it. */
 const PersistedTranscript = React.memo(function PersistedTranscript({ segments, ...rows }: TranscriptRowProps & { segments: CompactionSegment[] }) {
-  return segments.map((segment) => segment.kind === 'compaction'
+  return segments.flatMap((segment) => segment.kind === 'compaction'
     ? <CompactedHistoryPanel key={segment.key} compactedMessages={segment.originals} summary={segment.summary} {...rows} />
-    : <TurnList key={segment.key} messages={segment.messages} liveMessageIds={NO_IDS} liveTokenDisplays={NO_TOKEN_DISPLAYS}
-      pendingUserMessageId={null} {...rows} />);
+    : chunkAtTurnStarts(segment.messages, HISTORY_CHUNK_MESSAGES).map((chunk) => (
+      <div key={chunk.key} className="msgs-chunk" style={HISTORY_CHUNK_STYLE}>
+        <TurnList messages={chunk.messages} liveMessageIds={NO_IDS} liveTokenDisplays={NO_TOKEN_DISPLAYS} pendingUserMessageId={null} {...rows} />
+      </div>)));
 });
 
 /** The running operation's rows: the only transcript part that subscribes to per-token runtime changes. */
