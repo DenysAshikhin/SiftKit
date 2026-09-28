@@ -1,7 +1,8 @@
+import './render-tracker.js';
 import { afterEach } from 'node:test';
 import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
 Object.assign(globalThis, {
   window: dom.window,
@@ -9,6 +10,8 @@ Object.assign(globalThis, {
   HTMLElement: dom.window.HTMLElement,
   HTMLButtonElement: dom.window.HTMLButtonElement,
   Event: dom.window.Event,
+  requestAnimationFrame: dom.window.requestAnimationFrame,
+  cancelAnimationFrame: dom.window.cancelAnimationFrame,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 

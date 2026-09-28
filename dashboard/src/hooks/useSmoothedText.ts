@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { SmoothStreamPacer } from '../lib/smooth-stream-pacer';
 
-const FRAME_MS = 33;
+/** Frames sooner than this after the last advance are skipped: above ~60 fps re-rendering adds CPU, not smoothness. */
+const MIN_ADVANCE_INTERVAL_MS = 12;
 
 /**
  * Paces a live-streamed string so it appears to type smoothly regardless of
@@ -11,6 +12,8 @@ const FRAME_MS = 33;
  */
 export function useSmoothedText(text: string, live: boolean): string {
   const pacerRef = useRef<SmoothStreamPacer | null>(null);
+  // One frame loop spans text updates; re-arming it per update starved it whenever updates outpaced frames.
+  const frameRef = useRef<number | null>(null);
   const [displayedLength, setDisplayedLength] = useState(text.length);
   if (pacerRef.current === null) {
     pacerRef.current = new SmoothStreamPacer(text.length);
@@ -19,33 +22,38 @@ export function useSmoothedText(text: string, live: boolean): string {
 
   useEffect(() => {
     if (!live) {
+      stopFrameLoop(frameRef);
       setDisplayedLength(pacer.snap());
       return;
     }
-    pacer.push(text.length, Date.now());
+    pacer.push(text.length, performance.now());
     if (pacer.isCaughtUp()) {
+      stopFrameLoop(frameRef);
       setDisplayedLength(text.length);
       return;
     }
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const step = (): void => {
-      if (cancelled) {
-        return;
+    if (frameRef.current !== null) {
+      return;
+    }
+    let lastAdvanceAtMs = Number.NEGATIVE_INFINITY;
+    const step = (atMs: number): void => {
+      if (atMs - lastAdvanceAtMs >= MIN_ADVANCE_INTERVAL_MS) {
+        lastAdvanceAtMs = atMs;
+        setDisplayedLength(pacer.sample(atMs));
       }
-      setDisplayedLength(pacer.sample(Date.now()));
-      if (!pacer.isCaughtUp()) {
-        timer = setTimeout(step, FRAME_MS);
-      }
+      frameRef.current = pacer.isCaughtUp() ? null : requestAnimationFrame(step);
     };
-    timer = setTimeout(step, FRAME_MS);
-    return () => {
-      cancelled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
-    };
+    frameRef.current = requestAnimationFrame(step);
   }, [text, live, pacer]);
 
+  useEffect(() => () => stopFrameLoop(frameRef), []);
+
   return live ? text.slice(0, Math.min(displayedLength, text.length)) : text;
+}
+
+function stopFrameLoop(frameRef: RefObject<number | null>): void {
+  if (frameRef.current !== null) {
+    cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  }
 }

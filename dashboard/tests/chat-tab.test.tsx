@@ -12,6 +12,7 @@ import { groupMessagesIntoTurns } from '../src/lib/chatTurns';
 import { GatedChatBackend } from '../../tests/helpers/gated-chat-backend.js';
 import { ChatMessageQueueResponseSchema } from '@siftkit/contracts';
 import { ChatTab } from '../src/tabs/ChatTab';
+import { MarkdownContent } from '../src/components/MarkdownContent';
 import { summarizeChatSession } from '../src/hooks/useChatSessions';
 import { consumeChatStream } from '../src/api';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
@@ -2067,4 +2068,12 @@ test('an actionable question renders the card and Cancel stops the run', async (
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); });
     assert.equal(stopped, 1);
   } finally { view.unmount(); }
+});
+
+test('chat answers render through markdown blocks with whole-document output', () => {
+  const content = '# Plan\n\nRun this:\n\n```bash\nnpm test\n\nnpm run lint\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nDone **now**.';
+  // Blocks drop only the insignificant newline text nodes the whole-document render puts between block elements.
+  const whole = renderToStaticMarkup(<MarkdownContent content={content} />).replaceAll('>\n<', '><');
+  const markup = render({ selectedSession: { ...SESSION_A, messages: [msg({ id: 'a1', kind: 'assistant_answer', content })] } }).replaceAll('>\n<', '><');
+  assert.ok(markup.includes(whole), 'block rendering diverged from whole-document rendering');
 });

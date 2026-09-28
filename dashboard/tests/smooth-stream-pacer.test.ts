@@ -49,3 +49,14 @@ test('snap completes instantly and shrink snaps back', () => {
   pacer.push(40, 10);
   assert.equal(pacer.sample(10), 40);
 });
+
+test('resuming after an idle pause advances one frame of text, not the whole idle gap', () => {
+  const pacer = new SmoothStreamPacer(0);
+  pacer.push(100, 0);
+  pacer.push(200, 1000); // EMA = 0.1 chars/ms
+  for (let at = 1016; !pacer.isCaughtUp(); at += 16) pacer.sample(at);
+  // Five idle seconds, then a small burst: the first frame must not count the pause as elapsed time.
+  pacer.push(260, 7000);
+  const first = pacer.sample(7016);
+  assert.equal(first - 200 < 10, true, `advanced ${String(first - 200)} chars in one frame`);
+});

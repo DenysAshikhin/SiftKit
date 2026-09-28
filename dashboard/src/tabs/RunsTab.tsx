@@ -1,6 +1,5 @@
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { MarkdownContent } from '../components/MarkdownContent';
 
 import { RUN_LOG_TYPE_PRESETS, normalizeRunLogTypeFilter } from '../run-log-admin';
 import { StatusDot } from '../components/StatusDot';
@@ -145,9 +144,7 @@ export function RunsTab({
                 <div className="card final">
                   <header><b>Final Output</b></header>
                   <div className="cbody markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {normalizeFinalOutputText(finalOutput)}
-                    </ReactMarkdown>
+                    <MarkdownContent content={normalizeFinalOutputText(finalOutput)} />
                   </div>
                 </div>
               );
@@ -201,9 +198,7 @@ export function RunsTab({
                 <div key={`${event.kind}-${index}`} className="card">
                   <header><b>{event.kind}</b><span>{event.at ? formatDate(event.at) : ''}</span></header>
                   <div className="cbody markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {formatRunEventPayload(event)}
-                    </ReactMarkdown>
+                    <MarkdownContent content={formatRunEventPayload(event)} />
                   </div>
                 </div>
               ))

@@ -27,6 +27,10 @@ export class SmoothStreamPacer {
     if (targetLength < this.displayedLength) {
       this.displayedLength = targetLength;
     }
+    // Resuming from caught-up restarts the sample clock, so an idle pause never counts as elapsed frame time.
+    if (this.displayedLength >= this.targetLength && targetLength > this.displayedLength) {
+      this.lastSampleAtMs = null;
+    }
     if (this.lastPushAtMs !== null && atMs > this.lastPushAtMs && targetLength > this.targetLength) {
       const instant = (targetLength - this.targetLength) / (atMs - this.lastPushAtMs);
       this.emaCharsPerMs = this.emaCharsPerMs === null

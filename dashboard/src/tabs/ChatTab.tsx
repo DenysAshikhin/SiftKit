@@ -1,8 +1,6 @@
 import { buildLiveTokenDisplays } from '../lib/chat-live-token-display';
 import { requireLiveTokenDisplay, type TokenDisplay } from '../lib/format';
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 import {
   formatCompactTokenCount,
@@ -40,6 +38,7 @@ import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { useSmoothedText } from '../hooks/useSmoothedText';
+import { MarkdownBlocks } from '../components/MarkdownContent';
 import { groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
 import { buildCompactionSegments, markEarlierRunsCompacted } from '../lib/compaction-segments';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
@@ -911,7 +910,7 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
           {expandedThinking ? <pre className="mono">{message.thinkingContent}</pre> : null}
         </details>
       ) : null}
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <MarkdownBlocks content={content} />
     </div>
   );
 }
