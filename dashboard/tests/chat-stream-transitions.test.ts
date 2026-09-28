@@ -38,16 +38,16 @@ for (const thinking of [true, false]) {
     }
     const completion = drain.drain(replay(), 'session-a', thinking);
     await Promise.race([gate.waiting, completion.then(() => { throw new Error('Replay ended before its gate'); })]);
-    const runtime = drain.store.get('session-a');
-    const displays = buildLiveTokenDisplays(runtime);
+    const live = drain.store.getLive('session-a');
+    const displays = buildLiveTokenDisplays(live);
     assert.equal(displays.get(firstId)?.tokenCount, thinking ? 187 : undefined);
     assert.equal(displays.get(secondId)?.tokenCount, thinking ? 50 : undefined);
-    assert.equal(runtime.liveMessages.filter((message) => message.kind === 'assistant_thinking').length, thinking ? 2 : 0);
-    assert.equal(runtime.tokenTurns.size, 2);
-    assert.equal(drain.store.get('session-b').tokenTurns.size, 0);
+    assert.equal(live.liveMessages.filter((message) => message.kind === 'assistant_thinking').length, thinking ? 2 : 0);
+    assert.equal(live.tokenTurns.size, 2);
+    assert.equal(drain.store.getLive('session-b').tokenTurns.size, 0);
     gate.open();
     await completion;
-    assert.equal(drain.store.get('session-a').tokenTurns.size, 2);
+    assert.equal(drain.store.getLive('session-a').tokenTurns.size, 2);
     assert.equal(drain.store.get('session-a').error, null);
     assert.equal(drain.store.get('session-a').submissionPhase, 'reconnecting');
     const successorGate = new Gate();
@@ -64,11 +64,11 @@ for (const thinking of [true, false]) {
     }
     const successorDone = drain.drain(successor(), 'session-a', thinking);
     await successorGate.waiting;
-    assert.equal(buildLiveTokenDisplays(drain.store.get('session-a')).get(answerId)?.tokenCount, 50);
-    assert.equal(drain.store.get('session-a').tokenTurns.size, 1);
+    assert.equal(buildLiveTokenDisplays(drain.store.getLive('session-a')).get(answerId)?.tokenCount, 50);
+    assert.equal(drain.store.getLive('session-a').tokenTurns.size, 1);
     successorGate.open();
     await successorDone;
-    assert.equal(drain.store.get('session-a').tokenTurns.size, 0);
+    assert.equal(drain.store.getLive('session-a').tokenTurns.size, 0);
   });
 }
 
@@ -84,7 +84,7 @@ test('a structured recovery failure blocks continuation immediately and preserve
   await drain.drain(stream(), 'session-a', true);
   const runtime = drain.store.get('session-a');
   assert.equal(runtime.recoveryStatus, 'recovery_failed');
-  assert.equal(runtime.liveMessages[0]?.content, 'readable prefix');
+  assert.equal(drain.store.getLive('session-a').liveMessages[0]?.content, 'readable prefix');
   assert.equal(runtime.error, 'Source has a sequence gap.');
 });
 
@@ -184,8 +184,8 @@ test('two streams complete out of order without crossing session state', async (
   await Promise.all([gateA.waiting, gateB.waiting]);
   assert.equal(drain.store.get('session-a').activity.kind, 'local');
   assert.equal(drain.store.get('session-b').activity.kind, 'local');
-  assert.equal(drain.store.get('session-a').liveMessages[0]?.content, 'answer-session-a');
-  assert.equal(drain.store.get('session-b').liveMessages[0]?.content, 'answer-session-b');
+  assert.equal(drain.store.getLive('session-a').liveMessages[0]?.content, 'answer-session-a');
+  assert.equal(drain.store.getLive('session-b').liveMessages[0]?.content, 'answer-session-b');
 
   gateB.open();
   await runB;

@@ -13,18 +13,18 @@ const store = () => new ChatSessionRuntimeStore().ensureSession('s', '').ensureS
 test('estimates use reconstructed content and the prompt belonging to each turn', () => {
   for (const [text, expected] of [['x'.repeat(400), 100], ['x'.repeat(800), 200], ['xxxx', 1]] as const) {
     const seeded = applyLiveTranscript(store(), 's', [PROMPT_1, { kind: 'thinking', delta: { turn: 1, offset: 0, text } }]);
-    assert.deepEqual(buildLiveTokenDisplays(seeded.get('s')).get(liveRowId('thinking', 1)), { tokenCount: expected, exact: false, imageTokens: 0 });
-    assert.equal(seeded.get('s').liveMessages[0]?.thinkingTokens, 0);
+    assert.deepEqual(buildLiveTokenDisplays(seeded.getLive('s')).get(liveRowId('thinking', 1)), { tokenCount: expected, exact: false, imageTokens: 0 });
+    assert.equal(seeded.getLive('s').liveMessages[0]?.thinkingTokens, 0);
   }
   const seeded = applyLiveTranscript(store(), 's', [
     PROMPT_1, { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'x'.repeat(400) } },
     { kind: 'prompt', prompt: { turn: 2, maxTurns: 20, promptTokens: 50, charsPerToken: 8 } },
     { kind: 'thinking', delta: { turn: 2, offset: 0, text: 'x'.repeat(400) } },
   ]);
-  const displays = buildLiveTokenDisplays(seeded.get('s'));
+  const displays = buildLiveTokenDisplays(seeded.getLive('s'));
   assert.equal(displays.get(liveRowId('thinking', 1))?.tokenCount, 100);
   assert.equal(displays.get(liveRowId('thinking', 2))?.tokenCount, 50);
-  assert.equal(buildLiveTokenDisplays(seeded.get('other')).size, 0);
+  assert.equal(buildLiveTokenDisplays(seeded.getLive('other')).size, 0);
 });
 
 for (const estimated of [false, true]) {
@@ -36,9 +36,9 @@ for (const estimated of [false, true]) {
         { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'x'.repeat(800) } },
         { kind: 'usage', usage: buildUsageFrame({ turn: 2, record: { thinkingTokens: 999 } }) },
       ]);
-      const display = buildLiveTokenDisplays(seeded.get('s')).get(liveRowId('thinking', 1));
+      const display = buildLiveTokenDisplays(seeded.getLive('s')).get(liveRowId('thinking', 1));
       assert.deepEqual(display, { tokenCount: count, exact: !estimated, imageTokens: 0 });
-      assert.equal(seeded.get('s').tokenTurns.size, 2);
+      assert.equal(seeded.getLive('s').tokenTurns.size, 2);
     });
   }
 }
@@ -49,17 +49,17 @@ test('answer promotion estimates only the current answer plus preceding output, 
     { kind: 'prompt', prompt: { turn: 2, maxTurns: 20, promptTokens: 50, charsPerToken: 4 } },
     { kind: 'narration', delta: { turn: 2, offset: 0, text: 'x'.repeat(400) } },
   ];
-  assert.equal(buildLiveTokenDisplays(applyLiveTranscript(store(), 's', steps).get('s')).get(liveRowId('narration', 2))?.tokenCount, 0);
+  assert.equal(buildLiveTokenDisplays(applyLiveTranscript(store(), 's', steps).getLive('s')).get(liveRowId('narration', 2))?.tokenCount, 0);
   steps.push({ kind: 'answer', delta: { turn: 2, offset: 0, text: 'x'.repeat(400) } });
-  assert.equal(buildLiveTokenDisplays(applyLiveTranscript(store(), 's', steps).get('s')).get(liveRowId('narration', 2))?.tokenCount, 160);
+  assert.equal(buildLiveTokenDisplays(applyLiveTranscript(store(), 's', steps).getLive('s')).get(liveRowId('narration', 2))?.tokenCount, 160);
   steps.push({ kind: 'usage', usage: buildUsageFrame({ turn: 2, totals: { outputTokens: 155, outputTokensEstimatedCount: 1 } }) });
-  const settled = applyLiveTranscript(store(), 's', steps).get('s');
+  const settled = applyLiveTranscript(store(), 's', steps).getLive('s');
   assert.deepEqual(buildLiveTokenDisplays(settled).get(liveRowId('narration', 2)), { tokenCount: 155, exact: false, imageTokens: 0 });
   assert.equal(settled.liveMessages.length, 1);
 });
 
 test('missing calibration propagates unavailability through aggregate badges until usage recovers', () => {
-  const runtime = applyLiveTranscript(store(), 's', [{ kind: 'thinking', delta: { turn: 1, offset: 0, text: 'replayed' } }]).get('s');
+  const runtime = applyLiveTranscript(store(), 's', [{ kind: 'thinking', delta: { turn: 1, offset: 0, text: 'replayed' } }]).getLive('s');
   const displays = buildLiveTokenDisplays(runtime);
   const turn = groupMessagesIntoTurns(runtime.liveMessages, new Set(runtime.liveMessages.map((message) => message.id)))[0];
   assert.ok(turn);
@@ -70,6 +70,6 @@ test('missing calibration propagates unavailability through aggregate badges unt
   const recovered = applyLiveTranscript(store(), 's', [
     { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'replayed' } },
     { kind: 'usage', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 3 } }) },
-  ]).get('s');
+  ]).getLive('s');
   assert.equal(buildLiveTokenDisplays(recovered).get(liveRowId('thinking', 1))?.tokenCount, 3);
 });

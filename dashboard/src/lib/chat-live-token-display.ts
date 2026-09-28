@@ -1,21 +1,21 @@
 import { buildChatMessageId, buildChatRunMessageIdPrefix } from '@siftkit/contracts';
-import type { ChatSessionRuntime } from './chat-session-runtime-store';
+import type { ChatSessionLive } from './chat-session-runtime-store';
 import { getLiveMessageTokenDisplay, type TokenDisplay } from './format';
 
 /** Provisional text counts belong to the view; canonical transcript rows remain measured only. */
-export function buildLiveTokenDisplays(runtime: ChatSessionRuntime): ReadonlyMap<string, TokenDisplay> {
+export function buildLiveTokenDisplays(live: ChatSessionLive): ReadonlyMap<string, TokenDisplay> {
   const displays = new Map<string, TokenDisplay>();
-  const messages = new Map(runtime.liveMessages.map((message) => [message.id, message]));
-  for (const message of runtime.liveMessages) {
+  const messages = new Map(live.liveMessages.map((message) => [message.id, message]));
+  for (const message of live.liveMessages) {
     const generated = message.kind === 'assistant_thinking' || message.kind === 'assistant_answer';
     displays.set(message.id, generated
       ? { tokenCount: message.content.length ? null : 0, exact: false, imageTokens: 0 }
       : getLiveMessageTokenDisplay(message));
   }
   let precedingOutput = 0;
-  for (const [turn, { prompt, usage }] of [...runtime.tokenTurns].sort(([a], [b]) => a - b)) {
+  for (const [turn, { prompt, usage }] of [...live.tokenTurns].sort(([a], [b]) => a - b)) {
     for (const kind of ['thinking', 'narration', 'answer'] as const) {
-      const id = buildChatMessageId(runtime.journalSnapshot ? buildChatRunMessageIdPrefix(runtime.journalSnapshot.operationId) : 'live', { kind: kind, turn: turn });
+      const id = buildChatMessageId(live.journalSnapshot ? buildChatRunMessageIdPrefix(live.journalSnapshot.operationId) : 'live', { kind: kind, turn: turn });
       const message = messages.get(id);
       if (!message || (message.kind !== 'assistant_thinking' && message.kind !== 'assistant_answer')) continue;
       const thinking = message.kind === 'assistant_thinking';

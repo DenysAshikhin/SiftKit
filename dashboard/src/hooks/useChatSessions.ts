@@ -48,7 +48,8 @@ import {
   resolveRepoRoot,
   type ParsedMaxTurnsOverride,
 } from '../lib/chat-composer-inputs';
-import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store';
+import type { ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store';
+import { ChatRuntimeHub } from '../lib/chat-runtime-hub';
 import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
 import { useLatest } from '../lib/use-latest';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
@@ -126,8 +127,8 @@ export function useChatSessions(deps: {
   const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
   const selectedSessionIdRef = useLatest(selectedSessionId);
-  const [runtimeStore, setRuntimeStore] = useState<ChatSessionRuntimeStore>(new ChatSessionRuntimeStore());
-  const runtimeStoreRef = useLatest(runtimeStore);
+  // Runtime state lives outside React so a streamed token re-renders only its subscribers.
+  const [runtimeHub] = useState(() => new ChatRuntimeHub());
   // The detail effect deliberately depends on the selection alone, so it reads the transcript map
   // through a ref: the "already loaded" answer it acts on is the current one, not a captured one.
   const loadedSessionsRef = useLatest(loadedSessions);
@@ -154,16 +155,16 @@ export function useChatSessions(deps: {
   function storeSession(session: ChatSession): void {
     setLoadedSessions((previous) => new Map(previous).set(session.id, session));
     setSessions((previous) => upsertSession(previous, session));
-    setRuntimeStore((previous) => previous.ensureSession(session.id, session.planRepoRoot));
+    runtimeHub.ensureSession(session.id, session.planRepoRoot);
   }
 
   /** A session without a runtime (never listed, or deleted) has nowhere to show its error. */
   function recordSessionError(sessionId: string, error: Error): void {
-    if (!runtimeStoreRef.current.has(sessionId)) {
+    if (!runtimeHub.getStore().has(sessionId)) {
       deps.enqueueToast('error', error.message);
       return;
     }
-    setRuntimeStore((prev) => prev.has(sessionId) ? prev.apply({ kind: 'failure', sessionId, message: error.message }) : prev);
+    runtimeHub.apply({ kind: 'failure', sessionId, message: error.message });
   }
 
   useEffect(() => {
@@ -178,25 +179,20 @@ export function useChatSessions(deps: {
         const busyKindBySessionId = new Map(
           active.operations.map((operation) => [operation.sessionId, operation.operationKind] as const),
         );
-        setRuntimeStore((prev) => {
-          let store = prev;
-          for (const session of response.sessions) {
-            store = store.ensureSession(session.id, session.planRepoRoot);
-            if (response.recovery) store = store.apply({ kind: 'recovery', sessionId: session.id,
-              reports: response.recovery.filter(report => report.sessionId === session.id) });
-            const runtime = store.get(session.id);
-            const busyKind = busyKindBySessionId.get(session.id) ?? null;
-            // The rail reads this; a client-owned stream already reports itself and must not be
-            // downgraded to remote, and a session that has since finished must stop showing busy.
-            if (runtime.activity.kind === 'local') {
-              continue;
-            }
-            store = busyKind
-              ? store.apply({ kind: 'remote-begin', sessionId: session.id, operationKind: busyKind })
-              : store.apply({ kind: 'remote-clear', sessionId: session.id });
+        for (const session of response.sessions) {
+          runtimeHub.ensureSession(session.id, session.planRepoRoot);
+          if (response.recovery) runtimeHub.apply({ kind: 'recovery', sessionId: session.id,
+            reports: response.recovery.filter(report => report.sessionId === session.id) });
+          const busyKind = busyKindBySessionId.get(session.id) ?? null;
+          // The rail reads this; a client-owned stream already reports itself and must not be
+          // downgraded to remote, and a session that has since finished must stop showing busy.
+          if (runtimeHub.getStore().get(session.id).activity.kind === 'local') {
+            continue;
           }
-          return store;
-        });
+          runtimeHub.apply(busyKind
+            ? { kind: 'remote-begin', sessionId: session.id, operationKind: busyKind }
+            : { kind: 'remote-clear', sessionId: session.id });
+        }
         // Prefer a session that is actually running: a run in flight never touches updatedAtUtc,
         // so the busy session is usually not the first one the listing returns. The listing has
         // no order of its own, so the longest-running operation decides.
@@ -232,22 +228,10 @@ export function useChatSessions(deps: {
         if (cancelled) {
           return;
         }
-        storeSession(response.session);
-        setRuntimeStore((previous) => {
-          let withUsage = previous.apply({
-            kind: 'context-usage',
-            sessionId: response.session.id,
-            contextUsage: response.contextUsage,
-          });
-          if (response.recovery) withUsage = withUsage.apply({ kind: 'recovery', sessionId: response.session.id, reports: response.recovery });
-          return activeRun
-            ? withUsage.apply({
-                kind: 'repo-agent-approval-mode',
-                sessionId: response.session.id,
-                approval: activeRun.approvalMode,
-              })
-            : withUsage;
-        });
+        applySessionResponse(response);
+        if (activeRun) {
+          runtimeHub.apply({ kind: 'repo-agent-approval-mode', sessionId: response.session.id, approval: activeRun.approvalMode });
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -276,12 +260,12 @@ export function useChatSessions(deps: {
         for await (const event of streamChatQueue(sessionId, controller.signal)) {
           if (controller.signal.aborted) return;
           if (event.kind === 'error') {
-            setRuntimeStore(store => store.apply({ kind: 'control-error', sessionId, message: event.error }));
+            runtimeHub.apply({ kind: 'control-error', sessionId, message: event.error });
             continue;
           }
           const queue = event.queue;
           if (queue.sessionId !== sessionId) throw new Error('Queue session mismatch.');
-          setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+          runtimeHub.apply({ kind: 'queue', sessionId, queue });
           queueOperationIds.current.set(sessionId, queue.activeOperationId ?? null);
           if (lastOperationId !== queue.activeOperationId) {
             lastOperationId = queue.activeOperationId;
@@ -289,7 +273,7 @@ export function useChatSessions(deps: {
           }
         }
       } catch (error) {
-        if (!controller.signal.aborted) setRuntimeStore((store) => store.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
+        if (!controller.signal.aborted) runtimeHub.apply({ kind: 'control-error', sessionId, message: toError(error).message });
       }
     })();
     return () => controller.abort();
@@ -313,7 +297,7 @@ export function useChatSessions(deps: {
     };
     const reconnectAfterError = (error: Error): void => {
       if (cancelled) return;
-      setRuntimeStore(store => store.apply({ kind: 'control-error', sessionId, message: error.message }));
+      runtimeHub.apply({ kind: 'control-error', sessionId, message: error.message });
       scheduleReconnect();
     };
     const refreshSession = async (): Promise<boolean> => {
@@ -321,11 +305,7 @@ export function useChatSessions(deps: {
       if (cancelled) {
         return false;
       }
-      storeSession(response.session);
-      setRuntimeStore((previous) => {
-        const next = previous.apply({ kind: 'context-usage', sessionId, contextUsage: response.contextUsage });
-        return response.recovery ? next.apply({ kind: 'recovery', sessionId, reports: response.recovery }) : next;
-      });
+      applySessionResponse(response);
       return !response.recovery?.some(report => report.status === 'recovery_failed');
     };
     void (async () => {
@@ -344,14 +324,14 @@ export function useChatSessions(deps: {
             try {
               await refreshSession();
               pendingTerminalTransitions.current.delete(sessionId);
-              if (!cancelled) setRuntimeStore((previous) => previous.apply(transition));
+              if (!cancelled) runtimeHub.apply(transition);
             } catch (error) {
               pendingTerminalTransitions.current.set(sessionId, transition);
               reconnectAfterError(toError(error));
             }
             continue;
           }
-          setRuntimeStore((previous) => previous.apply(transition));
+          runtimeHub.apply(transition);
           if (transition.kind === 'snapshot') {
             attached = true;
           }
@@ -366,21 +346,19 @@ export function useChatSessions(deps: {
         if (!(error instanceof ChatOperationIdleError)) { reconnectAfterError(toError(error)); return; }
         // Nothing is running. A session last seen busy may have finished while this client was
         // away, so refetch it; otherwise the transcript loaded this page-load is reused.
-        if (runtimeStoreRef.current.get(sessionId).activity.kind !== 'idle') {
+        if (runtimeHub.getStore().get(sessionId).activity.kind !== 'idle') {
           try { await refreshSession(); }
           catch (error) { reconnectAfterError(toError(error)); return; }
         }
         const pendingTerminal = pendingTerminalTransitions.current.get(sessionId);
         if (pendingTerminal) {
           pendingTerminalTransitions.current.delete(sessionId);
-          setRuntimeStore((previous) => previous.apply(pendingTerminal));
+          runtimeHub.apply(pendingTerminal);
         }
         if (cancelled) {
           return;
         }
-        setRuntimeStore((previous) => previous
-          .apply({ kind: 'approval-clear', sessionId })
-          .apply({ kind: 'remote-clear', sessionId }));
+        runtimeHub.apply({ kind: 'approval-clear', sessionId }, { kind: 'remote-clear', sessionId });
       }
     })();
     return () => {
@@ -390,56 +368,50 @@ export function useChatSessions(deps: {
       // Aborting mid-stream leaves the session marked as streamed by this client with nothing
       // behind it. Un-own it, or it reports itself busy forever and no later attach can take it.
       if (attached) {
-        setRuntimeStore((previous) => previous.apply({ kind: 'detach', sessionId }));
+        runtimeHub.apply({ kind: 'detach', sessionId });
       }
     };
   }, [selectedSessionId, selectedLoaded, remoteRunGeneration]);
 
   function applySessionResponse(response: ChatSessionResponse): void {
     storeSession(response.session);
-    setRuntimeStore((previous) => {
-      const next = previous.apply({ kind: 'context-usage', sessionId: response.session.id, contextUsage: response.contextUsage });
-      return response.recovery ? next.apply({ kind: 'recovery', sessionId: response.session.id, reports: response.recovery }) : next;
-    });
+    runtimeHub.apply(
+      { kind: 'context-usage', sessionId: response.session.id, contextUsage: response.contextUsage },
+      ...(response.recovery ? [{ kind: 'recovery' as const, sessionId: response.session.id, reports: response.recovery }] : []),
+    );
   }
 
   function failSessionOperation(sessionId: string, message: string): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'failure', sessionId, message }));
+    runtimeHub.apply({ kind: 'failure', sessionId, message });
   }
 
   function setSessionDraft(sessionId: string, draft: string): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'draft', sessionId, draft }));
+    runtimeHub.apply({ kind: 'draft', sessionId, draft });
   }
 
   function setSessionImages(sessionId: string, images: PendingImage[]): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'images', sessionId, images }));
+    runtimeHub.apply({ kind: 'images', sessionId, images });
   }
 
   function appendSessionImages(sessionId: string, images: PendingImage[]): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'append-images', sessionId, images }));
+    runtimeHub.apply({ kind: 'append-images', sessionId, images });
   }
 
   function setSessionPlanInputs(sessionId: string, planRepoRootInput: string, planMaxTurnsInput: string): void {
-    setRuntimeStore((previous) => {
-      const next = previous.apply({ kind: 'plan-inputs', sessionId, planRepoRootInput, planMaxTurnsInput });
-      return next.get(sessionId).error === PLAN_MAX_TURNS_VALIDATION_ERROR
-        && PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success
-        ? next.apply({ kind: 'control-error', sessionId, message: null })
-        : next;
-    });
+    runtimeHub.apply({ kind: 'plan-inputs', sessionId, planRepoRootInput, planMaxTurnsInput });
+    if (runtimeHub.getStore().get(sessionId).error === PLAN_MAX_TURNS_VALIDATION_ERROR
+      && PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success) {
+      runtimeHub.apply({ kind: 'control-error', sessionId, message: null });
+    }
   }
 
   async function refreshSessions(): Promise<void> {
     try {
       const response = await getChatSessions();
       setSessions(response.sessions);
-      setRuntimeStore((prev) => {
-        let store = prev;
-        for (const session of response.sessions) {
-          store = store.ensureSession(session.id, session.planRepoRoot);
-        }
-        return store;
-      });
+      for (const session of response.sessions) {
+        runtimeHub.ensureSession(session.id, session.planRepoRoot);
+      }
     } catch (error) {
       recordSessionError(selectedSessionId, toError(error));
     }
@@ -453,7 +425,7 @@ export function useChatSessions(deps: {
     try {
       const response = await createChatSession(request);
       setSelectedSessionId(response.session.id);
-      setRuntimeStore((prev) => prev.ensureSession(response.session.id, response.session.planRepoRoot));
+      runtimeHub.ensureSession(response.session.id, response.session.planRepoRoot);
       applySessionResponse(response);
     } catch (error) {
       recordSessionError(selectedSessionId, toError(error));
@@ -473,7 +445,7 @@ export function useChatSessions(deps: {
       setSessions(remaining);
       setLoadedSessions((previous) => { const next = new Map(previous); next.delete(selectedSessionId); return next; });
       setSelectedSessionId(pickFirstSessionId(remaining));
-      setRuntimeStore((prev) => prev.removeSession(selectedSessionId));
+      runtimeHub.removeSession(selectedSessionId);
     } catch (error) {
       recordSessionError(selectedSessionId, toError(error));
     }
@@ -618,27 +590,22 @@ export function useChatSessions(deps: {
           thinkingEnabled,
         )) {
           if (transition.kind === 'terminal') {
-            setRuntimeStore((previous) => previous.apply({ kind: 'submission-phase', sessionId,
-              submissionId: submission.payload.submissionId, phase: 'settling' }));
+            runtimeHub.apply({ kind: 'submission-phase', sessionId,
+              submissionId: submission.payload.submissionId, phase: 'settling' });
             try {
               applySessionResponse(await getChatSession(sessionId));
               pendingTerminalTransitions.current.delete(sessionId);
-              setRuntimeStore((previous) => previous.apply(transition));
+              runtimeHub.apply(transition);
             } catch (error) {
               pendingTerminalTransitions.current.set(sessionId, transition);
-              setRuntimeStore((previous) => previous.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
+              runtimeHub.apply({ kind: 'control-error', sessionId, message: toError(error).message });
               retryTerminalRefresh = true;
             }
             continue;
           }
-          setRuntimeStore((previous) => {
-            const next = previous.apply(transition);
-            if (transition.kind === 'snapshot') return next.apply({ kind: 'submission-phase', sessionId,
-              submissionId: submission.payload.submissionId, phase: 'streaming' });
-            if (transition.kind === 'interrupted') return next.apply({ kind: 'submission-phase', sessionId,
-              submissionId: submission.payload.submissionId, phase: 'reconnecting' });
-            return next;
-          });
+          const phase = transition.kind === 'snapshot' ? 'streaming' as const : transition.kind === 'interrupted' ? 'reconnecting' as const : null;
+          runtimeHub.apply(transition,
+            ...(phase ? [{ kind: 'submission-phase' as const, sessionId, submissionId: submission.payload.submissionId, phase }] : []));
           if (transition.kind === 'interrupted') interrupted = true;
           if (transition.kind === 'failure' || transition.kind === 'remote-begin') ownedElsewhere = true;
         }
@@ -665,7 +632,7 @@ export function useChatSessions(deps: {
     planMaxTurnsInput: string;
     repoAgentApprovalMode: ApprovalMode;
   } {
-    const runtime = runtimeStore.get(sessionId);
+    const runtime = runtimeHub.getStore().get(sessionId);
     return {
       draft: runtime.draft.trim(),
       pendingImages: runtime.pendingImages,
@@ -676,7 +643,7 @@ export function useChatSessions(deps: {
   }
 
   function submitRuntimeInputs(sessionId: string, content: string, images: PendingImage[], submissionId: string): void {
-    setRuntimeStore((previous) => previous.apply({ kind: 'submit', sessionId, content, images, submissionId }));
+    runtimeHub.apply({ kind: 'submit', sessionId, content, images, submissionId });
   }
 
   function parseSessionMaxTurnsOverride(sessionId: string, input: string): ParsedMaxTurnsOverride | null {
@@ -686,7 +653,7 @@ export function useChatSessions(deps: {
       if (!(error instanceof Error) || error.message !== PLAN_MAX_TURNS_VALIDATION_ERROR) {
         throw error;
       }
-      setRuntimeStore((previous) => previous.apply({ kind: 'control-error', sessionId, message: error.message }));
+      runtimeHub.apply({ kind: 'control-error', sessionId, message: error.message });
       return null;
     }
   }
@@ -805,7 +772,7 @@ export function useChatSessions(deps: {
 
   async function answerQuestion(reply: ChatQuestionReply): Promise<void> {
     const session = requireSelectedSession(selectedSession);
-    const question = runtimeStore.get(session.id).journalSnapshot?.question;
+    const question = runtimeHub.getStore().getLive(session.id).journalSnapshot?.question;
     if (!question?.actionable) return;
     try {
       await answerChatQuestion(session.id, { questionId: question.questionId, reply });
@@ -815,13 +782,13 @@ export function useChatSessions(deps: {
   }
 
   function shouldQueue(sessionId: string): boolean {
-    const runtime = runtimeStore.get(sessionId);
+    const runtime = runtimeHub.getStore().get(sessionId);
     return isSessionBusy(runtime) || Boolean(runtime.queue?.messages.some((message) => message.state === 'pending'));
   }
 
   async function refreshQueue(sessionId: string): Promise<void> {
     const { queue } = await getChatQueue(sessionId);
-    setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+    runtimeHub.apply({ kind: 'queue', sessionId, queue });
   }
 
   async function queueMessage(operationKind: ChatQueueOperationKind): Promise<void> {
@@ -835,7 +802,7 @@ export function useChatSessions(deps: {
       images: inputs.pendingImages.map((image) => image.dataUrl),
       options: { operationKind, repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), approval: inputs.repoAgentApprovalMode, ...maxTurns },
     };
-    const runtime = runtimeStore.get(session.id);
+    const runtime = runtimeHub.getStore().get(session.id);
     const afterOperationId = runtime.activity.kind === 'local' ? runtime.activity.operationId : runtime.queue?.activeOperationId ?? undefined;
     const previous = queueSubmissions.current.get(session.id);
     const request = previous && JSON.stringify({ content: previous.content, images: previous.images, options: previous.options }) === JSON.stringify(body)
@@ -844,32 +811,30 @@ export function useChatSessions(deps: {
     queueMutations.current.add(session.id);
     try {
       const { queue } = await enqueueChatMessage(session.id, request);
-      setRuntimeStore((store) => store
-        .apply({ kind: 'queue', sessionId: session.id, queue })
-        .apply({ kind: 'queued-submit', sessionId: session.id, content: inputs.draft, images: inputs.pendingImages }));
+      runtimeHub.apply({ kind: 'queue', sessionId: session.id, queue }, { kind: 'queued-submit', sessionId: session.id, content: inputs.draft, images: inputs.pendingImages });
       queueSubmissions.current.delete(session.id);
     } catch (error) {
-      setRuntimeStore((store) => store.apply({ kind: 'control-error', sessionId: session.id, message: toError(error).message }));
+      runtimeHub.apply({ kind: 'control-error', sessionId: session.id, message: toError(error).message });
     } finally { queueMutations.current.delete(session.id); }
   }
 
   async function forceQueue(): Promise<void> {
     const sessionId = selectedSessionId;
     if (!sessionId || queueMutations.current.has(sessionId)) return;
-    const runtime = runtimeStore.get(sessionId);
+    const runtime = runtimeHub.getStore().get(sessionId);
     const operationId = runtime.queue?.activeOperationId ?? (runtime.activity.kind === 'local' ? runtime.activity.operationId : null);
     const request = forceSubmissions.current.get(sessionId) ?? { id: crypto.randomUUID(), operationId };
     forceSubmissions.current.set(sessionId, request);
     queueMutations.current.add(sessionId);
     try {
       const { queue } = await forceChatQueue(sessionId, request);
-      setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+      runtimeHub.apply({ kind: 'queue', sessionId, queue });
       forceSubmissions.current.delete(sessionId);
       setRemoteRunGeneration((generation) => generation + 1);
     } catch (error) {
-      setRuntimeStore((store) => store.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
+      runtimeHub.apply({ kind: 'control-error', sessionId, message: toError(error).message });
       if (error instanceof ChatQueueRejectedError) {
-        setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue: error.response.queue }));
+        runtimeHub.apply({ kind: 'queue', sessionId, queue: error.response.queue });
         forceSubmissions.current.delete(sessionId);
       }
     } finally { queueMutations.current.delete(sessionId); }
@@ -879,7 +844,7 @@ export function useChatSessions(deps: {
     const sessionId = selectedSessionId;
     try {
       const { queue } = await editQueuedChatMessage(sessionId, id, content, revision);
-      setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+      runtimeHub.apply({ kind: 'queue', sessionId, queue });
     } catch (error) { await refreshQueue(sessionId); throw error; }
   }
 
@@ -887,24 +852,22 @@ export function useChatSessions(deps: {
     const sessionId = selectedSessionId;
     try {
       const { queue } = await removeQueuedChatMessage(sessionId, id);
-      setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+      runtimeHub.apply({ kind: 'queue', sessionId, queue });
     } catch (error) { await refreshQueue(sessionId); throw error; }
   }
 
   async function setRepoAgentApprovalMode(approval: ApprovalMode): Promise<void> {
     const session = requireSelectedSession(selectedSession);
-    const runtime = runtimeStore.get(session.id);
+    const runtime = runtimeHub.getStore().get(session.id);
     const previous = runtime.repoAgentApprovalMode;
-    setRuntimeStore((store) => store.apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval }));
+    runtimeHub.apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval });
     if (!hasActiveRepoAgentRun(runtime)) {
       return;
     }
     try {
       await updateRepoAgentApprovalMode(session.id, approval);
     } catch (error) {
-      setRuntimeStore((store) => store
-        .apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval: previous })
-        .apply({ kind: 'control-error', sessionId: session.id, message: toError(error).message }));
+      runtimeHub.apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval: previous }, { kind: 'control-error', sessionId: session.id, message: toError(error).message });
     }
   }
 
@@ -912,18 +875,18 @@ export function useChatSessions(deps: {
     if (!selectedSessionId) {
       return;
     }
-    const activity = runtimeStore.get(selectedSessionId).activity;
+    const activity = runtimeHub.getStore().get(selectedSessionId).activity;
     if (activity.kind !== 'local') {
       return;
     }
     try {
       await stopChatOperation(selectedSessionId, activity.operationId);
     } catch (error) {
-      setRuntimeStore((previous) => previous.apply({
+      runtimeHub.apply({
         kind: 'control-error',
         sessionId: selectedSessionId,
         message: toError(error).message,
-      }));
+      });
     }
   }
 
@@ -932,7 +895,7 @@ export function useChatSessions(deps: {
     selectedSessionId,
     selectedSession,
     selectedSessionLoading,
-    runtimeStore,
+    runtimeHub,
     selectSession,
     refreshSessions,
     createSession,

@@ -104,7 +104,7 @@ test('the badge is identical across the live to settled transition', () => {
   };
 
   const runtime = {
-    ...new ChatSessionRuntimeStore().ensureSession('s', '').get('s'), liveMessages,
+    ...new ChatSessionRuntimeStore().ensureSession('s', '').getLive('s'), liveMessages,
     tokenTurns: new Map(events.flatMap((event) => event.kind === 'usage'
       ? [[event.usage.turn, { prompt: null, usage: event.usage }] as const] : [])),
   };

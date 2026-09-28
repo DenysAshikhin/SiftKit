@@ -1,7 +1,23 @@
+import { render } from '../react-test-environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import React from 'react';
 
-import { isChatLogAtBottom, scrollChatLogToBottom } from '../../src/hooks/useChatScroll';
+import { isChatLogAtBottom, scrollChatLogToBottom, useChatScroll } from '../../src/hooks/useChatScroll';
+
+function LogProbe({ withContent }: { withContent: boolean }) {
+  const { chatLogRef } = useChatScroll('s1', null);
+  return <div ref={chatLogRef}>{withContent ? <div /> : null}</div>;
+}
+
+test('a log with its content wrapper mounts and unmounts cleanly', () => {
+  const view = render(<LogProbe withContent />);
+  view.unmount();
+});
+
+test('a log without its content wrapper fails loudly', () => {
+  assert.throws(() => render(<LogProbe withContent={false} />), /content wrapper/u);
+});
 
 test('isChatLogAtBottom accepts only the four-pixel bottom boundary', () => {
   assert.equal(isChatLogAtBottom({ scrollTop: 800, scrollHeight: 1_000, clientHeight: 200 }), true);

@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ChatSessionResponseSchema, DurableChatApprovalSchema, OrchestratorRunStateSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
-import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
+import { fireEvent, notifyResize, render as renderComponent, screen, waitFor } from './react-test-environment.js';
+import { countRenders } from './render-tracker.js';
+import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';
+import { MessageImages } from '../src/components/MessageImages';
 import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import { groupMessagesIntoTurns } from '../src/lib/chatTurns';
@@ -15,11 +18,12 @@ import { ChatTab } from '../src/tabs/ChatTab';
 import { MarkdownContent } from '../src/components/MarkdownContent';
 import { summarizeChatSession } from '../src/hooks/useChatSessions';
 import { consumeChatStream } from '../src/api';
-import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
+import type { ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
 import { buildUsageFrame } from './usage-frame';
 import { chatSnapshot } from './chat-snapshot-fixture.js';
-import { applyLiveTranscript, type LiveTranscriptStep } from './live-transcript-fixture.js';
+import { applyLiveTranscript, liveTranscriptSnapshot, type LiveTranscriptStep } from './live-transcript-fixture.js';
+import { ORCHESTRATOR_RUN_ID, PRESET, REPO_AGENT_PRESET, SESSION_A, SESSION_B, buildDefaultStore, buildProps, msg, orchestratorProps, type ChatTabProps } from './chat-tab-fixture.js';
 import { createLiveMessage } from '../src/lib/chat-live-messages';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -30,7 +34,7 @@ for (const grouped of [false, true]) test(`Stop outcome is visible once outside 
   const messages = grouped ? [createLiveMessage('thinking', 'assistant_thinking', 'assistant', 'Reasoning'), answer] : [answer];
   const snapshot = chatSnapshot({ sessionId: 'session-b', operationKind: 'message', terminalCause: 'user_stop', messages });
   const store = buildDefaultStore('session-b').apply({ kind: 'snapshot', sessionId: 'session-b', snapshot });
-  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', runtimeHub: new ChatRuntimeHub(store) })} />);
   try {
     assert.match(view.container.textContent ?? '', /Original partial answer/u);
     assert.equal(view.container.querySelectorAll('[aria-label="Run outcome"]').length, 1);
@@ -42,15 +46,14 @@ for (const grouped of [false, true]) test(`Stop outcome is visible once outside 
 test('recovery failure keeps the conversation readable and disables only continuation', () => {
   const snapshot = chatSnapshot({ sessionId: 'session-b', operationKind: 'message', status: 'recovery_failed', terminalCause: 'provider_failure',
     messages: [createLiveMessage('retained', 'assistant_answer', 'assistant', 'Readable partial answer')] });
-  let store = buildDefaultStore('session-b').apply({ kind: 'draft', sessionId: 'session-b', draft: 'continue' })
-    .apply({ kind: 'snapshot', sessionId: 'session-b', snapshot });
-  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+  const hub = new ChatRuntimeHub(buildDefaultStore('session-b').apply({ kind: 'draft', sessionId: 'session-b', draft: 'continue' })
+    .apply({ kind: 'snapshot', sessionId: 'session-b', snapshot }));
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', runtimeHub: hub })} />);
   try {
     assert.match(view.container.textContent ?? '', /Readable partial answer/u);
     assert.match(view.container.textContent ?? '', /repair/u);
     assert.ok(view.container.querySelector('button.send:not(.stop)')?.hasAttribute('disabled'));
-    store = store.apply({ kind: 'snapshot', sessionId: 'session-b', snapshot: { ...snapshot, status: 'recovery_needed' } });
-    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    act(() => hub.apply({ kind: 'snapshot', sessionId: 'session-b', snapshot: { ...snapshot, status: 'recovery_needed' } }));
     assert.equal(view.container.querySelector('button.send:not(.stop)')?.hasAttribute('disabled'), false);
   } finally { view.unmount(); }
 });
@@ -58,31 +61,27 @@ test('recovery failure keeps the conversation readable and disables only continu
 test('active token badges grow before usage and settle without losing late text accounting', () => {
   const live = { operationKind: 'message', controlOperationId: OPERATION_ID } as const;
   const prompt: LiveTranscriptStep = { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 50, charsPerToken: 4 } };
-  let store = buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID });
-  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+  const hub = new ChatRuntimeHub(buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID }));
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', runtimeHub: hub })} />);
   try {
     for (const length of [400, 800]) {
-      store = applyLiveTranscript(store, 'session-b', [prompt, { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'x'.repeat(length) } }], live);
-      view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+      act(() => hub.apply(liveFrame('session-b', [prompt, { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'x'.repeat(length) } }], live)));
       assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, `~${length / 4} tokens`);
-      assert.equal(store.get('session-b').liveMessages[0]?.thinkingTokens, 0);
+      assert.equal(hub.getStore().getLive('session-b').liveMessages[0]?.thinkingTokens, 0);
     }
     const settled: LiveTranscriptStep[] = [
       prompt, { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'x'.repeat(800) } },
       { kind: 'usage', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } }) },
       { kind: 'thinking', delta: { turn: 1, offset: 800, text: 'tail' } },
     ];
-    store = applyLiveTranscript(store, 'session-b', settled, live);
-    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    act(() => hub.apply(liveFrame('session-b', settled, live)));
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '187 tokens');
     assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, '187 run tokens');
-    store = applyLiveTranscript(store, 'session-b', [...settled,
-      { kind: 'usage', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187, thinkingTokensEstimated: true } }) }], live);
-    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    act(() => hub.apply(liveFrame('session-b', [...settled,
+      { kind: 'usage', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187, thinkingTokensEstimated: true } }) }], live)));
     assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, '~187 run tokens');
-    store = applyLiveTranscript(store.apply({ kind: 'attach', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID }),
-      'session-b', [{ kind: 'thinking', delta: { turn: 1, offset: 0, text: 'truncated replay' } }], live);
-    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    act(() => hub.apply({ kind: 'attach', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID },
+      liveFrame('session-b', [{ kind: 'thinking', delta: { turn: 1, offset: 0, text: 'truncated replay' } }], live)));
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, 'tokens unavailable');
     assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, 'tokens unavailable');
   } finally { view.unmount(); }
@@ -108,30 +107,37 @@ function readHttpChat(url: string, signal: AbortSignal, body?: Record<string, st
   } : { signal }, 'error');
 }
 
+/** A committed live view built from run evidence, as the stream would deliver it. */
+function liveFrame(sessionId: string, steps: readonly LiveTranscriptStep[], overrides: Parameters<typeof liveTranscriptSnapshot>[2] = {}) {
+  return { kind: 'snapshot' as const, sessionId, snapshot: liveTranscriptSnapshot(sessionId, steps, overrides) };
+}
+
+/** Feeds stream transitions into the hub the rendered tab subscribes to, until `kind` arrives. */
 async function readThrough(
   stream: AsyncGenerator<ChatSessionRuntimeTransition>,
-  store: ChatSessionRuntimeStore,
+  hub: ChatRuntimeHub,
   kind: 'prompt' | 'thinking' | 'terminal',
   thinkingTurn?: number,
-) {
-  const before = store;
+): Promise<ChatSessionRuntimeTransition> {
+  const before = hub.getStore();
   for (;;) {
     const next = await stream.next();
     assert.equal(next.done, false, `stream ended before ${kind}`);
     assert.ok(next.value);
-    store = store.apply(next.value);
-    if (next.value.kind === 'failure') throw new Error(next.value.message);
-    if (kind === 'terminal' && next.value.kind === 'terminal') return { store, transition: next.value };
-    if (next.value.kind !== 'snapshot') continue;
-    const prior = before.get(next.value.sessionId);
-    const snapshot = next.value.snapshot;
+    const transition = next.value;
+    act(() => hub.apply(transition));
+    if (transition.kind === 'failure') throw new Error(transition.message);
+    if (kind === 'terminal' && transition.kind === 'terminal') return transition;
+    if (transition.kind !== 'snapshot') continue;
+    const prior = before.getLive(transition.sessionId);
+    const snapshot = transition.snapshot;
     if (kind === 'prompt' && snapshot.tokenTurns.some(turn => turn.prompt !== null && turn.turn > Math.max(0, ...prior.tokenTurns.keys()))) {
-      return { store, transition: next.value };
+      return transition;
     }
     if (kind === 'thinking' && snapshot.messages.some(message => message.kind === 'assistant_thinking'
       && (thinkingTurn === undefined || message.id === buildChatMessageId(buildChatRunMessageIdPrefix(snapshot.operationId), { kind: 'thinking', turn: thinkingTurn }))
       && message.content !== prior.liveMessages.find(previous => previous.id === message.id)?.content)) {
-      return { store, transition: next.value };
+      return transition;
     }
   }
 }
@@ -140,10 +146,10 @@ test('a rejected chat route fails promptly even when no provider request arrives
   const backend = new GatedChatBackend();
   t.after(() => backend.close());
   const baseUrl = await backend.start();
-  const store = new ChatSessionRuntimeStore().ensureSession('s', '');
+  const hub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession('s', ''));
   const stream = toRuntimeTransitions('s', { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${baseUrl}/missing-chat-route`, t.signal), true);
   t.after(async () => { await stream.return(); });
-  await assert.rejects(Promise.all([readThrough(stream, store, 'prompt'), backend.nextRequest()]), /404/u);
+  await assert.rejects(Promise.all([readThrough(stream, hub, 'prompt'), backend.nextRequest()]), /404/u);
 });
 
 for (const queued of [false, true]) {
@@ -157,33 +163,31 @@ for (const queued of [false, true]) {
     })).body);
     const sessionId = created.session.id;
     const url = `${server.baseUrl}/dashboard/chat/sessions/${sessionId}`;
-    let store = new ChatSessionRuntimeStore().ensureSession(sessionId, '')
-      .apply({ kind: 'submit', sessionId, content: 'inspect', images: [] });
+    const hub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession(sessionId, '')
+      .apply({ kind: 'submit', sessionId, content: 'inspect', images: [] }));
     let session = created.session;
-    const props = () => buildProps({ selectedSessionId: sessionId, selectedSession: session, sessions: [summarizeChatSession(session)], selectedRuntime: store.get(sessionId), sessionRuntimes: store.getAll() });
+    const props = (runtimeHub = hub) => buildProps({ selectedSessionId: sessionId, selectedSession: session, sessions: [summarizeChatSession(session)], runtimeHub });
     const view = renderComponent(<ChatTab {...props()} />);
     const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'inspect', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
     t.after(async () => { await stream.return(); });
     try {
-      const firstPrompt = readThrough(stream, store, 'prompt');
-      const [first, initial] = await Promise.all([backend.nextRequest(), firstPrompt]);
-      store = initial.store;
+      const firstPrompt = readThrough(stream, hub, 'prompt');
+      const [first] = await Promise.all([backend.nextRequest(), firstPrompt]);
       for (const [expectedLength, expectedBadge] of [[400, '~100 tokens'], [800, '~200 tokens']] as const) {
         backend.write(first, { reasoning_content: 'x'.repeat(400) });
-        store = (await readThrough(stream, store, 'thinking')).store;
-        view.rerender(<ChatTab {...props()} />);
-        const count = store.get(sessionId).liveMessages.find((message) => message.kind === 'assistant_thinking')?.content.length;
+        await readThrough(stream, hub, 'thinking');
+        const count = hub.getStore().getLive(sessionId).liveMessages.find((message) => message.kind === 'assistant_thinking')?.content.length;
         assert.equal(count, expectedLength);
         assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, expectedBadge);
-        assert.equal(store.get(sessionId).tokenTurns.get(1)?.usage, null);
+        assert.equal(hub.getStore().getLive(sessionId).tokenTurns.get(1)?.usage, null);
         if (queued && expectedLength === 400) {
           for (const [index, id] of [QUEUE_ONE_ID, '4f9c1f9a-0000-4000-8000-000000000002'].entries()) {
             const response = await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id, content: `queued ${index}`, images: [], options: { operationKind: 'plan', repoRoot: server.tempRoot } }) });
             assert.equal(response.statusCode, 200);
-            const tokenTurns = store.get(sessionId).tokenTurns;
-            store = store.apply({ kind: 'queue', sessionId, queue: ChatMessageQueueResponseSchema.parse(response.body).queue })
-              .apply({ kind: 'queued-submit', sessionId, content: `queued ${index}`, images: [] });
-            assert.equal(store.get(sessionId).tokenTurns, tokenTurns);
+            const tokenTurns = hub.getStore().getLive(sessionId).tokenTurns;
+            act(() => hub.apply({ kind: 'queue', sessionId, queue: ChatMessageQueueResponseSchema.parse(response.body).queue },
+              { kind: 'queued-submit', sessionId, content: `queued ${index}`, images: [] }));
+            assert.equal(hub.getStore().getLive(sessionId).tokenTurns, tokenTurns);
           }
         }
       }
@@ -191,45 +195,41 @@ for (const queued of [false, true]) {
       if (queued) {
         backend.write(first, { tool_calls: [{ index: 0, id: 'read-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'package.json' }) } }] });
         backend.finish(first);
-        const nextPrompt = readThrough(stream, store, 'prompt');
-        const [second, next] = await Promise.all([backend.nextRequest(), nextPrompt]);
-        store = next.store;
-        assert.deepEqual(store.get(sessionId).liveMessages.filter((message) => message.role === 'user').map((message) => message.content), ['inspect', 'queued 0', 'queued 1']);
-        assert.equal(store.get(sessionId).liveMessages.find((message) => message.kind === 'assistant_thinking')?.thinkingTokens, 10);
+        const nextPrompt = readThrough(stream, hub, 'prompt');
+        const [second] = await Promise.all([backend.nextRequest(), nextPrompt]);
+        assert.deepEqual(hub.getStore().getLive(sessionId).liveMessages.filter((message) => message.role === 'user').map((message) => message.content), ['inspect', 'queued 0', 'queued 1']);
+        assert.equal(hub.getStore().getLive(sessionId).liveMessages.find((message) => message.kind === 'assistant_thinking')?.thinkingTokens, 10);
         backend.write(second, { reasoning_content: 'y'.repeat(400) });
-        store = (await readThrough(stream, store, 'thinking')).store;
-        view.rerender(<ChatTab {...props()} />);
+        await readThrough(stream, hub, 'thinking');
         assert.equal(view.container.querySelectorAll('.msg.turn').length, 2);
         const beforeReplay = readTokenBadges(view.container.innerHTML);
         const replay = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
         t.after(async () => { await replay.return(); });
-        const replayNext = await readThrough(replay, new ChatSessionRuntimeStore().ensureSession(sessionId, ''), 'thinking', 2);
-        const originalStore = store;
-        store = replayNext.store;
-        view.rerender(<ChatTab {...props()} />);
+        // A second client's view of the same run: its own hub, rendered in place of this one.
+        const replayHub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession(sessionId, ''));
+        await readThrough(replay, replayHub, 'thinking', 2);
+        view.rerender(<ChatTab {...props(replayHub)} />);
         assert.deepEqual(readTokenBadges(view.container.innerHTML), beforeReplay);
-        store = originalStore;
+        view.rerender(<ChatTab {...props()} />);
         backend.write(second, { content: 'finished' });
         backend.finish(second);
-        const replayDone = readThrough(replay, replayNext.store, 'terminal');
-        const completed = await readThrough(stream, store, 'terminal');
+        const replayDone = readThrough(replay, replayHub, 'terminal');
+        const completed = await readThrough(stream, hub, 'terminal');
         await replayDone;
-        store = completed.store;
-        if (completed.transition.kind !== 'terminal') throw new Error('Expected completion terminal.');
-        terminalCause = completed.transition.terminal.terminalCause;
+        if (completed.kind !== 'terminal') throw new Error('Expected completion terminal.');
+        terminalCause = completed.terminal.terminalCause;
       } else {
         backend.write(first, { content: 'finished' });
         backend.finish(first);
-        const completed = await readThrough(stream, store, 'terminal');
-        store = completed.store;
-        if (completed.transition.kind !== 'terminal') throw new Error('Expected completion terminal.');
-        terminalCause = completed.transition.terminal.terminalCause;
+        const completed = await readThrough(stream, hub, 'terminal');
+        if (completed.kind !== 'terminal') throw new Error('Expected completion terminal.');
+        terminalCause = completed.terminal.terminalCause;
       }
       const persisted = ChatSessionResponseSchema.parse((await requestJson(url)).body);
       session = persisted.session;
       view.rerender(<ChatTab {...props()} />);
       assert.equal(terminalCause, 'completed');
-      assert.equal(store.get(sessionId).tokenTurns.size, 0);
+      assert.equal(hub.getStore().getLive(sessionId).tokenTurns.size, 0);
       const expectedLabels = groupMessagesIntoTurns(persisted.session.messages, new Set())
         .filter((turn) => turn.messages.some((message) => message.role === 'assistant'))
         .map((turn) => {
@@ -253,26 +253,24 @@ for (const force of [false, true]) {
     const created = ChatSessionResponseSchema.parse((await requestJson(`${server.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'successor' }) })).body);
     const sessionId = created.session.id;
     const url = `${server.baseUrl}/dashboard/chat/sessions/${sessionId}`;
-    let store = new ChatSessionRuntimeStore().ensureSession(sessionId, '');
+    const hub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession(sessionId, ''));
     const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'original', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
     t.after(async () => { await stream.return(); });
-    const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: created.session, selectedRuntime: store.get(sessionId) })} />);
+    const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: created.session, runtimeHub: hub })} />);
     try {
-      const prompt = readThrough(stream, store, 'prompt');
-      const [firstProvider, initial] = await Promise.all([backend.nextRequest(), prompt]);
+      const prompt = readThrough(stream, hub, 'prompt');
+      const [firstProvider] = await Promise.all([backend.nextRequest(), prompt]);
       let provider = firstProvider;
-      store = initial.store;
       backend.write(provider, { reasoning_content: 'x'.repeat(400) });
-      store = (await readThrough(stream, store, 'thinking')).store;
+      await readThrough(stream, hub, 'thinking');
       if (force) {
         backend.write(provider, { tool_calls: [{ index: 0, id: 'read-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'package.json' }) } }] });
         backend.finish(provider);
-        const secondPrompt = readThrough(stream, store, 'prompt');
-        const [secondProvider, next] = await Promise.all([backend.nextRequest(), secondPrompt]);
+        const secondPrompt = readThrough(stream, hub, 'prompt');
+        const [secondProvider] = await Promise.all([backend.nextRequest(), secondPrompt]);
         provider = secondProvider;
-        store = next.store;
         backend.write(provider, { reasoning_content: 'y'.repeat(400) });
-        store = (await readThrough(stream, store, 'thinking')).store;
+        await readThrough(stream, hub, 'thinking');
       }
       const queued = await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id: QUEUE_ONE_ID, content: 'successor', images: [], options: { operationKind: 'plan', repoRoot: server.tempRoot } }) });
       assert.equal(queued.statusCode, 200);
@@ -283,30 +281,29 @@ for (const force of [false, true]) {
         backend.write(provider, { content: 'first finished' });
         backend.finish(provider);
       }
-      const done = await readThrough(stream, store, 'terminal');
-      store = done.store;
-      assert.equal(store.get(sessionId).tokenTurns.size, 0);
-      assert.equal(done.transition.kind, 'terminal');
+      const done = await readThrough(stream, hub, 'terminal');
+      assert.equal(hub.getStore().getLive(sessionId).tokenTurns.size, 0);
+      assert.equal(done.kind, 'terminal');
       const saved = ChatSessionResponseSchema.parse((await requestJson(url)).body).session;
       assert.equal(saved.messages.find((message) => message.kind === 'assistant_thinking')?.thinkingTokens, 10);
       if (force) {
-        if (done.transition.kind !== 'terminal') throw new Error('Expected stop terminal.');
-        assert.equal(done.transition.terminal.terminalCause, 'user_stop');
+        if (done.kind !== 'terminal') throw new Error('Expected stop terminal.');
+        assert.equal(done.terminal.terminalCause, 'user_stop');
       }
       const successorProvider = await backend.nextRequest();
       const successor = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
       t.after(async () => { await successor.return(); });
-      store = (await readThrough(successor, store, 'prompt')).store;
-      assert.equal(store.get(sessionId).tokenTurns.size, 1);
-      assert.equal(store.get(sessionId).tokenTurns.get(1)?.usage, null);
+      await readThrough(successor, hub, 'prompt');
+      assert.equal(hub.getStore().getLive(sessionId).tokenTurns.size, 1);
+      assert.equal(hub.getStore().getLive(sessionId).tokenTurns.get(1)?.usage, null);
       backend.write(successorProvider, { reasoning_content: 'z'.repeat(400) });
-      store = (await readThrough(successor, store, 'thinking')).store;
-      view.rerender(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: saved, selectedRuntime: store.get(sessionId) })} />);
+      await readThrough(successor, hub, 'thinking');
+      view.rerender(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: saved, runtimeHub: hub })} />);
       assert.equal([...view.container.querySelectorAll('.assistant_thinking .msg-tokens')].at(-1)?.textContent, '~100 tokens');
       backend.write(successorProvider, { content: 'successor finished' });
       backend.finish(successorProvider);
-      store = (await readThrough(successor, store, 'terminal')).store;
-      assert.equal(store.get(sessionId).tokenTurns.size, 0);
+      await readThrough(successor, hub, 'terminal');
+      assert.equal(hub.getStore().getLive(sessionId).tokenTurns.size, 0);
     } finally {
       view.unmount();
     }
@@ -326,100 +323,10 @@ const IMAGE_META = {
   caption: null,
 };
 
-const PRESET = {
-  id: 'chat-default', label: 'Chat', description: '', presetKind: 'chat', operationMode: 'full',
-  promptPrefix: '', allowedTools: [], surfaces: ['cli', 'web'],
-  useForSummary: false, builtin: true, deletable: false, includeAgentsMd: false,
-  includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null, orchestrator: null,
-} satisfies DashboardPreset;
-
-const REPO_AGENT_PRESET = {
-  ...PRESET,
-  id: 'repo-agent',
-  label: 'Repo Agent',
-  presetKind: 'repo-agent',
-  operationMode: 'full',
-  repoRootRequired: true,
-} satisfies DashboardPreset;
-
-function msg(overrides: Partial<ChatMessage>): ChatMessage {
-  return {
-    id: 'm1', role: 'assistant', content: '',
-    inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
-    createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: null,
-    ...overrides,
-  };
-}
-
-const SESSION_A = {
-  id: 'session-a', title: 'Session A', modelPresetId: 'test-model', model: 'test-model', contextWindowTokens: 100, planRepoRoot: 'C:/repo',
-  thinkingEnabled: true, presetId: PRESET.id, mode: 'chat',  createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
-  sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
-  messages: [msg({ id: 'a1', kind: 'assistant_answer', content: 'Hello from the assistant.' })],
-} satisfies ChatSession;
-
-const SESSION_B = {
-  ...SESSION_A,
-  id: 'session-b',
-  title: 'Session B',
-  messages: [],
-} satisfies ChatSession;
-
 const CONTEXT_USAGE = {
   ...BASE_CONTEXT_USAGE, chatUsedTokens: 90, totalUsedTokens: 90, remainingTokens: 10, warnThresholdTokens: 50,
   providerOverheadTokens: 5, effectiveImagePixelCeiling: 1_000_000,
 } satisfies ContextUsage;
-
-type ChatTabProps = React.ComponentProps<typeof ChatTab>;
-
-function buildDefaultStore(sessionId: string): ChatSessionRuntimeStore {
-  return new ChatSessionRuntimeStore()
-    .ensureSession('session-a', '')
-    .ensureSession('session-b', '')
-    .ensureSession(sessionId, '')
-    .apply({ kind: 'draft', sessionId, draft: 'hi' });
-}
-
-function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
-  const selectedSessionId = overrides.selectedSessionId ?? SESSION_A.id;
-  const defaultStore = buildDefaultStore(selectedSessionId);
-  const props: ChatTabProps = {
-    sessions: [summarizeChatSession(SESSION_A), summarizeChatSession(SESSION_B)],
-    selectedSessionId,
-    selectedSession: selectedSessionId === SESSION_B.id ? SESSION_B : SESSION_A,
-    selectedSessionLoading: false,
-    selectedRuntime: defaultStore.get(selectedSessionId),
-    sessionRuntimes: defaultStore.getAll(),
-    sessionPromptCacheStats: { cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null },
-    lastTurnTelemetry: { promptTokensPerSecond: null, generationTokensPerSecond: null, ttftMs: null },
-    webPresets: [PRESET],
-    selectedChatPreset: PRESET,
-    chatMode: 'chat',
-    isDirectChatMode: true,
-    isRepoToolMode: false,
-    isThinkingEnabledForCurrentSession: true,
-    webSearchEnabled: true,
-    showSettings: false,
-    onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {}, onChangePlanMaxTurns: () => {},
-    onChangeDraft: () => {}, onCreateSession: async () => {}, onDeleteSession: async () => {},
-    onUpdateSessionPreset: async () => {}, onToggleThinking: async () => {}, onToggleWebSearchEnabled: async () => {},
-    onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
-    onDeleteMessageImage: async () => {}, onCondense: async () => {},
-    onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
-    onSendRepoAgent: async () => {}, onSubmitRepoAgentDecision: async () => {}, onAnswerQuestion: async () => {},
-    onChangeRepoAgentApprovalMode: async () => {},
-    onStopOperation: async () => {},
-    onForceQueue: async () => {},
-    onLoadQueueMessage: async (id) => ({ message: { id, content: '', revision: 1, imageCount: 0 } }),
-    onEditQueueMessage: async () => {}, onRemoveQueueMessage: async () => {},
-    onPendingImagesChange: () => {},
-    onPendingImagesAppend: () => {},
-    onPendingImageError: () => {},
-    ...overrides,
-  };
-  return props;
-}
 
 function render(overrides: Partial<ChatTabProps> = {}): string {
   return renderToStaticMarkup(React.createElement(ChatTab, buildProps(overrides)));
@@ -445,7 +352,7 @@ test('repo-agent composer uses the Run Agent label', () => {
 
 test('busy composer stays editable and offers Queue alongside Stop', () => {
   const store = buildDefaultStore('session-a').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID });
-  renderComponent(<ChatTab {...buildProps({ selectedRuntime: store.get('session-a') })} />);
+  renderComponent(<ChatTab {...buildProps({ runtimeHub: new ChatRuntimeHub(store) })} />);
   assert.equal(screen.getByRole('textbox').hasAttribute('disabled'), false);
   assert.ok(screen.getByRole('button', { name: 'Queue', exact: true }));
   assert.ok(screen.getByRole('button', { name: 'Stop', exact: true }));
@@ -499,8 +406,7 @@ test('invalid repo-agent turns disable Run Agent and Retry', () => {
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     isRepoToolMode: true,
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
     onSendRepoAgent: async () => { sendCount += 1; },
   })} />);
   assert.equal(screen.getByRole('button', { name: 'Run Agent' }).hasAttribute('disabled'), true);
@@ -516,22 +422,19 @@ test('busy repo-agent sessions disable turns editing while keeping Stop availabl
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     isRepoToolMode: true,
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   })} />);
   assert.equal(screen.getByRole('button', { name: 'Turns: 100' }).hasAttribute('disabled'), true);
   assert.ok(screen.getByRole('button', { name: 'Stop' }));
 });
 
 test('switching sessions closes the turns editor and selects that session value', async () => {
-  const storeA = buildDefaultStore(SESSION_A.id)
-    .apply({ kind: 'plan-inputs', sessionId: SESSION_A.id, planRepoRootInput: '', planMaxTurnsInput: '1000' });
-  const storeB = buildDefaultStore(SESSION_B.id)
-    .apply({ kind: 'plan-inputs', sessionId: SESSION_B.id, planRepoRootInput: '', planMaxTurnsInput: '2000' });
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'plan-inputs', sessionId: SESSION_A.id, planRepoRootInput: '', planMaxTurnsInput: '1000' })
+    .apply({ kind: 'plan-inputs', sessionId: SESSION_B.id, planRepoRootInput: '', planMaxTurnsInput: '2000' }));
   const view = renderComponent(<ChatTab {...buildProps({
     selectedSessionId: SESSION_A.id,
-    selectedRuntime: storeA.get(SESSION_A.id),
-    sessionRuntimes: storeA.getAll(),
+    runtimeHub: hub,
     chatMode: 'repo-agent',
     isRepoToolMode: true,
   })} />);
@@ -541,8 +444,7 @@ test('switching sessions closes the turns editor and selects that session value'
   await act(async () => {
     view.rerender(<ChatTab {...buildProps({
       selectedSessionId: SESSION_B.id,
-      selectedRuntime: storeB.get(SESSION_B.id),
-      sessionRuntimes: storeB.getAll(),
+      runtimeHub: hub,
       chatMode: 'repo-agent',
       isRepoToolMode: true,
     })} />);
@@ -558,8 +460,7 @@ test('the repo folder field shows the seeded server default', () => {
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     isRepoToolMode: true,
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   })} />);
   const field = screen.getByPlaceholderText('Repo folder path…');
   assert.equal(field.getAttribute('value'), 'C:/srv/siftkit');
@@ -626,15 +527,6 @@ test('changing only preset metadata does not claim the model context is invalida
   }
 });
 
-const ORCHESTRATOR_CHAT_PRESET = { ...REPO_AGENT_PRESET, id: 'orchestrator', label: 'Orchestrator', presetKind: 'orchestrator',
-  operationMode: 'read-only', orchestrator: { maxSubagents: 1 } } satisfies DashboardPreset;
-const ORCHESTRATOR_RUN_ID = '4f9c1f9a-0000-4000-8000-0000000000aa';
-
-function orchestratorProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
-  return buildProps({ chatMode: 'orchestrator', isRepoToolMode: true, isDirectChatMode: false,
-    webPresets: [ORCHESTRATOR_CHAT_PRESET], selectedChatPreset: ORCHESTRATOR_CHAT_PRESET, ...overrides });
-}
-
 test('orchestrator mode starts a run for the saved repository and shows its live panel', async () => {
   const bodies: Array<[string, string]> = [];
   const originalFetch = globalThis.fetch;
@@ -695,8 +587,7 @@ test('repo-agent pending approval renders actions and reject requires a reason',
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     isRepoToolMode: true,
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
     onSubmitRepoAgentDecision: async (decision) => { decisions.push(decision); },
   })} />);
   assert.equal(screen.getByText('npm test').textContent, 'npm test');
@@ -713,23 +604,60 @@ test('repo-agent pending approval renders actions and reject requires a reason',
   assert.deepEqual(decisions, [{ decision: 'deny', reason: 'wrong file' }]);
 });
 
+/** Sizes the log and leaves it resting at its bottom, where a freshly opened transcript is pinned. */
 function configureChatScroll(element: HTMLElement): { setScrollHeight(value: number): void } {
   let scrollHeight = 1_000;
   Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => 200 });
   Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+  element.scrollTop = 800;
+  fireEvent.scroll(element);
   return { setScrollHeight: (value) => { scrollHeight = value; } };
 }
 
+test('a pinned log follows growth that arrives without a new stream frame', async () => {
+  const view = renderComponent(<ChatTab {...buildProps()} />);
+  const chatLog = view.container.querySelector('.msgs');
+  assert.ok(chatLog instanceof HTMLElement);
+  const scroll = configureChatScroll(chatLog);
+  scroll.setScrollHeight(1_300);
+  await act(async () => notifyResize());
+  assert.equal(chatLog.scrollTop, 1_300);
+});
+
+test('a scroll event caused by growth below the viewport keeps the log pinned', async () => {
+  const view = renderComponent(<ChatTab {...buildProps()} />);
+  const chatLog = view.container.querySelector('.msgs');
+  assert.ok(chatLog instanceof HTMLElement);
+  const scroll = configureChatScroll(chatLog);
+  scroll.setScrollHeight(1_300);
+  fireEvent.scroll(chatLog);
+  assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
+  await act(async () => notifyResize());
+  assert.equal(chatLog.scrollTop, 1_300);
+});
+
+test('scrolling up unpins, and growth then leaves the reading position alone', async () => {
+  const view = renderComponent(<ChatTab {...buildProps()} />);
+  const chatLog = view.container.querySelector('.msgs');
+  assert.ok(chatLog instanceof HTMLElement);
+  const scroll = configureChatScroll(chatLog);
+  chatLog.scrollTop = 300;
+  fireEvent.scroll(chatLog);
+  assert.ok(screen.getByRole('button', { name: 'Jump to bottom' }));
+  scroll.setScrollHeight(1_300);
+  await act(async () => notifyResize());
+  assert.equal(chatLog.scrollTop, 300);
+});
+
 test('streaming follows only while the user is pinned to the bottom', async () => {
-  const streamed = (base: ChatSessionRuntimeStore, text: string): ChatSessionRuntimeStore =>
-    applyLiveTranscript(base, SESSION_A.id, [{ kind: 'answer', delta: { turn: 1, offset: 0, text } }]);
-  const initialStore = streamed(buildDefaultStore(SESSION_A.id)
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID }), 'first');
+  const streamed = (text: string) => liveFrame(SESSION_A.id, [{ kind: 'answer', delta: { turn: 1, offset: 0, text } }]);
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID })
+    .apply(streamed('first')));
   const view = renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     isRepoToolMode: true,
-    selectedRuntime: initialStore.get(SESSION_A.id),
-    sessionRuntimes: initialStore.getAll(),
+    runtimeHub: hub,
   })} />);
   const chatLog = view.container.querySelector('.msgs');
   assert.ok(chatLog instanceof HTMLElement);
@@ -737,14 +665,9 @@ test('streaming follows only while the user is pinned to the bottom', async () =
 
   chatLog.scrollTop = 200;
   fireEvent.scroll(chatLog);
-  const secondStore = streamed(initialStore, 'first update');
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: secondStore.get(SESSION_A.id),
-      sessionRuntimes: secondStore.getAll(),
-    })} />);
+    hub.apply(streamed('first update'));
+    notifyResize();
   });
 
   assert.equal(chatLog.scrollTop, 200);
@@ -752,14 +675,9 @@ test('streaming follows only while the user is pinned to the bottom', async () =
   fireEvent.scroll(chatLog);
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
   scroll.setScrollHeight(1_200);
-  const thirdStore = streamed(secondStore, 'first update again');
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: thirdStore.get(SESSION_A.id),
-      sessionRuntimes: thirdStore.getAll(),
-    })} />);
+    hub.apply(streamed('first update again'));
+    notifyResize();
   });
   assert.equal(chatLog.scrollTop, 1_200);
 
@@ -771,20 +689,16 @@ test('streaming follows only while the user is pinned to the bottom', async () =
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
 
   scroll.setScrollHeight(1_400);
-  const fourthStore = streamed(thirdStore, 'first update again final');
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: fourthStore.get(SESSION_A.id),
-      sessionRuntimes: fourthStore.getAll(),
-    })} />);
+    hub.apply(streamed('first update again final'));
+    notifyResize();
   });
   assert.equal(chatLog.scrollTop, 1_400);
 });
 
 test('switching sessions resets pinned scrolling and hides the jump control', async () => {
-  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: SESSION_A.id })} />);
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id));
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: SESSION_A.id, runtimeHub: hub })} />);
   const chatLog = view.container.querySelector('.msgs');
   assert.ok(chatLog instanceof HTMLElement);
   configureChatScroll(chatLog);
@@ -793,7 +707,8 @@ test('switching sessions resets pinned scrolling and hides the jump control', as
   assert.ok(screen.getByRole('button', { name: 'Jump to bottom' }));
 
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({ selectedSessionId: SESSION_B.id })} />);
+    view.rerender(<ChatTab {...buildProps({ selectedSessionId: SESSION_B.id, runtimeHub: hub })} />);
+    notifyResize();
   });
 
   assert.equal(chatLog.scrollTop, 1_000);
@@ -810,77 +725,47 @@ test('each distinct repo-agent approval forces one scroll to the bottom', async 
     toolCallId: 'native-call', mode: 'interactive', requestedAtUtc: '2026-09-08T12:00:00.000Z',
     expiresAtUtc: '2026-09-08T12:10:00.000Z', outcome: null, decidedAtUtc: null, actionable: true,
   });
-  const baseStore = buildDefaultStore(SESSION_A.id);
-  const view = renderComponent(<ChatTab {...buildProps({
-    chatMode: 'repo-agent',
-    isRepoToolMode: true,
-    selectedRuntime: baseStore.get(SESSION_A.id),
-    sessionRuntimes: baseStore.getAll(),
-  })} />);
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id));
+  const props = buildProps({ chatMode: 'repo-agent', isRepoToolMode: true, runtimeHub: hub });
+  const view = renderComponent(<ChatTab {...props} />);
   const chatLog = view.container.querySelector('.msgs');
   assert.ok(chatLog instanceof HTMLElement);
   const scroll = configureChatScroll(chatLog);
   chatLog.scrollTop = 200;
   fireEvent.scroll(chatLog);
 
-  const firstApprovalStore = applyLiveTranscript(baseStore, SESSION_A.id, [], { approval });
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: firstApprovalStore.get(SESSION_A.id),
-      sessionRuntimes: firstApprovalStore.getAll(),
-    })} />);
+    hub.apply(liveFrame(SESSION_A.id, [], { approval }));
+    notifyResize();
   });
   assert.equal(chatLog.scrollTop, 1_000);
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
 
   scroll.setScrollHeight(1_200);
-  const streamedApprovalStore = applyLiveTranscript(firstApprovalStore, SESSION_A.id,
-    [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'working' } }], { approval });
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: streamedApprovalStore.get(SESSION_A.id),
-      sessionRuntimes: streamedApprovalStore.getAll(),
-    })} />);
+    hub.apply(liveFrame(SESSION_A.id, [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'working' } }], { approval }));
+    notifyResize();
   });
   assert.equal(chatLog.scrollTop, 1_200);
 
   chatLog.scrollTop = 200;
   fireEvent.scroll(chatLog);
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: streamedApprovalStore.get(SESSION_A.id),
-      sessionRuntimes: streamedApprovalStore.getAll(),
-    })} />);
+    view.rerender(<ChatTab {...props} />);
+    notifyResize();
   });
   assert.equal(chatLog.scrollTop, 200);
 
-  const clearedStore = streamedApprovalStore.apply({ kind: 'approval-clear', sessionId: SESSION_A.id });
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: clearedStore.get(SESSION_A.id),
-      sessionRuntimes: clearedStore.getAll(),
-    })} />);
+    hub.apply({ kind: 'approval-clear', sessionId: SESSION_A.id });
+    notifyResize();
   });
   assert.equal(chatLog.scrollTop, 200);
 
-  const secondApprovalStore = applyLiveTranscript(clearedStore, SESSION_A.id,
-    [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'working' } }],
-    { approval: { ...approval, approvalId: '4f9c1f9a-0000-4000-8000-000000000011' } });
   await act(async () => {
-    view.rerender(<ChatTab {...buildProps({
-      chatMode: 'repo-agent',
-      isRepoToolMode: true,
-      selectedRuntime: secondApprovalStore.get(SESSION_A.id),
-      sessionRuntimes: secondApprovalStore.getAll(),
-    })} />);
+    hub.apply(liveFrame(SESSION_A.id, [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'working' } }],
+      { approval: { ...approval, approvalId: '4f9c1f9a-0000-4000-8000-000000000011' } }));
+    notifyResize();
   });
   assert.equal(chatLog.scrollTop, 1_200);
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
@@ -904,8 +789,7 @@ test('persisted repo-agent approvals render compact audit rows', () => {
   };
   const markup = render({
     selectedSession: persistedSession,
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.match(markup, /✓ Approved/u);
   assert.match(markup, /✕ Rejected/u);
@@ -921,8 +805,7 @@ test('a locally active operation offers Queue and an enabled Stop button', async
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
     onStopOperation: async () => { stops += 1; },
   })} />);
   const stop = screen.getByRole('button', { name: 'Stop' });
@@ -941,8 +824,7 @@ test('an operation owned by another client allows Queue before attachment suppli
   });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   })} />);
   assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
   assert.equal(screen.getByRole('button', { name: 'Queue' }).hasAttribute('disabled'), false);
@@ -1016,8 +898,7 @@ test('attachment read failures are reported to the owning session', async () => 
 
   try {
     renderComponent(<ChatTab {...buildProps({
-      selectedRuntime: store.get(SESSION_A.id),
-      sessionRuntimes: store.getAll(),
+      runtimeHub: new ChatRuntimeHub(store),
       onPendingImageError: (sessionId, message) => errors.push({ sessionId, message }),
     })} />);
     await act(async () => {
@@ -1043,8 +924,7 @@ test('overlapping attachment reads append in selection order', async () => {
   });
   try {
     renderComponent(<ChatTab {...buildProps({
-      selectedRuntime: store.get(SESSION_A.id),
-      sessionRuntimes: store.getAll(),
+      runtimeHub: new ChatRuntimeHub(store),
       onPendingImagesAppend: (sessionId, images) => appended.push({
         sessionId,
         images: images.map((image) => image.dataUrl),
@@ -1076,31 +956,22 @@ test('overlapping attachment reads append in selection order', async () => {
 test('switching sessions discards an unresolved attachment batch', async () => {
   const controls = installImageReadControls();
   const appended: string[] = [];
-  const store = buildDefaultStore(SESSION_A.id).apply({
-    kind: 'context-usage',
-    sessionId: SESSION_A.id,
-    contextUsage: CONTEXT_USAGE,
-  });
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: CONTEXT_USAGE })
+    .apply({ kind: 'context-usage', sessionId: SESSION_B.id, contextUsage: CONTEXT_USAGE }));
   try {
     const rendered = renderComponent(<ChatTab {...buildProps({
-      selectedRuntime: store.get(SESSION_A.id),
-      sessionRuntimes: store.getAll(),
+      runtimeHub: hub,
       onPendingImagesAppend: (sessionId) => appended.push(sessionId),
     })} />);
     fireEvent.change(screen.getByLabelText('Attach'), {
       target: { files: [new File([new Uint8Array([1])], 'first.png')] },
     });
-    const sessionBStore = buildDefaultStore(SESSION_B.id).apply({
-      kind: 'context-usage',
-      sessionId: SESSION_B.id,
-      contextUsage: CONTEXT_USAGE,
-    });
     await act(async () => {
       rendered.rerender(<ChatTab {...buildProps({
         selectedSessionId: SESSION_B.id,
         selectedSession: SESSION_B,
-        selectedRuntime: sessionBStore.get(SESSION_B.id),
-        sessionRuntimes: sessionBStore.getAll(),
+        runtimeHub: hub,
         onPendingImagesAppend: (sessionId) => appended.push(sessionId),
       })} />);
       await Promise.resolve();
@@ -1134,8 +1005,7 @@ test('busy A stays visible while selected B remains interactive', () => {
   const markup = render({
     selectedSessionId: 'session-b',
     selectedSession: SESSION_B,
-    selectedRuntime: store.get('session-b'),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.match(markup, /Session A[\s\S]*streaming/u);
   assert.doesNotMatch(markup, /class="send"[^>]*disabled/u);
@@ -1147,7 +1017,7 @@ test('selected busy A disables mutable controls except Stop', () => {
   const store = buildDefaultStore('session-a').apply({
     kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,
   });
-  const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
+  const markup = render({ runtimeHub: new ChatRuntimeHub(store) });
   assert.match(markup, /class="send stop"[^>]*>Stop/u);
   assert.match(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
   assert.doesNotMatch(markup, /class="ghost-btn acc new"[^>]*disabled/u);
@@ -1160,13 +1030,11 @@ test('selected session alone supplies errors and warnings', () => {
   const selectedB = render({
     selectedSessionId: 'session-b',
     selectedSession: SESSION_B,
-    selectedRuntime: store.get('session-b'),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.doesNotMatch(selectedB, /warning-a|error-a/u);
   const selectedA = render({
-    selectedRuntime: store.get('session-a'),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.match(selectedA, /warning-a/u);
   assert.match(selectedA, /error-a/u);
@@ -1181,21 +1049,21 @@ test('switching away from queued work keeps token badges and queue state in thei
     { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 4 } },
     { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'A'.repeat(400) } },
   ];
-  let store = applyLiveTranscript(buildDefaultStore(SESSION_A.id)
+  const hub = new ChatRuntimeHub(applyLiveTranscript(buildDefaultStore(SESSION_A.id)
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'queue', sessionId: SESSION_A.id, queue }), SESSION_A.id, steps, { operationKind: 'message' });
-  const view = renderComponent(<ChatTab {...buildProps({ selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll() })} />);
+    .apply({ kind: 'queue', sessionId: SESSION_A.id, queue }), SESSION_A.id, steps, { operationKind: 'message' }));
+  const view = renderComponent(<ChatTab {...buildProps({ runtimeHub: hub })} />);
   try {
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '~100 tokens');
-    view.rerender(<ChatTab {...buildProps({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id), sessionRuntimes: store.getAll() })} />);
+    view.rerender(<ChatTab {...buildProps({ selectedSessionId: SESSION_B.id, runtimeHub: hub })} />);
     assert.equal(view.container.querySelector('.assistant_thinking'), null);
     assert.doesNotMatch(view.container.textContent ?? '', /queued for A/u);
-    store = applyLiveTranscript(store, SESSION_A.id, [...steps, { kind: 'thinking', delta: { turn: 1, offset: 400, text: 'A'.repeat(400) } }], { operationKind: 'message' });
-    view.rerender(<ChatTab {...buildProps({ selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll() })} />);
+    act(() => hub.apply(liveFrame(SESSION_A.id, [...steps, { kind: 'thinking', delta: { turn: 1, offset: 400, text: 'A'.repeat(400) } }], { operationKind: 'message' })));
+    view.rerender(<ChatTab {...buildProps({ runtimeHub: hub })} />);
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '~200 tokens');
-    assert.equal(store.get(SESSION_A.id).queue, queue);
-    assert.equal(store.get(SESSION_B.id).tokenTurns.size, 0);
-    assert.equal(store.get(SESSION_B.id).queue, null);
+    assert.equal(hub.getStore().get(SESSION_A.id).queue, queue);
+    assert.equal(hub.getStore().getLive(SESSION_B.id).tokenTurns.size, 0);
+    assert.equal(hub.getStore().get(SESSION_B.id).queue, null);
   } finally { view.unmount(); }
 });
 
@@ -1205,7 +1073,7 @@ test('a running tool message renders a neutral friendly activity row', () => {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
     } }], { operationKind: 'message' });
-  const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
+  const markup = render({ runtimeHub: new ChatRuntimeHub(store) });
   const recentActivity = /<section class="recent-activity"[\s\S]*?<\/section>/u.exec(markup)?.[0] ?? '';
   assert.match(markup, /tool-activity-row tool-activity-neutral/u);
   assert.doesNotMatch(recentActivity, /class="sp"/u);
@@ -1230,8 +1098,7 @@ test('live recent activity renders only the newest three tools with latest turn 
     })));
   const markup = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.match(markup, /Recent activity/u);
   assert.match(markup, />4\/45</u);
@@ -1242,7 +1109,7 @@ test('live recent activity renders only the newest three tools with latest turn 
 
 test('selected context usage renders the warning context bar', () => {
   const responseStore = buildDefaultStore('session-a').apply({ kind: 'context-usage', sessionId: 'session-a', contextUsage: CONTEXT_USAGE });
-  const markup = render({ selectedRuntime: responseStore.get('session-a'), sessionRuntimes: responseStore.getAll() });
+  const markup = render({ runtimeHub: new ChatRuntimeHub(responseStore) });
   assert.match(markup, /class="ctx warn"/);
 });
 
@@ -1260,8 +1127,7 @@ test('pasting an image attaches it and a text paste is left alone', async () => 
       .ensureSession(SESSION_A.id, '')
       .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: CONTEXT_USAGE });
     renderComponent(React.createElement(ChatTab, buildProps({
-      selectedRuntime: store.get(SESSION_A.id),
-      sessionRuntimes: store.getAll(),
+      runtimeHub: new ChatRuntimeHub(store),
       onPendingImagesAppend: (_sessionId, images) => {
         appended.push(...images.map((image) => image.dataUrl));
       },
@@ -1320,8 +1186,7 @@ test('a submitted message renders as a pending bubble instead of staying in the 
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [{ dataUrl: IMAGE, note: null }] });
   const markup = render({
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
 
   assert.match(markup, /class="msg user user_text live pending"/u);
@@ -1337,8 +1202,7 @@ test('the pending bubble survives a control error that arrives before the stream
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
     .apply({ kind: 'control-error', sessionId: SESSION_A.id, message: 'repo root is dirty' });
   const markup = render({
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
 
   assert.match(markup, /sending…/u);
@@ -1352,8 +1216,7 @@ test('the pending bubble clears once the assistant starts streaming', () => {
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] });
   const store = applyLiveTranscript(pending, SESSION_A.id, [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'here it is' } }], { operationKind: 'message' });
   const markup = render({
-    selectedRuntime: store.get(SESSION_A.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
 
   assert.doesNotMatch(markup, /sending…/u);
@@ -1544,8 +1407,7 @@ test('a real compacting stream persists and immediately renders one boundary', a
       sessions: [summarizeChatSession(terminal.session)],
       selectedSessionId: terminal.session.id,
       selectedSession: terminal.session,
-      selectedRuntime: responseStore.get(terminal.session.id),
-      sessionRuntimes: responseStore.getAll(),
+      runtimeHub: new ChatRuntimeHub(responseStore),
     });
     const foldStart = markup.indexOf('<details class="compaction-history">');
     const foldEnd = markup.indexOf('</details>', foldStart);
@@ -1644,8 +1506,7 @@ test('a live turn that has only streamed thinking renders the thinking text', ()
   });
   const html = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.ok(html.includes('THINK_MARKER_ONE'), 'streamed thinking must be in the DOM before the answer arrives');
 });
@@ -1654,8 +1515,7 @@ test('a live turn that has only streamed thinking renders no empty Internal Logi
   const store = buildThinkingStore({ content: 'hello', images: [], operationKind: 'message', marker: 'THINK_MARKER_ONE' });
   const html = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.ok(html.includes('THINK_MARKER_ONE'), 'streamed thinking must be in the DOM for a text-only submit too');
   assert.ok(!html.includes('Internal Logic (0)'), 'an empty Internal Logic disclosure must not render');
@@ -1667,12 +1527,11 @@ test('once the answer streams, thinking moves into a lazy disclosure', () => {
     [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'ANSWER_MARKER' } }]);
   const html = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.ok(html.includes('ANSWER_MARKER'), 'the streamed answer must render');
   assert.ok(!html.includes('THINK_MARKER_ONE'), 'closed thinking must leave the DOM');
-  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /THINK_MARKER_ONE/u);
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, runtimeHub: new ChatRuntimeHub(store) }), /THINK_MARKER_ONE/u);
 });
 
 test('the outer turn badge sums the live bubble counters once and labels them run tokens', () => {
@@ -1683,8 +1542,7 @@ test('the outer turn badge sums the live bubble counters once and labels them ru
   ]);
   const html = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
     chatMode: 'repo-agent',
     isRepoToolMode: true,
   });
@@ -1693,7 +1551,7 @@ test('the outer turn badge sums the live bubble counters once and labels them ru
   // the two bubbles it sums. Asserting the whole list is what proves no badge claims an estimate
   // and no bubble is counted twice.
   assert.deepEqual(readTokenBadges(html), ['0 tokens', '4 run tokens', '2 tokens']);
-  assert.deepEqual(readTokenBadges(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) })), ['0 tokens', '4 run tokens', '2 tokens', '2 tokens']);
+  assert.deepEqual(readTokenBadges(renderExpanded({ selectedSessionId: SESSION_B.id, runtimeHub: new ChatRuntimeHub(store) })), ['0 tokens', '4 run tokens', '2 tokens', '2 tokens']);
 });
 
 test('a live turn with a running tool call renders recent activity and the thinking that led to it', () => {
@@ -1706,8 +1564,7 @@ test('a live turn with a running tool call renders recent activity and the think
   }]);
   const html = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.ok(html.includes('Recent activity'), 'the running tool call must render in recent activity');
   assert.ok(html.includes('1/4'), 'tool progress must count calls against the enforced tool-call limit');
@@ -1726,15 +1583,14 @@ test('the activity ring disappears into Internal Logic when final answer streami
   ]);
   const html = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   const logicStart = html.indexOf('<details class="internal-logic">');
   const logicEnd = html.indexOf('</details>', logicStart);
   const logic = html.slice(logicStart, logicEnd);
   assert.ok(logicStart >= 0, 'Internal Logic must contain the completed live activity');
   assert.doesNotMatch(logic, /Running command\u2026/u, 'closed Internal Logic does not mount tool cards');
-  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /Running command\u2026/u);
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, runtimeHub: new ChatRuntimeHub(store) }), /Running command\u2026/u);
   assert.ok(!html.includes('Recent activity'), 'the visible activity ring ends when answer streaming begins');
   assert.ok(html.includes('FINAL_ANSWER_MARKER'), 'the final answer remains visible');
 });
@@ -1750,8 +1606,7 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
   ]);
   const html = render({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   });
   assert.ok(!html.includes('PROGRESS_MARKER_ONE'), 'a newer progress event must replace the previous row text');
   assert.ok(!html.includes('PROGRESS_MARKER_TWO'), 'closed progress must leave the DOM');
@@ -1761,7 +1616,7 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
   const logic = html.slice(logicStart, logicEnd);
   assert.ok(logicStart >= 0, 'Internal Logic must render');
   assert.ok(!logic.includes('PROGRESS_MARKER_TWO'), 'closed Internal Logic stays unmounted');
-  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /PROGRESS_MARKER_TWO/u);
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, runtimeHub: new ChatRuntimeHub(store) }), /PROGRESS_MARKER_TWO/u);
   assert.ok(html.includes('Recent activity'), 'the friendly activity ring remains visible before the answer');
 });
 
@@ -1771,7 +1626,7 @@ test('the latest status update stays visible until a newer one or the answer rep
   );
   const renderSteps = (steps: LiveTranscriptStep[]) => {
     const store = storeFor(steps);
-    return render({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id), sessionRuntimes: store.getAll() });
+    return render({ selectedSessionId: SESSION_B.id, runtimeHub: new ChatRuntimeHub(store) });
   };
   const first: LiveTranscriptStep[] = [
     { kind: 'narration', delta: { turn: 1, offset: 0, text: 'STATUS_ONE' } },
@@ -1789,7 +1644,7 @@ test('the latest status update stays visible until a newer one or the answer rep
   const replaced = renderSteps(second);
   assert.match(replaced, /STATUS_TWO/u, 'a newer status takes the visible slot');
   assert.doesNotMatch(replaced, /STATUS_ONE/u, 'the older status moves into closed Internal Logic');
-  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: storeFor(second).get(SESSION_B.id) }), /STATUS_ONE/u);
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, runtimeHub: new ChatRuntimeHub(storeFor(second)) }), /STATUS_ONE/u);
 
   const answered = renderSteps([...second, { kind: 'answer', delta: { turn: 3, offset: 0, text: 'FINAL_MARKER' } }]);
   assert.match(answered, /FINAL_MARKER/u, 'the answer replaces the status');
@@ -1801,9 +1656,13 @@ const SEGMENT_TWO_THINKING = 'SEGMENT_TWO_THINKING';
 
 /** A live run whose four thinking turns are interrupted by one delivered queued message. */
 function buildSplitSegmentStore(sessionId: string, steps: readonly LiveTranscriptStep[] = []): ChatSessionRuntimeStore {
-  const store = buildDefaultStore(sessionId)
-    .apply({ kind: 'begin', sessionId, operationKind: 'repo-agent', operationId: OPERATION_ID });
-  return applyLiveTranscript(store, sessionId, [
+  return buildDefaultStore(sessionId)
+    .apply({ kind: 'begin', sessionId, operationKind: 'repo-agent', operationId: OPERATION_ID })
+    .apply(splitSegmentFrame(sessionId, steps));
+}
+
+function splitSegmentFrame(sessionId: string, steps: readonly LiveTranscriptStep[]) {
+  return liveFrame(sessionId, [
     ...[1, 2, 3, 4].flatMap((turn): LiveTranscriptStep[] => [
       { kind: 'prompt', prompt: { turn, maxTurns: 20, promptTokens: 40, charsPerToken: 4 } },
       { kind: 'thinking', delta: { turn, offset: 0, text: `SEGMENT_ONE_THINKING_${turn}` } },
@@ -1817,15 +1676,13 @@ function buildSplitSegmentStore(sessionId: string, steps: readonly LiveTranscrip
 
 test('a delivered queued message gives the two assistant segments independent React identities', async (t) => {
   const consoleError = t.mock.method(console, 'error', () => {});
-  const propsFor = (store: ChatSessionRuntimeStore): ChatTabProps => buildProps({
+  const hub = new ChatRuntimeHub(buildSplitSegmentStore(SESSION_B.id));
+  const view = renderComponent(<ChatTab {...buildProps({
     selectedSessionId: SESSION_B.id,
-    selectedRuntime: store.get(SESSION_B.id),
-    sessionRuntimes: store.getAll(),
+    runtimeHub: hub,
     chatMode: 'repo-agent',
     isRepoToolMode: true,
-  });
-  let store = buildSplitSegmentStore(SESSION_B.id);
-  const view = renderComponent(<ChatTab {...propsFor(store)} />);
+  })} />);
   const turnBubbles = (): Element[] => [...view.container.querySelectorAll('.msg.turn')];
   try {
     assert.equal(turnBubbles().length, 2, 'the delivered queued bubble splits the live run into two assistant segments');
@@ -1842,8 +1699,9 @@ test('a delivered queued message gives the two assistant segments independent Re
       `~${SEGMENT_TWO_THINKING.length / 4} tokens`,
     );
 
-    store = buildSplitSegmentStore(SESSION_B.id, [{ kind: 'thinking', delta: { turn: 5, offset: SEGMENT_TWO_THINKING.length, text: ' keeps streaming' } }]);
-    await act(async () => { view.rerender(<ChatTab {...propsFor(store)} />); });
+    await act(async () => {
+      hub.apply(splitSegmentFrame(SESSION_B.id, [{ kind: 'thinking', delta: { turn: 5, offset: SEGMENT_TWO_THINKING.length, text: ' keeps streaming' } }]));
+    });
 
     assert.equal(turnBubbles()[0], first, 'the earlier segment must not remount');
     assert.equal(turnBubbles()[1], second, 'the streaming segment must not remount');
@@ -1886,7 +1744,7 @@ test('clicking an approval mode reports the wire value and reflects the stored m
     .apply({ kind: 'repo-agent-approval-mode', sessionId: SESSION_A.id, approval: 'off' });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
-    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
     onChangeRepoAgentApprovalMode: async (mode) => { changes.push(mode); },
   })} />);
   assert.equal(screen.getByRole('button', { name: 'Approve all' }).getAttribute('aria-pressed'), 'true');
@@ -1899,7 +1757,7 @@ test('the approval mode control stays enabled while this client owns a running r
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
-    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   })} />);
   assert.equal(screen.getByRole('button', { name: 'Auto' }).hasAttribute('disabled'), false);
   assert.equal(screen.getByPlaceholderText('Describe the task for the repo agent…').hasAttribute('disabled'), false);
@@ -1912,7 +1770,7 @@ test('the approval mode control stays enabled when another client owns the run',
     .apply({ kind: 'remote-begin', sessionId: SESSION_A.id, operationKind: 'repo-agent' });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
-    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   })} />);
   for (const name of ['Manual', 'Auto', 'Approve all']) {
     assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), false);
@@ -1925,7 +1783,7 @@ test('the context bar and label grow with the calibrated streaming tail while a 
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: usage });
   const idleView = renderComponent(<ChatTab {...buildProps({
-    selectedRuntime: idle.get(SESSION_A.id), sessionRuntimes: idle.getAll(),
+    runtimeHub: new ChatRuntimeHub(idle),
   })} />);
   const idleBar = idleView.container.querySelector('.ctx');
   assert.ok(idleBar instanceof HTMLElement);
@@ -1940,7 +1798,7 @@ test('the context bar and label grow with the calibrated streaming tail while a 
     { kind: 'answer', delta: { turn: 2, offset: 0, text: 'x'.repeat(40) } },
   ], { operationKind: 'message' });
   const view = renderComponent(<ChatTab {...buildProps({
-    selectedRuntime: streaming.get(SESSION_A.id), sessionRuntimes: streaming.getAll(),
+    runtimeHub: new ChatRuntimeHub(streaming),
   })} />);
   const bar = view.container.querySelector('.ctx');
   assert.ok(bar instanceof HTMLElement);
@@ -1963,7 +1821,7 @@ test('the context bar follows the measured prompt count of the latest turn while
   ]);
   const view = renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
-    selectedRuntime: streaming.get(SESSION_A.id), sessionRuntimes: streaming.getAll(),
+    runtimeHub: new ChatRuntimeHub(streaming),
   })} />);
   const bar = view.container.querySelector('.ctx');
   assert.ok(bar instanceof HTMLElement);
@@ -1976,7 +1834,7 @@ test('the approval mode control is disabled during a local non-repo-agent operat
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
-    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+    runtimeHub: new ChatRuntimeHub(store),
   })} />);
   for (const name of ['Manual', 'Auto', 'Approve all']) {
     assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), true);
@@ -1994,7 +1852,7 @@ function renderUsagePopover(contextUsage: ContextUsage): string {
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage });
   const view = renderComponent(<ChatTab {...buildProps({
-    showSettings: true, selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+    showSettings: true, runtimeHub: new ChatRuntimeHub(store),
   })} />);
   const text = view.container.querySelector('.composer-settings-popover')?.textContent ?? '';
   view.unmount();
@@ -2030,7 +1888,7 @@ test('the chat head offers Compact while idle and runs the condense operation', 
 
 test('Compact is disabled while a run is active or there is nothing to compact', () => {
   const busy = buildDefaultStore('session-a').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID });
-  const busyView = renderComponent(<ChatTab {...buildProps({ selectedRuntime: busy.get('session-a') })} />);
+  const busyView = renderComponent(<ChatTab {...buildProps({ runtimeHub: new ChatRuntimeHub(busy) })} />);
   try { assert.equal(screen.getByRole('button', { name: 'Compact' }).hasAttribute('disabled'), true); } finally { busyView.unmount(); }
   const emptyView = renderComponent(<ChatTab {...buildProps({ selectedSession: { ...SESSION_A, messages: [] } })} />);
   try { assert.equal(screen.getByRole('button', { name: 'Compact' }).hasAttribute('disabled'), true); } finally { emptyView.unmount(); }
@@ -2061,7 +1919,7 @@ test('an actionable question renders the card and Cancel stops the run', async (
   });
   const store = buildDefaultStore('session-b').apply({ kind: 'snapshot', sessionId: 'session-b',
     snapshot: chatSnapshot({ sessionId: 'session-b', operationKind: 'message', question }) });
-  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b'),
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', runtimeHub: new ChatRuntimeHub(store),
     onStopOperation: async () => { stopped += 1; } })} />);
   try {
     assert.ok(screen.getByRole('region', { name: 'Question from the assistant' }));
@@ -2076,4 +1934,58 @@ test('chat answers render through markdown blocks with whole-document output', (
   const whole = renderToStaticMarkup(<MarkdownContent content={content} />).replaceAll('>\n<', '><');
   const markup = render({ selectedSession: { ...SESSION_A, messages: [msg({ id: 'a1', kind: 'assistant_answer', content })] } }).replaceAll('>\n<', '><');
   assert.ok(markup.includes(whole), 'block rendering diverged from whole-document rendering');
+});
+
+test('streamed tokens re-render the live transcript but never the ChatTab shell', async () => {
+  const history = Array.from({ length: 30 }, (_, index) => msg({ id: `h${index}`, kind: 'assistant_answer', content: `**answer ${index}**` }));
+  const session = { ...SESSION_A, messages: history };
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id));
+  const frame = (text: string, sequence: number) => ({ kind: 'snapshot' as const, sessionId: SESSION_A.id,
+    snapshot: chatSnapshot({ sessionId: SESSION_A.id, operationId: OPERATION_ID, cursor: { operationId: OPERATION_ID, sequence },
+      messages: [createLiveMessage('live-answer', 'assistant_answer', 'assistant', text)] }) });
+  await act(async () => hub.apply(frame('Hel', 1)));
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSession: session, runtimeHub: hub })} />);
+  try {
+    const shellRenders = await countRenders(ChatTab, async () => {
+      for (let sequence = 2; sequence <= 6; sequence += 1) {
+        await act(async () => hub.apply(frame(`Hel${'lo'.repeat(sequence)}`, sequence)));
+      }
+    });
+    assert.equal(shellRenders, 0);
+    await waitFor(() => assert.match(view.container.textContent ?? '', /Hellolololololo/u));
+  } finally { view.unmount(); }
+});
+
+test('a composer edit re-renders the shell but neither transcript', async () => {
+  const history = [msg({ id: 'u1', role: 'user', kind: 'user_text', content: 'question' }), msg({ id: 'a1', kind: 'assistant_answer', content: 'answer' })];
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id));
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSession: { ...SESSION_A, messages: history }, runtimeHub: hub })} />);
+  try {
+    const shellRenders = await countRenders(ChatTab, async () => {
+      await act(async () => hub.apply({ kind: 'draft', sessionId: SESSION_A.id, draft: 't' }));
+    });
+    const historyRenders = await countRenders(MessageImages, async () => {
+      await act(async () => hub.apply({ kind: 'draft', sessionId: SESSION_A.id, draft: 'ty' }));
+    });
+    assert.equal(shellRenders, 1);
+    assert.equal(historyRenders, 0);
+  } finally { view.unmount(); }
+});
+
+test('new handler identities from a controller re-render leave the stored history alone and still reach it', async () => {
+  const history = [msg({ id: 'u1', role: 'user', kind: 'user_text', content: 'question' }), msg({ id: 'a1', kind: 'assistant_answer', content: 'answer' })];
+  const props = buildProps({ selectedSession: { ...SESSION_A, messages: history }, runtimeHub: new ChatRuntimeHub(buildDefaultStore(SESSION_A.id)) });
+  const view = renderComponent(<ChatTab {...props} />);
+  const deleted: string[] = [];
+  try {
+    const historyRenders = await countRenders(MessageImages, async () => {
+      await act(async () => {
+        view.rerender(<ChatTab {...props} onDeleteMessage={async (id) => { deleted.push(id); }}
+          onDeleteMessageImage={async () => {}} onDeleteTurn={async () => {}} />);
+      });
+    });
+    assert.equal(historyRenders, 0);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete message' })[0] ?? view.container);
+    assert.deepEqual(deleted, ['u1']);
+  } finally { view.unmount(); }
 });

@@ -2,23 +2,56 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A streamed token re-renders only the live transcript and the live context meter, never `App`, `useChatController`, or the ChatTab shell and its persisted history.
+**Goal:** A streamed token re-renders only the live transcript and the live context meter, never `App`, `useChatController`, the ChatTab shell, or its persisted history. A pinned transcript stays at the bottom through every layout change, and the transcript never scrolls sideways.
 
-**Architecture:** The immutable `ChatSessionRuntimeStore` moves out of React state into a subscribable `ChatRuntimeHub`. Components read slices through `useChatRuntimeSelector` (built on `useSyncExternalStore`, cached per store identity plus equality), so a slice re-renders only when its value really changes. The snapshot reducer shares unchanged values so slow slices stay identical across token frames. ChatTab splits into a shell (slow slices), persisted segments (props only), `LiveTranscript` (per-token), and small live context meter components.
+**Architecture:** The immutable `ChatSessionRuntimeStore` moves out of React state into a subscribable `ChatRuntimeHub`. Components read slices through `useChatRuntimeSelector`, which is built on `useSyncExternalStore` and cached per store identity plus an equality check, so a slice re-renders only when its value really changes. The snapshot reducer shares unchanged values so that slow slices stay identical across token frames. ChatTab splits into a shell (slow slices), a memoized `PersistedTranscript`, a memoized `LiveTranscript` (per-token), and small live context meter components. Scroll following moves from a per-token message signature to a `ResizeObserver` on the transcript. Only an upward scroll unpins it.
 
-**Tech Stack:** React 19 (`useSyncExternalStore`), TypeScript, zod, node:test + jsdom + @testing-library/react, esbuild test bundles.
+**Tech Stack:** React 19 (`useSyncExternalStore`, callback-ref cleanup), TypeScript, zod, node:test + jsdom + @testing-library/react, esbuild test bundles.
 
-**Repo rules that apply to every task (from the user's CLAUDE.md):** TypeScript only, inferred end to end; no `any`, no explicit `unknown` (lint-enforced), no `as` casts, no `!`, no namespace imports. TDD for every behaviour change. Complete replacements only, with no shims, compatibility props or parallel paths (e.g. do not keep `selectedRuntime` alongside `runtimeHub`). Comments 1-2 lines. **Do not commit**; the user commits. No worktrees.
+**Repo rules that apply to every task (from the user's CLAUDE.md):**
+- TypeScript only, inferred end to end.
+- No `any`, no explicit `unknown` (lint-enforced), no `as` casts, no `!`, no namespace imports.
+- TDD for every behaviour change.
+- Complete replacements only. No shims, compatibility props or parallel paths. For example, do not keep `selectedRuntime` alongside `runtimeHub`, or `buildLiveMessageScrollSignature` alongside the observer.
+- Comments are 1-2 lines.
+- **Do not commit.** The user commits.
+- No worktrees.
 
 **Commands:**
-- Build test bundles (required after any change, before running tests): `npm run build:test`
-- Run named test files: `node ./dist/test-runner/run-tests.js <name> [<name>...]` (name = test file basename without extension, e.g. `chat-tab`)
+- Build the test bundles. This is required after any change, before running tests: `npm run build:test`
+- Run named test files: `node ./dist/test-runner/run-tests.js <name> [<name>...]`. The name is the test file's basename without extension, e.g. `chat-tab`.
 - Full dashboard suite: `node ./dist/test-runner/run-tests.js --dashboard`
-- Typecheck + lint (lint runs at the end of typecheck): `npm run typecheck`
+- Typecheck and lint. Lint runs at the end of typecheck: `npm run typecheck`
+- Dashboard dev server, for the manual checks: `cd dashboard && npm run dev`, then open `http://127.0.0.1:6876/?tab=chat`.
 
-**Background / measured baseline (2026-09-28 session):** Every server stream frame produces a `snapshot` transition applied with `setRuntimeStore` at the top of `useChatSessions`, which re-renders `App`, every controller hook, and the whole `ChatTab` per token. Markdown re-parsing is already memoized (`dashboard/src/components/MarkdownContent.tsx`: `MarkdownContent`, `MarkdownBlocks`), so the remaining per-token cost is React reconciliation of the full tree (~400 ms of script per 10 s at 60 tokens/s on the largest local session) plus a whole-message zod re-parse per `append_text` record in `ChatOperationProjection`.
+**Background / measured baseline (2026-09-28 session):**
+- Every server stream frame produces a `snapshot` transition. It is applied with `setRuntimeStore` at the top of `useChatSessions`, so each token re-renders `App`, every controller hook, and the whole `ChatTab`.
+- Markdown re-parsing is already memoized in `dashboard/src/components/MarkdownContent.tsx` (`MarkdownContent`, `MarkdownBlocks`). The per-token cost that remains has three parts:
+  - React reconciliation of the full tree: about 400 ms of script per 10 s at 60 tokens/s on the largest local session.
+  - An FNV hash of every live message's whole content, from `buildLiveMessageScrollSignature`.
+  - A whole-message zod re-parse per `append_text` record in `ChatOperationProjection`.
 
-**Test helper already available:** `dashboard/tests/render-tracker.ts` exports `countRenders(elementType, action)`. It counts how many times components of a given element type rendered while `action` ran, using React's DevTools commit hook. `dashboard/tests/react-test-environment.ts` imports it first, so any test that imports `./react-test-environment.js` first can use it.
+**Two UI bugs are fixed in the same refactor (root causes verified in code):**
+- *Stick-to-bottom is inconsistent.* `useChatScroll` follows only when the live message signature changes, in an effect right after the frame's commit. There are two failures:
+  - `useSmoothedText` then reveals the text over later animation frames, so the bubble keeps growing with nothing scrolling. So does `snap()` at stream end, images that load, `<details>` toggles, and the composer growing.
+  - Worse, `onChatLogScroll` treats *any* scroll event that is not within 4 px of the bottom as the user leaving. When content grows between the programmatic `scrollTop = scrollHeight` and its scroll event, the log unpins permanently, and the user has to scroll down by hand.
+- *Approving a long command adds a horizontal scrollbar that persists.* `.msgs` is `display: grid` with the implicit `auto` column, and an `auto` track is at least as wide as its widest item's min-content. After a decision, the transcript contains a `RepoAgentApprovalRow` whose `.cmd-inline` is `white-space: nowrap`. Its `max-width: 40%` is ignored for intrinsic sizing, so the column grows to the full command width and `.msgs` (with `overflow-y: auto`, which implies `overflow-x: auto`) scrolls sideways for as long as that row exists.
+- The same mechanism applies to any other unbreakable content:
+  - long paths, URLs or inline code in answers
+  - GFM tables
+  - a long `reviewPayload`
+  - many question choices in a non-wrapping `.approval-actions` row
+  - long error text in `.err-banner`
+- A bounded column alone is not enough: a descendant that is still too wide overflows its card and scrolls `.msgs` anyway. Two such sources remain after the rules above:
+  - a long question choice: `.send` is `flex: none`, so the button stays one line as wide as its whole label
+  - a wide markdown image: `.markdown-body img` had no `max-width`
+- *Measured audit (headless Chrome, real dashboard CSS, 900 px log, `C:\tmp\chat-overflow-probe`):* 12 transcript row types were each filled with hostile content: 400-char words, long commands and paths, a 40-column table, a 3000 px image, and sentence-long choices. The 12 types are approval row, repo-agent approval card, question card, orchestrator panel with its approval card, markdown answer, markdown image, user message with image, tool call details, thinking/internal logic, system context, compaction, and banners. Before the fix, 11 of 12 scrolled sideways (all except system context). After Task 8, 0 of 12 scroll, and no descendant escapes its bubble or card.
+
+**Test helpers already available:**
+- `dashboard/tests/render-tracker.ts` exports `countRenders(elementType, action)`. It counts how many times components of a given element type rendered while `action` ran, using React's DevTools commit hook.
+- `dashboard/tests/react-test-environment.ts` imports the render tracker first, so any test that imports `./react-test-environment.js` first can use `countRenders`.
+
+**Known accepted behaviour change:** When a run finishes, its rows move from `LiveTranscript` into `PersistedTranscript`. These are different parents, so those bubbles remount. An "Internal Logic" disclosure expanded on the live turn collapses when the run completes. Today it survives because both halves share one list.
 
 ---
 
@@ -29,27 +62,35 @@
 | `dashboard/src/lib/chat-session-runtime-store.ts` | Modify | Snapshot reducer shares unchanged `activity` / `warnings` values. |
 | `dashboard/src/lib/chat-runtime-hub.ts` | Create | `ChatRuntimeHub`: the one mutable holder of the store, plus subscribe/notify. |
 | `dashboard/src/hooks/useChatRuntimeSelector.ts` | Create | `useChatRuntimeSelector(hub, select, isEqual)`: cached `useSyncExternalStore` slice. |
-| `dashboard/src/lib/chat-runtime-selectors.ts` | Create | Named selectors + equality for the ChatTab shell and live components. |
-| `dashboard/src/lib/chat-session-state.ts` | Modify | `isSessionBusy` / `hasActiveRepoAgentRun` accept the fields they read (`Pick`), so the shell slice fits. |
+| `dashboard/src/lib/chat-runtime-selectors.ts` | Create | Named selectors + equality for the ChatTab shell and the live transcript. |
+| `dashboard/src/lib/chat-session-state.ts` | Modify | `isSessionBusy` / `hasActiveRepoAgentRun` accept the fields they read (`Pick`). |
+| `dashboard/src/lib/chat-live-token-display.ts` | Modify | `buildLiveTokenDisplays` accepts the fields it reads (`Pick`). |
 | `dashboard/src/lib/compaction-segments.ts` | Modify | `refoldsEarlierRows(live)`: whether live rows can re-fold persisted rows. |
 | `dashboard/src/hooks/useChatSessions.ts` | Modify | Owns a `ChatRuntimeHub` instead of `useState` for the store; returns `runtimeHub`. |
 | `dashboard/src/hooks/useChatController.ts` | Modify | Passes `runtimeHub`; callbacks read `runtimeHub.getStore()` when called. |
-| `dashboard/src/hooks/useChatScroll.ts` | Modify | Exports `useFollowWhilePinned`; `useChatScroll` returns `pinnedToBottomRef` and no longer takes the live signature. |
-| `dashboard/src/tabs/ChatTab.tsx` | Modify | Prop `runtimeHub` replaces `selectedRuntime` / `sessionRuntimes`. The shell reads slow slices; new `LiveTranscript`, `LiveContextBar`, `LiveContextLabel`, `LiveChatStatsBar`. |
+| `dashboard/src/hooks/useChatScroll.ts` | Modify | `ResizeObserver` follow via a `chatContentRef` callback ref; only an upward scroll unpins; no signature/ids inputs. |
+| `dashboard/src/lib/chatMessages.ts` | Modify | Delete `buildLiveMessageScrollSignature` and `hashFnv1a32` (their only consumer). |
+| `dashboard/src/styles/chat.css` | Modify | `.msgs` scrolls, `.msgs-content` is the `minmax(0, 1fr)` grid, and wrapping/containment rules. |
+| `dashboard/src/tabs/ChatTab.tsx` | Modify | Prop `runtimeHub` replaces `selectedRuntime` / `sessionRuntimes`. The shell reads slow slices; `PersistedTranscript`, `LiveTranscript`, `LiveContextBar`, `LiveContextLabel`, `LiveChatStatsBar`. |
 | `dashboard/src/lib/chat-operation-projection.ts` | Modify | `append_text` merges typed, without a whole-message zod parse. |
-| Tests | Create/Modify | `tests/chat-runtime-hub.test.ts`, `tests/hooks/useChatRuntimeSelector.test.tsx`, `tests/chat-runtime-selectors.test.ts`, `tests/lib/compaction-segments.test.ts`, `tests/chat-session-runtime-store.test.ts`, `tests/hooks/useChatSessions.test.tsx`, `tests/chat-tab.test.tsx`, `tests/chat-operation-projection.test.ts` (all under `dashboard/`). |
+| `dashboard/tests/react-test-environment.ts` | Modify | Installs a controllable `ResizeObserver`; exports `notifyResize()`. |
+| Tests | Create/Modify | `tests/chat-runtime-hub.test.ts`, `tests/hooks/useChatRuntimeSelector.test.tsx`, `tests/chat-runtime-selectors.test.ts`, `tests/lib/compaction-segments.test.ts`, `tests/chat-session-runtime-store.test.ts`, `tests/hooks/useChatSessions.test.tsx`, `tests/chat-tab.test.tsx`, `tests/chat-layout-css.test.ts`, `tests/lib/chatMessages.test.ts`, `tests/chat-operation-projection.test.ts` (all under `dashboard/`). |
 
 ---
 
 ### Task 1: Snapshot reducer shares unchanged values
 
-A snapshot transition rewrites `activity` (a new object every frame) and `warnings` (the projection copies the array every transfer). Both must keep their previous identity when equal, or every shell slice changes per token.
+A snapshot transition rewrites two values on every frame:
+- `activity` is a new object every frame.
+- `warnings` is copied by the projection on every transfer.
+
+Both must keep their previous identity when they are equal. Otherwise every shell slice changes per token.
 
 **Files:**
-- Modify: `dashboard/src/lib/chat-session-runtime-store.ts` (the `case 'snapshot':` branch of `applyTransition`, currently around lines 141-158)
+- Modify: `dashboard/src/lib/chat-session-runtime-store.ts`, the `case 'snapshot':` branch of `applyTransition` (lines 141-159).
 - Test: `dashboard/tests/chat-session-runtime-store.test.ts`
 
-- [ ] **Step 1: Write the failing test** (append to `dashboard/tests/chat-session-runtime-store.test.ts`; reuse that file's existing snapshot fixture import. It already builds snapshots via `chatSnapshot` from `./chat-snapshot-fixture.js`. If the local helper name differs, use the file's existing one.)
+- [x] **Step 1: Write the failing test.** Append it to `dashboard/tests/chat-session-runtime-store.test.ts`. Import `chatSnapshot` from `./chat-snapshot-fixture.js` and `createLiveMessage` from `../src/lib/chat-live-messages` if the file does not already import them.
 
 ```ts
 test('a snapshot that changes only text keeps activity and warnings identical', () => {
@@ -78,9 +119,9 @@ test('a snapshot with a new warning or activity replaces them', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-session-runtime-store`. Expected: the first new test FAILS on the `activity` identity assertion.
+- [x] **Step 2: Run to verify failure.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-session-runtime-store`. Expected: the first new test FAILS on the `activity` identity assertion. The second passes; it guards the replacement path.
 
-- [ ] **Step 3: Implement.** In `chat-session-runtime-store.ts`, add these helpers above `applyTransition`:
+- [x] **Step 3: Implement.** In `chat-session-runtime-store.ts`, add these helpers above `applyTransition`:
 
 ```ts
 function sameActivity(left: ChatSessionActivity, right: ChatSessionActivity): boolean {
@@ -110,9 +151,9 @@ In the `case 'snapshot':` branch, replace the `return { ...runtime, journalSnaps
         error: snapshot.status === 'recovery_failed' ? 'Chat recovery requires repair before continuing.' : null };
 ```
 
-(Identical to today's object except `activity` and `warnings`.)
+This object is identical to today's except for `activity` and `warnings`. `pendingApproval` and `liveTokenBase` already keep their identity across update transfers: `ChatOperationProjection.stage` carries the base `approval` and `tokenTurns` objects forward, and the server re-sends a token turn only when it changed.
 
-- [ ] **Step 4: Run to verify pass.** Same command. Expected: all tests in the file PASS.
+- [x] **Step 4: Run to verify pass.** Same command. Expected: all tests in the file PASS.
 
 ---
 
@@ -122,7 +163,7 @@ In the `case 'snapshot':` branch, replace the `return { ...runtime, journalSnaps
 - Create: `dashboard/src/lib/chat-runtime-hub.ts`
 - Test: `dashboard/tests/chat-runtime-hub.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import test from 'node:test';
@@ -157,9 +198,9 @@ test('a new hub starts with an empty store', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test`. Expected: build FAILS (module `chat-runtime-hub` not found). That is the red state.
+- [x] **Step 2: Run to verify failure.** `npm run build:test`. Expected: the build FAILS because module `chat-runtime-hub` is not found. That is the red state.
 
-- [ ] **Step 3: Implement** `dashboard/src/lib/chat-runtime-hub.ts`:
+- [x] **Step 3: Implement** `dashboard/src/lib/chat-runtime-hub.ts`:
 
 ```ts
 import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from './chat-session-runtime-store';
@@ -195,7 +236,7 @@ export class ChatRuntimeHub {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-runtime-hub`. Expected: 3 PASS.
+- [x] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-runtime-hub`. Expected: 3 PASS.
 
 ---
 
@@ -205,7 +246,7 @@ export class ChatRuntimeHub {
 - Create: `dashboard/src/hooks/useChatRuntimeSelector.ts`
 - Test: `dashboard/tests/hooks/useChatRuntimeSelector.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 import { countRenders } from '../render-tracker.js';
@@ -268,9 +309,9 @@ test('an equality function suppresses re-renders for equal derived values', asyn
 });
 ```
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test`. Expected: build FAILS (module not found).
+- [x] **Step 2: Run to verify failure.** `npm run build:test`. Expected: the build FAILS (module not found).
 
-- [ ] **Step 3: Implement** `dashboard/src/hooks/useChatRuntimeSelector.ts`:
+- [x] **Step 3: Implement** `dashboard/src/hooks/useChatRuntimeSelector.ts`:
 
 ```ts
 import { useRef, useSyncExternalStore } from 'react';
@@ -302,7 +343,7 @@ export function useChatRuntimeSelector<T>(
 }
 ```
 
-- [ ] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js useChatRuntimeSelector`. Expected: 3 PASS.
+- [x] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js useChatRuntimeSelector`. Expected: 3 PASS.
 
 ---
 
@@ -311,9 +352,10 @@ export function useChatRuntimeSelector<T>(
 **Files:**
 - Create: `dashboard/src/lib/chat-runtime-selectors.ts`
 - Modify: `dashboard/src/lib/chat-session-state.ts` (parameter types of `isSessionBusy`, `hasActiveRepoAgentRun`)
+- Modify: `dashboard/src/lib/chat-live-token-display.ts` (parameter type of `buildLiveTokenDisplays`)
 - Test: `dashboard/tests/chat-runtime-selectors.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import test from 'node:test';
@@ -322,30 +364,41 @@ import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { createLiveMessage } from '../src/lib/chat-live-messages';
 import { chatSnapshot } from './chat-snapshot-fixture.js';
 import {
-  sameShellRuntime, selectLiveMessages, selectLiveOperationId, selectShellRuntime, selectStreamedCharsSinceBase,
+  sameLiveTranscript, sameShellRuntime, selectLiveMessages, selectLiveOperationId, selectLiveTranscript, selectShellRuntime,
+  selectStreamedCharsSinceBase,
 } from '../src/lib/chat-runtime-selectors';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-0000000000d1';
 
+function frame(text: string, sequence: number) {
+  return chatSnapshot({ sessionId: 's1', operationId: OPERATION_ID, cursor: { operationId: OPERATION_ID, sequence },
+    messages: [createLiveMessage('a', 'assistant_answer', 'assistant', text)] });
+}
+
 function streamed(text: string, sequence: number): ChatSessionRuntimeStore {
-  return new ChatSessionRuntimeStore().ensureSession('s1', '').apply({ kind: 'snapshot', sessionId: 's1',
-    snapshot: chatSnapshot({ sessionId: 's1', operationId: OPERATION_ID, cursor: { operationId: OPERATION_ID, sequence },
-      messages: [createLiveMessage('a', 'assistant_answer', 'assistant', text)] }) });
+  return new ChatSessionRuntimeStore().ensureSession('s1', '').apply({ kind: 'snapshot', sessionId: 's1', snapshot: frame(text, sequence) });
 }
 
 test('the shell slice is equal across token frames and differs on a slow-field change', () => {
   const first = streamed('he', 1);
-  const second = first.apply({ kind: 'snapshot', sessionId: 's1', snapshot: {
-    ...chatSnapshot({ sessionId: 's1', operationId: OPERATION_ID, cursor: { operationId: OPERATION_ID, sequence: 2 },
-      messages: [createLiveMessage('a', 'assistant_answer', 'assistant', 'hello')] }) } });
+  const second = first.apply({ kind: 'snapshot', sessionId: 's1', snapshot: frame('hello', 2) });
   assert.equal(sameShellRuntime(selectShellRuntime(first, 's1'), selectShellRuntime(second, 's1')), true);
   const drafted = second.apply({ kind: 'draft', sessionId: 's1', draft: 'x' });
   assert.equal(sameShellRuntime(selectShellRuntime(second, 's1'), selectShellRuntime(drafted, 's1')), false);
 });
 
+test('the live transcript slice ignores composer edits and follows stream frames', () => {
+  const first = streamed('he', 1);
+  const drafted = first.apply({ kind: 'draft', sessionId: 's1', draft: 'x' });
+  assert.equal(sameLiveTranscript(selectLiveTranscript(first, 's1'), selectLiveTranscript(drafted, 's1')), true);
+  const next = first.apply({ kind: 'snapshot', sessionId: 's1', snapshot: frame('hello', 2) });
+  assert.equal(sameLiveTranscript(selectLiveTranscript(first, 's1'), selectLiveTranscript(next, 's1')), false);
+});
+
 test('selectors read an unknown session as empty values', () => {
   const store = new ChatSessionRuntimeStore();
   assert.equal(selectShellRuntime(store, 'ghost'), null);
+  assert.equal(selectLiveTranscript(store, 'ghost'), null);
   assert.deepEqual(selectLiveMessages(store, 'ghost'), []);
   assert.equal(selectLiveOperationId(store, 'ghost'), null);
   assert.equal(selectStreamedCharsSinceBase(store, 'ghost'), 0);
@@ -358,9 +411,9 @@ test('the shell slice omits every per-token field', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test`. Expected: build FAILS (module not found).
+- [x] **Step 2: Run to verify failure.** `npm run build:test`. Expected: the build FAILS (module not found).
 
-- [ ] **Step 3: Implement** `dashboard/src/lib/chat-runtime-selectors.ts`:
+- [x] **Step 3: Implement** `dashboard/src/lib/chat-runtime-selectors.ts`:
 
 ```ts
 import type { ChatOperationSnapshot } from '@siftkit/contracts';
@@ -369,6 +422,9 @@ import type { ChatSessionRuntime, ChatSessionRuntimeStore } from './chat-session
 
 /** Runtime fields a stream frame rewrites on every token; only live components read them. */
 export type ChatShellRuntime = Omit<ChatSessionRuntime, 'journalSnapshot' | 'liveMessages' | 'tokenTurns' | 'streamedCharsSinceBase'>;
+
+/** What the live transcript renders; a composer edit leaves all four identical. */
+export type LiveTranscriptSlice = Pick<ChatSessionRuntime, 'journalSnapshot' | 'liveMessages' | 'tokenTurns' | 'awaitingResponse'>;
 
 const SHELL_KEYS = [
   'sessionId', 'recoveryStatus', 'queue', 'activity', 'error', 'warnings', 'contextUsage', 'liveTokenBase', 'draft',
@@ -395,6 +451,19 @@ export function selectShellRuntime(store: ChatSessionRuntimeStore, sessionId: st
 export function sameShellRuntime(left: ChatShellRuntime | null, right: ChatShellRuntime | null): boolean {
   if (left === null || right === null) return left === right;
   return SHELL_KEYS.every((key) => Object.is(left[key], right[key]));
+}
+
+export function selectLiveTranscript(store: ChatSessionRuntimeStore, sessionId: string): LiveTranscriptSlice | null {
+  const runtime = selectRuntime(store, sessionId);
+  if (!runtime) return null;
+  return { journalSnapshot: runtime.journalSnapshot, liveMessages: runtime.liveMessages, tokenTurns: runtime.tokenTurns,
+    awaitingResponse: runtime.awaitingResponse };
+}
+
+export function sameLiveTranscript(left: LiveTranscriptSlice | null, right: LiveTranscriptSlice | null): boolean {
+  if (left === null || right === null) return left === right;
+  return left.journalSnapshot === right.journalSnapshot && left.liveMessages === right.liveMessages
+    && left.tokenTurns === right.tokenTurns && left.awaitingResponse === right.awaitingResponse;
 }
 
 export function selectLiveMessages(store: ChatSessionRuntimeStore, sessionId: string): readonly ChatMessage[] {
@@ -429,53 +498,108 @@ export function selectQuestionId(store: ChatSessionRuntimeStore, sessionId: stri
 }
 ```
 
-In `dashboard/src/lib/chat-session-state.ts`, narrow the two parameter types (bodies unchanged):
+The unused destructured names in `selectShellRuntime` are allowed, because the lint config sets `ignoreRestSiblings: true`.
+
+In `dashboard/src/lib/chat-session-state.ts`, narrow the two parameter types. The bodies stay unchanged:
 
 ```ts
 export function isSessionBusy(runtime: Pick<ChatSessionRuntime, 'activity' | 'pendingApproval' | 'submissionPhase'> | null): boolean {
 export function hasActiveRepoAgentRun(runtime: Pick<ChatSessionRuntime, 'activity'> | null): boolean {
 ```
 
-- [ ] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-runtime-selectors chat-session-state`. Expected: all PASS. Then `npm run typecheck`. Expected: exit 0 (confirms the completeness check and the `Pick` narrowing compile).
+In `dashboard/src/lib/chat-live-token-display.ts`, narrow the parameter. The body reads only these three fields:
+
+```ts
+export function buildLiveTokenDisplays(runtime: Pick<ChatSessionRuntime, 'journalSnapshot' | 'liveMessages' | 'tokenTurns'>): ReadonlyMap<string, TokenDisplay> {
+```
+
+- [x] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-runtime-selectors chat-session-state chat-live-token-display`. Expected: all PASS. Then run `npm run typecheck`. Expected: exit 0, which confirms that the completeness check and the `Pick` narrowings compile.
 
 ---
 
 ### Task 5: `useChatSessions` owns a hub
 
-Mechanical replacement: the hook stops holding the store in React state.
+This is a mechanical replacement: the hook stops holding the store in React state.
 
 **Files:**
 - Modify: `dashboard/src/hooks/useChatSessions.ts`
 - Test: `dashboard/tests/hooks/useChatSessions.test.tsx`
 
-- [ ] **Step 1: Write the failing test** (append to `dashboard/tests/hooks/useChatSessions.test.tsx`)
+- [x] **Step 1: Write the failing tests.** Append them to `dashboard/tests/hooks/useChatSessions.test.tsx`. Add the imports `import { useChatRuntimeSelector } from '../../src/hooks/useChatRuntimeSelector';` and `import { selectLiveMessages } from '../../src/lib/chat-runtime-selectors';`.
 
 ```tsx
 test('runtime transitions never re-render the hook that owns the hub', async () => {
-  let renders = 0;
-  const hook = renderHook(() => {
-    renders += 1;
-    return useChatSessions({ initialSelectedSessionId: 's-preselected', refreshToken: 0,
-      buildCreateSessionRequest: () => null, confirmDeleteSession: () => true, enqueueToast: () => {} });
+  const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE } });
+  try {
+    let renders = 0;
+    const hook = renderHook(() => {
+      renders += 1;
+      return useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+        buildCreateSessionRequest: () => null, confirmDeleteSession: () => true, enqueueToast: () => {} });
+    });
+    await waitFor(() => {
+      assert.notEqual(hook.result.current.selectedSession, null);
+      assert.equal(hook.result.current.selectedSessionLoading, false);
+    });
+    const before = renders;
+    await act(async () => {
+      hook.result.current.runtimeHub.apply({ kind: 'draft', sessionId: 's1', draft: 'typing' });
+      hook.result.current.runtimeHub.apply({ kind: 'plan-inputs', sessionId: 's1', planRepoRootInput: 'C:/x', planMaxTurnsInput: '5' });
+    });
+    assert.equal(renders, before);
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, 'typing');
+    hook.unmount();
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a finished run hands its rows from the live view to the stored transcript without an empty frame', async () => {
+  const answer = createLiveMessage('answer', 'assistant_answer', 'assistant', 'final answer');
+  const settled: ChatSession = { ...SESSION,
+    messages: [chatMessage({ id: 'answer', role: 'assistant', content: 'final answer', sourceRunId: OPERATION_ID })] };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: settled, contextUsage: CONTEXT_USAGE },
+    operationStream: snapshotBody({ terminalCause: 'completed', messages: [answer] }) + terminalBody(),
+    settleAfterAttach: true,
   });
-  const hub = hook.result.current.runtimeHub;
-  hub.update((store) => store.ensureSession('s-preselected', ''));
-  const before = renders;
-  await act(async () => {
-    hub.apply({ kind: 'draft', sessionId: 's-preselected', draft: 'typing' });
-    hub.apply({ kind: 'begin', sessionId: 's-preselected', operationKind: 'message', operationId: OPERATION_ID });
-  });
-  assert.equal(renders, before);
-  assert.equal(hook.result.current.runtimeHub.getStore().get('s-preselected').draft, 'typing');
-  hook.unmount();
+  const frames: string[] = [];
+  try {
+    const hook = renderHook(() => {
+      const chat = useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+        buildCreateSessionRequest: () => null, confirmDeleteSession: () => true, enqueueToast: () => {} });
+      const live = useChatRuntimeSelector(chat.runtimeHub, (store) => selectLiveMessages(store, 's1'));
+      frames.push(`${chat.selectedSession?.messages.length ?? 0}/${live.length}`);
+      return chat;
+    });
+    await waitFor(() => assert.equal(hook.result.current.selectedSession?.messages.length, 1));
+    await waitFor(() => assert.equal(hook.result.current.runtimeHub.getStore().get('s1').liveMessages.length, 0));
+    const firstLive = frames.indexOf('0/1');
+    assert.notEqual(firstLive, -1, frames.join(' '));
+    assert.equal(frames.slice(firstLive).includes('0/0'), false, frames.join(' '));
+    hook.unmount();
+  } finally {
+    fixture.restore();
+  }
 });
 ```
 
-(If the file's fetch stubbing requires a fixture for the initial listing, wrap the body in the file's existing `ChatFetchFixture` with `session: SESSION` and use `'s1'` as the id, exactly like the neighbouring tests.)
+In `ChatFetchFixture`, add the option and honour it in the `/operation/stream` branch, directly after `frames` is known to be defined:
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test`. Expected: build FAILS (`runtimeHub` does not exist on the hook result).
+```ts
+    /** Serves the settled session detail once the attached run's stream has been read. */
+    settleAfterAttach?: boolean;
+```
+```ts
+        if (this.options.settleAfterAttach) this.settled = true;
+```
 
-- [ ] **Step 3: Implement in `useChatSessions.ts`**
+- [x] **Step 2: Run to verify failure.** `npm run build:test`. Expected: the build FAILS because `runtimeHub` does not exist on the hook result.
+
+- [x] **Step 3: Implement in `useChatSessions.ts`**
 
 1. Replace these two lines:
 ```ts
@@ -487,14 +611,43 @@ with:
   // Runtime state lives outside React so a streamed token re-renders only its subscribers.
   const [runtimeHub] = useState(() => new ChatRuntimeHub());
 ```
-2. Replace every `setRuntimeStore(` call with `runtimeHub.update(`. The updater functions stay byte-for-byte the same. Where the updater is a single `.apply(x)`, you may write `runtimeHub.apply(x)` instead.
-3. Replace every read of `runtimeStoreRef.current` and every read of the render-time `runtimeStore` variable (`readRuntimeInputs`, `answerQuestion`, `shouldQueue`, `queueMessage`, `forceQueue`, `setRepoAgentApprovalMode`, `stopOperation`, `recordSessionError`, the idle branch of the attach effect) with `runtimeHub.getStore()`.
-4. In the returned object replace `runtimeStore,` with `runtimeHub,`.
-5. Imports: add `import { ChatRuntimeHub } from '../lib/chat-runtime-hub';`; change the store import to `import type { ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store';` if `ChatSessionRuntimeStore` is no longer referenced; keep `useLatest` only if still used (lint fails on unused imports).
+2. Replace every `setRuntimeStore(` call with `runtimeHub.update(`. The updater functions stay byte-for-byte the same. Where the updater is a single `.apply(x)`, you may write `runtimeHub.apply(x)` instead. Updaters now run synchronously, which is safe: none of them has side effects, and none returns a value through a closure.
+3. Replace every read of `runtimeStoreRef.current` and every read of the render-time `runtimeStore` variable with `runtimeHub.getStore()`. The reads are in:
+   - `recordSessionError`
+   - `readRuntimeInputs`
+   - `answerQuestion`
+   - `shouldQueue`
+   - `queueMessage`
+   - `forceQueue`
+   - `setRepoAgentApprovalMode`
+   - `stopOperation`
+   - the idle branch of the attach effect
+4. In the returned object, replace `runtimeStore,` with `runtimeHub,`.
+5. Imports:
+   - Add `import { ChatRuntimeHub } from '../lib/chat-runtime-hub';`.
+   - Change the store import to `import type { ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store';` if `ChatSessionRuntimeStore` is no longer referenced.
+   - Keep `useLatest` only if it is still used. Lint fails on unused imports.
 
-- [ ] **Step 4: Migrate existing hook tests.** In `dashboard/tests/hooks/useChatSessions.test.tsx`, replace every `hook.result.current.runtimeStore.` with `hook.result.current.runtimeHub.getStore().` (≈20 sites; `waitFor` polls, so no re-render is needed).
+- [x] **Step 4: Migrate existing hook tests.** In `dashboard/tests/hooks/useChatSessions.test.tsx`, replace every `hook.result.current.runtimeStore.` with `hook.result.current.runtimeHub.getStore().`. There are 54 `runtimeStore` matches in the file. `waitFor` polls, so no re-render is needed.
 
-- [ ] **Step 5: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js useChatSessions`. Expected: all PASS, including the new test.
+- [x] **Step 5: Run.** `npm run build:test && node ./dist/test-runner/run-tests.js useChatSessions`. Expected: all PASS, including both new tests.
+
+React 19 renders pending default-lane updates together with a `useSyncExternalStore` sync update (unified sync lane). That means the `storeSession` state update and the following `hub.apply(terminal)` commit in one frame, and the handoff test passes.
+
+**If the handoff test FAILS with a `0/0` frame,** make the stored transcript commit before any hub transition that follows it. In `storeSession`, wrap the two React state updates:
+
+```ts
+  function storeSession(session: ChatSession): void {
+    // Hub updates render in the sync lane; commit the transcript first so a live view never retires into nothing.
+    flushSync(() => {
+      setLoadedSessions((previous) => new Map(previous).set(session.id, session));
+      setSessions((previous) => upsertSession(previous, session));
+    });
+    runtimeHub.update((previous) => previous.ensureSession(session.id, session.planRepoRoot));
+  }
+```
+
+Add `import { flushSync } from 'react-dom';` for that fix. Then re-run and expect PASS.
 
 ---
 
@@ -503,11 +656,11 @@ with:
 **Files:**
 - Modify: `dashboard/src/hooks/useChatController.ts`
 
-This task compiles only together with Task 9 (ChatTab props). Do the edits now; Task 9 Step 9 verifies them.
+This task compiles only together with Task 10 (ChatTab props). Make the edits now; Task 10 Step 10 verifies them.
 
-- [ ] **Step 1: Remove `selectedRuntime`.** Delete the whole `const selectedRuntime = chatSessionsHook.selectedSessionId ? (() => { ... })() : null;` block.
+- [x] **Step 1: Remove `selectedRuntime`.** Delete the whole `const selectedRuntime = chatSessionsHook.selectedSessionId ? (() => { ... })() : null;` block.
 
-- [ ] **Step 2: Read the runtime when called.** Add under the other derived values:
+- [x] **Step 2: Read the runtime when called.** Add under the other derived values:
 
 ```ts
   const runtimeHub = chatSessionsHook.runtimeHub;
@@ -517,67 +670,322 @@ This task compiles only together with Task 9 (ChatTab props). Do the edits now; 
   }
 ```
 
-Then in `tabProps`:
-- replace `selectedRuntime,` and `sessionRuntimes: chatSessionsHook.runtimeStore.getAll(),` with `runtimeHub,`
+Then make these changes in `tabProps`:
+- Replace `selectedRuntime,` and `sessionRuntimes: chatSessionsHook.runtimeStore.getAll(),` with `runtimeHub,`.
 - `onChangePlanRepoRoot`: `const runtime = readSelectedRuntime(); if (!chatSessionsHook.selectedSessionId || !runtime) return; chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, value, runtime.planMaxTurnsInput);`
-- `onChangePlanMaxTurns`: same shape, passing `runtime.planRepoRootInput, value`
+- `onChangePlanMaxTurns`: the same shape, passing `runtime.planRepoRootInput, value`.
 - `onSavePlanRepoRoot`: `() => chatSessionsHook.savePlanRepoRoot(readSelectedRuntime()?.planRepoRootInput ?? '', selectedChatPreset?.id)`
 
 Imports: `import { selectRuntime } from '../lib/chat-runtime-selectors';` and `import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';`.
 
 ---
 
-### Task 7: Scroll following moves to the live subtree
+### Task 7: Pinned scrolling follows every layout change
+
+This task fixes the inconsistent stick-to-bottom bug. It works on today's ChatTab props; Task 10 moves the call onto the hub.
 
 **Files:**
 - Modify: `dashboard/src/hooks/useChatScroll.ts`
+- Modify: `dashboard/src/tabs/ChatTab.tsx` (the `useChatScroll` call and the `.msgs` markup)
+- Modify: `dashboard/src/styles/chat.css` (`.msgs` rule)
+- Modify: `dashboard/src/lib/chatMessages.ts`, `dashboard/tests/lib/chatMessages.test.ts`
+- Modify: `dashboard/tests/react-test-environment.ts`
+- Test: `dashboard/tests/chat-tab.test.tsx`
 
-- [ ] **Step 1: Implement.** Replace the signature and the follow effect:
+- [x] **Step 1: Give tests a controllable `ResizeObserver`.** jsdom has none. In `dashboard/tests/react-test-environment.ts`, add the following above the `Object.assign(globalThis, ...)` call, and add `ResizeObserver: TestResizeObserver,` to that object:
+
+```ts
+const resizeListeners = new Set<() => void>();
+
+/** jsdom has no layout; tests call notifyResize() where a browser would report a size change. */
+class TestResizeObserver {
+  private readonly notify: () => void;
+  constructor(callback: ResizeObserverCallback) { this.notify = () => callback([], this); }
+  observe(): void { resizeListeners.add(this.notify); }
+  unobserve(): void {}
+  disconnect(): void { resizeListeners.delete(this.notify); }
+}
+
+export function notifyResize(): void {
+  for (const notify of resizeListeners) notify();
+}
+```
+
+- [x] **Step 2: Write the failing tests.** In `dashboard/tests/chat-tab.test.tsx`, add `notifyResize` to the `./react-test-environment.js` import. Replace `configureChatScroll` with a version that leaves the log pinned at its bottom, as a freshly opened transcript is:
+
+```ts
+/** Sizes the log and leaves it resting at its bottom, where a freshly opened transcript is pinned. */
+function configureChatScroll(element: HTMLElement): { setScrollHeight(value: number): void } {
+  let scrollHeight = 1_000;
+  Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => 200 });
+  Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+  element.scrollTop = 800;
+  fireEvent.scroll(element);
+  return { setScrollHeight: (value) => { scrollHeight = value; } };
+}
+```
+
+Append:
+
+```tsx
+test('a pinned log follows growth that arrives without a new stream frame', async () => {
+  const view = renderComponent(<ChatTab {...buildProps()} />);
+  const chatLog = view.container.querySelector('.msgs');
+  assert.ok(chatLog instanceof HTMLElement);
+  const scroll = configureChatScroll(chatLog);
+  scroll.setScrollHeight(1_300);
+  await act(async () => notifyResize());
+  assert.equal(chatLog.scrollTop, 1_300);
+});
+
+test('a scroll event caused by growth below the viewport keeps the log pinned', async () => {
+  const view = renderComponent(<ChatTab {...buildProps()} />);
+  const chatLog = view.container.querySelector('.msgs');
+  assert.ok(chatLog instanceof HTMLElement);
+  const scroll = configureChatScroll(chatLog);
+  scroll.setScrollHeight(1_300);
+  fireEvent.scroll(chatLog);
+  assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
+  await act(async () => notifyResize());
+  assert.equal(chatLog.scrollTop, 1_300);
+});
+
+test('scrolling up unpins, and growth then leaves the reading position alone', async () => {
+  const view = renderComponent(<ChatTab {...buildProps()} />);
+  const chatLog = view.container.querySelector('.msgs');
+  assert.ok(chatLog instanceof HTMLElement);
+  const scroll = configureChatScroll(chatLog);
+  chatLog.scrollTop = 300;
+  fireEvent.scroll(chatLog);
+  assert.ok(screen.getByRole('button', { name: 'Jump to bottom' }));
+  scroll.setScrollHeight(1_300);
+  await act(async () => notifyResize());
+  assert.equal(chatLog.scrollTop, 300);
+});
+```
+
+In the three existing scroll tests, a content change now reaches the log through a layout change, not through a re-render. The three tests are `streaming follows only while the user is pinned to the bottom`, `switching sessions resets pinned scrolling and hides the jump control`, and `each distinct repo-agent approval forces one scroll to the bottom`. For each `await act(async () => { view.rerender(...); });` that expects the log to follow, change it to `await act(async () => { view.rerender(...); notifyResize(); });`. Keep every assertion exactly as it is.
+
+- [x] **Step 3: Run to verify failure.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-tab`. Expected: `a pinned log follows growth…` FAILS (scrollTop stays 800), and `a scroll event caused by growth…` FAILS (the jump button appears). The third new test passes; it guards the unpin path.
+
+- [x] **Step 4: Implement `useChatScroll.ts`.** Replace everything from `export type UseChatScrollResult` to the end of the file, keeping `ScrollTarget`, `ScrollableElement`, `BOTTOM_THRESHOLD_PX`, `isChatLogAtBottom`, `scrollChatLogToBottom`:
 
 ```ts
 export type UseChatScrollResult = {
   chatLogRef: React.RefObject<HTMLDivElement | null>;
-  pinnedToBottomRef: React.RefObject<boolean>;
+  /** Attach to the log's content wrapper: every size change of either re-follows a pinned log. */
+  chatContentRef: React.RefCallback<HTMLDivElement>;
   onChatLogScroll(): void;
   jumpToBottom(): void;
   showJumpToBottom: boolean;
 };
-
-/** Keeps the log at the bottom while the user is pinned there, each time `signature` changes. */
-export function useFollowWhilePinned(
-  chatLogRef: React.RefObject<HTMLDivElement | null>,
-  pinnedToBottomRef: React.RefObject<boolean>,
-  signature: string,
-): void {
-  useEffect(() => {
-    if (pinnedToBottomRef.current) scrollChatLogToBottom(chatLogRef.current);
-  }, [signature]);
+```
+```ts
+/** Records where following left the log, so the scroll event it causes never reads as the user moving up. */
+function followBottom(element: HTMLDivElement | null, lastScrollTopRef: React.RefObject<number>): void {
+  scrollChatLogToBottom(element);
+  lastScrollTopRef.current = element?.scrollTop ?? 0;
 }
 
-export function useChatScroll(
-  sessionId: string,
-  persistedMessageIdsKey: string,
-  pendingApprovalId: string | null,
-): UseChatScrollResult {
+export function useChatScroll(sessionId: string, pendingApprovalId: string | null): UseChatScrollResult {
+  const chatLogRef = useRef<HTMLDivElement | null>(null);
+  const pinnedToBottomRef = useRef(true);
+  // Where the log was last left; only a move above it is the user leaving the bottom.
+  const lastScrollTopRef = useRef(0);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+
+  function pinToBottom(): void {
+    followBottom(chatLogRef.current, lastScrollTopRef);
+    pinnedToBottomRef.current = true;
+    setShowJumpToBottom(false);
+  }
+
+  function onChatLogScroll(): void {
+    const element = chatLogRef.current;
+    if (!element) return;
+    const movedUp = element.scrollTop < lastScrollTopRef.current;
+    lastScrollTopRef.current = element.scrollTop;
+    // Content growing under a pinned log fires scroll events too; those must not unpin it.
+    if (isChatLogAtBottom(element)) {
+      pinnedToBottomRef.current = true;
+      setShowJumpToBottom(false);
+    } else if (movedUp) {
+      pinnedToBottomRef.current = false;
+      setShowJumpToBottom(true);
+    }
+  }
+
+  // A callback ref: the log mounts only once a session shows, and React 19 runs the returned cleanup on detach.
+  const chatContentRef = useCallback((content: HTMLDivElement | null) => {
+    const log = content?.parentElement;
+    if (!content || !log) return undefined;
+    const observer = new ResizeObserver(() => {
+      if (pinnedToBottomRef.current) followBottom(chatLogRef.current, lastScrollTopRef);
+    });
+    observer.observe(content);
+    observer.observe(log);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => { pinToBottom(); }, [sessionId]);
+
+  useEffect(() => {
+    if (pendingApprovalId !== null) pinToBottom();
+  }, [pendingApprovalId]);
+
+  return { chatLogRef, chatContentRef, onChatLogScroll, jumpToBottom: pinToBottom, showJumpToBottom };
+}
 ```
 
-Inside `useChatScroll`, delete the old `useEffect(() => { if (pinnedToBottomRef.current) ... }, [visibleMessageIdsKey, liveMessageScrollSignature]);`, call `useFollowWhilePinned(chatLogRef, pinnedToBottomRef, persistedMessageIdsKey);` in its place, and return `pinnedToBottomRef` in the result object. The existing ChatTab test `streaming follows only while the user is pinned to the bottom` verifies this in Task 8.
+Change the import line to `import React, { useCallback, useEffect, useRef, useState } from 'react';`. Observing both the content and the log covers two cases: text or images growing, and the log shrinking because the composer grew.
+
+- [x] **Step 5: Wire ChatTab.**
+  - Delete `visibleMessageIds`, `liveMessageScrollSignature` and the `buildLiveMessageScrollSignature` import.
+  - The call becomes `const { chatLogRef, chatContentRef, onChatLogScroll, jumpToBottom, showJumpToBottom } = useChatScroll(selectedSessionId, selectedRuntime?.pendingApproval?.approvalId ?? selectedRuntime?.journalSnapshot?.question?.questionId ?? null);`.
+  - Wrap every child of `.msgs` in one element. That covers the prompt context, the segments, the orchestrator panel, the approval and question cards, and the recent-activity section:
+
+```tsx
+              <div className="msgs" ref={chatLogRef} onScroll={onChatLogScroll} hidden={selectedSessionLoading}>
+                <div className="msgs-content" ref={chatContentRef}>
+                  {/* …the existing children, unchanged… */}
+                </div>
+              </div>
+```
+
+In `chat.css`, split the `.msgs` rule so that the log scrolls and its content lays out:
+
+```css
+.msgs { height: 100%; box-sizing: border-box; overflow-y: auto; padding: 14px 18px 52px; }
+.msgs-content { display: grid; gap: 10px; align-content: start; }
+```
+
+- [x] **Step 6: Delete the signature.** In `dashboard/src/lib/chatMessages.ts`, delete `hashFnv1a32` and `buildLiveMessageScrollSignature`; `estimatePromptTokens` stays. In `dashboard/tests/lib/chatMessages.test.ts`, delete their five tests and their imports. `BASE_MESSAGE` and the `ChatMessage` type import go too if nothing else uses them.
+
+- [x] **Step 7: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-tab chatMessages useChatScroll`. Expected: all PASS.
 
 ---
 
-### Task 8: Compaction boundary rule
+### Task 8: The transcript never scrolls sideways
 
-Live rows re-fold persisted ones only when the live run streams a compaction summary. Otherwise, rendering persisted segments then live segments equals segmenting the combined list.
+This task fixes the long-command approval bug and every other source of horizontal overflow in the chat.
+
+**Files:**
+- Modify: `dashboard/src/styles/chat.css`
+- Test: `dashboard/tests/chat-layout-css.test.ts`
+
+jsdom has no layout engine, so this task is covered in two ways. A source contract test guards the four rules, following the same precedent as `tests/agent-loop-boundary.test.ts`, which reads source text. Step 5 then measures the layout in a real browser.
+
+- [x] **Step 1: Reproduce in the browser (before the fix).** Start the dev server, open a chat session, and run this in the DevTools console:
+
+```js
+(() => {
+  const content = document.querySelector('.msgs-content'); const log = document.querySelector('.msgs');
+  const probe = document.createElement('div'); probe.innerHTML = `
+    <div class="approval-row ok"><span class="verdict">✓ Approved</span><span class="cmd-inline">${'npm run build -- --filter=' + 'x'.repeat(600)}</span></div>
+    <article class="msg ai"><div class="markdown-body"><p>${'y'.repeat(600)}</p>
+      <table><tr>${'<td>wide cell</td>'.repeat(60)}</tr></table></div></article>
+    <section class="approval-card"><div class="approval-actions">${'<button class="send">A long answer choice</button>'.repeat(12)}</div></section>`;
+  content.append(probe); const fits = log.scrollWidth <= log.clientWidth; probe.remove(); return fits;
+})()
+```
+
+Expected: `false`. This reproduces the sideways scroll.
+
+- [x] **Step 2: Write the failing test** `dashboard/tests/chat-layout-css.test.ts`:
+
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const CHAT_CSS = fs.readFileSync(path.join(process.cwd(), 'dashboard', 'src', 'styles', 'chat.css'), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//gu, '');
+
+/** The declarations of the one rule whose selector is exactly `selector`, whitespace-normalized. */
+function declarationsOf(selector: string): string[] {
+  const rules = [...CHAT_CSS.matchAll(/([^{}]+)\{([^}]*)\}/gu)].filter((match) => match[1]?.trim() === selector);
+  assert.equal(rules.length, 1, `expected exactly one "${selector}" rule`);
+  return (rules[0]?.[2] ?? '').split(';').map((declaration) => declaration.trim().replace(/\s+/gu, ' ')).filter(Boolean);
+}
+
+test('the transcript column never grows past the log, whatever a row cannot wrap', () => {
+  assert.ok(declarationsOf('.msgs-content').includes('grid-template-columns: minmax(0, 1fr)'));
+});
+
+test('unbreakable text wraps anywhere in the chat instead of widening it', () => {
+  assert.ok(declarationsOf('.chat-main').includes('overflow-wrap: anywhere'));
+});
+
+test('a wide markdown table scrolls inside its bubble', () => {
+  const table = declarationsOf('.markdown-body table');
+  assert.ok(table.includes('display: block'));
+  assert.ok(table.includes('overflow-x: auto'));
+});
+
+test('approval and question actions wrap onto new lines', () => {
+  assert.ok(declarationsOf('.approval-actions').includes('flex-wrap: wrap'));
+});
+
+test('a long question choice wraps inside its button instead of widening the card', () => {
+  assert.ok(declarationsOf('.approval-actions > *').includes('max-width: 100%'));
+});
+
+test('a wide markdown image scales down to its bubble', () => {
+  const image = declarationsOf('.markdown-body img');
+  assert.ok(image.includes('max-width: 100%'));
+  assert.ok(image.includes('height: auto'));
+});
+```
+
+- [x] **Step 3: Run to verify failure.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-layout-css`. Expected: 6 FAIL.
+
+- [x] **Step 4: Implement** in `dashboard/src/styles/chat.css`:
+
+```css
+.chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-wrap: anywhere; }
+```
+```css
+/* minmax(0, …): an auto column grows to its widest unwrappable row (a nowrap approved command) and scrolls sideways. */
+.msgs-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+```
+Add after `.markdown-body :last-child`:
+```css
+.markdown-body table { display: block; max-width: 100%; overflow-x: auto; }
+```
+```css
+.markdown-body img { max-width: 100%; height: auto; }
+```
+```css
+.approval-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+/* `.send` is flex: none, so a long question choice would stay one line wider than the card. */
+.approval-actions > * { max-width: 100%; }
+```
+The queue list now inherits the wrap from `.chat-main`, so drop its own copy:
+```css
+.chat-pending-queue li { padding: 4px 0; }
+```
+
+Once the column is bounded, `.approval-row .cmd-inline`'s `max-width: 40%` resolves, so the approved command truncates with its existing ellipsis. `.msg`'s `max-width: 72%` clamps each bubble, and the table and the wrapping keep what is inside it from overflowing.
+
+- [x] **Step 5: Run and re-measure.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-layout-css`. Expected: 6 PASS. Re-run the Step 1 console probe on the reloaded page. Expected: `true`. Also check by eye that:
+  - An approved long command shows as one ellipsized line.
+  - A long approval card command wraps inside the card.
+  - A wide table scrolls on its own.
+
+---
+
+### Task 9: Compaction boundary rule
+
+Live rows re-fold persisted rows only when the live run streams a compaction summary or a row already folded into one. Otherwise, rendering the persisted segments and then the live segments gives the same result as segmenting the combined list.
 
 **Files:**
 - Modify: `dashboard/src/lib/compaction-segments.ts`
 - Test: `dashboard/tests/lib/compaction-segments.test.ts`
 
-- [ ] **Step 1: Write the failing test** (append; the file already has message helpers, reuse its `message`/`msg` builder, adapting names to the file)
+- [x] **Step 1: Write the failing test.** In `dashboard/tests/lib/compaction-segments.test.ts`, change the import on line 3 to `import { buildCompactionSegments, markEarlierRunsCompacted, refoldsEarlierRows } from '../../src/lib/compaction-segments';` and append the following. It uses the file's existing `msg` builder.
 
 ```ts
-import { buildCompactionSegments, refoldsEarlierRows } from '../../src/lib/compaction-segments';
-
 /** Segments as rendered: fold boundaries and message order, ignoring how adjacent message runs are keyed. */
 function renderedShape(segments: ReturnType<typeof buildCompactionSegments>): string[] {
   const shape: string[] = [];
@@ -588,7 +996,7 @@ function renderedShape(segments: ReturnType<typeof buildCompactionSegments>): st
   return shape;
 }
 
-test('without a live compaction summary, persisted then live segments render like the combined list', () => {
+test('without a live fold, persisted then live segments render like the combined list', () => {
   const persisted = [msg({ id: 'p1' }), msg({ id: 'p2', compressedIntoSummary: true }), msg({ id: 'p3' })];
   const live = [msg({ id: 'l1' }), msg({ id: 'l2' })];
   assert.equal(refoldsEarlierRows(live), false);
@@ -598,33 +1006,38 @@ test('without a live compaction summary, persisted then live segments render lik
   );
 });
 
-test('a streamed compaction summary re-folds earlier rows', () => {
+test('a streamed compaction summary or folded live row re-folds earlier rows', () => {
   assert.equal(refoldsEarlierRows([msg({ id: 's', kind: 'compaction_summary' })]), true);
+  assert.equal(refoldsEarlierRows([msg({ id: 'f', compressedIntoSummary: true })]), true);
 });
 ```
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test`. Expected: build FAILS (`refoldsEarlierRows` not exported).
+- [x] **Step 2: Run to verify failure.** `npm run build:test`. Expected: the build FAILS because `refoldsEarlierRows` is not exported.
 
-- [ ] **Step 3: Implement** (append to `compaction-segments.ts`):
+- [x] **Step 3: Implement.** Append to `compaction-segments.ts`:
 
 ```ts
-/** Only a streamed summary folds rows before it, so without one persisted segments never depend on live rows. */
+/** A live summary or folded row can join persisted folds; without one, persisted segments never depend on live rows. */
 export function refoldsEarlierRows(live: readonly ChatMessage[]): boolean {
-  return live.some((message) => message.kind === 'compaction_summary');
+  return live.some((message) => message.kind === 'compaction_summary' || message.compressedIntoSummary === true);
 }
 ```
 
-- [ ] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js compaction-segments`. Expected: PASS.
+- [x] **Step 4: Run to verify pass.** `npm run build:test && node ./dist/test-runner/run-tests.js compaction-segments`. Expected: PASS.
 
 ---
 
-### Task 9: ChatTab reads slices; `LiveTranscript` takes the per-token work
+### Task 10: ChatTab reads slices; memoized transcripts take the per-token work
 
 **Files:**
 - Modify: `dashboard/src/tabs/ChatTab.tsx`
 - Test: `dashboard/tests/chat-tab.test.tsx`
 
-- [ ] **Step 1: Write the failing isolation test** (append to `dashboard/tests/chat-tab.test.tsx`; `buildProps`, `SESSION_A`, `msg`, `chatSnapshot`, `createLiveMessage`, `OPERATION_ID` already exist in the file. Add `import { countRenders } from './render-tracker.js';` after the `react-test-environment` import and `import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';`.)
+- [x] **Step 1: Write the failing isolation tests.** Append them to `dashboard/tests/chat-tab.test.tsx`. `buildProps`, `buildDefaultStore`, `SESSION_A`, `msg`, `chatSnapshot`, `createLiveMessage` and `OPERATION_ID` already exist in the file. Add these imports:
+  - `import { countRenders } from './render-tracker.js';`, after the `react-test-environment` import.
+  - `import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';`
+  - `import { MessageImages } from '../src/components/MessageImages';`
+  - `waitFor` in the `./react-test-environment.js` import.
 
 ```tsx
 test('streamed tokens re-render the live transcript but never the ChatTab shell', async () => {
@@ -646,15 +1059,33 @@ test('streamed tokens re-render the live transcript but never the ChatTab shell'
     await waitFor(() => assert.match(view.container.textContent ?? '', /Hellolololololo/u));
   } finally { view.unmount(); }
 });
+
+test('a composer edit re-renders the shell but neither transcript', async () => {
+  const history = [msg({ id: 'u1', role: 'user', kind: 'user_text', content: 'question' }), msg({ id: 'a1', kind: 'assistant_answer', content: 'answer' })];
+  const hub = new ChatRuntimeHub(buildDefaultStore(SESSION_A.id));
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSession: { ...SESSION_A, messages: history }, runtimeHub: hub })} />);
+  try {
+    const shellRenders = await countRenders(ChatTab, async () => {
+      await act(async () => hub.apply({ kind: 'draft', sessionId: SESSION_A.id, draft: 't' }));
+    });
+    const historyRenders = await countRenders(MessageImages, async () => {
+      await act(async () => hub.apply({ kind: 'draft', sessionId: SESSION_A.id, draft: 'ty' }));
+    });
+    assert.equal(shellRenders, 1);
+    assert.equal(historyRenders, 0);
+  } finally { view.unmount(); }
+});
 ```
 
-(`as const` is allowed by the repo rules. If the file does not import `waitFor`, add it to the `./react-test-environment.js` import.)
+`as const` is allowed by the repo rules. `MessageImages` renders inside every user bubble, so a re-render of the history shows up as a count above zero.
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test`. Expected: build FAILS (`runtimeHub` is not a ChatTab prop).
+- [x] **Step 2: Run to verify failure.** `npm run build:test`. Expected: the build FAILS because `runtimeHub` is not a ChatTab prop.
 
-- [ ] **Step 3: Change the props contract.** In `ChatTabProps`, delete `selectedRuntime: ChatSessionRuntime | null;` and `sessionRuntimes: ChatSessionRuntime[];` and add `runtimeHub: ChatRuntimeHub;`. In the `ChatTab({ ... })` destructuring, replace `selectedRuntime, sessionRuntimes,` with `runtimeHub,`.
+- [x] **Step 3: Change the props contract.**
+  - In `ChatTabProps`, delete `selectedRuntime: ChatSessionRuntime | null;` and `sessionRuntimes: ChatSessionRuntime[];`, and add `runtimeHub: ChatRuntimeHub;`.
+  - In the `ChatTab({ ... })` destructuring, replace `selectedRuntime, sessionRuntimes,` with `runtimeHub,`.
 
-- [ ] **Step 4: Session indicators read the store.** Replace `buildSessionIndicators(sessions, sessionRuntimes)` and its definition with:
+- [x] **Step 4: Session indicators read the store.** Replace `buildSessionIndicators(sessions, sessionRuntimes)` and its definition with:
 
 ```ts
 function buildSessionIndicators(sessions: ChatSessionSummary[], store: ChatSessionRuntimeStore): ChatSessionIndicatorView[] {
@@ -669,7 +1100,7 @@ function sameSessionIndicators(left: ChatSessionIndicatorView[], right: ChatSess
 
 and in the component: `const sessionIndicators = useChatRuntimeSelector(runtimeHub, (store) => buildSessionIndicators(sessions, store), sameSessionIndicators);`
 
-- [ ] **Step 5: Shell slices.** Replace the block from `const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';` through `const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);` and the `useChatScroll(...)` call with:
+- [x] **Step 5: Shell slices.** Replace the block from `const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';` through the `useChatScroll(...)` call with:
 
 ```tsx
   const shell = useChatRuntimeSelector(runtimeHub, (store) => selectShellRuntime(store, selectedSessionId), sameShellRuntime);
@@ -695,87 +1126,82 @@ and in the component: `const sessionIndicators = useChatRuntimeSelector(runtimeH
     compactedEarlierHistory,
   ), [savedMessages, liveOperationId, compactedEarlierHistory]);
   const retainedIds = React.useMemo(() => new Set(persistedMessages.map((message) => message.id)), [persistedMessages]);
-  // A streamed compaction summary folds persisted rows, so the live transcript then renders them too.
+  // A streamed fold re-folds persisted rows, so the live transcript then renders them too.
   const persistedSegments = React.useMemo(
     () => liveRefoldsHistory ? [] : buildCompactionSegments(persistedMessages), [persistedMessages, liveRefoldsHistory]);
-  const persistedVisible = persistedMessages.filter((message) => message.kind !== 'compaction_summary' && message.compressedIntoSummary !== true);
   const promptContext = selectedSession?.promptContext ?? null;
-  const { chatLogRef, pinnedToBottomRef, onChatLogScroll, jumpToBottom, showJumpToBottom } = useChatScroll(
+  const { chatLogRef, chatContentRef, onChatLogScroll, jumpToBottom, showJumpToBottom } = useChatScroll(
     selectedSessionId,
-    persistedVisible.map((message) => message.id).join('|'),
     shell?.pendingApproval?.approvalId ?? questionId,
   );
 ```
 
 Add a module constant `const NO_MESSAGES: ChatMessage[] = [];` near the other top-level constants. Then, throughout the rest of `ChatTab`:
 - `isSessionBusy(selectedRuntime)` → `isSessionBusy(shell)`
-- `selectedRuntime?.queue` → `shell?.queue`; `selectedRuntime?.activity.kind === 'local'` → `shell?.activity.kind === 'local'`
-- `selectedRuntime?.awaitingResponse` → `shell?.awaitingResponse`; `selectedRuntime?.submissionPhase` → `shell?.submissionPhase`
-- the repo-agent approval-mode control: `chatMode === 'repo-agent' && shell ? (... value={shell.repoAgentApprovalMode} disabled={shell.activity.kind !== 'idle' && !hasActiveRepoAgentRun(shell)} ...)`
-- `hasCompactableHistory = persistedVisible.length > 0` (a run in progress already disables Compact through `selectedSessionBusy`)
-- delete `liveMessages`, `liveTokenDisplays`, `snapshot`, `currentMessages`, `segments`, `visibleMessages`, `liveMessageIds`, `visibleMessageIds`, `pendingUserMessageId` (all move to `LiveTranscript`)
+- `selectedRuntime?.queue` → `shell?.queue`
+- `selectedRuntime?.activity.kind === 'local'` → `shell?.activity.kind === 'local'`
+- `selectedRuntime?.awaitingResponse` → `shell?.awaitingResponse`
+- `selectedRuntime?.submissionPhase` → `shell?.submissionPhase`
+- The repo-agent approval-mode control becomes `chatMode === 'repo-agent' && shell ? (... value={shell.repoAgentApprovalMode} disabled={shell.activity.kind !== 'idle' && !hasActiveRepoAgentRun(shell)} ...)`.
+- `const hasCompactableHistory = persistedMessages.some((message) => message.kind !== 'compaction_summary' && message.compressedIntoSummary !== true);`. A run in progress already disables Compact through `selectedSessionBusy`.
+- Delete `liveMessages`, `liveTokenDisplays`, `snapshot`, `currentMessages`, `segments`, `visibleMessages`, `liveMessageIds` and `pendingUserMessageId`. All of them move into `LiveTranscript`.
 
-- [ ] **Step 6: Render persisted segments, then the live transcript.** Replace the `{segments.map((segment) => ...)}` block inside `.msgs` with:
+- [x] **Step 6: Memoized transcripts.** Inside `.msgs-content`, replace the `{segments.map((segment) => ...)}` block with:
 
 ```tsx
-              {persistedSegments.map((segment) => segment.kind === 'compaction' ? (
-                <CompactedHistoryPanel key={segment.key} compactedMessages={segment.originals} summary={segment.summary}
-                  sessionId={selectedSessionId} isDirectChatMode={isDirectChatMode} chatBusy={selectedSessionBusy}
-                  onDeleteMessage={onDeleteMessage} onDeleteMessageImage={onDeleteMessageImage} onDeleteTurn={onDeleteTurn} />
-              ) : (
-                <TurnList key={segment.key} messages={segment.messages} liveMessageIds={NO_IDS} liveTokenDisplays={NO_TOKEN_DISPLAYS}
-                  sessionId={selectedSessionId} pendingUserMessageId={null} isDirectChatMode={isDirectChatMode} chatBusy={selectedSessionBusy}
-                  onDeleteMessage={onDeleteMessage} onDeleteMessageImage={onDeleteMessageImage} onDeleteTurn={onDeleteTurn} />
-              ))}
-              <LiveTranscript runtimeHub={runtimeHub} sessionId={selectedSessionId}
-                leadingMessages={liveRefoldsHistory ? persistedMessages : NO_MESSAGES} retainedIds={retainedIds}
-                isDirectChatMode={isDirectChatMode} chatBusy={selectedSessionBusy}
-                chatLogRef={chatLogRef} pinnedToBottomRef={pinnedToBottomRef}
-                onDeleteMessage={onDeleteMessage} onDeleteMessageImage={onDeleteMessageImage} onDeleteTurn={onDeleteTurn} />
+              <PersistedTranscript segments={persistedSegments} {...transcriptRows} />
+              <LiveTranscript runtimeHub={runtimeHub} leadingMessages={liveRefoldsHistory ? persistedMessages : NO_MESSAGES}
+                retainedIds={retainedIds} {...transcriptRows} />
 ```
 
-with module constants `const NO_IDS: ReadonlySet<string> = new Set();` and `const NO_TOKEN_DISPLAYS: ReadonlyMap<string, TokenDisplay> = new Map();`. Replace the approval/question cards' `selectedRuntime?.journalSnapshot?.approval?.actionable ? (... key={selectedRuntime.journalSnapshot.approval.approvalId} approval={selectedRuntime.journalSnapshot.approval} ...)` with `actionableApproval ? (<RepoAgentApprovalCard key={actionableApproval.approvalId} approval={actionableApproval} ... />)`, and the question card likewise with `actionableQuestion`.
+In the shell, above `return`, add: `const transcriptRows = { sessionId: selectedSessionId, isDirectChatMode, chatBusy: selectedSessionBusy, onDeleteMessage, onDeleteMessageImage, onDeleteTurn };`.
 
-Add the component next to `TurnList`:
+Add the module constants `const NO_IDS: ReadonlySet<string> = new Set();` and `const NO_TOKEN_DISPLAYS: ReadonlyMap<string, TokenDisplay> = new Map();`.
+
+Replace the approval card `selectedRuntime?.journalSnapshot?.approval?.actionable ? (... key={selectedRuntime.journalSnapshot.approval.approvalId} approval={selectedRuntime.journalSnapshot.approval} ...)` with `actionableApproval ? (<RepoAgentApprovalCard key={actionableApproval.approvalId} approval={actionableApproval} ... />)`. Change the question card the same way to use `actionableQuestion`.
+
+Add next to `TurnList`:
 
 ```tsx
-/** The running operation's rows: the only transcript part that subscribes to per-token runtime changes. */
-function LiveTranscript({ runtimeHub, sessionId, leadingMessages, retainedIds, isDirectChatMode, chatBusy, chatLogRef, pinnedToBottomRef,
-  onDeleteMessage, onDeleteMessageImage, onDeleteTurn }: {
-  runtimeHub: ChatRuntimeHub;
+type TranscriptRowProps = {
   sessionId: string;
-  leadingMessages: ChatMessage[];
-  retainedIds: ReadonlySet<string>;
   isDirectChatMode: boolean;
   chatBusy: boolean;
-  chatLogRef: React.RefObject<HTMLDivElement | null>;
-  pinnedToBottomRef: React.RefObject<boolean>;
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
+};
+
+/** Stored history; memoized so composer edits and stream frames never reconcile it. */
+const PersistedTranscript = React.memo(function PersistedTranscript({ segments, ...rows }: TranscriptRowProps & { segments: CompactionSegment[] }) {
+  return segments.map((segment) => segment.kind === 'compaction'
+    ? <CompactedHistoryPanel key={segment.key} compactedMessages={segment.originals} summary={segment.summary} {...rows} />
+    : <TurnList key={segment.key} messages={segment.messages} liveMessageIds={NO_IDS} liveTokenDisplays={NO_TOKEN_DISPLAYS}
+      pendingUserMessageId={null} {...rows} />);
+});
+
+/** The running operation's rows: the only transcript part that subscribes to per-token runtime changes. */
+const LiveTranscript = React.memo(function LiveTranscript({ runtimeHub, leadingMessages, retainedIds, ...rows }: TranscriptRowProps & {
+  runtimeHub: ChatRuntimeHub;
+  leadingMessages: ChatMessage[];
+  retainedIds: ReadonlySet<string>;
 }) {
-  const runtime = useChatRuntimeSelector(runtimeHub, (store) => selectRuntime(store, sessionId));
+  const live = useChatRuntimeSelector(runtimeHub, (store) => selectLiveTranscript(store, rows.sessionId), sameLiveTranscript);
   const liveMessages = React.useMemo(
-    () => (runtime?.liveMessages ?? NO_MESSAGES).filter((message) => !retainedIds.has(message.id)), [runtime, retainedIds]);
+    () => (live?.liveMessages ?? NO_MESSAGES).filter((message) => !retainedIds.has(message.id)), [live, retainedIds]);
   const liveMessageIds = React.useMemo(() => new Set(liveMessages.map((message) => message.id)), [liveMessages]);
-  const liveTokenDisplays = React.useMemo(() => runtime ? buildLiveTokenDisplays(runtime) : NO_TOKEN_DISPLAYS, [runtime]);
-  useFollowWhilePinned(chatLogRef, pinnedToBottomRef, buildLiveMessageScrollSignature(liveMessages));
-  const pendingUserMessageId = runtime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
-  return buildCompactionSegments([...leadingMessages, ...liveMessages]).map((segment) => segment.kind === 'compaction' ? (
-    <CompactedHistoryPanel key={`live:${segment.key}`} compactedMessages={segment.originals} summary={segment.summary}
-      sessionId={sessionId} isDirectChatMode={isDirectChatMode} chatBusy={chatBusy}
-      onDeleteMessage={onDeleteMessage} onDeleteMessageImage={onDeleteMessageImage} onDeleteTurn={onDeleteTurn} />
-  ) : (
-    <TurnList key={`live:${segment.key}`} messages={segment.messages} liveMessageIds={liveMessageIds} liveTokenDisplays={liveTokenDisplays}
-      sessionId={sessionId} pendingUserMessageId={pendingUserMessageId} isDirectChatMode={isDirectChatMode} chatBusy={chatBusy}
-      onDeleteMessage={onDeleteMessage} onDeleteMessageImage={onDeleteMessageImage} onDeleteTurn={onDeleteTurn} />
-  ));
-}
+  const liveTokenDisplays = React.useMemo(() => live ? buildLiveTokenDisplays(live) : NO_TOKEN_DISPLAYS, [live]);
+  const pendingUserMessageId = live?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
+  return buildCompactionSegments([...leadingMessages, ...liveMessages]).map((segment) => segment.kind === 'compaction'
+    ? <CompactedHistoryPanel key={`live:${segment.key}`} compactedMessages={segment.originals} summary={segment.summary} {...rows} />
+    : <TurnList key={`live:${segment.key}`} messages={segment.messages} liveMessageIds={liveMessageIds}
+      liveTokenDisplays={liveTokenDisplays} pendingUserMessageId={pendingUserMessageId} {...rows} />);
+});
 ```
 
-Note: `buildLiveTokenDisplays` takes `ChatSessionRuntime`; `runtime` here is the full runtime, so its signature is unchanged.
+The scroll following needs nothing from `LiveTranscript`: the `ResizeObserver` from Task 7 sees the growth.
 
-- [ ] **Step 7: Live context meter components.** `streamedCharsSinceBase` changes per token, so only these three leaves subscribe to it. Add next to `SettingsPopover`:
+- [x] **Step 7: Live context meter components.** `streamedCharsSinceBase` changes per token, so only these three leaves subscribe to it. Add next to `SettingsPopover`:
 
 ```tsx
 function useLiveContextUsage(runtimeHub: ChatRuntimeHub, sessionId: string, shell: ChatShellRuntime | null, busy: boolean) {
@@ -806,27 +1232,40 @@ function LiveChatStatsBar({ lastTurn, sessionStats, ...context }: LiveContextPro
 }
 ```
 
-In the composer, replace the `{liveContextUsage ? (<div className=... ctx ...>) : null}` block with `<LiveContextBar runtimeHub={runtimeHub} sessionId={selectedSessionId} shell={shell} busy={selectedSessionBusy} />`, the `{liveContextUsage ? (<span className="ctx-label">...) : null}` block with `<LiveContextLabel ... />` (same props), and `<ChatStatsBar ... />` with `<LiveChatStatsBar runtimeHub={runtimeHub} sessionId={selectedSessionId} shell={shell} busy={selectedSessionBusy} lastTurn={lastTurnTelemetry} sessionStats={sessionPromptCacheStats} />`. Delete `liveContextUsage`, `usedRatio`, `contextTone` from the shell. (If `resolveLiveContextUsage`'s result has no `ratio` field, compute `usedRatio` exactly as the deleted shell code did, from the same result.)
+`resolveLiveContextUsage` already returns `ratio`, as today's `liveContextUsage?.ratio` shows. Make these replacements in the composer:
+- Replace the `{liveContextUsage ? (<div className=... ctx ...>) : null}` block with `<LiveContextBar runtimeHub={runtimeHub} sessionId={selectedSessionId} shell={shell} busy={selectedSessionBusy} />`.
+- Replace the `{liveContextUsage ? (<span className="ctx-label">...) : null}` block with `<LiveContextLabel ... />`, using the same props.
+- Replace `<ChatStatsBar ... />` with `<LiveChatStatsBar runtimeHub={runtimeHub} sessionId={selectedSessionId} shell={shell} busy={selectedSessionBusy} lastTurn={lastTurnTelemetry} sessionStats={sessionPromptCacheStats} />`.
+- Delete `liveContextUsage`, `usedRatio` and `contextTone` from the shell.
 
-Imports to add in `ChatTab.tsx`: `ChatRuntimeHub` (type), `useChatRuntimeSelector`, the selectors from `../lib/chat-runtime-selectors` (`selectRuntime`, `selectShellRuntime`, `sameShellRuntime`, `selectLiveMessages`, `selectLiveOperationId`, `selectCompactedEarlierHistory`, `selectActionableApproval`, `selectActionableQuestion`, `selectQuestionId`, `selectStreamedCharsSinceBase`, type `ChatShellRuntime`), `refoldsEarlierRows`, `useFollowWhilePinned`, type `ChatSessionRuntimeStore`. Remove imports that become unused (lint fails on them).
+Imports to add in `ChatTab.tsx`:
+- `ChatRuntimeHub` (type)
+- `useChatRuntimeSelector`
+- from `../lib/chat-runtime-selectors`: `selectRuntime`, `selectShellRuntime`, `sameShellRuntime`, `selectLiveTranscript`, `sameLiveTranscript`, `selectLiveMessages`, `selectLiveOperationId`, `selectCompactedEarlierHistory`, `selectActionableApproval`, `selectActionableQuestion`, `selectQuestionId`, `selectStreamedCharsSinceBase`, and type `ChatShellRuntime`
+- `refoldsEarlierRows` and type `CompactionSegment`
+- type `ChatSessionRuntimeStore`
 
-- [ ] **Step 8: Migrate `chat-tab.test.tsx`.** Apply these rules to all ≈150 sites:
+Remove imports that become unused, such as type `ChatSessionRuntime`. Lint fails on them.
+
+- [x] **Step 8: Migrate `chat-tab.test.tsx`.** Apply these rules to all 116 matches:
   - In `buildProps`, replace `selectedRuntime: defaultStore.get(selectedSessionId), sessionRuntimes: defaultStore.getAll(),` with `runtimeHub: new ChatRuntimeHub(defaultStore),`.
-  - An override `{ selectedRuntime: store.get(id), sessionRuntimes: store.getAll() }` (or either alone) becomes `{ runtimeHub: new ChatRuntimeHub(store) }`.
-  - A test that re-renders ChatTab with a newer store to simulate streaming (e.g. `streaming follows only while the user is pinned to the bottom`) creates one hub up front and calls `await act(async () => hub.update(() => nextStore))` (or `hub.apply(transition)`) instead of `rerender` with new runtime props.
+  - An override `{ selectedRuntime: store.get(id), sessionRuntimes: store.getAll() }`, or either key alone, becomes `{ runtimeHub: new ChatRuntimeHub(store) }`. This includes the `renderToStaticMarkup` tests; `useSyncExternalStore` reads the server snapshot there.
+  - A test that re-renders ChatTab with a newer store to simulate streaming creates one hub up front. It then calls `await act(async () => { hub.update(() => nextStore); notifyResize(); })` instead of `rerender` with new runtime props. Keep the `notifyResize()` that Task 7 added wherever the log should follow.
   - Do not weaken any assertion. If a test fails, the migration or the implementation is wrong. Fix the code, not the expectation.
 
-- [ ] **Step 9: Compile and run.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-tab useChatSessions app-shell`. Expected: all PASS, including the new isolation test (`shellRenders === 0`).
+- [x] **Step 9: Delete what the split made unused.** Check `rg -n "buildLiveMessageScrollSignature|selectedRuntime|sessionRuntimes" dashboard/src dashboard/tests`. Expected: no matches.
+
+- [x] **Step 10: Compile and run.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-tab useChatSessions app-shell`. Expected: all PASS, including `shellRenders === 0`, and `shellRenders === 1` with `historyRenders === 0`.
 
 ---
 
-### Task 10: Projection appends without a whole-message parse
+### Task 11: Projection appends without a whole-message parse
 
 **Files:**
 - Modify: `dashboard/src/lib/chat-operation-projection.ts` (`case 'append_text':` in `stageRecord`)
 - Test: `dashboard/tests/chat-operation-projection.test.ts`
 
-- [ ] **Step 1: Write the failing test** (append to `dashboard/tests/chat-operation-projection.test.ts`; it uses the file's existing `capture`, `feed`, `stateOf`, `nextTransferId` helpers and imports)
+- [x] **Step 1: Write the failing test.** Append it to `dashboard/tests/chat-operation-projection.test.ts`. It uses the file's existing `message`, `capture`, `feed`, `stateOf`, `operationId` and `nextTransferId` helpers and imports.
 
 ```ts
 /** A committed view holding `row`, then one update transfer appending `text` to it with `metadata`. */
@@ -860,9 +1299,9 @@ test('an append that re-kinds a user-role row into narration is rejected', () =>
 });
 ```
 
-- [ ] **Step 2: Run to verify failure.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-operation-projection`. Expected: the second test FAILS (today's zod parse throws a zod error, not `re-kinds a non-assistant row`).
+- [x] **Step 2: Run to verify failure.** `npm run build:test && node ./dist/test-runner/run-tests.js chat-operation-projection`. Expected: the second test FAILS, because today's zod parse throws a zod error, not `re-kinds a non-assistant row`. The first test passes; it guards the success path.
 
-- [ ] **Step 3: Implement.** Replace the `append_text` case body and add the helper:
+- [x] **Step 3: Implement.** Replace the `append_text` case body and add the helper:
 
 ```ts
       case 'append_text': {
@@ -881,23 +1320,50 @@ function appendTextRow(existing: ChatTranscriptMessage, text: string, metadata: 
   if (existing.kind !== 'assistant_answer' && existing.kind !== 'assistant_thinking'
     && existing.kind !== 'assistant_narration' && existing.kind !== 'assistant_progress') fail('append to a non-text row');
   const content = existing.content + text;
+  // Narrowing metadata.kind does not narrow a spread of metadata, so kind is restated for the union member.
   if (metadata.kind === 'assistant_narration' || metadata.kind === 'assistant_progress') {
     if (existing.role !== 'assistant') fail('append re-kinds a non-assistant row');
-    return { ...existing, ...metadata, role: 'assistant', content };
+    return { ...existing, ...metadata, kind: metadata.kind, role: 'assistant', content };
   }
-  return { ...existing, ...metadata, content };
+  return { ...existing, ...metadata, kind: metadata.kind, content };
 }
 ```
 
-Import `type ChatTextRowMetadata` from `@siftkit/contracts`; drop `ChatTranscriptMessageSchema` / `ChatTextRowKindSchema` imports if now unused. If `tsc` rejects a return (the discriminated union does not accept the spread), do not cast. Instead return the explicit per-kind object (`{ ...existing, ...metadata, kind: metadata.kind, role: 'assistant', content }` for the stream-text kinds, `{ ...existing, ...metadata, kind: metadata.kind, content }` otherwise), which narrows `kind` to one union member.
+Import `type ChatTextRowMetadata` from `@siftkit/contracts`. Drop the `ChatTranscriptMessageSchema` and `ChatTextRowKindSchema` imports if they are now unused. No casts.
 
-- [ ] **Step 4: Run to verify pass.** Same command. Expected: all PASS.
+- [x] **Step 4: Run to verify pass.** Same command. Expected: all PASS.
 
 ---
 
-### Task 11: Full verification
+### Task 12: Full verification
 
-- [ ] **Step 1:** `npm run build:test && node ./dist/test-runner/run-tests.js --dashboard`. Expected: `ℹ fail 0`.
-- [ ] **Step 2:** `npm run typecheck`. Expected: exit 0 (includes lint).
-- [ ] **Step 3: Scope check.** `git diff --stat` touches only the files in the File Structure table. `grep -rn "selectedRuntime\|sessionRuntimes\|setRuntimeStore\|runtimeStoreRef" dashboard/src dashboard/tests` returns nothing (complete replacement, no leftovers).
-- [ ] **Step 4: Manual check (report, don't gate).** Build the dashboard (`cd dashboard && npm run build`), open the chat tab on a long session while a model streams, and record a Chrome Performance profile for ~10 s. Expected: per-token commits contain `LiveTranscript` subtrees only, and `App`/`ChatTab` appear only on non-token events (submit, terminal, queue changes). Report the script time per second next to the baseline in this plan's Background section.
+- [x] **Step 1:** `npm run build:test && node ./dist/test-runner/run-tests.js --dashboard`. Expected: `ℹ fail 0`.
+- [x] **Step 2:** `npm run typecheck`. Expected: exit 0 (includes lint).
+- [x] **Step 3: Scope check.**
+  - `git diff --stat` touches only the files in the File Structure table.
+  - `rg -n "selectedRuntime|sessionRuntimes|setRuntimeStore|runtimeStoreRef|buildLiveMessageScrollSignature|hashFnv1a32|liveMessageScrollSignature" dashboard/src dashboard/tests` returns nothing. This confirms a complete replacement with no leftovers.
+- [ ] **Step 4: Manual scroll check (report, don't gate).** With the dev server, stream a long answer with thinking into a chat session. Confirm each of the following:
+  - The log stays at the bottom through the smoothed reveal and the final snap.
+  - Scrolling up mid-stream stays put, and "Jump to bottom" appears.
+  - Jumping re-pins, and following resumes.
+  - Growing the composer textarea while pinned keeps the last line visible.
+- [ ] **Step 5: Manual overflow check (report, don't gate).** In a repo-agent session, approve a long command and reject another. `.msgs` shows no horizontal scrollbar, the decision rows ellipsize, and the Task 8 console probe returns `true`.
+- [ ] **Step 6: Manual profile (report, don't gate).** Open a long session while a model streams and record a Chrome Performance profile for about 10 s.
+  - Expected: per-token commits contain `LiveTranscript` and the live context leaves only. `App` and `ChatTab` appear only on non-token events such as submit, terminal and queue changes.
+  - Report the script time per second next to the baseline in this plan's Background section.
+
+---
+
+## Drift fixes (post-review, 2026-09-28)
+
+Review findings 1-10, 12, 13 from `/reflect-session-drift`. TDD per item; do not commit.
+
+- [x] **D1 (#2, #3, #6, #12) Store splits into `runtime` + `live`.** `ChatSessionRuntimeStore` holds two maps. `runtimes` holds the slow fields plus the derived `indicator` and `liveClosesFold`. `lives` holds `journalSnapshot`, `liveMessages`, `tokenTurns` and `streamedCharsSinceBase`. `apply` keeps each half's identity when nothing in it changes, via one `shallowEqual`/`reuse` helper that also replaces `sameActivity`/`sameStrings`. `apply` returns the same store when nothing changed. Selectors return only store-owned values, so `useChatRuntimeSelector` needs no cache and no equality argument. `SHELL_KEYS`, `selectShellRuntime`, `sameShellRuntime`, `selectLiveTranscript`, `sameLiveTranscript`, `sameSessionIndicators` and `getAll` are deleted. The rail derives indicators from `runtime.indicator`.
+- [x] **D2 (#4) Hub API without updater functions:** `apply(...transitions)`, `ensureSession`, `removeSession`; `update` is deleted. Duplicate response handling in `useChatSessions` reuses `applySessionResponse`.
+- [x] **D3 (#1) chat-tab streaming tests drive one hub** with `hub.apply(...)`, not a new hub per re-render.
+- [x] **D4 (#7) Stable row actions:** ChatTab passes the memoized transcripts one stable actions object that reads the latest handlers. A test re-renders with new handler identities and expects 0 history renders.
+- [x] **D5 (#8) Only the rows after the last stored summary move.** A live summary unavoidably re-orders them. `splitAfterLastSummary(persisted)` sends `settled` rows to `PersistedTranscript` always, and only the `open` tail joins `LiveTranscript` while `runtime.liveClosesFold`. The invariant is covered by a test.
+- [x] **D6 (#13)** `useChatScroll` returns one callback ref for `.msgs`. It observes the log and its content wrapper, fails loudly if the wrapper is missing, and keeps no ref-passing helper.
+- [x] **D7 (#9, #10) Real-browser overflow test.** `tests/process/chat-overflow.test.ts` lives in the process suite, because the default suite forbids child processes. It bundles `dashboard/tests/chat-overflow-page.tsx` with esbuild in memory. The page renders the real ChatTab in question, approval and orchestrator scenarios, with hostile content and all disclosures opened; `dashboard/tests/chat-tab-fixture.ts` now shares `buildProps` with chat-tab tests. The test serves the page and one orchestrator run over local HTTP. `chrome --headless=new --virtual-time-budget --dump-dom` loads it, and Chrome's temporary profile is removed on exit. The test asserts no sideways scroll and nothing escaping its bubble. Mutations confirm it catches removing `.approval-actions > *`, `minmax(0, 1fr)` or `overflow-wrap: anywhere`. `chat-layout-css.test.ts` is deleted. `.send`/`.mini-btn` drop `flex: none`; only the composer row and `.err-banner` pin their buttons. `.approval-actions > *` is deleted.
+- [x] **D9 (#5)** `appendTextRow` rejects non-text rows via `ChatTextRowKindSchema`, not a hardcoded kind list; covered by a compaction-summary append test.
+- [x] **D8** Full suite, typecheck and lint.

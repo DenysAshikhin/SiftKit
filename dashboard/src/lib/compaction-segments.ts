@@ -36,8 +36,18 @@ export function buildCompactionSegments(messages: readonly ChatMessage[]): Compa
 }
 
 /** Applies the server's report that the running operation compacted every earlier run's rows. */
-export function markEarlierRunsCompacted(persisted: ChatMessage[], compactedEarlierHistory: boolean): ChatMessage[] {
+export function markEarlierRunsCompacted(persisted: readonly ChatMessage[], compactedEarlierHistory: boolean): readonly ChatMessage[] {
   return compactedEarlierHistory
     ? persisted.map((message) => message.compressedIntoSummary === true ? message : { ...message, compressedIntoSummary: true })
     : persisted;
+}
+
+/**
+ * Splits stored rows after the last compaction summary. `settled` segments never change whatever follows;
+ * `open` rows re-segment around a later summary, so they render beside the live rows while one streams.
+ */
+export function splitAfterLastSummary(messages: readonly ChatMessage[]): { settled: readonly ChatMessage[]; open: readonly ChatMessage[] } {
+  let end = messages.length;
+  while (end > 0 && messages[end - 1]?.kind !== 'compaction_summary') end -= 1;
+  return { settled: messages.slice(0, end), open: messages.slice(end) };
 }

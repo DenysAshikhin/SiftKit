@@ -24,6 +24,8 @@ import {
   useChatSessions,
 } from '../../src/hooks/useChatSessions';
 import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
+import { useChatRuntimeSelector } from '../../src/hooks/useChatRuntimeSelector';
+import { selectLive } from '../../src/lib/chat-runtime-selectors';
 import { CONTEXT_USAGE as BASE_CONTEXT_USAGE, MANAGED_PRESET } from '../fixtures.js';
 import type { ChatMessage, ChatSession } from '../../src/types';
 
@@ -201,7 +203,7 @@ test('a broken attach refetches and reconnects without resubmitting the user tur
   try {
     const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
       buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
-    await waitFor(() => assert.equal(hook.result.current.runtimeStore.get('s1').liveMessages[0]?.content, 'recovered answer'), { timeout: 3000 });
+    await waitFor(() => assert.equal(hook.result.current.runtimeHub.getStore().getLive('s1').liveMessages[0]?.content, 'recovered answer'), { timeout: 3000 });
     assert.equal(fixture.attachRequestCount, 2);
     assert.equal(fixture.streamRequestCount, 0);
     assert.ok(fixture.detailRequestCount >= 2);
@@ -223,9 +225,9 @@ test('a terminal refresh failure retains the committed live view for retry', asy
       buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
     await waitFor(() => {
       assert.ok(fixture.detailRequestCount >= 2);
-      assert.equal(hook.result.current.runtimeStore.get('s1').liveMessages[0]?.content, 'committed answer');
+      assert.equal(hook.result.current.runtimeHub.getStore().getLive('s1').liveMessages[0]?.content, 'committed answer');
     }, { timeout: 3000 });
-    assert.notEqual(hook.result.current.runtimeStore.get('s1').journalSnapshot, null);
+    assert.notEqual(hook.result.current.runtimeHub.getStore().getLive('s1').journalSnapshot, null);
   } finally { fixture.restore(); }
 });
 
@@ -299,6 +301,8 @@ class ChatFetchFixture {
     queueStatus?: number;
     loseFirstForceResponse?: boolean;
     loseFirstStreamResponse?: boolean;
+    /** Serves the settled session detail once the attached run's stream has been read. */
+    settleAfterAttach?: boolean;
   }) {
     const sessions = this.options.sessions ?? [this.options.session];
     const hasMultipleSessions = this.options.sessions !== undefined;
@@ -370,6 +374,7 @@ class ChatFetchFixture {
         if (frames === undefined) {
           return new Response(JSON.stringify({ error: 'No active operation for this session.' }), { status: 404 });
         }
+        if (this.options.settleAfterAttach) this.settled = true;
         return new Response(new ReadableStream<Uint8Array>({
           start: (controller) => {
             controller.enqueue(new TextEncoder().encode(frames));
@@ -517,10 +522,10 @@ for (const queueStatus of [200, 409]) test(`busy submission queues server-side a
     await act(async () => hook.result.current.sendMessage());
     assert.equal(fixture.streamRequestCount, 1);
     assert.equal(fixture.queuedBodies[0]?.content, 'queued follow-up');
-    assert.equal(hook.result.current.runtimeStore.get('s1').draft, queueStatus === 200 ? '' : 'queued follow-up');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, queueStatus === 200 ? '' : 'queued follow-up');
     act(() => hook.result.current.setSessionDraft('s1', 'next draft'));
     await act(async () => { fixture.finishHeldStream(); await running; });
-    assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'next draft');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, 'next draft');
   } finally { fixture.restore(); }
 });
 
@@ -560,7 +565,7 @@ test('a lost submission response reconnects the same submission and preserves a 
     assert.equal(fixture.streamRequestCount, 2);
     assert.deepEqual(fixture.streamBodies[1], fixture.streamBodies[0]);
     assert.equal(hook.result.current.selectedSession?.messages.at(-1)?.content, 'Executed successfully');
-    assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'new unsent draft');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, 'new unsent draft');
   } finally { fixture.restore(); }
 });
 
@@ -583,7 +588,7 @@ test('sendRepoAgent forwards a valid session-local turns override', async () => 
     });
     let run: Promise<void> = Promise.resolve();
     act(() => { run = hook.result.current.sendRepoAgent(); });
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local'); });
     fixture.finishHeldStream();
     await act(async () => { await run; });
     assert.equal(fixture.sentBodies.at(-1)?.includes('"maxTurns":10000'), true);
@@ -611,7 +616,7 @@ test('sendRepoAgent omits maxTurns after the session-local input is cleared', as
     });
     let firstRun: Promise<void> = Promise.resolve();
     act(() => { firstRun = hook.result.current.sendRepoAgent(); });
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local'); });
     fixture.finishHeldStream();
     await act(async () => { await firstRun; });
     act(() => {
@@ -620,7 +625,7 @@ test('sendRepoAgent omits maxTurns after the session-local input is cleared', as
     });
     let secondRun: Promise<void> = Promise.resolve();
     act(() => { secondRun = hook.result.current.sendRepoAgent(); });
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local'); });
     fixture.finishHeldStream();
     await act(async () => { await secondRun; });
     assert.equal(fixture.sentBodies.at(-1)?.includes('"maxTurns"'), false);
@@ -684,7 +689,7 @@ test('invalid session-local turns input preserves draft and images without start
         operationError = error instanceof Error ? error : new Error(String(error));
       }
     });
-    const runtime = hook.result.current.runtimeStore.get('s1');
+    const runtime = hook.result.current.runtimeHub.getStore().get('s1');
     assert.equal(operationError, null);
     assert.equal(fixture.streamRequestCount, 0);
     assert.equal(runtime.activity.kind, 'idle');
@@ -692,16 +697,16 @@ test('invalid session-local turns input preserves draft and images without start
     assert.deepEqual(runtime.pendingImages, images);
     assert.equal(runtime.error, 'Enter a whole number from 1 to 9007199254740991.');
     act(() => { hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '1.5'); });
-    assert.equal(hook.result.current.runtimeStore.get('s1').error, runtime.error);
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').error, runtime.error);
     act(() => { hook.result.current.setSessionPlanInputs('s1', 'C:/repo', ''); });
-    assert.equal(hook.result.current.runtimeStore.get('s1').error, null);
-    assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'keep this draft');
-    assert.deepEqual(hook.result.current.runtimeStore.get('s1').pendingImages, images);
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').error, null);
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, 'keep this draft');
+    assert.deepEqual(hook.result.current.runtimeHub.getStore().get('s1').pendingImages, images);
     act(() => {
       hook.result.current.failSessionOperation('s1', 'Connection lost');
       hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '10000');
     });
-    assert.equal(hook.result.current.runtimeStore.get('s1').error, 'Connection lost');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').error, 'Connection lost');
   } finally {
     fixture.restore();
   }
@@ -730,8 +735,8 @@ test('session-local turns inputs remain isolated while switching sessions', asyn
     act(() => { hook.result.current.setSessionPlanInputs('s2', 'C:/repo-b', '2000'); });
     act(() => { hook.result.current.selectSession('s1'); });
     await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
-    assert.equal(hook.result.current.runtimeStore.get('s1').planMaxTurnsInput, '1000');
-    assert.equal(hook.result.current.runtimeStore.get('s2').planMaxTurnsInput, '2000');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').planMaxTurnsInput, '1000');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s2').planMaxTurnsInput, '2000');
   } finally {
     fixture.restore();
   }
@@ -756,12 +761,13 @@ test('a session with a run in flight latches onto the live stream on mount', asy
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      const runtime = hook.result.current.runtimeStore.get('s1');
+      const runtime = hook.result.current.runtimeHub.getStore().get('s1');
+      const live = hook.result.current.runtimeHub.getStore().getLive('s1');
       assert.deepEqual(runtime.activity, { kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID });
       assert.equal(runtime.pendingApproval?.command, 'npm test');
       assert.equal(runtime.repoAgentApprovalMode, 'interactive');
-      assert.equal(runtime.liveMessages.some((message) => message.role === 'user' && message.content === 'fix the build'), true);
-      assert.equal(runtime.liveMessages.some((message) => message.content.includes('resumed')), true);
+      assert.equal(live.liveMessages.some((message) => message.role === 'user' && message.content === 'fix the build'), true);
+      assert.equal(live.liveMessages.some((message) => message.content.includes('resumed')), true);
     });
     assert.equal(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1/operation/stream'), true);
   } finally {
@@ -786,20 +792,20 @@ test('switching away from an attached run releases it and switching back latches
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local');
     });
     act(() => { hook.result.current.selectSession('s2'); });
     // The aborted attach must un-own s1, or it stays pinned as streaming with no stream behind it.
     await waitFor(() => {
       assert.equal(hook.result.current.selectedSession?.id, 's2');
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'idle');
     });
     act(() => { hook.result.current.selectSession('s1'); });
     await waitFor(() => {
-      assert.deepEqual(hook.result.current.runtimeStore.get('s1').activity, {
+      assert.deepEqual(hook.result.current.runtimeHub.getStore().get('s1').activity, {
         kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID,
       });
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, APPROVAL_ID);
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').pendingApproval?.approvalId, APPROVAL_ID);
     });
     assert.equal(
       fixture.requestedUrls.filter((url) => url === '/dashboard/chat/sessions/s1/operation/stream').length,
@@ -832,16 +838,16 @@ test('invalid direct submission preserves an attached operation and its approval
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local');
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, APPROVAL_ID);
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').pendingApproval?.approvalId, APPROVAL_ID);
     });
     act(() => {
       hook.result.current.setSessionDraft('s1', 'keep the draft');
       hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '1k');
     });
-    const before = hook.result.current.runtimeStore.get('s1');
+    const before = hook.result.current.runtimeHub.getStore().get('s1');
     await act(async () => { await hook.result.current.sendRepoAgent(); });
-    assert.deepEqual(hook.result.current.runtimeStore.get('s1'), {
+    assert.deepEqual(hook.result.current.runtimeHub.getStore().get('s1'), {
       ...before, error: 'Enter a whole number from 1 to 9007199254740991.',
     });
     assert.equal(fixture.streamRequestCount, 0);
@@ -865,8 +871,8 @@ test('an attached stream that ends without a payload refreshes the session and i
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle');
-      assert.equal(hook.result.current.runtimeStore.get('s1').error, null);
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'idle');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').error, null);
       assert.ok(fixture.detailRequestCount >= 2);
     });
   } finally {
@@ -909,7 +915,7 @@ test('a compacting stream completion installs the boundary and corrected usage w
     }));
     await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
     act(() => { hook.result.current.setSessionDraft('s1', 'trigger question'); });
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'trigger question'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, 'trigger question'); });
     // Mount fetches the session once; the claim under test is that the terminal record costs
     // exactly one more fetch, which installs the result.
     await waitFor(() => { assert.equal(fixture.detailRequestCount, 1); });
@@ -926,7 +932,7 @@ test('a compacting stream completion installs the boundary and corrected usage w
       true,
     );
     assert.equal(selectedSession.messages.some((message) => message.compressedIntoSummary === true), true);
-    const runtime = hook.result.current.runtimeStore.get('s1');
+    const runtime = hook.result.current.runtimeHub.getStore().get('s1');
     assert.equal(runtime.contextUsage?.totalUsedTokens, 12);
     assert.equal(runtime.contextUsage?.shouldCondense, false);
     assert.equal(fixture.detailRequestCount, detailRequestsBeforeSend + 1);
@@ -1002,7 +1008,7 @@ test('a stopped stream completion replaces live state with the complete persiste
       )?.toolCallStatus,
       'stopped',
     );
-    assert.deepEqual(hook.result.current.runtimeStore.get('s1').liveMessages, []);
+    assert.deepEqual(hook.result.current.runtimeHub.getStore().getLive('s1').liveMessages, []);
   } finally {
     fixture.restore();
   }
@@ -1028,7 +1034,7 @@ test('stopOperation posts for the selected session', async () => {
     act(() => { hook.result.current.setSessionDraft('s1', 'stop this'); });
     let sendPromise: Promise<void> | null = null;
     act(() => { sendPromise = hook.result.current.sendMessage(); });
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local'); });
     await act(async () => { await hook.result.current.stopOperation(); });
     assert.equal(fixture.stopRequestCount, 1);
     fixture.finishHeldStream();
@@ -1060,10 +1066,10 @@ test('a failed Stop request preserves the locally active stream state', async ()
     act(() => { hook.result.current.setSessionDraft('s1', 'keep running'); });
     let sendPromise: Promise<void> | null = null;
     act(() => { sendPromise = hook.result.current.sendMessage(); });
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local'); });
 
     await act(async () => { await hook.result.current.stopOperation(); });
-    const afterStopFailure = hook.result.current.runtimeStore.get('s1');
+    const afterStopFailure = hook.result.current.runtimeHub.getStore().get('s1');
     assert.equal(afterStopFailure.activity.kind, 'local');
     assert.equal(afterStopFailure.error, 'Request failed (503): {"error":"Stop transport failed."}');
     assert.equal(afterStopFailure.submittedInput?.content, 'keep running');
@@ -1141,8 +1147,8 @@ test('selecting a session with a running repo-agent restores the live approval m
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'off');
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval, null);
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').repoAgentApprovalMode, 'off');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').pendingApproval, null);
     });
   } finally {
     fixture.restore();
@@ -1163,10 +1169,10 @@ test('changing the approval mode on an idle session updates local state without 
     }));
     await waitFor(() => {
       assert.equal(hook.result.current.selectedSession?.id, 's1');
-      assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'auto');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').repoAgentApprovalMode, 'auto');
     });
     await act(async () => { await hook.result.current.setRepoAgentApprovalMode('interactive'); });
-    assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'interactive');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').repoAgentApprovalMode, 'interactive');
     assert.equal(fixture.requestedUrls.some((url) => url.endsWith('/repo-agent/approval-mode')), false);
   } finally {
     fixture.restore();
@@ -1198,7 +1204,7 @@ test('a repo-agent decision is posted and the journal view that records it clear
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.command, 'npm test');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').pendingApproval?.command, 'npm test');
     });
     await act(async () => { await hook.result.current.submitRepoAgentDecision({ decision: 'approve' }); });
     assert.equal(fixture.sentBodies.at(-1), JSON.stringify({ decision: 'approve' }));
@@ -1206,9 +1212,9 @@ test('a repo-agent decision is posted and the journal view that records it clear
       ...PENDING_APPROVAL, outcome: 'approved', decidedAtUtc: '2026-09-04T10:00:00.000Z', actionable: false,
     } }, 2)); });
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval, null);
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').pendingApproval, null);
     });
-    assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local');
   } finally {
     fixture.restore();
   }
@@ -1234,9 +1240,9 @@ test('changing the approval mode while this client owns a repo-agent run syncs i
     });
     let run: Promise<void> = Promise.resolve();
     act(() => { run = hook.result.current.sendRepoAgent(); });
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'local'); });
     await act(async () => { await hook.result.current.setRepoAgentApprovalMode('off'); });
-    assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'off');
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').repoAgentApprovalMode, 'off');
     assert.equal(fixture.sentBodies.at(-1), JSON.stringify({ approval: 'off' }));
     assert.equal(fixture.requestedUrls.filter((url) => url.endsWith('/repo-agent/approval-mode')).length, 1);
     fixture.finishHeldStream();
@@ -1261,14 +1267,14 @@ test('a turn rejected because another client owns the session latches onto that 
       buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
       enqueueToast: () => {},
     }));
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'idle'); });
     act(() => { hook.result.current.setSessionDraft('s1', 'my turn'); });
     await act(async () => { await hook.result.current.sendMessage(); });
     await waitFor(() => {
-      assert.deepEqual(hook.result.current.runtimeStore.get('s1').activity, {
+      assert.deepEqual(hook.result.current.runtimeHub.getStore().get('s1').activity, {
         kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID,
       });
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, APPROVAL_ID);
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').pendingApproval?.approvalId, APPROVAL_ID);
     });
     assert.equal(fixture.conflictCount, 1);
   } finally {
@@ -1290,8 +1296,8 @@ test('an idle session leaves the runtime idle when nothing is running', async ()
     }));
     await waitFor(() => {
       assert.equal(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1/operation/stream'), true);
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle');
-      assert.equal(hook.result.current.runtimeStore.get('s1').error, null);
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').activity.kind, 'idle');
+      assert.equal(hook.result.current.runtimeHub.getStore().get('s1').error, null);
     });
   } finally {
     fixture.restore();
@@ -1319,7 +1325,7 @@ test('a run on an unselected session marks that session busy in the rail', async
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.deepEqual(hook.result.current.runtimeStore.get('s2').activity, {
+      assert.deepEqual(hook.result.current.runtimeHub.getStore().get('s2').activity, {
         kind: 'remote',
         operationKind: 'repo-agent',
       });
@@ -1451,10 +1457,10 @@ test('returning to a session last seen busy refetches it once the attach finds i
       buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
       enqueueToast: () => {},
     }));
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s2').activity.kind, 'remote'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s2').activity.kind, 'remote'); });
     await act(async () => { hook.result.current.selectSession('s2'); });
     // The operation stream reports nothing running: the run finished while this client was away.
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s2').activity.kind, 'idle'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().get('s2').activity.kind, 'idle'); });
     assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions/s2').length, 2);
     assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions/s1').length, 1);
   } finally {
@@ -1512,8 +1518,66 @@ test('answering a pending question posts its id and reply', async () => {
   try {
     const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
       buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
-    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').journalSnapshot?.question?.questionId, question.questionId); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeHub.getStore().getLive('s1').journalSnapshot?.question?.questionId, question.questionId); });
     await act(async () => { await hook.result.current.answerQuestion({ choiceIndex: 1, note: 'because' }); });
     assert.ok(fixture.sentBodies.includes(JSON.stringify({ questionId: question.questionId, reply: { choiceIndex: 1, note: 'because' } })));
   } finally { fixture.restore(); }
+});
+
+test('runtime transitions never re-render the hook that owns the hub', async () => {
+  const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE } });
+  try {
+    let renders = 0;
+    const hook = renderHook(() => {
+      renders += 1;
+      return useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+        buildCreateSessionRequest: () => null, confirmDeleteSession: () => true, enqueueToast: () => {} });
+    });
+    await waitFor(() => {
+      assert.notEqual(hook.result.current.selectedSession, null);
+      assert.equal(hook.result.current.selectedSessionLoading, false);
+    });
+    const before = renders;
+    await act(async () => {
+      hook.result.current.runtimeHub.apply({ kind: 'draft', sessionId: 's1', draft: 'typing' });
+      hook.result.current.runtimeHub.apply({ kind: 'plan-inputs', sessionId: 's1', planRepoRootInput: 'C:/x', planMaxTurnsInput: '5' });
+    });
+    assert.equal(renders, before);
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, 'typing');
+    hook.unmount();
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a finished run hands its rows from the live view to the stored transcript without an empty frame', async () => {
+  const answer = createLiveMessage('answer', 'assistant_answer', 'assistant', 'final answer');
+  const settled: ChatSession = { ...SESSION,
+    messages: [chatMessage({ id: 'answer', role: 'assistant', content: 'final answer', sourceRunId: OPERATION_ID })] };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: settled, contextUsage: CONTEXT_USAGE },
+    operationStream: snapshotBody({ terminalCause: 'completed', messages: [answer] }) + terminalBody(),
+    settleAfterAttach: true,
+  });
+  const frames: string[] = [];
+  try {
+    const hook = renderHook(() => {
+      const chat = useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+        buildCreateSessionRequest: () => null, confirmDeleteSession: () => true, enqueueToast: () => {} });
+      const live = useChatRuntimeSelector(chat.runtimeHub, (store) => selectLive(store, 's1'));
+      frames.push(`${chat.selectedSession?.messages.length ?? 0}/${live?.liveMessages.length ?? 0}`);
+      return chat;
+    });
+    await waitFor(() => assert.equal(hook.result.current.selectedSession?.messages.length, 1));
+    await waitFor(() => assert.equal(hook.result.current.runtimeHub.getStore().getLive('s1').liveMessages.length, 0));
+    const firstLive = frames.indexOf('0/1');
+    assert.notEqual(firstLive, -1, frames.join(' '));
+    assert.equal(frames.slice(firstLive).includes('0/0'), false, frames.join(' '));
+    hook.unmount();
+  } finally {
+    fixture.restore();
+  }
 });

@@ -7,6 +7,8 @@ import type { PendingImage } from '../lib/downscale-image';
 import type { ToastLevel } from './useToasts';
 import type { DashboardConfig } from '../types';
 import type { ChatTabProps } from '../tabs/ChatTab';
+import { selectRuntime } from '../lib/chat-runtime-selectors';
+import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 
 export type ChatController = {
   tabProps: ChatTabProps;
@@ -46,15 +48,11 @@ export function useChatController(deps: {
   const sessionPromptCacheStats = getSessionTelemetryStats(selectedSession);
   const lastTurnTelemetry = getLastTurnTelemetry(selectedSession);
 
-  const selectedRuntime = chatSessionsHook.selectedSessionId
-    ? (() => {
-        try {
-          return chatSessionsHook.runtimeStore.get(chatSessionsHook.selectedSessionId);
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+  const runtimeHub = chatSessionsHook.runtimeHub;
+  /** Read at call time: the controller no longer re-renders per runtime change, so a captured runtime would be stale. */
+  function readSelectedRuntime(): ChatSessionRuntime | null {
+    return selectRuntime(runtimeHub.getStore(), chatSessionsHook.selectedSessionId);
+  }
 
   async function refreshAfterChatMessageMutation(): Promise<void> {
     deps.requestDashboardDataRefresh();
@@ -96,8 +94,7 @@ export function useChatController(deps: {
     selectedSessionId: chatSessionsHook.selectedSessionId,
     selectedSession,
     selectedSessionLoading: chatSessionsHook.selectedSessionLoading,
-    selectedRuntime,
-    sessionRuntimes: chatSessionsHook.runtimeStore.getAll(),
+    runtimeHub,
     sessionPromptCacheStats,
     lastTurnTelemetry,
     webPresets,
@@ -111,23 +108,25 @@ export function useChatController(deps: {
     onSelectSession: chatSessionsHook.selectSession,
     onToggleSettings: () => setShowSettings((prev) => !prev),
     onChangePlanRepoRoot: (value: string) => {
-      if (!chatSessionsHook.selectedSessionId || !selectedRuntime) {
+      const runtime = readSelectedRuntime();
+      if (!chatSessionsHook.selectedSessionId || !runtime) {
         return;
       }
-      chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, value, selectedRuntime.planMaxTurnsInput);
+      chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, value, runtime.planMaxTurnsInput);
     },
     onChangePlanMaxTurns: (value: string) => {
-      if (!chatSessionsHook.selectedSessionId || !selectedRuntime) {
+      const runtime = readSelectedRuntime();
+      if (!chatSessionsHook.selectedSessionId || !runtime) {
         return;
       }
-      chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, selectedRuntime.planRepoRootInput, value);
+      chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, runtime.planRepoRootInput, value);
     },
     onCreateSession: chatSessionsHook.createSession,
     onDeleteSession: chatSessionsHook.deleteSession,
     onUpdateSessionPreset: chatSessionsHook.updateSessionPreset,
     onToggleThinking: chatSessionsHook.toggleThinking,
     onToggleWebSearchEnabled: chatSessionsHook.toggleWebSearch,
-    onSavePlanRepoRoot: () => chatSessionsHook.savePlanRepoRoot(selectedRuntime?.planRepoRootInput ?? '', selectedChatPreset?.id),
+    onSavePlanRepoRoot: () => chatSessionsHook.savePlanRepoRoot(readSelectedRuntime()?.planRepoRootInput ?? '', selectedChatPreset?.id),
     onDeleteMessage: onDeleteChatMessage,
     onDeleteTurn: onDeleteChatTurn,
     onDeleteMessageImage: onDeleteChatMessageImage,

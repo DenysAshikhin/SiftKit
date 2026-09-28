@@ -35,10 +35,10 @@ const REPO_AGENT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
  * session carries only the live tail, so that list is the whole visible input here.
  */
 function liveTurnFor(store: ChatSessionRuntimeStore, sessionId: string): ChatTurn {
-  const runtime = store.get(sessionId);
+  const live = store.getLive(sessionId);
   const turns = groupMessagesIntoTurns(
-    runtime.liveMessages,
-    new Set(runtime.liveMessages.map((message) => message.id)),
+    live.liveMessages,
+    new Set(live.liveMessages.map((message) => message.id)),
   );
   const turn = turns.find((entry) => entry.isLive && entry.messages.some((message) => message.role === 'assistant'));
   if (!turn) {
@@ -72,7 +72,7 @@ test('a live repo-agent turn renders the thinking stack above the recent-activit
   assert.equal(live.recentActivities.length, 0);
   // The cap is a render cap: the store keeps every thinking step for the settled turn.
   assert.equal(
-    store.get(sessionId).liveMessages.filter((message) => message.kind === 'assistant_thinking').length,
+    store.getLive(sessionId).liveMessages.filter((message) => message.kind === 'assistant_thinking').length,
     4,
   );
 

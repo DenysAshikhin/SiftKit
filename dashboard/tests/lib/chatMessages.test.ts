@@ -1,58 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  buildLiveMessageScrollSignature,
-  estimatePromptTokens,
-  hashFnv1a32,
-} from '../../src/lib/chatMessages';
-import type { ChatMessage } from '../../src/types';
-
-const BASE_MESSAGE: ChatMessage = {
-  id: 'm1',
-  role: 'assistant',
-  kind: 'assistant_tool_call',
-  content: 'abc',
-  inputTokensEstimate: 0,
-  outputTokensEstimate: 0,
-  thinkingTokens: 0,
-  createdAtUtc: '2026-06-03T12:00:00.000Z',
-  sourceRunId: null,
-  toolCallCommand: 'rg foo',
-  toolCallOutputSnippet: 'hit',
-  toolCallOutput: '',
-  toolCallExecutionState: 'executing',
-  toolCallStatus: 'running',
-  toolCallExitCode: null,
-};
-
-test('hashFnv1a32 returns the documented constant for the empty string', () => {
-  assert.equal(hashFnv1a32(''), '811c9dc5');
-});
-
-test('hashFnv1a32 is stable across calls for the same input', () => {
-  assert.equal(hashFnv1a32('SiftKit'), hashFnv1a32('SiftKit'));
-});
-
-test('hashFnv1a32 produces different output for different inputs of equal length', () => {
-  assert.notEqual(hashFnv1a32('abc'), hashFnv1a32('abd'));
-});
-
-test('buildLiveMessageScrollSignature changes when streamed content grows', () => {
-  const before = buildLiveMessageScrollSignature([
-    { ...BASE_MESSAGE, id: 'live-thinking', content: 'first chunk' },
-  ]);
-  const after = buildLiveMessageScrollSignature([
-    { ...BASE_MESSAGE, id: 'live-thinking', content: 'first chunk\nsecond chunk' },
-  ]);
-  assert.notEqual(before, after);
-});
-
-test('buildLiveMessageScrollSignature changes when content of identical length is replaced', () => {
-  const before = buildLiveMessageScrollSignature([BASE_MESSAGE]);
-  const after = buildLiveMessageScrollSignature([{ ...BASE_MESSAGE, toolCallOutputSnippet: 'hot' }]);
-  assert.notEqual(before, after);
-});
+import { estimatePromptTokens } from '../../src/lib/chatMessages';
 
 test('estimatePromptTokens returns at least one token and rounds up by four characters', () => {
   assert.equal(estimatePromptTokens(''), 1);

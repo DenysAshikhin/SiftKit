@@ -267,7 +267,7 @@ test('streamed snapshots survive a transport interruption with the separate Stop
   assert.deepEqual(kinds, ['snapshot', 'queue', 'interrupted']);
   // The run is still live on the server, so the Stop key keeps its control id and no error is shown.
   assert.deepEqual(store.get('s1').activity, { kind: 'local', operationKind: 'message', operationId: controlOperationId });
-  assert.equal(store.get('s1').liveMessages[0]?.content, 'partial');
+  assert.equal(store.getLive('s1').liveMessages[0]?.content, 'partial');
   assert.equal(store.get('s1').error, null);
   assert.equal(store.get('s1').awaitingResponse, false);
   assert.equal(store.get('s1').draft, 'unsent draft');
@@ -279,7 +279,7 @@ test('an older run cannot overwrite an authoritative newer snapshot', () => {
     .apply({ kind: 'snapshot', sessionId: 's1', snapshot: newer });
   const stale = { ...capture(4).snapshot, operationId: '4f9c1f9a-0000-4000-8000-000000000004' };
   const after = store.apply({ kind: 'snapshot', sessionId: 's1', snapshot: { ...stale, cursor: { operationId: stale.operationId, sequence: 50 } } });
-  assert.equal(after.get('s1').liveMessages[0]?.id, 'new');
+  assert.equal(after.getLive('s1').liveMessages[0]?.id, 'new');
 });
 
 test('GET recovery reports survive parsing and block continuation without clearing readable text', () => {
@@ -291,7 +291,7 @@ test('GET recovery reports survive parsing and block continuation without cleari
   const store = new ChatSessionRuntimeStore().ensureSession('s1', '').apply({ kind: 'snapshot', sessionId: 's1', snapshot: capture(4).snapshot })
     .apply({ kind: 'recovery', sessionId: 's1', reports: response.recovery ?? [] });
   assert.equal(store.get('s1').recoveryStatus, 'recovery_failed');
-  assert.equal(store.get('s1').liveMessages[0]?.content, 'partial');
+  assert.equal(store.getLive('s1').liveMessages[0]?.content, 'partial');
   assert.equal(store.apply({ kind: 'recovery', sessionId: 's1', reports: [] }).get('s1').recoveryStatus, 'ok');
 });
 
@@ -304,4 +304,40 @@ test('a question record survives the projection round trip', () => {
   assert.equal(delivery?.kind, 'view');
   if (delivery?.kind !== 'view') return;
   assert.deepEqual(delivery.snapshot.question, question);
+});
+
+/** A committed view holding `row`, then one update transfer appending `text` to it with `metadata`. */
+function appendOnto(row: ReturnType<typeof ChatTranscriptMessageSchema.parse>, text: string, metadata: ReturnType<typeof ChatTextRowMetadataSchema.parse>) {
+  const before = capture(4, [row]);
+  const projection = new ChatOperationProjection('s1');
+  feed(projection, chatSnapshotFrames(before));
+  const cursor = { operationId, sequence: 5, historyRevision: 0 };
+  const records: ChatProjectionRecord[] = [
+    { kind: 'begin', mode: 'update', sessionId: 's1', operationId, after: before.cursor, cursor, state: stateOf(before) },
+    { kind: 'append_text', messageId: row.id, offset: row.content.length, text, metadata },
+    { kind: 'commit', cursor, counts: { messages: 1, tools: 0, tokenTurns: 0, warnings: 0, issues: 0 } },
+  ];
+  return () => feed(projection, [...encodeChatProjectionRecords(records, nextTransferId())]);
+}
+
+test('an append that re-kinds a thinking row into narration keeps it an assistant text row', () => {
+  const thinking = ChatTranscriptMessageSchema.parse({ ...message('think', 'a'), kind: 'assistant_thinking' });
+  const metadata = ChatTextRowMetadataSchema.strip().parse({ ...message('think', 'a', 'assistant_narration') });
+  const delivery = appendOnto(thinking, 'b', metadata)();
+  assert.equal(delivery?.kind, 'view');
+  if (delivery?.kind !== 'view') return;
+  const row = delivery.snapshot.messages[0];
+  assert.deepEqual([row?.id, row?.role, row?.kind, row?.content], ['think', 'assistant', 'assistant_narration', 'ab']);
+});
+
+test('an append that re-kinds a user-role row into narration is rejected', () => {
+  const userRow = ChatTranscriptMessageSchema.parse({ ...message('u', 'a'), role: 'user' });
+  const metadata = ChatTextRowMetadataSchema.strip().parse({ ...message('u', 'a', 'assistant_narration') });
+  assert.throws(appendOnto(userRow, 'b', metadata), /re-kinds a non-assistant row/u);
+});
+
+test('an append onto a non-text row is rejected', () => {
+  const summary = ChatTranscriptMessageSchema.parse({ ...message('c', 'a'), kind: 'compaction_summary' });
+  const metadata = ChatTextRowMetadataSchema.strip().parse({ ...message('c', 'a') });
+  assert.throws(appendOnto(summary, 'b', metadata), /append to a non-text row/u);
 });

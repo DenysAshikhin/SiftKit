@@ -11,13 +11,16 @@ import {
   formatTokenLabel,
   getTurnTokenDisplay,
 } from '../lib/format';
-import {
-  buildLiveMessageScrollSignature,
-} from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
 import { formatLiveContextTokens, resolveLiveContextUsage } from '../lib/contextBar';
-import { deriveSessionIndicator, hasActiveRepoAgentRun, isSessionBusy, type SessionIndicator } from '../lib/chat-session-state';
-import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
+import { deriveSessionIndicator, hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
+import type { ChatSessionRuntime, SessionIndicator } from '../lib/chat-session-runtime-store';
+import type { ChatRuntimeHub } from '../lib/chat-runtime-hub';
+import { useChatRuntimeSelector } from '../hooks/useChatRuntimeSelector';
+import {
+  NO_MESSAGES, selectActionableApproval, selectActionableQuestion, selectAwaitingResponse, selectCompactedEarlierHistory,
+  selectLive, selectLiveOperationId, selectQuestionId, selectRuntime, selectStreamedCharsSinceBase,
+} from '../lib/chat-runtime-selectors';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { ToolActivityRow } from '../components/ToolActivityRow';
 import { PendingImageStrip } from '../components/PendingImageStrip';
@@ -37,10 +40,11 @@ import type { LastTurnTelemetry } from '../lib/format';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
 import { useChatScroll } from '../hooks/useChatScroll';
+import { useLatest } from '../lib/use-latest';
 import { useSmoothedText } from '../hooks/useSmoothedText';
 import { MarkdownBlocks } from '../components/MarkdownContent';
 import { groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
-import { buildCompactionSegments, markEarlierRunsCompacted } from '../lib/compaction-segments';
+import { buildCompactionSegments, markEarlierRunsCompacted, splitAfterLastSummary, type CompactionSegment } from '../lib/compaction-segments';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
 import { hasSamePresetExecutionContext } from '../dashboard-presets';
 import type {
@@ -65,18 +69,12 @@ function getGroundingStatusLabel(status: ChatMessage['groundingStatus']): string
   return null;
 }
 
-export type ChatSessionIndicatorView = {
-  sessionId: string;
-  indicator: SessionIndicator;
-};
-
 export type ChatTabProps = ChatPendingQueueActions & {
   sessions: ChatSessionSummary[];
   selectedSessionId: string;
   selectedSession: ChatSession | null;
   selectedSessionLoading: boolean;
-  selectedRuntime: ChatSessionRuntime | null;
-  sessionRuntimes: ChatSessionRuntime[];
+  runtimeHub: ChatRuntimeHub;
   sessionPromptCacheStats: ChatSessionStats;
   lastTurnTelemetry: LastTurnTelemetry;
   webPresets: DashboardPreset[];
@@ -159,26 +157,15 @@ export async function readImageFiles(files: File[], maxPixels: number): Promise<
   return results;
 }
 
-function buildSessionIndicators(
-  sessions: ChatSessionSummary[],
-  sessionRuntimes: ChatSessionRuntime[],
-): ChatSessionIndicatorView[] {
-  return sessions.map((session) => {
-    const runtime = sessionRuntimes.find((r) => r.sessionId === session.id) ?? null;
-    return {
-      sessionId: session.id,
-      indicator: deriveSessionIndicator(session, runtime),
-    };
-  });
-}
+const NO_IDS: ReadonlySet<string> = new Set();
+const NO_TOKEN_DISPLAYS: ReadonlyMap<string, TokenDisplay> = new Map();
 
 export function ChatTab({
   sessions,
   selectedSessionId,
   selectedSession,
   selectedSessionLoading,
-  selectedRuntime,
-  sessionRuntimes,
+  runtimeHub,
   sessionPromptCacheStats,
   lastTurnTelemetry,
   webPresets,
@@ -219,49 +206,42 @@ export function ChatTab({
 }: ChatTabProps) {
   const pendingImageReadState = React.useRef({ generation: 0, tail: Promise.resolve() });
   const [pendingImageReadCount, setPendingImageReadCount] = React.useState(0);
-  const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
-  const planMaxTurnsInput = selectedRuntime?.planMaxTurnsInput ?? '';
-  const contextUsage = selectedRuntime?.contextUsage ?? null;
-  const liveTokenBase = selectedRuntime?.liveTokenBase ?? null;
-  const streamedCharsSinceBase = selectedRuntime?.streamedCharsSinceBase ?? 0;
-  const liveMessages = selectedRuntime?.liveMessages ?? [];
-  const liveTokenDisplays = React.useMemo(() => selectedRuntime ? buildLiveTokenDisplays(selectedRuntime) : new Map<string, TokenDisplay>(), [selectedRuntime]);
-  const recoveryBlocked = selectedRuntime?.recoveryStatus === 'recovery_failed';
-  const chatError = selectedRuntime?.error ?? (recoveryBlocked ? 'Conversation recovery needs repair before you can continue. Saved messages remain available.' : null);
-  const warnings = selectedRuntime?.warnings ?? [];
-  const draft = selectedRuntime?.draft ?? '';
-  const pendingImages = selectedRuntime?.pendingImages ?? [];
+  const runtime = useChatRuntimeSelector(runtimeHub, (store) => selectRuntime(store, selectedSessionId));
+  const liveOperationId = useChatRuntimeSelector(runtimeHub, (store) => selectLiveOperationId(store, selectedSessionId));
+  const compactedEarlierHistory = useChatRuntimeSelector(runtimeHub, (store) => selectCompactedEarlierHistory(store, selectedSessionId));
+  const actionableApproval = useChatRuntimeSelector(runtimeHub, (store) => selectActionableApproval(store, selectedSessionId));
+  const actionableQuestion = useChatRuntimeSelector(runtimeHub, (store) => selectActionableQuestion(store, selectedSessionId));
+  const questionId = useChatRuntimeSelector(runtimeHub, (store) => selectQuestionId(store, selectedSessionId));
+  const planRepoRootInput = runtime?.planRepoRootInput ?? '';
+  const planMaxTurnsInput = runtime?.planMaxTurnsInput ?? '';
+  const contextUsage = runtime?.contextUsage ?? null;
+  const liveTokenBase = runtime?.liveTokenBase ?? null;
+  const recoveryBlocked = runtime?.recoveryStatus === 'recovery_failed';
+  const chatError = runtime?.error ?? (recoveryBlocked ? 'Conversation recovery needs repair before you can continue. Saved messages remain available.' : null);
+  const warnings = runtime?.warnings ?? [];
+  const draft = runtime?.draft ?? '';
+  const pendingImages = runtime?.pendingImages ?? [];
   const effectiveImagePixelCeiling = contextUsage?.effectiveImagePixelCeiling ?? null;
-  const snapshot = selectedRuntime?.journalSnapshot;
-  const savedMessages = selectedSession ? selectedSession.messages : [];
-  const persistedMessages = markEarlierRunsCompacted(
-    snapshot ? savedMessages.filter(message => message.sourceRunId !== snapshot.operationId) : savedMessages,
-    snapshot?.compactedEarlierHistory ?? false,
-  );
-  const retainedIds = new Set(persistedMessages.map(message => message.id));
-  const currentMessages = [...persistedMessages, ...liveMessages.filter(message => !retainedIds.has(message.id))];
-  // The persisted flag is the boundary, exactly as it is for the history the model replays.
-  const segments = buildCompactionSegments(currentMessages);
-  const visibleMessages = currentMessages.filter((message) => message.kind !== 'compaction_summary' && message.compressedIntoSummary !== true);
-  const liveMessageIds = new Set(liveMessages.map((message) => message.id));
+  const savedMessages = selectedSession ? selectedSession.messages : NO_MESSAGES;
+  const persistedMessages = React.useMemo(() => markEarlierRunsCompacted(
+    liveOperationId ? savedMessages.filter((message) => message.sourceRunId !== liveOperationId) : savedMessages,
+    compactedEarlierHistory,
+  ), [savedMessages, liveOperationId, compactedEarlierHistory]);
+  const retainedIds = React.useMemo(() => new Set(persistedMessages.map((message) => message.id)), [persistedMessages]);
+  const liveClosesFold = runtime?.liveClosesFold ?? false;
+  // A streamed summary re-segments the stored rows after the last stored one, so only those join the live rows.
+  const { settled, open } = React.useMemo(() => splitAfterLastSummary(persistedMessages), [persistedMessages]);
+  const persistedSegments = React.useMemo(
+    () => buildCompactionSegments(liveClosesFold ? settled : persistedMessages), [liveClosesFold, settled, persistedMessages]);
   const promptContext = selectedSession?.promptContext ?? null;
-  const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
-  const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
-  const {
-    chatLogRef,
-    onChatLogScroll,
-    jumpToBottom,
-    showJumpToBottom,
-  } = useChatScroll(
+  const { chatLogRef, onChatLogScroll, jumpToBottom, showJumpToBottom } = useChatScroll(
     selectedSessionId,
-    visibleMessageIds,
-    liveMessageScrollSignature,
-    selectedRuntime?.pendingApproval?.approvalId ?? selectedRuntime?.journalSnapshot?.question?.questionId ?? null,
+    runtime?.pendingApproval?.approvalId ?? questionId,
   );
-  const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
-  const selectedSessionBusy = isSessionBusy(selectedRuntime);
-  const queueMode = selectedSessionBusy || Boolean(selectedRuntime?.queue?.messages.some((message) => message.state === 'pending'));
-  const ownsActiveOperation = selectedRuntime?.activity.kind === 'local';
+  const runtimes = useChatRuntimeSelector(runtimeHub, (store) => store.runtimes);
+  const selectedSessionBusy = isSessionBusy(runtime);
+  const queueMode = selectedSessionBusy || Boolean(runtime?.queue?.messages.some((message) => message.state === 'pending'));
+  const ownsActiveOperation = runtime?.activity.kind === 'local';
   const invalidRepoAgentTurns = chatMode === 'repo-agent'
     && !PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success;
   const savedRepoRoot = selectedSession?.planRepoRoot.trim() ?? '';
@@ -273,10 +253,10 @@ export function ChatTab({
   const sendBlocked = chatMode === 'orchestrator'
     ? savedRepoRoot === '' || orchestratorLive || selectedChatPreset === null || (!draft.trim() && !orchestratorPlanPath.trim())
     : recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0);
-  const pendingUserMessageId = selectedRuntime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
+
   const [compactingSessionId, setCompactingSessionId] = React.useState<string | null>(null);
   const compacting = compactingSessionId === selectedSessionId;
-  const hasCompactableHistory = visibleMessages.length > 0;
+  const hasCompactableHistory = persistedMessages.some((message) => message.kind !== 'compaction_summary' && message.compressedIntoSummary !== true);
 
   async function compactNow(): Promise<void> {
     const sessionId = selectedSessionId;
@@ -362,14 +342,14 @@ export function ChatTab({
     void onUpdateSessionPreset(presetId);
   }
 
-  const liveContextUsage = resolveLiveContextUsage({
-    contextUsage,
-    liveTokenBase,
-    streamedCharsSinceBase,
-    busy: selectedSessionBusy,
-  });
-  const usedRatio = liveContextUsage?.ratio ?? 0;
-  const contextTone = getContextBarFillTone(usedRatio);
+  const latestRowActions = useLatest({ onDeleteMessage, onDeleteMessageImage, onDeleteTurn });
+  // Stable handlers: a controller re-render hands over new identities, which would re-render the memoized transcripts.
+  const rowActions = React.useMemo(() => ({
+    onDeleteMessage: (messageId: string) => latestRowActions.current.onDeleteMessage(messageId),
+    onDeleteMessageImage: (messageId: string, imageIndex: number) => latestRowActions.current.onDeleteMessageImage(messageId, imageIndex),
+    onDeleteTurn: (messageIds: string[]) => latestRowActions.current.onDeleteTurn(messageIds),
+  }), [latestRowActions]);
+  const transcriptRows = { sessionId: selectedSessionId, isDirectChatMode, chatBusy: selectedSessionBusy, ...rowActions };
 
   return (
     <>
@@ -379,8 +359,7 @@ export function ChatTab({
         </button>
         <div className="runs">
           {sessions.map((session) => {
-            const indicatorView = sessionIndicators.find((v) => v.sessionId === session.id);
-            const indicator = indicatorView?.indicator ?? 'completed';
+            const indicator = deriveSessionIndicator(session, runtimes.get(session.id) ?? null);
             return (
               <div
                 key={session.id}
@@ -453,6 +432,7 @@ export function ChatTab({
                 </div>
               ) : null}
               <div className="msgs" ref={chatLogRef} onScroll={onChatLogScroll} hidden={selectedSessionLoading}>
+              <div className="msgs-content">
               {promptContext && promptContext.content.trim() ? (
                 <article className="msg ai system_context">
                   <div className="who">system · first message</div>
@@ -462,33 +442,9 @@ export function ChatTab({
                   </details>
                 </article>
               ) : null}
-              {segments.map((segment) => segment.kind === 'compaction' ? (
-                <CompactedHistoryPanel
-                  key={segment.key}
-                  compactedMessages={segment.originals}
-                  summary={segment.summary}
-                  sessionId={selectedSessionId}
-                  isDirectChatMode={isDirectChatMode}
-                  chatBusy={selectedSessionBusy}
-                  onDeleteMessage={onDeleteMessage}
-                  onDeleteMessageImage={onDeleteMessageImage}
-                  onDeleteTurn={onDeleteTurn}
-                />
-              ) : (
-                <TurnList
-                  key={segment.key}
-                  messages={segment.messages}
-                  liveMessageIds={liveMessageIds}
-                  liveTokenDisplays={liveTokenDisplays}
-                  sessionId={selectedSessionId}
-                  pendingUserMessageId={pendingUserMessageId}
-                  isDirectChatMode={isDirectChatMode}
-                  chatBusy={selectedSessionBusy}
-                  onDeleteMessage={onDeleteMessage}
-                  onDeleteMessageImage={onDeleteMessageImage}
-                  onDeleteTurn={onDeleteTurn}
-                />
-              ))}
+              <PersistedTranscript segments={persistedSegments} {...transcriptRows} />
+              <LiveTranscript runtimeHub={runtimeHub} leadingMessages={liveClosesFold ? open : NO_MESSAGES}
+                retainedIds={retainedIds} {...transcriptRows} />
               {chatMode === 'orchestrator' && orchestrator.state ? (
                 <OrchestratorRunPanel
                   state={orchestrator.state}
@@ -497,29 +453,30 @@ export function ChatTab({
                   onAbort={() => { void orchestrator.abort(); }}
                 />
               ) : null}
-              {selectedRuntime?.journalSnapshot?.approval?.actionable ? (
+              {actionableApproval ? (
                 <RepoAgentApprovalCard
-                  key={selectedRuntime.journalSnapshot.approval.approvalId}
-                  approval={selectedRuntime.journalSnapshot.approval}
+                  key={actionableApproval.approvalId}
+                  approval={actionableApproval}
                   onDecide={(decision) => { void onSubmitRepoAgentDecision(decision); }}
                 />
               ) : null}
-              {selectedRuntime?.journalSnapshot?.question?.actionable ? (
+              {actionableQuestion ? (
                 <ChatQuestionCard
-                  key={selectedRuntime.journalSnapshot.question.questionId}
-                  question={selectedRuntime.journalSnapshot.question}
+                  key={actionableQuestion.questionId}
+                  question={actionableQuestion}
                   onAnswer={(reply) => { void onAnswerQuestion(reply); }}
                   onCancel={() => { void onStopOperation(); }}
                 />
               ) : null}
-              {selectedRuntime?.awaitingResponse || selectedRuntime?.submissionPhase === 'reconnecting' ? (
+              {runtime?.awaitingResponse || runtime?.submissionPhase === 'reconnecting' ? (
                 <section className="recent-activity" aria-label="Recent activity">
                   <div className="recent-activity-header">
-                    <span>{selectedRuntime?.submissionPhase === 'reconnecting' ? 'Reconnecting…' : 'Recent activity'}</span>
+                    <span>{runtime?.submissionPhase === 'reconnecting' ? 'Reconnecting…' : 'Recent activity'}</span>
                   </div>
                   <div className="recent-activity-list" />
                 </section>
               ) : null}
+              </div>
               </div>
               {showJumpToBottom ? (
                 <button type="button" className="jump-to-bottom" onClick={jumpToBottom}>
@@ -548,7 +505,7 @@ export function ChatTab({
               </div>
             ) : null}
 
-            <ChatPendingQueue key={selectedSessionId} queue={selectedRuntime?.queue ?? null}
+            <ChatPendingQueue key={selectedSessionId} queue={runtime?.queue ?? null}
               onForceQueue={onForceQueue} onLoadQueueMessage={onLoadQueueMessage}
               onEditQueueMessage={onEditQueueMessage} onRemoveQueueMessage={onRemoveQueueMessage} />
             <div className="composer">
@@ -571,11 +528,11 @@ export function ChatTab({
                   <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={selectedSessionBusy || !planRepoRootInput.trim()}>
                     Directory
                   </button>
-                  {chatMode === 'repo-agent' && selectedRuntime ? (
+                  {chatMode === 'repo-agent' && runtime ? (
                     <>
                       <RepoAgentApprovalModeControl
-                        value={selectedRuntime.repoAgentApprovalMode}
-                        disabled={selectedRuntime.activity.kind !== 'idle' && !hasActiveRepoAgentRun(selectedRuntime)}
+                        value={runtime.repoAgentApprovalMode}
+                        disabled={runtime.activity.kind !== 'idle' && !hasActiveRepoAgentRun(runtime)}
                         onChange={(mode) => { void onChangeRepoAgentApprovalMode(mode); }}
                       />
                       <RepoAgentTurnsControl
@@ -601,11 +558,7 @@ export function ChatTab({
                   ) : null}
                 </div>
               ) : null}
-              {liveContextUsage ? (
-                <div className={contextTone === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(liveContextUsage.usedTokens)} / ${formatNumber(liveContextUsage.contextWindowTokens)}`}>
-                  <i style={{ width: `${usedRatio * 100}%` }} />
-                </div>
-              ) : null}
+              <LiveContextBar runtimeHub={runtimeHub} sessionId={selectedSessionId} runtime={runtime} busy={selectedSessionBusy} />
               <PendingImageStrip
                 images={pendingImages}
                 pendingCount={pendingImageReadCount}
@@ -629,9 +582,7 @@ export function ChatTab({
                   onPaste={handleComposerPaste}
                   rows={2}
                 />
-                {liveContextUsage ? (
-                  <span className="ctx-label">{formatLiveContextTokens(liveContextUsage, formatCompactTokenCount)} / {formatCompactTokenCount(liveContextUsage.contextWindowTokens)}</span>
-                ) : null}
+                <LiveContextLabel runtimeHub={runtimeHub} sessionId={selectedSessionId} runtime={runtime} busy={selectedSessionBusy} />
                 <label className="mini-btn attach" title="Attach images">
                   Attach
                   <input
@@ -668,12 +619,8 @@ export function ChatTab({
                     {queueMode && chatMode !== 'orchestrator' ? 'Queue' : getSendLabel(chatMode)}
                   </button>
               </div>
-              <ChatStatsBar
-                lastTurn={lastTurnTelemetry}
-                sessionStats={sessionPromptCacheStats}
-                liveContextUsage={liveContextUsage}
-                streaming={selectedSessionBusy}
-              />
+              <LiveChatStatsBar runtimeHub={runtimeHub} sessionId={selectedSessionId} runtime={runtime} busy={selectedSessionBusy}
+                lastTurn={lastTurnTelemetry} sessionStats={sessionPromptCacheStats} />
             </div>
           </>
         ) : (
@@ -752,6 +699,42 @@ function TurnList({ messages, liveMessageIds, liveTokenDisplays, sessionId, pend
   );
 }
 
+type TranscriptRowProps = {
+  sessionId: string;
+  isDirectChatMode: boolean;
+  chatBusy: boolean;
+  onDeleteMessage(messageId: string): Promise<void>;
+  onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
+  onDeleteTurn(messageIds: string[]): Promise<void>;
+};
+
+/** Stored history; memoized so composer edits and stream frames never reconcile it. */
+const PersistedTranscript = React.memo(function PersistedTranscript({ segments, ...rows }: TranscriptRowProps & { segments: CompactionSegment[] }) {
+  return segments.map((segment) => segment.kind === 'compaction'
+    ? <CompactedHistoryPanel key={segment.key} compactedMessages={segment.originals} summary={segment.summary} {...rows} />
+    : <TurnList key={segment.key} messages={segment.messages} liveMessageIds={NO_IDS} liveTokenDisplays={NO_TOKEN_DISPLAYS}
+      pendingUserMessageId={null} {...rows} />);
+});
+
+/** The running operation's rows: the only transcript part that subscribes to per-token runtime changes. */
+const LiveTranscript = React.memo(function LiveTranscript({ runtimeHub, leadingMessages, retainedIds, ...rows }: TranscriptRowProps & {
+  runtimeHub: ChatRuntimeHub;
+  leadingMessages: readonly ChatMessage[];
+  retainedIds: ReadonlySet<string>;
+}) {
+  const live = useChatRuntimeSelector(runtimeHub, (store) => selectLive(store, rows.sessionId));
+  const awaitingResponse = useChatRuntimeSelector(runtimeHub, (store) => selectAwaitingResponse(store, rows.sessionId));
+  const liveMessages = React.useMemo(
+    () => (live?.liveMessages ?? NO_MESSAGES).filter((message) => !retainedIds.has(message.id)), [live, retainedIds]);
+  const liveMessageIds = React.useMemo(() => new Set(liveMessages.map((message) => message.id)), [liveMessages]);
+  const liveTokenDisplays = React.useMemo(() => live ? buildLiveTokenDisplays(live) : NO_TOKEN_DISPLAYS, [live]);
+  const pendingUserMessageId = awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
+  return buildCompactionSegments([...leadingMessages, ...liveMessages]).map((segment) => segment.kind === 'compaction'
+    ? <CompactedHistoryPanel key={`live:${segment.key}`} compactedMessages={segment.originals} summary={segment.summary} {...rows} />
+    : <TurnList key={`live:${segment.key}`} messages={segment.messages} liveMessageIds={liveMessageIds}
+      liveTokenDisplays={liveTokenDisplays} pendingUserMessageId={pendingUserMessageId} {...rows} />);
+});
+
 function CompactedHistoryPanel(props: {
   compactedMessages: ChatMessage[];
   /** Null when the rows were flagged but their summary row is no longer in the session. */
@@ -788,6 +771,33 @@ function CompactedHistoryPanel(props: {
       ) : null}
     </section>
   );
+}
+
+function useLiveContextUsage(runtimeHub: ChatRuntimeHub, sessionId: string, runtime: ChatSessionRuntime | null, busy: boolean) {
+  const streamedCharsSinceBase = useChatRuntimeSelector(runtimeHub, (store) => selectStreamedCharsSinceBase(store, sessionId));
+  return resolveLiveContextUsage({ contextUsage: runtime?.contextUsage ?? null, liveTokenBase: runtime?.liveTokenBase ?? null, streamedCharsSinceBase, busy });
+}
+
+type LiveContextProps = { runtimeHub: ChatRuntimeHub; sessionId: string; runtime: ChatSessionRuntime | null; busy: boolean };
+
+function LiveContextBar({ runtimeHub, sessionId, runtime, busy }: LiveContextProps) {
+  const usage = useLiveContextUsage(runtimeHub, sessionId, runtime, busy);
+  if (!usage) return null;
+  return (
+    <div className={getContextBarFillTone(usage.ratio) === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(usage.usedTokens)} / ${formatNumber(usage.contextWindowTokens)}`}>
+      <i style={{ width: `${usage.ratio * 100}%` }} />
+    </div>
+  );
+}
+
+function LiveContextLabel({ runtimeHub, sessionId, runtime, busy }: LiveContextProps) {
+  const usage = useLiveContextUsage(runtimeHub, sessionId, runtime, busy);
+  return usage ? <span className="ctx-label">{formatLiveContextTokens(usage, formatCompactTokenCount)} / {formatCompactTokenCount(usage.contextWindowTokens)}</span> : null;
+}
+
+function LiveChatStatsBar({ lastTurn, sessionStats, ...context }: LiveContextProps & { lastTurn: LastTurnTelemetry; sessionStats: ChatSessionStats }) {
+  const usage = useLiveContextUsage(context.runtimeHub, context.sessionId, context.runtime, context.busy);
+  return <ChatStatsBar lastTurn={lastTurn} sessionStats={sessionStats} liveContextUsage={usage} streaming={context.busy} />;
 }
 
 function SettingsPopover(props: {

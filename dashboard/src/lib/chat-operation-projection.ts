@@ -1,7 +1,6 @@
 import {
   ChatProjectionRecordSchema,
   ChatTextRowKindSchema,
-  ChatTranscriptMessageSchema,
   advancesChatProjectionCursor,
   type ChatMessageQueueState,
   type ChatOperationSnapshot,
@@ -12,6 +11,7 @@ import {
   type ChatProjectionRecord,
   type ChatRecoveredTool,
   type ChatSnapshotTokenTurn,
+  type ChatTextRowMetadata,
   type DurableChatApproval,
   type DurableChatQuestion,
 } from '@siftkit/contracts';
@@ -38,6 +38,18 @@ type Staged = {
 };
 
 type ChatTranscriptMessage = ChatOperationSnapshot['messages'][number];
+
+/** The record was validated at the stream boundary, so the merge is typed instead of re-parsing the whole row per token. */
+function appendTextRow(existing: ChatTranscriptMessage, text: string, metadata: ChatTextRowMetadata): ChatTranscriptMessage {
+  if (!ChatTextRowKindSchema.safeParse(existing.kind).success) fail('append to a non-text row');
+  const content = existing.content + text;
+  // Narrowing metadata.kind does not narrow a spread of metadata, so kind is restated for the union member.
+  if (metadata.kind === 'assistant_narration' || metadata.kind === 'assistant_progress') {
+    if (existing.role !== 'assistant') fail('append re-kinds a non-assistant row');
+    return { ...existing, ...metadata, kind: metadata.kind, role: 'assistant', content };
+  }
+  return { ...existing, ...metadata, kind: metadata.kind, content };
+}
 
 function fail(detail: string): never {
   throw new Error(`Chat projection stream is invalid (${detail}). Reconnect to recover the conversation.`);
@@ -158,9 +170,8 @@ export class ChatOperationProjection {
         const index = staged.messages.findIndex(message => message.id === record.messageId);
         const existing = staged.messages[index];
         if (!existing) fail('append to an unknown message');
-        if (!ChatTextRowKindSchema.safeParse(existing.kind).success) fail('append to a non-text row');
         if (record.offset !== existing.content.length) fail('append offset mismatch');
-        staged.messages[index] = ChatTranscriptMessageSchema.parse({ ...existing, ...record.metadata, content: existing.content + record.text });
+        staged.messages[index] = appendTextRow(existing, record.text, record.metadata);
         return;
       }
       case 'remove_message': {
