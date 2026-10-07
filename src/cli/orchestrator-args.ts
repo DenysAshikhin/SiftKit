@@ -1,6 +1,6 @@
 import { ApprovalModeSchema, DEFAULT_APPROVAL_MODE, type ApprovalMode } from '@siftkit/contracts';
 
-import { z } from '../lib/zod.js';
+import { z } from '../lib/zod.ts';
 
 const RunIdSchema = z.string().uuid();
 

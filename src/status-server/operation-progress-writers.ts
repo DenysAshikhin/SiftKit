@@ -1,13 +1,16 @@
-import { ProgressWriter } from '../lib/progress-writer.js';
-import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
-import type { RepoSearchProgressEvent } from '../repo-search/types.js';
-import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from './dashboard-runs.js';
-import { serverLogger } from './server-logger.js';
-import type { StreamedOperationContext } from './routes/streamed-operation-endpoint.js';
+import { ProgressWriter } from '../lib/progress-writer.ts';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.ts';
+import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
+import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from './dashboard-runs.ts';
+import { serverLogger } from './server-logger.ts';
+import type { StreamedOperationContext } from './routes/streamed-operation-endpoint.ts';
 
 export class SummarySseProgressWriter extends ProgressWriter<SummaryProgressEvent> {
-  constructor(private readonly stream: StreamedOperationContext) {
+  private readonly stream: StreamedOperationContext;
+
+  constructor(stream: StreamedOperationContext) {
     super();
+    this.stream = stream;
   }
 
   get enabled(): boolean {
@@ -20,8 +23,11 @@ export class SummarySseProgressWriter extends ProgressWriter<SummaryProgressEven
 }
 
 export class RepoSearchSseProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  constructor(protected readonly stream: StreamedOperationContext) {
+  protected readonly stream: StreamedOperationContext;
+
+  constructor(stream: StreamedOperationContext) {
     super();
+    this.stream = stream;
   }
 
   get enabled(): boolean {
@@ -45,11 +51,16 @@ export class RepoSearchSseProgressWriter extends ProgressWriter<RepoSearchProgre
  * so the number of console lines follows the number of invocations, not the number of readers.
  */
 export class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  private readonly scope: 'plan' | 'rs';
+  private readonly requestId: string;
+
   constructor(
-    private readonly scope: 'plan' | 'rs',
-    private readonly requestId: string,
+    scope: 'plan' | 'rs',
+    requestId: string,
   ) {
     super();
+    this.scope = scope;
+    this.requestId = requestId;
   }
 
   get enabled(): boolean {

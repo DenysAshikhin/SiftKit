@@ -1,5 +1,5 @@
-import type { SettingsSectionId } from './settings-sections.js';
-import type { DashboardModelRuntimePreset } from './types.js';
+import type { SettingsSectionId } from './settings-sections.ts';
+import type { DashboardModelRuntimePreset } from './types.ts';
 
 export type DirtyContinuation =
   | { kind: 'switch-section'; nextSection: SettingsSectionId }

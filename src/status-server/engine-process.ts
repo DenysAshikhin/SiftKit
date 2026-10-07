@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 
-import type { Exl3PackageLocator } from '../inference-presets/exl3-model-capabilities.js';
-import { InterpreterExl3PackageLocator } from '../inference-presets/exl3-model-capabilities.js';
-import { terminateProcessTree } from '../lib/process-tree.js';
+import type { Exl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
+import { InterpreterExl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
+import { terminateProcessTree } from '../lib/process-tree.ts';
 
 /** A managed engine launch; `environment` is the complete child environment, not a delta. */
 export type EngineLaunchSpec = {

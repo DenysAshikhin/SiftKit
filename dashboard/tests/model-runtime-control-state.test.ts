@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { resolveResidencyControlState } from '../src/tabs/settings/ModelRuntimeResidencyPanel.js';
+import { resolveResidencyControlState } from '../src/tabs/settings/ModelRuntimeResidencyPanel.tsx';
 
 test('load is available only for an unloaded stable runtime', () => {
   assert.equal(resolveResidencyControlState('unloaded').load, true);

@@ -1,20 +1,20 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
   ASSISTANT_INFERENCE_ROLES, UNTRUSTED_CONTENT_PREAMBLE, buildRoleSystemPrompt,
-} from '../src/assistant/inference/roles.js';
-import { DefaultAssistantInferenceClient } from '../src/assistant/inference/client.js';
+} from '../src/assistant/inference/roles.ts';
+import { DefaultAssistantInferenceClient } from '../src/assistant/inference/client.ts';
 import type {
   AssistantChatBackend, AssistantTextInferenceRequest,
-} from '../src/assistant/inference/client.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
-import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-import type { InferenceChatOptions } from '../src/llm-protocol/inference-client.js';
-import { CLEAN_STREAM_STOP, type InferenceContentPart, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+} from '../src/assistant/inference/client.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.ts';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.ts';
+import type { InferenceChatOptions } from '../src/llm-protocol/inference-client.ts';
+import { CLEAN_STREAM_STOP, type InferenceContentPart, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
   + 'FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -53,7 +53,11 @@ function contentParts(content: string | InferenceContentPart[] | null | undefine
 class RecordingBackend implements AssistantChatBackend {
   readonly requests: InferenceChatOptions[] = [];
 
-  constructor(private readonly responseText: string) {}
+  private readonly responseText: string;
+
+  constructor(responseText: string) {
+    this.responseText = responseText;
+  }
 
   async chat(options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse> {
     this.requests.push(options);
@@ -286,9 +290,9 @@ test('an already-aborted signal fails before any request is issued', async () =>
   assert.equal(backend.requests.length, 0);
 });
 
-import { z } from '../src/lib/zod.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { z } from '../src/lib/zod.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
 
 const ShapeSchema = z.object({ items: z.array(z.string()) }).strict();
 

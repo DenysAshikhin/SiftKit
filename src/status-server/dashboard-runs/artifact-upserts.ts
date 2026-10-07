@@ -1,19 +1,19 @@
 import Database from 'better-sqlite3';
-import { z } from '../../lib/zod.js';
-import { InferenceBackendIdSchema } from '../../config/types.js';
-import type { InferenceBackendId } from '../../config/types.js';
-import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
-import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
+import { z } from '../../lib/zod.ts';
+import { InferenceBackendIdSchema } from '../../config/types.ts';
+import type { InferenceBackendId } from '../../config/types.ts';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import { getProcessedPromptTokens } from '../../lib/provider-helpers.ts';
+import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.ts';
 import {
   type RunArtifactPayload,
   type RunLogGroup,
   type RunLogKind,
   type RunLogTerminalState,
   type RunLogUpsertRow,
-} from './types.js';
-import { parseOptionalIsoDate } from './run-records.js';
-import type { RunIdentity } from './run-identity.js';
+} from './types.ts';
+import { parseOptionalIsoDate } from './run-records.ts';
+import type { RunIdentity } from './run-identity.ts';
 import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 
 type DatabaseInstance = InstanceType<typeof Database>;

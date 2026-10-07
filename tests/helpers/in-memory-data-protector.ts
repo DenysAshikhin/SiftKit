@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
-import { DpapiUnavailableError, type DataProtector } from '../../src/assistant/crypto/dpapi.js';
+import { DpapiUnavailableError, type DataProtector } from '../../src/assistant/crypto/dpapi.ts';
 
 const IV_BYTES = 12;
 const TAG_BYTES = 16;

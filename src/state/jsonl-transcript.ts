@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import { parseJsonValueText } from '../lib/json.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import type { JsonObject } from '../lib/json-types.ts';
 
 export type JsonlEvent = { kind: string; at: string | null; payload: JsonObject };
 

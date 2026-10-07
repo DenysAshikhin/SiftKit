@@ -1,7 +1,7 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
-import { getSettingsFieldDescriptor, type SettingsFieldLayout, type SettingsSectionId } from '../settings-sections';
+import { getSettingsFieldDescriptor, type SettingsFieldLayout, type SettingsSectionId } from '../settings-sections.ts';
 
 export type SettingsFieldProps = {
   label: string;

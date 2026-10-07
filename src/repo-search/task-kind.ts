@@ -1,4 +1,4 @@
-import { z } from '../lib/zod.js';
+import { z } from '../lib/zod.ts';
 
 export const REPO_SEARCH_TASK_KINDS = [
   'plan',

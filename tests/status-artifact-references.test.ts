@@ -7,15 +7,15 @@ import {
   buildSummaryRequestArtifact,
   clearSummaryArtifactState,
   createPlannerDebugRecorder,
-} from '../src/summary/artifacts.js';
-import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
-import type { RuntimeArtifactRecord } from '../src/state/runtime-artifacts.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { queryDashboardRunDetailFromDb } from '../src/status-server/dashboard-runs/queries.js';
-import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.js';
-import { requestJson } from './helpers/dashboard-http.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
+} from '../src/summary/artifacts.ts';
+import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.ts';
+import type { RuntimeArtifactRecord } from '../src/state/runtime-artifacts.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { queryDashboardRunDetailFromDb } from '../src/status-server/dashboard-runs/queries.ts';
+import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
 
 const ARTIFACT_POLL_INTERVAL_MS = 20;
 const ARTIFACT_TIMEOUT_MS = 5000;

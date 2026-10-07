@@ -1,4 +1,4 @@
-import { z } from './zod.js';
+import { z } from './zod.ts';
 
 export const JsonValueSchema = z.json();
 export const JsonObjectSchema = z.record(z.string(), JsonValueSchema);

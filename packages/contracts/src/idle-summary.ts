@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { TaskMetricKindSchema, MetricTotalsSchema, ToolTypeStatsSchema } from './metrics.js';
-import { InferenceThroughputSchema } from './inference-throughput.js';
+import { TaskMetricKindSchema, MetricTotalsSchema, ToolTypeStatsSchema } from './metrics.ts';
+import { InferenceThroughputSchema } from './inference-throughput.ts';
 
 const SnapshotTaskTotalsSchema = z.record(TaskMetricKindSchema, MetricTotalsSchema);
 const SnapshotToolStatsSchema = z.record(TaskMetricKindSchema, z.record(z.string(), ToolTypeStatsSchema));

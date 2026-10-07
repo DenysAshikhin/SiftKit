@@ -1,5 +1,5 @@
-import type { InferenceBackendId, ModelRuntimePreset } from '../../src/config/types.js';
-import { ManagedInferenceRuntime } from '../../src/status-server/managed-inference-runtime.js';
+import type { InferenceBackendId, ModelRuntimePreset } from '../../src/config/types.ts';
+import { ManagedInferenceRuntime } from '../../src/status-server/managed-inference-runtime.ts';
 
 /**
  * Stand-in backend that records lifecycle calls instead of spawning a process, so
@@ -9,12 +9,17 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
   preparedPreset: ModelRuntimePreset | null = null;
   private residentResidencyKey: string | null = null;
 
+  private readonly events: string[];
+  private readonly failingPresetIds: Set<string>;
+
   constructor(
     id: InferenceBackendId,
-    private readonly events: string[],
-    private readonly failingPresetIds = new Set<string>(),
+    events: string[],
+    failingPresetIds = new Set<string>(),
   ) {
     super(id);
+    this.events = events;
+    this.failingPresetIds = failingPresetIds;
   }
 
   async startProcess(): Promise<void> {

@@ -1,6 +1,6 @@
-import type { AssertionBasis, AssertionStatus } from '../domain/enums.js';
-import { isExplicitBasis } from '../domain/enums.js';
-import type { RelationType } from '../domain/relation-types.js';
+import type { AssertionBasis, AssertionStatus } from '../domain/enums.ts';
+import { isExplicitBasis } from '../domain/enums.ts';
+import type { RelationType } from '../domain/relation-types.ts';
 
 export interface AssertionSentenceInput {
   readonly assertionId: string;

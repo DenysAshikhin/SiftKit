@@ -9,9 +9,9 @@ import {
   readIdleSummarySnapshots,
   postCompletedStatus,
   waitForAsyncExpectation,
-} from './_runtime-helpers.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+} from './_runtime-helpers.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 
 test('real status server appends one sqlite snapshot for each emitted idle summary', async () => {

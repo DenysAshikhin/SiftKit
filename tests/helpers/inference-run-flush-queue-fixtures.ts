@@ -1,7 +1,7 @@
 import { type TestContext } from 'node:test';
 
-import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { countLogRows } from './runtime-database-probe.js';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { countLogRows } from './runtime-database-probe.ts';
 
 /**
  * Makes the *reporting* path fail: `ServerLogger` writes to stdout synchronously, so a sink that

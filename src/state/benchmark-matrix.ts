@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { z } from '../lib/zod.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { JsonObjectSchema, type JsonObject, type JsonValue } from '../lib/json-types.js';
-import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
+import { z } from '../lib/zod.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { JsonObjectSchema, type JsonObject, type JsonValue } from '../lib/json-types.ts';
+import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.ts';
 
 const BenchmarkMatrixSessionStatusSchema = z.enum(['running', 'completed', 'failed']);
 export type BenchmarkMatrixSessionStatus = z.infer<typeof BenchmarkMatrixSessionStatusSchema>;

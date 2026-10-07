@@ -8,12 +8,12 @@ import {
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
-} from '../_runtime-helpers.js';
+} from '../_runtime-helpers.ts';
 import {
   listBenchmarkMatrixSessions,
   listBenchmarkMatrixRunsForSession,
   readBenchmarkMatrixRunLogTextByStream,
-} from '../../src/state/benchmark-matrix.js';
+} from '../../src/state/benchmark-matrix.ts';
 
 test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, and restores baseline', { timeout: 60000 }, async () => {
   await withTempEnv(async (tempRoot) => {

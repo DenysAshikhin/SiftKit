@@ -1,15 +1,15 @@
-import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.js';
-import { ProjectionCompiler } from '../../src/assistant/projections/projection-compiler.js';
+import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
+import { ProjectionCompiler } from '../../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService, SummarizeProjectionResult,
-} from '../../src/assistant/projections/projection-summarizer.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
-import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+} from '../../src/assistant/projections/projection-summarizer.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
+import { closeRuntimeDatabase } from '../../src/state/runtime-db.ts';
 import {
   DEFAULT_BENCH_ROOT, OWNER_ID, activityEvent, formatSeconds, openBench,
   readNumberArg, readStringArg, type BenchContext,
-} from './shared.js';
+} from './shared.ts';
 
 const OBJECT_NODE_COUNT = 2_000;
 const ACTIVITY_EVENT_COUNT = 10_000;

@@ -1,7 +1,7 @@
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { SecretScanner } from '../domain/secrets.js';
-import { hashTextContent } from '../domain/keys.js';
-import { AssistantNotFoundError } from '../errors.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { SecretScanner } from '../domain/secrets.ts';
+import { hashTextContent } from '../domain/keys.ts';
+import { AssistantNotFoundError } from '../errors.ts';
 
 export interface AssistantQuestionConfigWriter {
   setQuestionSchedule(startLocalTime: string, endLocalTime: string): void;
@@ -21,12 +21,22 @@ export type AnswerQuestionOutcome =
 const LOCAL_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/u;
 
 export class QuestionFeedbackService {
+  private readonly graph: AssistantGraph;
+  private readonly secrets: SecretScanner;
+  private readonly config: AssistantQuestionConfigWriter;
+  private answerIngestionPriority: number;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly secrets: SecretScanner,
-    private readonly config: AssistantQuestionConfigWriter,
-    private answerIngestionPriority: number,
-  ) {}
+    graph: AssistantGraph,
+    secrets: SecretScanner,
+    config: AssistantQuestionConfigWriter,
+    answerIngestionPriority: number,
+  ) {
+    this.graph = graph;
+    this.secrets = secrets;
+    this.config = config;
+    this.answerIngestionPriority = answerIngestionPriority;
+  }
 
   refreshAnswerIngestionPriority(priority: number): void {
     if (!Number.isInteger(priority)) {

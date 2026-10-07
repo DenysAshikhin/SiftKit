@@ -1,6 +1,6 @@
 // Benchmark-matrix module public API barrel.
 
-export { buildBenchmarkArgs, buildLaunchSignature, buildLauncherArgs } from './launcher.js';
-export { readMatrixManifest } from './manifest.js';
-export { pruneOldLauncherLogs } from './pruning.js';
-export { main, runMatrix, runMatrixWithInterrupt } from './runner.js';
+export { buildBenchmarkArgs, buildLaunchSignature, buildLauncherArgs } from './launcher.ts';
+export { readMatrixManifest } from './manifest.ts';
+export { pruneOldLauncherLogs } from './pruning.ts';
+export { main, runMatrix, runMatrixWithInterrupt } from './runner.ts';

@@ -1,16 +1,16 @@
-import type { SiftConfig } from '../config/index.js';
-import { getActiveModelPreset, notifyStatusBackend } from '../config/index.js';
-import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
-import { unmeasuredInferenceThroughput } from '../lib/inference-throughput.js';
+import type { SiftConfig } from '../config/index.ts';
+import { getActiveModelPreset, notifyStatusBackend } from '../config/index.ts';
+import { getProcessedPromptTokens } from '../lib/provider-helpers.ts';
+import { unmeasuredInferenceThroughput } from '../lib/inference-throughput.ts';
 import type { InferenceThroughput } from '@siftkit/contracts';
-import { generateInferenceResponse, type InferenceGenerateResult } from '../providers/inference.js';
-import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
-import { runMockProvider } from './providers/mock-provider.js';
-import { traceSummary } from './artifacts.js';
+import { generateInferenceResponse, type InferenceGenerateResult } from '../providers/inference.ts';
+import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.ts';
+import { runMockProvider } from './providers/mock-provider.ts';
+import { traceSummary } from './artifacts.ts';
 import type {
   SummaryPhase,
   SummaryProviderId,
-} from './types.js';
+} from './types.ts';
 
 export type ProviderSummaryMetrics = {
   promptCharacterCount: number;

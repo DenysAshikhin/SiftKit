@@ -1,5 +1,5 @@
-import { extractContentText } from './llm-protocol/image-attachments.js';
-import type { ChatMessage } from './repo-search/planner-chat-message.js';
+import { extractContentText } from './llm-protocol/image-attachments.ts';
+import type { ChatMessage } from './repo-search/planner-chat-message.ts';
 
 export type ImageRetentionOutcome = {
   /** The same array instance when nothing aged out, so an owner can skip recording a no-op splice. */
@@ -16,7 +16,11 @@ export type ImageRetentionOutcome = {
  * decides when a rewrite becomes a recorded mutation.
  */
 export class ImageRetentionPolicy {
-  constructor(private readonly retention: number) {}
+  private readonly retention: number;
+
+  constructor(retention: number) {
+    this.retention = retention;
+  }
 
   prune(messages: readonly ChatMessage[]): ImageRetentionOutcome {
     if (this.retention < 0) {

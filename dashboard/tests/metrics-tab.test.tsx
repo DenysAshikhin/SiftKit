@@ -1,9 +1,9 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MetricsTab } from '../src/tabs/MetricsTab';
-import type { IdleSummarySnapshot, MetricDay } from '../src/types';
+import { MetricsTab } from '../src/tabs/MetricsTab.tsx';
+import type { IdleSummarySnapshot, MetricDay } from '../src/types.ts';
 
 const METRIC_DAY = {
   date: '2026-04-16',

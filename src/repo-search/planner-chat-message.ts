@@ -1,6 +1,6 @@
-import { z } from '../lib/zod.js';
-import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
-import { InferenceChatRoleSchema, InferenceToolCallSchema } from '../llm-protocol/types.js';
+import { z } from '../lib/zod.ts';
+import { MessageContentSchema } from '../llm-protocol/image-attachments.ts';
+import { InferenceChatRoleSchema, InferenceToolCallSchema } from '../llm-protocol/types.ts';
 
 /**
  * A planner tool call is an inference tool call whose `type` has not been narrowed yet: replayed and

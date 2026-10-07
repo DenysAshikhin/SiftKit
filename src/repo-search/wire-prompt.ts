@@ -1,7 +1,7 @@
-import type { InferenceContentPart, InferenceToolDefinition } from '../llm-protocol/types.js';
-import { countContentImages } from '../llm-protocol/image-attachments.js';
-import { serializeProtocolMessages } from './planner-protocol.js';
-import type { ChatMessage } from './planner-chat-message.js';
+import type { InferenceContentPart, InferenceToolDefinition } from '../llm-protocol/types.ts';
+import { countContentImages } from '../llm-protocol/image-attachments.ts';
+import { serializeProtocolMessages } from './planner-protocol.ts';
+import type { ChatMessage } from './planner-chat-message.ts';
 
 // ChatML role markers. Built from a code-point concatenation so the token
 // sequence does not appear verbatim in sources or diffs.

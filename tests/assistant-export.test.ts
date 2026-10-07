@@ -3,20 +3,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
-import { ExportService } from '../src/assistant/control/export-service.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
+import { z } from '../src/lib/zod.ts';
+import { ExportService } from '../src/assistant/control/export-service.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService,
   SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.js';
-import { CURRENT_SCHEMA_VERSION } from '../src/state/runtime-db.js';
+} from '../src/assistant/projections/projection-summarizer.ts';
+import { CURRENT_SCHEMA_VERSION } from '../src/state/runtime-db.ts';
 import {
   withAssistantContextAsync, type AssistantTestContext,
-} from './helpers/assistant-fixture.js';
-import { archiveBytes, archiveEntries } from './helpers/archive-bytes.js';
-import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
+} from './helpers/assistant-fixture.ts';
+import { archiveBytes, archiveEntries } from './helpers/archive-bytes.ts';
+import { seedOwnerAssertion } from './helpers/gate-e-seed.ts';
 
 class PassthroughSummarizer implements ProjectionSummaryService {
   async summarize(): Promise<SummarizeProjectionResult> {

@@ -8,22 +8,22 @@ import {
   type AssistantRestorePreviewResponse,
   type AssistantRestoreResult,
 } from '@siftkit/contracts';
-import { parseJsonText } from '../../lib/json.js';
-import { z } from '../../lib/zod.js';
-import { ZipFileReader } from '../../lib/zip-file-reader.js';
-import { CURRENT_SCHEMA_VERSION, getSchemaVersion, type RuntimeDatabase } from '../../state/runtime-db.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { DpapiUnavailableError, type DataProtector } from '../crypto/dpapi.js';
-import type { KeyCustodyService } from '../crypto/key-custody.js';
-import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
-import { assistantEvidenceDir, assistantRestoreUploadsDir } from '../layout.js';
+import { parseJsonText } from '../../lib/json.ts';
+import { z } from '../../lib/zod.ts';
+import { ZipFileReader } from '../../lib/zip-file-reader.ts';
+import { CURRENT_SCHEMA_VERSION, getSchemaVersion, type RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { DpapiUnavailableError, type DataProtector } from '../crypto/dpapi.ts';
+import type { KeyCustodyService } from '../crypto/key-custody.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../errors.ts';
+import { assistantEvidenceDir, assistantRestoreUploadsDir } from '../layout.ts';
 import {
   ASSISTANT_FTS_TABLE_NAMES, ASSISTANT_METADATA_PREFIX, ASSISTANT_TABLE_NAMES,
-} from '../storage/schema.js';
+} from '../storage/schema.ts';
 import {
   BLOB_PREFIX, KEY_ENTRY, MANIFEST_ENTRY, SNAPSHOT_ENTRY,
   BackupManifestSchema, type BackupManifest,
-} from './backup-format.js';
+} from './backup-format.ts';
 
 const ATTACHED = 'restore_src';
 

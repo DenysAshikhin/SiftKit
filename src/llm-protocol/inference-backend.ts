@@ -1,12 +1,12 @@
 import type { ReasoningEffort } from '@siftkit/contracts';
-import type { InferenceBackendId } from '../config/types.js';
-import type { PresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
+import type { InferenceBackendId } from '../config/types.ts';
+import type { PresetRequestDefaults } from '../inference-presets/preset-compatibility.ts';
 import type {
   InferenceChatMessage,
   InferenceChatRequest,
   InferenceResponseFormat,
   InferenceToolDefinition,
-} from './types.js';
+} from './types.ts';
 
 export type InferenceThinkingPolicy = {
   enabled?: boolean;

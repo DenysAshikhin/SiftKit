@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { CHAT_PROJECTION_MAX_FRAME_BYTES, ChatStreamErrorSchema, type ChatProjectionCapture, type ChatProjectionRecord, type ChatStreamError } from '@siftkit/contracts';
-import type { ChatOperationClosure, ChatOperationSubscriber } from './chat-operation-broadcast.js';
-import type { SseResponseWriter } from './sse-response-writer.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import { ChatOperationSnapshotReader, type ChatLiveOperationBinding } from './chat-operation-snapshot.js';
-import { CHAT_PROJECTION_EVENT_NAME, createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecord } from './chat-projection-encoder.js';
-import type { ServerContext } from './server-types.js';
-import { ChatRecoveryInvariantError } from '../state/chat-journal.js';
-import { recoveryIssue } from './chat-run-recovery.js';
-import { serverLogger } from './server-logger.js';
+import type { ChatOperationClosure, ChatOperationSubscriber } from './chat-operation-broadcast.ts';
+import type { SseResponseWriter } from './sse-response-writer.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import { ChatOperationSnapshotReader, type ChatLiveOperationBinding } from './chat-operation-snapshot.ts';
+import { CHAT_PROJECTION_EVENT_NAME, createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecord } from './chat-projection-encoder.ts';
+import type { ServerContext } from './server-types.ts';
+import { ChatRecoveryInvariantError } from '../state/chat-journal.ts';
+import { recoveryIssue } from './chat-run-recovery.ts';
+import { serverLogger } from './server-logger.ts';
 
 function readLiveBinding(ctx: ServerContext, sessionId: string, operationId: string): ChatLiveOperationBinding {
   const active = ctx.chatSessionOperations.getActiveOperation(sessionId);
@@ -52,9 +52,16 @@ export class ChatOperationSseSubscriber implements ChatOperationSubscriber {
   private draining = false;
   private readonly reader: ChatOperationSnapshotReader;
 
-  constructor(private readonly writer: SseResponseWriter, private readonly source: {
+  private readonly writer: SseResponseWriter;
+  private readonly source: {
     ctx: ServerContext; sessionId: string; operationId: string; database: RuntimeDatabase;
-  }) { this.reader = new ChatOperationSnapshotReader(source.operationId); }
+  };
+
+  constructor(writer: SseResponseWriter, source: {
+    ctx: ServerContext; sessionId: string; operationId: string; database: RuntimeDatabase;
+  }) {
+    this.writer = writer;
+    this.source = source; this.reader = new ChatOperationSnapshotReader(source.operationId); }
 
   start(): void {
     if (this.started) throw new Error('Chat subscription already started.');

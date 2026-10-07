@@ -1,7 +1,7 @@
-import { TavilySearchProvider } from './tavily-search-provider.js';
-import { FirecrawlSearchProvider } from './firecrawl-search-provider.js';
-import type { WebSearchConfig, WebSearchProviderId } from './types.js';
-import { WebSearchProvider, type WebSearchProviderOptions } from './web-search-provider-base.js';
+import { TavilySearchProvider } from './tavily-search-provider.ts';
+import { FirecrawlSearchProvider } from './firecrawl-search-provider.ts';
+import type { WebSearchConfig, WebSearchProviderId } from './types.ts';
+import { WebSearchProvider, type WebSearchProviderOptions } from './web-search-provider-base.ts';
 
 export { WebSearchProvider, type WebSearchProviderOptions };
 

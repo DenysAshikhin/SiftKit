@@ -4,9 +4,9 @@ import {
   APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_REQUEST_MARKER,
   buildApprovalReviewRequest,
-} from '../src/repo-search/approval-review-policy.js';
-import { buildApprovalReviewPayload } from '../src/repo-search/engine/approval-gate.js';
-import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
+} from '../src/repo-search/approval-review-policy.ts';
+import { buildApprovalReviewPayload } from '../src/repo-search/engine/approval-gate.ts';
+import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.ts';
 
 test('write approval payload includes the complete path and content', () => {
   const payload = buildApprovalReviewPayload({

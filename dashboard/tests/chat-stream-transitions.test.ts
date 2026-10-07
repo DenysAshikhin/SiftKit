@@ -1,18 +1,18 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import { buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import type { ChatRunTerminalCause } from '@siftkit/contracts';
-import { createLiveMessage } from '../src/lib/chat-live-messages';
+import { createLiveMessage } from '../src/lib/chat-live-messages.ts';
 import assert from 'node:assert/strict';
 
-import { ownedStreamTransitions, toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { ChatSessionBusyError, ChatStreamHttpError } from '../src/api';
-import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
-import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
-import type { ChatSessionOperationKind } from '../src/types';
-import { buildLiveTokenDisplays } from '../src/lib/chat-live-token-display';
-import { buildUsageFrame } from './usage-frame';
-import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionEvents, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.js';
+import { ownedStreamTransitions, toRuntimeTransitions } from '../src/lib/chat-stream-transitions.ts';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { ChatSessionBusyError, ChatStreamHttpError } from '../src/api.ts';
+import type { ChatStreamEvent } from '../src/lib/chat-stream-parser.ts';
+import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store.ts';
+import type { ChatSessionOperationKind } from '../src/types.ts';
+import { buildLiveTokenDisplays } from '../src/lib/chat-live-token-display.ts';
+import { buildUsageFrame } from './usage-frame.ts';
+import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionEvents, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000010';

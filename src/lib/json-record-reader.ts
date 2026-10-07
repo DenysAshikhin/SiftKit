@@ -1,5 +1,5 @@
-import { JsonObjectSchema, type JsonObject, type MutableJsonObject, type OptionalJsonValue } from './json-types.js';
-import { parseJsonValueText } from './json.js';
+import { JsonObjectSchema, type JsonObject, type MutableJsonObject, type OptionalJsonValue } from './json-types.ts';
+import { parseJsonValueText } from './json.ts';
 
 export class JsonRecordReader {
   public readonly record: JsonObject;

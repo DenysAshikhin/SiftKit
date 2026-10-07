@@ -4,20 +4,20 @@ import {
   getConfiguredEngineBaseUrl,
   getConfiguredModel,
   loadConfig,
-} from '../config/index.js';
-import { InferenceBackendIdSchema } from '../config/types.js';
-import { parseJsonText } from '../lib/json.js';
-import { z } from '../lib/zod.js';
+} from '../config/index.ts';
+import { InferenceBackendIdSchema } from '../config/types.ts';
+import { parseJsonText } from '../lib/json.ts';
+import { z } from '../lib/zod.ts';
 import {
   AutoApprovalProbeResultSchema,
   AutoApprovalReplayPayloadSchema,
   AutoApprovalVerdictProbe,
   ConfiguredApprovalVerdictModelClient,
-} from '../repo-search/approval-verdict-probe.js';
+} from '../repo-search/approval-verdict-probe.ts';
 import {
   DEFAULT_TIMEOUT_MS,
   resolvePlannerThinkingFlags,
-} from '../repo-search/engine/task-loop-support.js';
+} from '../repo-search/engine/task-loop-support.ts';
 
 export type AutoApprovalProbeCliOptions = {
   argv: string[];

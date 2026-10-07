@@ -2,17 +2,17 @@ import { createHash } from 'node:crypto';
 import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, posix } from 'node:path';
 import { z } from 'zod';
-import { type IgnorePolicy } from '../command-safety.js';
-import { estimateTokenCount } from '../../lib/token-estimate.js';
-import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
-import { buildReadPathKey, getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
-import { parseJsonValueText } from '../../lib/json.js';
-import { applyEolStyle, detectEolStyle, readSourceText, readTextFileWithEncoding } from '../../lib/text-encoding.js';
-import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import type { ToolTranscriptAction } from '../../tool-call-messages.js';
-import { spawnDirectCommand } from '../../lib/command-spawn.js';
-import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
-import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.js';
+import { type IgnorePolicy } from '../command-safety.ts';
+import { estimateTokenCount } from '../../lib/token-estimate.ts';
+import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
+import { buildReadPathKey, getOrCreateFileReadState, type FileReadState } from './read-overlap.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
+import { applyEolStyle, detectEolStyle, readSourceText, readTextFileWithEncoding } from '../../lib/text-encoding.ts';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import type { ToolTranscriptAction } from '../../tool-call-messages.ts';
+import { spawnDirectCommand } from '../../lib/command-spawn.ts';
+import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.ts';
+import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.ts';
 import type {
   EditToolArgs,
   FindToolArgs,
@@ -22,14 +22,14 @@ import type {
   RepoExecutableToolCall,
   RunToolArgs,
   WriteToolArgs,
-} from '../repo-tool-arguments.js';
-import { GitToolArgsSchema } from '../repo-tool-arguments.js';
-import { ReadOnlyGitTool, buildReadOnlyGitCommand } from './read-only-git-tool.js';
-import { WebResearchTools } from '../../web-search/web-research-tools.js';
+} from '../repo-tool-arguments.ts';
+import { GitToolArgsSchema } from '../repo-tool-arguments.ts';
+import { ReadOnlyGitTool, buildReadOnlyGitCommand } from './read-only-git-tool.ts';
+import { WebResearchTools } from '../../web-search/web-research-tools.ts';
 import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
-import { isImagePath } from '../../llm-protocol/image-attachments.js';
-import { executeImageRead, executeImageShow } from './image-read.js';
-import { isRepoRelativePathIgnored, resolveRepoScopedPath, toPosixPath } from './repo-paths.js';
+import { isImagePath } from '../../llm-protocol/image-attachments.ts';
+import { executeImageRead, executeImageShow } from './image-read.ts';
+import { isRepoRelativePathIgnored, resolveRepoScopedPath, toPosixPath } from './repo-paths.ts';
 
 export const GREP_DEFAULT_LIMIT = 100;
 export const FIND_DEFAULT_LIMIT = 1000;

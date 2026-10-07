@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 
-import { z } from '../../lib/zod.js';
-import { isJsonObject, JsonValueSchema, type JsonValue } from '../../lib/json-types.js';
-import { ObjectValueTypeSchema, type ObjectValueType } from './enums.js';
-import { NodeTypeSchema } from './node-types.js';
-import type { RelationType } from './relation-types.js';
+import { z } from '../../lib/zod.ts';
+import { isJsonObject, JsonValueSchema, type JsonValue } from '../../lib/json-types.ts';
+import { ObjectValueTypeSchema, type ObjectValueType } from './enums.ts';
+import { NodeTypeSchema } from './node-types.ts';
+import type { RelationType } from './relation-types.ts';
 
 // ASCII unit separator (U+001F): cannot occur in an id, a predicate, or a normalized
 // literal, so no two distinct tuples can concatenate to the same string.

@@ -6,8 +6,8 @@ import path from 'node:path';
 
 import {
   initializeRuntime,
-} from '../../src/config/index.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+} from '../../src/config/index.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 test('initializeRuntime creates and returns the runtime paths of the current repo', () => {
   const prev = process.env.sift_kit_status;

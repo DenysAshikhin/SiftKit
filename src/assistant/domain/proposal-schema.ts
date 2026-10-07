@@ -1,9 +1,9 @@
-import { z } from '../../lib/zod.js';
-import { ObjectValueTypeSchema } from './enums.js';
-import type { NodeType } from './node-types.js';
+import { z } from '../../lib/zod.ts';
+import { ObjectValueTypeSchema } from './enums.ts';
+import type { NodeType } from './node-types.ts';
 import {
   RELATION_DEFINITIONS, RELATION_TYPES, type RelationType,
-} from './relation-types.js';
+} from './relation-types.ts';
 
 /** An assertion scope is always a preference context; `AssertionValidator` enforces the same. */
 export const SCOPE_NODE_TYPE = 'preference_context';

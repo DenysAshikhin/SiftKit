@@ -15,40 +15,40 @@ import {
   type ChatSessionOperationKind,
 } from '@siftkit/contracts';
 
-import { toError } from '../../lib/errors.js';
-import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
-import type { ChatSession } from '../../state/chat-sessions.js';
-import type { ChatQueuedMessage } from '../../state/chat-message-queue.js';
-import { getRuntimeRoot } from '../paths.js';
+import { toError } from '../../lib/errors.ts';
+import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.ts';
+import type { ChatSession } from '../../state/chat-sessions.ts';
+import type { ChatQueuedMessage } from '../../state/chat-message-queue.ts';
+import { getRuntimeRoot } from '../paths.ts';
 import {
   getChatSessionPath,
   readChatSessionFromPath,
   saveChatSessionMetadata,
-} from '../../state/chat-sessions.js';
+} from '../../state/chat-sessions.ts';
 import {
   parseChatMessageRequest,
   parseChatRepoRequest,
   type ChatMessageRequest,
-} from '../chat-route-request-normalizers.js';
-import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
-import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import { ChatRunRecorder } from '../chat-run-recorder.js';
-import { QuestionGate } from '../../repo-search/engine/question-gate.js';
-import { importChatSessionBaseline } from '../chat-history-import.js';
-import { readChatHistoryRevisionCount } from '../../state/chat-history-revisions.js';
-import { readConfig } from '../config-store.js';
-import { admitChatImages } from '../../llm-protocol/preset-image-admission.js';
-import { serverLogger } from '../server-logger.js';
-import type { ServerContext } from '../server-types.js';
-import type { ModelRequestContext } from '../model-request-context.js';
-import { ModelRequestTargetError, previewModelRequestTarget } from '../server-ops.js';
-import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import { buildChatSessionResponse } from '../chat-session-response.js';
-import { ChatOperationSseSubscriber, writeChatProjectionFailure } from '../chat-operation-sse-subscriber.js';
-import { z } from '../../lib/zod.js';
-import { ChatSubmissionStore, digestChatSubmission } from '../../state/chat-submissions.js';
-import { streamRecordedChatOperation } from './chat-operation-attach.js';
+} from '../chat-route-request-normalizers.ts';
+import type { ChatSessionOperation } from '../chat-session-operation-registry.ts';
+import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import { ChatRunRecorder } from '../chat-run-recorder.ts';
+import { QuestionGate } from '../../repo-search/engine/question-gate.ts';
+import { importChatSessionBaseline } from '../chat-history-import.ts';
+import { readChatHistoryRevisionCount } from '../../state/chat-history-revisions.ts';
+import { readConfig } from '../config-store.ts';
+import { admitChatImages } from '../../llm-protocol/preset-image-admission.ts';
+import { serverLogger } from '../server-logger.ts';
+import type { ServerContext } from '../server-types.ts';
+import type { ModelRequestContext } from '../model-request-context.ts';
+import { ModelRequestTargetError, previewModelRequestTarget } from '../server-ops.ts';
+import { type RouteEndpoint, type RouteMatch } from '../route-table.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import { buildChatSessionResponse } from '../chat-session-response.ts';
+import { ChatOperationSseSubscriber, writeChatProjectionFailure } from '../chat-operation-sse-subscriber.ts';
+import { z } from '../../lib/zod.ts';
+import { ChatSubmissionStore, digestChatSubmission } from '../../state/chat-submissions.ts';
+import { streamRecordedChatOperation } from './chat-operation-attach.ts';
 
 const ChatOperationOutcomeSchema = z.strictObject({ failure: z.string().min(1).nullable() });
 export type ChatOperationOutcome = z.infer<typeof ChatOperationOutcomeSchema>;
@@ -58,8 +58,11 @@ class ChatImageAdmissionError extends Error {
 }
 
 class ChatRecoveryAdmissionError extends Error {
-  constructor(readonly report: ChatRecoveryReport) {
+  readonly report: ChatRecoveryReport;
+
+  constructor(report: ChatRecoveryReport) {
     super(`Chat recovery requires repair for run ${report.operationId}.`);
+    this.report = report;
     this.name = 'ChatRecoveryAdmissionError';
   }
 }

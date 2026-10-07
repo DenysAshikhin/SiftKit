@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
 
 test('the estimator is deterministic and proportional to length', async () => {
   const counter = new EstimateTokenCounter(4);

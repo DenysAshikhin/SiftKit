@@ -1,12 +1,12 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionPackets, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.js';
+import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionPackets, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000010';
 
 test('queue status reconnects after EOF and abort cancels further connections', async () => {
-  const { streamChatQueue } = await import('../src/api');
+  const { streamChatQueue } = await import('../src/api.ts');
   const originalFetch = globalThis.fetch;
   let requests = 0;
   const controller = new AbortController();
@@ -28,7 +28,7 @@ test('queue status reconnects after EOF and abort cancels further connections', 
 });
 
 test('queue transport failures are visible before reconnect and a later queue snapshot still arrives', async () => {
-  const { streamChatQueue } = await import('../src/api');
+  const { streamChatQueue } = await import('../src/api.ts');
   const originalFetch = globalThis.fetch;
   const controller = new AbortController();
   let requests = 0;
@@ -70,7 +70,7 @@ function mockFetchStatus(status: number, bodyText: string): () => void {
 }
 
 test('operation streams yield every projection frame in order, terminal included', async () => {
-  const { streamPlanMessage, streamChatMessage, streamRepoSearchMessage } = await import('../src/api');
+  const { streamPlanMessage, streamChatMessage, streamRepoSearchMessage } = await import('../src/api.ts');
   for (const open of [streamPlanMessage, streamChatMessage, streamRepoSearchMessage]) {
     const restoreFetch = mockFetchOnce([SETTLED_BODY]);
     try {
@@ -88,7 +88,7 @@ test('operation streams yield every projection frame in order, terminal included
 });
 
 test('plan and repo-search stream requests include attached images', async () => {
-  const { streamPlanMessage, streamRepoSearchMessage } = await import('../src/api');
+  const { streamPlanMessage, streamRepoSearchMessage } = await import('../src/api.ts');
   const bodies: string[] = [];
   const originalFetch = globalThis.fetch;
   const image = 'data:image/png;base64,AAAA';
@@ -113,7 +113,7 @@ test('plan and repo-search stream requests include attached images', async () =>
 });
 
 test('an error record and a body that ends mid-transfer both surface as projection events for the assembler to judge', async () => {
-  const { streamPlanMessage } = await import('../src/api');
+  const { streamPlanMessage } = await import('../src/api.ts');
   const restoreFetch = mockFetchOnce([projectionPackets(singleRecordFrames(errorRecord({ error: 'boom' })))]);
   try {
     const kinds: string[] = [];
@@ -133,7 +133,7 @@ test('an error record and a body that ends mid-transfer both surface as projecti
 });
 
 test('streamPlanMessage throws on empty response body', async () => {
-  const { streamPlanMessage } = await import('../src/api');
+  const { streamPlanMessage } = await import('../src/api.ts');
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(null, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   try {
@@ -154,7 +154,7 @@ test('streamPlanMessage throws on empty response body', async () => {
 });
 
 test('streamPlanMessage throws ChatSessionBusyError on valid 409', async () => {
-  const { streamPlanMessage, ChatSessionBusyError } = await import('../src/api');
+  const { streamPlanMessage, ChatSessionBusyError } = await import('../src/api.ts');
   const busyBody = JSON.stringify({
     error: 'Chat session already has an active operation.',
     sessionId: 'sess',
@@ -180,7 +180,7 @@ test('streamPlanMessage throws ChatSessionBusyError on valid 409', async () => {
 });
 
 test('streamPlanMessage preserves a definite rejection status on malformed 409', async () => {
-  const { streamPlanMessage, ChatStreamHttpError } = await import('../src/api');
+  const { streamPlanMessage, ChatStreamHttpError } = await import('../src/api.ts');
   const restoreFetch = mockFetchStatus(409, '{"bad":true}');
   try {
     let threw = false;
@@ -201,7 +201,7 @@ test('streamPlanMessage preserves a definite rejection status on malformed 409',
 });
 
 test('stopChatOperation posts to the session stop endpoint and validates the response', async () => {
-  const { stopChatOperation } = await import('../src/api');
+  const { stopChatOperation } = await import('../src/api.ts');
   const originalFetch = globalThis.fetch;
   let requestedUrl = '';
   let requestedMethod = '';
@@ -228,7 +228,7 @@ test('stopChatOperation posts to the session stop endpoint and validates the res
 });
 
 test('attachChatOperationStream reads the operation stream with GET and yields its frames', async () => {
-  const { attachChatOperationStream } = await import('../src/api');
+  const { attachChatOperationStream } = await import('../src/api.ts');
   const originalFetch = globalThis.fetch;
   const requestedUrls: string[] = [];
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -250,7 +250,7 @@ test('attachChatOperationStream reads the operation stream with GET and yields i
 });
 
 test('attaching to an idle session raises ChatOperationIdleError', async () => {
-  const { attachChatOperationStream, ChatOperationIdleError } = await import('../src/api');
+  const { attachChatOperationStream, ChatOperationIdleError } = await import('../src/api.ts');
   const restoreFetch = mockFetchStatus(404, JSON.stringify({ error: 'No active operation for this session.' }));
   try {
     await assert.rejects(
@@ -265,7 +265,7 @@ test('attaching to an idle session raises ChatOperationIdleError', async () => {
 });
 
 test('listActiveChatOperations parses the active operation listing', async () => {
-  const { listActiveChatOperations } = await import('../src/api');
+  const { listActiveChatOperations } = await import('../src/api.ts');
   const restoreFetch = mockFetchStatus(200, JSON.stringify({
     operations: [{
       sessionId: 's1',

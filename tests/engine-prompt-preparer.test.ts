@@ -1,27 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import { PromptPreparer, type PreparedTurnBudget } from '../src/repo-search/engine/prompt-preparer.js';
-import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
+import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.ts';
+import { PromptPreparer, type PreparedTurnBudget } from '../src/repo-search/engine/prompt-preparer.ts';
+import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.ts';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
 import {
   COMPACTION_SUMMARY_MARKER,
   TranscriptCompactor,
-} from '../src/repo-search/engine/transcript-compactor.js';
-import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
-import { toProtocolTools } from '../src/providers/inference.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/engine/transcript-compactor.ts';
+import { TurnBudget } from '../src/repo-search/engine/turn-budget.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import type { JsonSerializable } from '../src/lib/json-types.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
+import { toProtocolTools } from '../src/providers/inference.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const NO_THINKING = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
 const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };

@@ -1,5 +1,5 @@
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
 
 export const APPROVAL_VERDICTS = ['approve', 'deny', 'unsure'] as const;
 

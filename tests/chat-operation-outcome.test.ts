@@ -1,27 +1,30 @@
 import assert from 'node:assert/strict';
-import { currentModelTarget } from './helpers/chat-run-recorder.js';
+import { currentModelTarget } from './helpers/chat-run-recorder.ts';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { getConfigPath } from '../src/config/index.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { getChatSessionPath, saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
-import { getRuntimeRoot } from '../src/status-server/paths.js';
-import { buildChatRunSettings } from '../src/status-server/chat-run-recorder.js';
-import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import type { ServerContext } from '../src/status-server/server-types.js';
-import { ChatSessionOperationEndpoint, requireChatRunRecorder, type ChatOperationOutcome, type ChatSessionOperationRequest } from '../src/status-server/routes/chat-session-operation-endpoint.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createTestChatSession } from './helpers/chat-sessions.js';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
+import { getConfigPath } from '../src/config/index.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { getChatSessionPath, saveChatSession, type ChatSession } from '../src/state/chat-sessions.ts';
+import { getRuntimeRoot } from '../src/status-server/paths.ts';
+import { buildChatRunSettings } from '../src/status-server/chat-run-recorder.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import type { ServerContext } from '../src/status-server/server-types.ts';
+import { ChatSessionOperationEndpoint, requireChatRunRecorder, type ChatOperationOutcome, type ChatSessionOperationRequest } from '../src/status-server/routes/chat-session-operation-endpoint.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
 
 class OutcomeProbeEndpoint extends ChatSessionOperationEndpoint<'probe'> {
   protected readonly operationKind = 'message';
   protected readonly clientOwnedOperation = true;
-  constructor(private readonly failure: string | null) { super(); }
+  private readonly failure: string | null;
+
+  constructor(failure: string | null) { super();
+    this.failure = failure; }
   protected describeRun(ctx: ServerContext, session: ChatSession) {
     const target = currentModelTarget(readConfig(ctx.configPath));
     return { content: 'probe', images: [], target, settings: buildChatRunSettings({ session, target,

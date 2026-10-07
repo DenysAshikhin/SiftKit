@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 const FtsRowidSchema = z.object({ fts_rowid: z.number().int().nullable() });
 const CountSchema = z.object({ count: z.number() });

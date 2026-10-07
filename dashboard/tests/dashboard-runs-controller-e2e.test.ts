@@ -1,11 +1,11 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-import { useToasts } from '../dashboard/src/hooks/useToasts.js';
-import { useDashboardRefresh } from '../dashboard/src/hooks/useDashboardRefresh.js';
-import { useRunsController } from '../dashboard/src/hooks/useRunsController.js';
+import { useToasts } from '../src/hooks/useToasts.ts';
+import { useDashboardRefresh } from '../src/hooks/useDashboardRefresh.ts';
+import { useRunsController } from '../src/hooks/useRunsController.ts';
 
 // Real DOM client render (jsdom + react-dom/client + React.act) so useEffect actually
 // runs — SSR (renderToStaticMarkup) never fires effects, so the runs controller's

@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { SettingsField, shouldInlineHelp } from '../src/settings/SettingsFields';
+import { SettingsField, shouldInlineHelp } from '../src/settings/SettingsFields.tsx';
 
 test('shouldInlineHelp is true only for non-empty help up to 60 chars', () => {
   assert.equal(shouldInlineHelp(undefined), false);

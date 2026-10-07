@@ -1,41 +1,41 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { InferenceClient } from '../../llm-protocol/inference-client.js';
-import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.js';
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import { parseJsonValueText } from '../../lib/json.js';
+import { InferenceClient } from '../../llm-protocol/inference-client.ts';
+import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.ts';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
 import {
   JsonValueSchema,
   type JsonValue,
   type OptionalJsonValue,
-} from '../../lib/json-types.js';
-import { toError } from '../../lib/errors.js';
-import { getRuntimeRoot } from '../paths.js';
+} from '../../lib/json-types.ts';
+import { toError } from '../../lib/errors.ts';
+import { getRuntimeRoot } from '../paths.ts';
 import {
   readBody,
   parseJsonBody,
   sendBodyReadError,
   sendJson,
-} from '../http-utils.js';
-import { sendServerErrorJson } from '../error-response.js';
-import { STATUS_TRUE } from '../status-file.js';
+} from '../http-utils.ts';
+import { sendServerErrorJson } from '../error-response.ts';
+import { STATUS_TRUE } from '../status-file.ts';
 import {
   getActiveModelPreset,
   readConfig,
   writeConfig,
   normalizeConfig,
   mergeConfig,
-} from '../config-store.js';
-import { ExternalServerRestartError } from '../preset-runtime-coordinator.js';
-import { serverLogger } from '../server-logger.js';
+} from '../config-store.ts';
+import { ExternalServerRestartError } from '../preset-runtime-coordinator.ts';
+import { serverLogger } from '../server-logger.ts';
 import {
   getModelRequestQueueDiagnostics,
   getPublishedStatusText,
   resumeModelRequestAdmission,
-} from '../server-ops.js';
+} from '../server-ops.ts';
 import { InferenceRuntimeDashboardStatusSchema, ModelLifecycleRequestSchema, ModelLifecycleResponseSchema } from '@siftkit/contracts';
 import type { ModelLifecycleAction } from '@siftkit/contracts';
-import type { ServerContext } from '../server-types.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
+import type { ServerContext } from '../server-types.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
 
 const inferenceClient = new InferenceClient();
 
@@ -311,7 +311,11 @@ export class InferenceRuntimeReadEndpoint implements RouteEndpoint {
 }
 
 export class ModelResidencyEndpoint implements RouteEndpoint {
-  constructor(private readonly action: ModelLifecycleAction) {}
+  private readonly action: ModelLifecycleAction;
+
+  constructor(action: ModelLifecycleAction) {
+    this.action = action;
+  }
 
   async handle(
     ctx: ServerContext,

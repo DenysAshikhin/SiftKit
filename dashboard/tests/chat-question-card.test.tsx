@@ -1,10 +1,10 @@
-import './react-test-environment.js';
-import test from 'node:test';
+import './react-test-environment.ts';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { DurableChatQuestionSchema, type ChatQuestionReply } from '@siftkit/contracts';
-import { fireEvent, render, screen } from './react-test-environment.js';
-import { ChatQuestionCard } from '../src/components/ChatQuestionCard';
+import { fireEvent, render, screen } from './react-test-environment.ts';
+import { ChatQuestionCard } from '../src/components/ChatQuestionCard.tsx';
 
 function question(overrides: { choices?: string[]; expiresAtUtc?: string; actionable?: boolean } = {}) {
   return DurableChatQuestionSchema.parse({

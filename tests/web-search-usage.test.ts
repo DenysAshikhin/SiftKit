@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
 
-import { recordWebSearchUsage, readWebSearchUsage, getUsageMonthKey } from '../src/status-server/web-search-usage.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { recordWebSearchUsage, readWebSearchUsage, getUsageMonthKey } from '../src/status-server/web-search-usage.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function tempDbPath(): string {
   const dir = createManagedTempDir('siftkit-usage-');

@@ -1,14 +1,14 @@
-import type { SiftConfig } from '../config/index.js';
+import type { SiftConfig } from '../config/index.ts';
 import {
   getChunkThresholdCharacters,
   getConfiguredCompactionReserveTokens,
   getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
-} from '../config/index.js';
-import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
-import { countInferenceTokens } from '../providers/inference.js';
-import { buildSummaryPrompt } from './prompt.js';
-import type { PresetSystemContext } from '../preset-system-context.js';
+} from '../config/index.ts';
+import { resolveContextTokenBudget } from '../lib/context-token-budget.ts';
+import { countInferenceTokens } from '../providers/inference.ts';
+import { buildSummaryPrompt } from './prompt.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
 import type {
   ChunkPromptContext,
   PlannerPromptBudget,
@@ -16,7 +16,7 @@ import type {
   SummaryPolicyProfile,
   SummaryProviderId,
   SummarySourceKind,
-} from './types.js';
+} from './types.ts';
 
 export const INFERENCE_PROMPT_TOKEN_TARGET_TOLERANCE = 2000;
 export const MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS = 8;

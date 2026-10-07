@@ -3,28 +3,28 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { CaptureSubmissionDto } from '@siftkit/contracts';
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
-import { ImageExtractor } from '../src/assistant/images/image-extractor.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.ts';
+import { ImageExtractor } from '../src/assistant/images/image-extractor.ts';
 import type {
   AssistantImageCapability, AssistantImageCapabilityProvider,
-} from '../src/assistant/images/image-capability.js';
-import { SINGLE_SCREENSHOT_TEXT_CEILING } from '../src/assistant/domain/confidence.js';
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
-import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+} from '../src/assistant/images/image-capability.ts';
+import { SINGLE_SCREENSHOT_TEXT_CEILING } from '../src/assistant/domain/confidence.ts';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
+import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -48,10 +48,16 @@ function extraction(objectName: string, suggestedConfidence = 0.9): string {
 class StubImageCapability implements AssistantImageCapabilityProvider {
   reads = 0;
 
+  private readonly capable: boolean;
+  private readonly changesInstanceAfterFirstRead: boolean;
+
   constructor(
-    private readonly capable: boolean,
-    private readonly changesInstanceAfterFirstRead = false,
-  ) {}
+    capable: boolean,
+    changesInstanceAfterFirstRead = false,
+  ) {
+    this.capable = capable;
+    this.changesInstanceAfterFirstRead = changesInstanceAfterFirstRead;
+  }
 
   read(): AssistantImageCapability {
     this.reads += 1;

@@ -1,19 +1,19 @@
-import { getRuntimeDatabase, runtimeDatabaseExists } from '../../state/runtime-db.js';
+import { getRuntimeDatabase, runtimeDatabaseExists } from '../../state/runtime-db.ts';
 import Database from 'better-sqlite3';
-import { z } from '../../lib/zod.js';
-import { getRuntimeDatabasePath } from '../../config/paths.js';
-import { type JsonlEvent } from '../../state/jsonl-transcript.js';
+import { z } from '../../lib/zod.ts';
+import { getRuntimeDatabasePath } from '../../config/paths.ts';
+import { type JsonlEvent } from '../../state/jsonl-transcript.ts';
 import {
   RunLogDbRowSchema,
   type DashboardRunsQueryOptions,
   type RunLogGroup,
   type RunRecord,
-} from './types.js';
+} from './types.ts';
 import {
   normalizeRunRecordFromDbRow,
   parseJsonlEventsFromText,
   parseJsonObjectText,
-} from './run-records.js';
+} from './run-records.ts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 

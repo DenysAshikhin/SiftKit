@@ -1,5 +1,5 @@
 import React from 'react';
-import type { AssistantQuestionDto } from '../types.js';
+import type { AssistantQuestionDto } from '../types.ts';
 
 export function AssistantQuestionCard(props: {
   question: AssistantQuestionDto | null;

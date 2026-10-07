@@ -1,12 +1,12 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ToolCallCard } from '../src/components/ToolCallCard';
-import type { ChatToolCallMessage } from '../src/types';
-import { fireEvent, render } from './react-test-environment.js';
+import { ToolCallCard } from '../src/components/ToolCallCard.tsx';
+import type { ChatToolCallMessage } from '../src/types.ts';
+import { fireEvent, render } from './react-test-environment.ts';
 
 function msg(overrides: Partial<ChatToolCallMessage>): ChatToolCallMessage {
   return {

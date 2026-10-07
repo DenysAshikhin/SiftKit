@@ -1,11 +1,11 @@
 /** Repo-search admission record and persistence helpers. */
 import { randomUUID } from 'node:crypto';
-import { getActiveInferenceBackend } from '../config/index.js';
-import type { InferenceBackendId, SiftConfig } from '../config/types.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
-import { upsertRunLog } from './dashboard-runs.js';
-import { UNRECORDED_RUN_IDENTITY } from './dashboard-runs/run-identity.js';
-import type { RepoSearchRouteRequest } from './route-request-normalizers.js';
+import { getActiveInferenceBackend } from '../config/index.ts';
+import type { InferenceBackendId, SiftConfig } from '../config/types.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
+import { upsertRunLog } from './dashboard-runs.ts';
+import { UNRECORDED_RUN_IDENTITY } from './dashboard-runs/run-identity.ts';
+import type { RepoSearchRouteRequest } from './route-request-normalizers.ts';
 
 export type RepoSearchAdmissionRecord = {
   requestId: string;

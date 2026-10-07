@@ -1,20 +1,20 @@
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import { AssistantTransactionManager } from '../transactions/assistant-transaction-manager.js';
-import { resolveConfidence } from '../domain/confidence.js';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import { AssistantTransactionManager } from '../transactions/assistant-transaction-manager.ts';
+import { resolveConfidence } from '../domain/confidence.ts';
 import {
   isExplicitBasis,
   type ActorType, type AssertionBasis, type EvidenceStance, type Sensitivity,
-} from '../domain/enums.js';
-import { buildAssertionKey, type AssertionObjectRef } from '../domain/keys.js';
-import { RELATION_DEFINITIONS, type RelationType } from '../domain/relation-types.js';
-import type { AssertionSearchText, AssertionStore } from '../storage/assertion-store.js';
-import type { AuditStore } from '../storage/audit-store.js';
-import type { NodeStore } from '../storage/node-store.js';
-import type { PolicyStore } from '../storage/policy-store.js';
-import type { AssertionRow } from '../storage/rows.js';
-import type { AssertionValidator, ValidationCode } from './validation.js';
+} from '../domain/enums.ts';
+import { buildAssertionKey, type AssertionObjectRef } from '../domain/keys.ts';
+import { RELATION_DEFINITIONS, type RelationType } from '../domain/relation-types.ts';
+import type { AssertionSearchText, AssertionStore } from '../storage/assertion-store.ts';
+import type { AuditStore } from '../storage/audit-store.ts';
+import type { NodeStore } from '../storage/node-store.ts';
+import type { PolicyStore } from '../storage/policy-store.ts';
+import type { AssertionRow } from '../storage/rows.ts';
+import type { AssertionValidator, ValidationCode } from './validation.ts';
 
 export interface EvidenceLinkInput {
   readonly evidenceId: string;
@@ -150,16 +150,34 @@ function snapshot(assertion: AssertionRow): AssertionSnapshot {
  * with exactly one graph-version increment.
  */
 export class AssertionService {
+  private readonly transactions: AssistantTransactionManager;
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly nodes: NodeStore;
+  private readonly assertions: AssertionStore;
+  private readonly audit: AuditStore;
+  private readonly policies: PolicyStore;
+  private readonly validator: AssertionValidator;
+
   constructor(
-    private readonly transactions: AssistantTransactionManager,
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly nodes: NodeStore,
-    private readonly assertions: AssertionStore,
-    private readonly audit: AuditStore,
-    private readonly policies: PolicyStore,
-    private readonly validator: AssertionValidator,
-  ) {}
+    transactions: AssistantTransactionManager,
+    database: RuntimeDatabase,
+    clock: Clock,
+    nodes: NodeStore,
+    assertions: AssertionStore,
+    audit: AuditStore,
+    policies: PolicyStore,
+    validator: AssertionValidator,
+  ) {
+    this.transactions = transactions;
+    this.database = database;
+    this.clock = clock;
+    this.nodes = nodes;
+    this.assertions = assertions;
+    this.audit = audit;
+    this.policies = policies;
+    this.validator = validator;
+  }
 
   assert(request: AssertRequest): AssertionWriteOutcome {
     const transaction = this.transactions.begin();

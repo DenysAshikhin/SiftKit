@@ -1,5 +1,5 @@
-import type { WebSearchConfig } from './types.js';
-import { hasUsableWebSearchProvider } from './web-search-provider.js';
+import type { WebSearchConfig } from './types.ts';
+import { hasUsableWebSearchProvider } from './web-search-provider.ts';
 
 export type WebToolPolicy = {
   webSearch: boolean;

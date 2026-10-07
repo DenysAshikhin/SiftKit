@@ -1,30 +1,30 @@
-import { ensureStatusServerReachable } from '../config/index.js';
+import { ensureStatusServerReachable } from '../config/index.ts';
 import {
   validateRepoSearchTokens,
   type CliRunOptions,
-} from './args.js';
-import { CLI_COMMAND_CATALOG } from './command-catalog.js';
-import { showHelp } from './help.js';
-import { detectRepoAgentHelpInvocation, showRepoAgentHelp } from './repo-agent-help.js';
-import { parseRepoAgentInvocation } from './repo-agent-args.js';
-import { runCaptureInternalCli } from './run-capture.js';
-import { runCommandCli } from './run-command.js';
-import { runConfigGet, runConfigSet } from './run-config.js';
-import { runEvalCli } from './run-eval.js';
-import { runFindFiles } from './run-find-files.js';
-import { runCodexPolicyCli, runInstall, runInstallGlobalCli } from './run-install.js';
-import { runInternal } from './run-internal.js';
-import { runPresetList } from './run-preset-list.js';
-import { runPresetCli } from './run-preset.js';
-import { runRepoSearchCli } from './run-repo-search.js';
-import { runRepoAgentCli } from './run-repo-agent.js';
-import { parseOrchestratorInvocation } from './orchestrator-args.js';
-import { runOrchestratorCli } from './run-orchestrator.js';
-import { runSummary } from './run-summary.js';
-import { runTest } from './run-test.js';
-import { assertStdinIsTty } from './tty.js';
-import { readNestedAgentRunId } from '../lib/agent-run-marker.js';
-import { runAssistantCli } from './run-assistant.js';
+} from './args.ts';
+import { CLI_COMMAND_CATALOG } from './command-catalog.ts';
+import { showHelp } from './help.ts';
+import { detectRepoAgentHelpInvocation, showRepoAgentHelp } from './repo-agent-help.ts';
+import { parseRepoAgentInvocation } from './repo-agent-args.ts';
+import { runCaptureInternalCli } from './run-capture.ts';
+import { runCommandCli } from './run-command.ts';
+import { runConfigGet, runConfigSet } from './run-config.ts';
+import { runEvalCli } from './run-eval.ts';
+import { runFindFiles } from './run-find-files.ts';
+import { runCodexPolicyCli, runInstall, runInstallGlobalCli } from './run-install.ts';
+import { runInternal } from './run-internal.ts';
+import { runPresetList } from './run-preset-list.ts';
+import { runPresetCli } from './run-preset.ts';
+import { runRepoSearchCli } from './run-repo-search.ts';
+import { runRepoAgentCli } from './run-repo-agent.ts';
+import { parseOrchestratorInvocation } from './orchestrator-args.ts';
+import { runOrchestratorCli } from './run-orchestrator.ts';
+import { runSummary } from './run-summary.ts';
+import { runTest } from './run-test.ts';
+import { assertStdinIsTty } from './tty.ts';
+import { readNestedAgentRunId } from '../lib/agent-run-marker.ts';
+import { runAssistantCli } from './run-assistant.ts';
 
 function failUnknownCommand(commandName: never): never {
   throw new Error(`Unhandled CLI command: ${commandName}`);

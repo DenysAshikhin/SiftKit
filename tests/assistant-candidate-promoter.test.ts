@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
-import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.js';
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { proposePersonUses, withAssistantContext } from './helpers/assistant-fixture.js';
+import type { AssistantGraph } from '../src/assistant/assistant-graph.ts';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
+import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.ts';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import { proposePersonUses, withAssistantContext } from './helpers/assistant-fixture.ts';
 
 test('a direct fact becomes a live assertion with its evidence linked', () => {
   withAssistantContext(({ graph, ownerId }) => {

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { QuestionPlanner } from '../src/assistant/questions/planner.js';
-import type { QuestionCandidate } from '../src/assistant/questions/candidates.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { QuestionPlanner } from '../src/assistant/questions/planner.ts';
+import type { QuestionCandidate } from '../src/assistant/questions/candidates.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
 
 const candidate: QuestionCandidate = {
   id: 'qc_1', ownerId: 'owner_local', topicKey: 'shell',

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PresetSystemPromptComposer } from '../src/preset-system-prompt.js';
-import { longestCommonPrefixLength } from './helpers/common-prefix.js';
+import { PresetSystemPromptComposer } from '../src/preset-system-prompt.ts';
+import { longestCommonPrefixLength } from './helpers/common-prefix.ts';
 
 const context = {
   content: '--- Autoloaded file: rules.md ---\n\nLoaded rules.',

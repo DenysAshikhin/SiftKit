@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnDirectCommand } from '../../src/lib/command-spawn.js';
+import { spawnDirectCommand } from '../../src/lib/command-spawn.ts';
 import {
   PROCESS_LIFETIME_MS,
   createProcessTreeFixture,
-} from '../helpers/process-tree-fixture.js';
+} from '../helpers/process-tree-fixture.ts';
 
 // Windows child processes need SystemRoot for some node internals; pass it through
 // explicitly since a provided env is a full replacement.

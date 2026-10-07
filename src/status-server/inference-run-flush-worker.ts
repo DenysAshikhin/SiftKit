@@ -1,7 +1,7 @@
 import { parentPort } from 'node:worker_threads';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../state/runtime-db.js';
-import { FlushWorkerRequestSchema, type FlushWorkerRequest, type FlushWorkerResponse } from './inference-run-flush-messages.js';
-import { answerFlushRequest, hasFlushChunks } from './inference-run-flush-writer.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../state/runtime-db.ts';
+import { FlushWorkerRequestSchema, type FlushWorkerRequest, type FlushWorkerResponse } from './inference-run-flush-messages.ts';
+import { answerFlushRequest, hasFlushChunks } from './inference-run-flush-writer.ts';
 
 parentPort?.on('message', (posted: FlushWorkerRequest) => {
   const parsed = FlushWorkerRequestSchema.safeParse(posted);

@@ -1,11 +1,11 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ToolPolicyMatrix } from '../src/tabs/settings/ToolPolicyMatrix';
-import type { ToolPolicySettingsActions } from '../src/settings-action-groups';
-import type { DashboardOperationModeAllowedTools } from '../src/types';
-import { TOOL_POLICY_ACTIONS } from './fixtures';
+import { ToolPolicyMatrix } from '../src/tabs/settings/ToolPolicyMatrix.tsx';
+import type { ToolPolicySettingsActions } from '../src/settings-action-groups.ts';
+import type { DashboardOperationModeAllowedTools } from '../src/types.ts';
+import { TOOL_POLICY_ACTIONS } from './fixtures.ts';
 
 const ALLOWED: DashboardOperationModeAllowedTools = {
   summary: ['find_text'],

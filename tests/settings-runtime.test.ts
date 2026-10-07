@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../dashboard/src/settings-runtime.js';
-import { mockConfig } from './_runtime-helpers.js';
+import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../dashboard/src/settings-runtime.ts';
+import { mockConfig } from './_runtime-helpers.ts';
 
 test('deriveRuntimeModelId returns the model directory name from a Windows path', () => {
   assert.equal(

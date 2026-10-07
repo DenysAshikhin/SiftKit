@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { saveChatSession } from '../src/state/chat-sessions.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { ChatSessionRecoveryCache } from '../src/status-server/chat-session-recovery-cache.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { saveChatSession } from '../src/state/chat-sessions.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { ChatSessionRecoveryCache } from '../src/status-server/chat-session-recovery-cache.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function createFixture() {
   const runtimeRoot = createManagedTempDir('siftkit-recovery-cache-');

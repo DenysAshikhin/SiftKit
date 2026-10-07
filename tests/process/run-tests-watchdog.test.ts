@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { spawnDirectCommand } from '../../src/lib/command-spawn.js';
-import { terminateProcessTree } from '../../src/lib/process-tree.js';
-import { TIMEOUT_EXIT_CODE, toStringRecord } from '../../src/lib/captured-command.js';
-import { z } from '../../src/lib/zod.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { spawnDirectCommand } from '../../src/lib/command-spawn.ts';
+import { terminateProcessTree } from '../../src/lib/process-tree.ts';
+import { TIMEOUT_EXIT_CODE, toStringRecord } from '../../src/lib/captured-command.ts';
+import { z } from '../../src/lib/zod.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 import {
   isProcessAlive,
   waitForGrandchildPidFile,
   waitForProcessExit,
-} from '../helpers/process-tree-fixture.js';
+} from '../helpers/process-tree-fixture.ts';
 
 const repoRoot = process.cwd();
 // Must exceed nested-runner startup (~0.3s, one manifest hash pass) plus the fixture's
@@ -44,7 +44,7 @@ test('the test runner ends a run that exceeds its budget and reaps its descendan
   const startedAt = Date.now();
   const resultPromise = spawnDirectCommand(
     process.execPath,
-    [path.join('dist', 'test-runner', 'run-tests.js'), path.join('tests', 'fixtures', 'hangs-forever.test.ts')],
+    [path.join('src', 'test-runner', 'run-tests.ts'), path.join('tests', 'fixtures', 'hangs-forever.test.ts')],
     {
       cwd: repoRoot,
       timeoutMs: HARD_LIMIT_MS,
@@ -78,7 +78,7 @@ test('an unparseable budget override falls back to the default instead of firing
   delete childEnv.NODE_TEST_CONTEXT;
   const result = await spawnDirectCommand(
     process.execPath,
-    [path.join('dist', 'test-runner', 'run-tests.js'), path.join('tests', 'fixtures', 'settles-immediately.test.ts')],
+    [path.join('src', 'test-runner', 'run-tests.ts'), path.join('tests', 'fixtures', 'settles-immediately.test.ts')],
     {
       cwd: repoRoot,
       timeoutMs: HARD_LIMIT_MS,
@@ -114,7 +114,7 @@ test('managed engine readiness cleanup releases its worker and every failed engi
       '--test',
       '--test-timeout=30000',
       '--test-concurrency=1',
-      path.join('.test-build', 'tests', 'fixtures', 'managed-engine-readiness-processes.test.js'),
+      path.join('tests', 'fixtures', 'managed-engine-readiness-processes.test.ts'),
     ],
     {
       cwd: repoRoot,

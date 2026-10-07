@@ -1,12 +1,12 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { ChatStatsBar } from '../src/components/ChatStatsBar';
-import type { LiveContextUsage } from '../src/lib/contextBar';
+import { ChatStatsBar } from '../src/components/ChatStatsBar.tsx';
+import type { LiveContextUsage } from '../src/lib/contextBar.ts';
 
 const EMPTY_SESSION_STATS = {
   cacheHitRate: null,

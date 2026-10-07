@@ -1,21 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensureDirectory, readJsonFile } from '../../src/lib/fs.js';
-import { resolveOptionalPathFromBase, resolvePathFromBase } from '../../src/lib/paths.js';
+import { ensureDirectory, readJsonFile } from '../../src/lib/fs.ts';
+import { resolveOptionalPathFromBase, resolvePathFromBase } from '../../src/lib/paths.ts';
 import {
   getOptionalBoolean,
   getOptionalInt,
   getOptionalPositiveInt,
   getRequiredInt,
   getRequiredString,
-} from './args.js';
+} from './args.ts';
 import {
   repoRoot,
   RawMatrixManifestSchema,
   type MatrixCliOptions,
   type ResolvedMatrixManifest,
   type ResolvedMatrixTarget,
-} from './types.js';
+} from './types.ts';
 
 export function readTrimmedFileText(filePath: string): string {
   if (!fs.existsSync(filePath)) {

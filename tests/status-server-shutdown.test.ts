@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpawnSyncReturns } from 'node:child_process';
 
-import { z } from '../src/lib/zod.js';
-import { terminateProcessTree, type TerminateProcessTreeOptions } from '../src/status-server/index.js';
-import { isProcessAlive } from '../src/lib/process-tree.js';
+import { z } from '../src/lib/zod.ts';
+import { terminateProcessTree, type TerminateProcessTreeOptions } from '../src/status-server/index.ts';
+import { isProcessAlive } from '../src/lib/process-tree.ts';
 
 type SpawnSyncImpl = TerminateProcessTreeOptions['spawnSyncImpl'];
 type ProcessObject = TerminateProcessTreeOptions['processObject'];

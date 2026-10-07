@@ -1,15 +1,15 @@
-import { parseJsonText, parseJsonValueText } from '../../lib/json.js';
-import { z } from '../../lib/zod.js';
-import { isExplicitBasis, type ActorType } from '../domain/enums.js';
-import { buildAssertionKey, type AssertionObjectRef } from '../domain/keys.js';
-import { searchTextForAssertion } from '../storage/assertion-search-text.js';
-import type { AssertionStore } from '../storage/assertion-store.js';
-import type { AuditStore } from '../storage/audit-store.js';
-import type { NodeStore } from '../storage/node-store.js';
-import type { PolicyStore } from '../storage/policy-store.js';
-import type { AssertionRow } from '../storage/rows.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
-import { AssistantTransactionManager } from '../transactions/assistant-transaction-manager.js';
+import { parseJsonText, parseJsonValueText } from '../../lib/json.ts';
+import { z } from '../../lib/zod.ts';
+import { isExplicitBasis, type ActorType } from '../domain/enums.ts';
+import { buildAssertionKey, type AssertionObjectRef } from '../domain/keys.ts';
+import { searchTextForAssertion } from '../storage/assertion-search-text.ts';
+import type { AssertionStore } from '../storage/assertion-store.ts';
+import type { AuditStore } from '../storage/audit-store.ts';
+import type { NodeStore } from '../storage/node-store.ts';
+import type { PolicyStore } from '../storage/policy-store.ts';
+import type { AssertionRow } from '../storage/rows.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
+import { AssistantTransactionManager } from '../transactions/assistant-transaction-manager.ts';
 
 export type MergeBlockCode =
   | 'unknown_node'
@@ -104,13 +104,25 @@ function objectRefOf(assertion: AssertionRow, replacementNodeId: string | null):
  * mutation-log row so `graph_entity_merges` keeps its designed columns.
  */
 export class NodeMergeService {
+  private readonly transactions: AssistantTransactionManager;
+  private readonly nodes: NodeStore;
+  private readonly assertions: AssertionStore;
+  private readonly audit: AuditStore;
+  private readonly policies: PolicyStore;
+
   constructor(
-    private readonly transactions: AssistantTransactionManager,
-    private readonly nodes: NodeStore,
-    private readonly assertions: AssertionStore,
-    private readonly audit: AuditStore,
-    private readonly policies: PolicyStore,
-  ) {}
+    transactions: AssistantTransactionManager,
+    nodes: NodeStore,
+    assertions: AssertionStore,
+    audit: AuditStore,
+    policies: PolicyStore,
+  ) {
+    this.transactions = transactions;
+    this.nodes = nodes;
+    this.assertions = assertions;
+    this.audit = audit;
+    this.policies = policies;
+  }
 
   merge(request: MergeRequest): MergeOutcome {
     const transaction = this.transactions.begin();

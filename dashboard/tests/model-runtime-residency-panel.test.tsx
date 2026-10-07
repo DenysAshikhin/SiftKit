@@ -1,11 +1,11 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import React, { act } from 'react';
-import { fireEvent, render, screen } from './react-test-environment.js';
-import { ModelRuntimeResidencyPanel } from '../src/tabs/settings/ModelRuntimeResidencyPanel.js';
-import { useInferenceRuntimeStatus } from '../src/hooks/useInferenceRuntimeStatus.js';
+import { fireEvent, render, screen } from './react-test-environment.ts';
+import { ModelRuntimeResidencyPanel } from '../src/tabs/settings/ModelRuntimeResidencyPanel.tsx';
+import { useInferenceRuntimeStatus } from '../src/hooks/useInferenceRuntimeStatus.ts';
 
 const STATUS = {
   activePresetId: 'active-id',

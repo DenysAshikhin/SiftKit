@@ -1,7 +1,7 @@
-import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
-import type { HttpClient } from '../lib/http-client.js';
-import type { ProviderQuota, WebSearchProviderId, WebSearchResult, WebSearchToolArgs } from './types.js';
-import { assertPublicHttpUrl } from './url-safety.js';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.ts';
+import type { HttpClient } from '../lib/http-client.ts';
+import type { ProviderQuota, WebSearchProviderId, WebSearchResult, WebSearchToolArgs } from './types.ts';
+import { assertPublicHttpUrl } from './url-safety.ts';
 
 export type WebSearchProviderOptions = {
   resultCount: number;

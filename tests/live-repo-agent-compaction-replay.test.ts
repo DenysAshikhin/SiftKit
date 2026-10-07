@@ -10,38 +10,38 @@ import {
   getConfiguredModel,
   loadConfig,
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
-} from '../src/config/index.js';
-import { JsonObjectSchema, type JsonSerializable } from '../src/lib/json-types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { z } from '../src/lib/zod.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import { toProtocolTools } from '../src/providers/inference.js';
+} from '../src/config/index.ts';
+import { JsonObjectSchema, type JsonSerializable } from '../src/lib/json-types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import { z } from '../src/lib/zod.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import { toProtocolTools } from '../src/providers/inference.ts';
 import {
   captureExecutingPlannerRequest,
   PLANNER_REASONING_BUDGET_MESSAGE,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
-} from '../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
-import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
-import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import { PromptPreparer } from '../src/repo-search/engine/prompt-preparer.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+} from '../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.ts';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.ts';
+import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.ts';
+import { PromptPreparer } from '../src/repo-search/engine/prompt-preparer.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
 import {
   resolvePlannerThinkingFlags,
-} from '../src/repo-search/engine/task-loop-support.js';
-import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import { TranscriptCompactor } from '../src/repo-search/engine/transcript-compactor.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { readRuntimeArtifact, upsertRuntimeTextArtifact } from '../src/state/runtime-artifacts.js';
-import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/engine/task-loop-support.ts';
+import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.ts';
+import { TranscriptCompactor } from '../src/repo-search/engine/transcript-compactor.ts';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
+import { TurnBudget } from '../src/repo-search/engine/turn-budget.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { readRuntimeArtifact, upsertRuntimeTextArtifact } from '../src/state/runtime-artifacts.ts';
+import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const LIVE_REPLAY_ENABLED = process.env.SIFTKIT_TEST_LIVE_REPO_AGENT_COMPACTION_REPLAY === '1';
 const SOURCE_ARTIFACT_ID = 'b3f34f16-ac1a-4a38-a82e-449e578afbe1';

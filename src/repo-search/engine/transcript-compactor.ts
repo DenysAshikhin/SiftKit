@@ -1,21 +1,21 @@
-import type { SiftConfig } from '../../config/index.js';
+import type { SiftConfig } from '../../config/index.ts';
 import {
   requestContextCompactionSummary,
   type CompactionCacheOrigin,
-} from '../planner-protocol.js';
-import { findPlannerContextViolation, type ChatMessage } from '../planner-chat-message.js';
-import { buildCompactionSummaryInstruction } from '../prompts.js';
-import { countPlannerPromptTokens, countTokensWithFallback } from '../prompt-budget.js';
-import { renderWirePrompt } from '../wire-prompt.js';
-import type { JsonLogger } from '../types.js';
-import type { InferenceActivityObserver } from '../../lib/progress-writer.js';
-import { TokenUsageTracker } from './token-usage.js';
-import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
+} from '../planner-protocol.ts';
+import { findPlannerContextViolation, type ChatMessage } from '../planner-chat-message.ts';
+import { buildCompactionSummaryInstruction } from '../prompts.ts';
+import { countPlannerPromptTokens, countTokensWithFallback } from '../prompt-budget.ts';
+import { renderWirePrompt } from '../wire-prompt.ts';
+import type { JsonLogger } from '../types.ts';
+import type { InferenceActivityObserver } from '../../lib/progress-writer.ts';
+import { TokenUsageTracker } from './token-usage.ts';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.ts';
 import type { ThroughputAuditOperation } from '@siftkit/contracts';
 import {
   COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
   splitCompactionGenerationTokens,
-} from './turn-budget.js';
+} from './turn-budget.ts';
 
 /** Marks the rebuilt assistant message so the model reads it as history, not as its own answer. */
 export const COMPACTION_SUMMARY_MARKER = '[CONTEXT COMPACTED — SUMMARY OF PRIOR CONVERSATION]';
@@ -73,7 +73,7 @@ export function buildCompactionSummaryMessage(summaryText: string): ChatMessage 
  * retention policy, so the summary request is what decides whether the run can still resume.
  */
 export class TranscriptCompactor {
-  constructor(private readonly options: {
+  private readonly options: {
     config: SiftConfig;
     baseUrl: string;
     model: string;
@@ -87,7 +87,25 @@ export class TranscriptCompactor {
     abortSignal: AbortSignal | undefined;
     activityObserver?: InferenceActivityObserver;
     throughputAudit: ThroughputAuditOperation;
-  }) {}
+  };
+
+  constructor(options: {
+    config: SiftConfig;
+    baseUrl: string;
+    model: string;
+    timeoutMs: number;
+    totalContextTokens: number;
+    compactionReserveTokens: number;
+    useEstimatedTokensOnly: boolean;
+    mockResponses: MockPlannerResponseInput[] | undefined;
+    tokenUsage: TokenUsageTracker;
+    logger: JsonLogger | null;
+    abortSignal: AbortSignal | undefined;
+    activityObserver?: InferenceActivityObserver;
+    throughputAudit: ThroughputAuditOperation;
+  }) {
+    this.options = options;
+  }
 
   private get tokenCountConfig(): SiftConfig | undefined {
     return this.options.useEstimatedTokensOnly ? undefined : this.options.config;

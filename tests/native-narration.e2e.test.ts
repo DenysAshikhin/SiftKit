@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 
-import { CliProgressRenderer } from '../src/cli/progress-renderer.js';
-import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from '../src/status-server/dashboard-runs.js';
+import { CliProgressRenderer } from '../src/cli/progress-renderer.ts';
+import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from '../src/status-server/dashboard-runs.ts';
 
-import { executeRepoSearchRequest } from '../src/repo-search/index.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
+import { executeRepoSearchRequest } from '../src/repo-search/index.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
 
 test('content alongside a native tool call emits progress and the run continues to finish', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {

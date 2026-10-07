@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
 
 test('JsonRecordReader reads trimmed strings and optional strings', () => {
   const reader = new JsonRecordReader({ name: '  alpha  ', empty: '   ', count: 4 });

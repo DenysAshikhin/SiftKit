@@ -15,7 +15,7 @@ import type {
   SiftConfig as ContractSiftConfig,
 } from '@siftkit/contracts';
 import { InferenceBackendIdSchema } from '@siftkit/contracts';
-import type { OperationModeAllowedTools, SiftPreset } from '../presets.js';
+import type { OperationModeAllowedTools, SiftPreset } from '../presets.ts';
 
 /**
  * The engine-axis schema every runtime parse goes through, re-exported from the contracts
@@ -42,7 +42,7 @@ export type {
   WebSearchProviderId,
   WebSearchProviderSettings,
   WebSearchConfig,
-} from '../web-search/types.js';
+} from '../web-search/types.ts';
 
 export type DashboardModelRuntimePreset = ModelRuntimePreset;
 export type DashboardRuntimeEngineConfig = RuntimeEngineConfig;

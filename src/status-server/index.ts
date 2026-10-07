@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { ChatMessageQueue } from './chat-message-queue.js';
-import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
-import { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
-import { recoverInterruptedChatRuns, heartbeatChatRuntimeOwner, type ChatOwnerHeartbeatOutcome } from './chat-run-recovery.js';
-import { serverLogger } from './server-logger.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { ChatMessageQueue } from './chat-message-queue.ts';
+import { ChatMessageQueueStore } from '../state/chat-message-queue.ts';
+import { ChatQueueSuccessorRunner } from './chat-queue-successor.ts';
+import { recoverInterruptedChatRuns, heartbeatChatRuntimeOwner, type ChatOwnerHeartbeatOutcome } from './chat-run-recovery.ts';
+import { serverLogger } from './server-logger.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
 /**
  * Status server entry point: creates the server context, wires together the
  * managed-engine lifecycle, route handling, and server bootstrap/teardown.
@@ -17,28 +17,28 @@ import { getRuntimeDatabase } from '../state/runtime-db.js';
  */
 import { createServer } from 'node:http';
 import { join } from 'node:path';
-import { getActiveModelPreset } from '../config/getters.js';
-import { toError, getErrorMessage } from '../lib/errors.js';
+import { getActiveModelPreset } from '../config/getters.ts';
+import { toError, getErrorMessage } from '../lib/errors.ts';
 import {
   getStatusPath,
   getConfigPath,
   getMetricsPath,
   getIdleSummarySnapshotsPath,
   getRuntimeRoot,
-} from './paths.js';
+} from './paths.ts';
 import {
   supportsAnsiColor,
   colorize,
   formatElapsed,
-} from '../lib/text-format.js';
-import { ensureStatusFile } from './status-file.js';
-import { getStatusServerBindHost, getStatusServerConnectHost } from '../lib/status-host.js';
-import { readMetricsWithResetDecision, writeMetrics } from './metrics.js';
+} from '../lib/text-format.ts';
+import { ensureStatusFile } from './status-file.ts';
+import { getStatusServerBindHost, getStatusServerConnectHost } from '../lib/status-host.ts';
+import { readMetricsWithResetDecision, writeMetrics } from './metrics.ts';
 import {
   buildIdleSummarySnapshot,
   buildIdleSummarySnapshotMessage,
-} from './idle-summary.js';
-import { readConfig, writeConfig } from './config-store.js';
+} from './idle-summary.ts';
+import { readConfig, writeConfig } from './config-store.ts';
 import {
   buildStatusRequestLogBody,
   buildRepoSearchProgressLogBody,
@@ -46,65 +46,65 @@ import {
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
   normalizeIdleSummarySnapshotRow,
-} from './dashboard-runs.js';
-import { closeRuntimeDatabase, pruneRuntimeHistory, getRuntimeDatabasePath } from '../state/runtime-db.js';
-import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS, CHAT_OWNER_HEARTBEAT_LATE_MS } from '../state/chat-runtime-owner.js';
-import { getRuntimeHistoryRetentionDays } from '../state/runtime-retention.js';
-import { RepoAgentRunStore } from '../repo-agent/run-store.js';
-import { RepoAgentSessionManager } from './repo-agent-sessions.js';
-import { OrchestratorRunStore } from '../orchestrator/run-store.js';
-import { OrchestratorRunRegistry } from './orchestrator-runs.js';
-import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
-import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
-import { SHUTDOWN_PERSISTENCE_TIMEOUT_MS } from './shutdown-budget.js';
+} from './dashboard-runs.ts';
+import { closeRuntimeDatabase, pruneRuntimeHistory, getRuntimeDatabasePath } from '../state/runtime-db.ts';
+import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS, CHAT_OWNER_HEARTBEAT_LATE_MS } from '../state/chat-runtime-owner.ts';
+import { getRuntimeHistoryRetentionDays } from '../state/runtime-retention.ts';
+import { RepoAgentRunStore } from '../repo-agent/run-store.ts';
+import { RepoAgentSessionManager } from './repo-agent-sessions.ts';
+import { OrchestratorRunStore } from '../orchestrator/run-store.ts';
+import { OrchestratorRunRegistry } from './orchestrator-runs.ts';
+import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.ts';
+import { InferenceRunFlushQueue } from './inference-run-flush-queue.ts';
+import { SHUTDOWN_PERSISTENCE_TIMEOUT_MS } from './shutdown-budget.ts';
 import {
   publishStatus,
   clearIdleSummaryTimer,
   getIdleSummaryDatabase,
   flushDeferredArtifacts,
   DEFAULT_IDLE_SUMMARY_DELAY_MS,
-} from './server-ops.js';
-import { StatusEngineService } from './engine-service.js';
-import { StatusRunRegistry } from './status-run-registry.js';
-import { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
-import { ChatSessionRecoveryCache } from './chat-session-recovery-cache.js';
-import { createRequestHandler } from './routes.js';
-import { flushTerminalMetadataForShutdown, waitForTerminalMetadataIdle } from './terminal-metadata.js';
-import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
-import { AppliedModelPresetState } from './applied-model-preset-state.js';
-import { ManagedRuntimeImageCapabilityProvider } from './runtime-image-capability.js';
-import { ManagedTabbyRuntime } from './managed-tabby.js';
-import { ModelIdleController } from './model-idle-controller.js';
+} from './server-ops.ts';
+import { StatusEngineService } from './engine-service.ts';
+import { StatusRunRegistry } from './status-run-registry.ts';
+import { ChatSessionOperationRegistry } from './chat-session-operation-registry.ts';
+import { ChatSessionRecoveryCache } from './chat-session-recovery-cache.ts';
+import { createRequestHandler } from './routes.ts';
+import { flushTerminalMetadataForShutdown, waitForTerminalMetadataIdle } from './terminal-metadata.ts';
+import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.ts';
+import { AppliedModelPresetState } from './applied-model-preset-state.ts';
+import { ManagedRuntimeImageCapabilityProvider } from './runtime-image-capability.ts';
+import { ManagedTabbyRuntime } from './managed-tabby.ts';
+import { ModelIdleController } from './model-idle-controller.ts';
 import type {
   ChatOwnerTickOutcome,
   ExtendedServer,
   StartStatusServerOptions,
   ServerContext,
-} from './server-types.js';
+} from './server-types.ts';
 import type {
   StatusRequestLogInput,
   RepoSearchProgressEvent,
   RunRecord,
   DailyMetrics,
-} from './dashboard-runs.js';
-import type { ColorOptions } from '../lib/text-format.js';
-import type { StatusMetadata } from './status-file.js';
-import type { Metrics } from './metrics.js';
-import type { IdleSummarySnapshot } from './idle-summary.js';
-import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/process-tree.js';
-import { AssistantService } from '../assistant/assistant-service.js';
-import { SystemClock } from '../assistant/clock.js';
-import { DpapiDataProtector } from '../assistant/crypto/dpapi.js';
-import { NvidiaSmiGpuMemoryProbe } from './gpu-memory.js';
-import { createSystemManagedEngineHost } from './engine-process.js';
-import { RandomIdGenerator } from '../assistant/ids.js';
-import { DefaultAssistantInferenceClient } from '../assistant/inference/client.js';
-import { BackendTokenCounter } from '../assistant/inference/token-counter.js';
-import { StatusServerAssistantConfigWriter } from './assistant-config-writer.js';
-import { AssistantRouteGuard, AssistantTokenStore } from './assistant-auth.js';
-import { AssistantRateLimiter } from './assistant-rate-limiter.js';
-import { StatusServerIdleGate } from './assistant-idle-gate.js';
-import { StatusServerResidencyGate } from './assistant-residency-gate.js';
+} from './dashboard-runs.ts';
+import type { ColorOptions } from '../lib/text-format.ts';
+import type { StatusMetadata } from './status-file.ts';
+import type { Metrics } from './metrics.ts';
+import type { IdleSummarySnapshot } from './idle-summary.ts';
+import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/process-tree.ts';
+import { AssistantService } from '../assistant/assistant-service.ts';
+import { SystemClock } from '../assistant/clock.ts';
+import { DpapiDataProtector } from '../assistant/crypto/dpapi.ts';
+import { NvidiaSmiGpuMemoryProbe } from './gpu-memory.ts';
+import { createSystemManagedEngineHost } from './engine-process.ts';
+import { RandomIdGenerator } from '../assistant/ids.ts';
+import { DefaultAssistantInferenceClient } from '../assistant/inference/client.ts';
+import { BackendTokenCounter } from '../assistant/inference/token-counter.ts';
+import { StatusServerAssistantConfigWriter } from './assistant-config-writer.ts';
+import { AssistantRouteGuard, AssistantTokenStore } from './assistant-auth.ts';
+import { AssistantRateLimiter } from './assistant-rate-limiter.ts';
+import { StatusServerIdleGate } from './assistant-idle-gate.ts';
+import { StatusServerResidencyGate } from './assistant-residency-gate.ts';
 
 // ---------------------------------------------------------------------------
 // Re-exports (preserves the public API expected by consumers & tests)

@@ -1,4 +1,4 @@
-import { z } from './zod.js';
+import { z } from './zod.ts';
 
 export const ErrorDiagnosticSchema = z.object({
   name: z.string(),

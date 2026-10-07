@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { after, before } from 'node:test';
 
-import type { ProcessInspector } from '../src/lib/process-inspector.js';
-import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
+import type { ProcessInspector } from '../src/lib/process-inspector.ts';
+import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.ts';
 
 const TEMP_ROOT = join(tmpdir(), `siftkit-lease-tests-${process.pid}`);
 

@@ -5,10 +5,10 @@ import {
   normalizeRepoSearchTaskKind,
   REPO_SEARCH_TASK_KINDS,
   RepoSearchTaskKindSchema,
-} from '../src/repo-search/task-kind.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import type { RunToolArgs } from '../src/repo-search/repo-tool-arguments.js';
-import { RUN_FULL_DOWNGRADE_NOTICE } from '../src/repo-search/engine/validation-command-output-policy.js';
+} from '../src/repo-search/task-kind.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import type { RunToolArgs } from '../src/repo-search/repo-tool-arguments.ts';
+import { RUN_FULL_DOWNGRADE_NOTICE } from '../src/repo-search/engine/validation-command-output-policy.ts';
 
 test('task-kind schema and normalizer preserve every exact execution kind', () => {
   for (const kind of REPO_SEARCH_TASK_KINDS) {

@@ -1,5 +1,5 @@
-import { z } from '../../lib/zod.js';
-import { SENSITIVE_TOPICS } from '../domain/secrets.js';
+import { z } from '../../lib/zod.ts';
+import { SENSITIVE_TOPICS } from '../domain/secrets.ts';
 
 /** Why a candidate is parked in `needs_confirmation`, and what answering it needs. */
 export const CandidateHoldSchema = z.discriminatedUnion('kind', [

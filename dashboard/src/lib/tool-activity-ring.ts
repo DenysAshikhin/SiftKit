@@ -2,7 +2,7 @@ import type {
   ChatToolCallMessage,
   ToolActivityKind,
   ToolActivitySubject,
-} from '../types';
+} from '../types.ts';
 
 export const LIVE_TOOL_RING_DEPTH = 3;
 

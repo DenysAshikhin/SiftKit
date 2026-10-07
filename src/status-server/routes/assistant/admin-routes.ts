@@ -10,11 +10,11 @@ import {
   AssistantRestoreConfirmRequestSchema,
   KeyMaterialDtoSchema,
 } from '@siftkit/contracts';
-import { readConfig, writeConfig } from '../../config-store.js';
-import { readBodyToFile, sendJson } from '../../http-utils.js';
+import { readConfig, writeConfig } from '../../config-store.ts';
+import { readBodyToFile, sendJson } from '../../http-utils.ts';
 import {
   assistantRoute, body, desktopBody, KEY_MATERIAL_BODY_LIMIT, RESTORE_BODY_LIMIT, sendArchive,
-} from './helpers.js';
+} from './helpers.ts';
 
 export const statusEndpoint = assistantRoute(({ service, res }) => {
   sendJson(res, 200, service.status());

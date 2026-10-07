@@ -1,4 +1,4 @@
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
 /**
  * The §16.4 backup archive format — the one definition both `BackupService` (writer) and

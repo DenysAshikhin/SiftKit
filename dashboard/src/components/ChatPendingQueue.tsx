@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ChatMessageQueueState, ChatQueueEditableMessage, ChatQueueMessageResponse } from '@siftkit/contracts';
-import { toError } from '../../../src/lib/errors.js';
+import { toError } from '../../../src/lib/errors.ts';
 
 export type ChatPendingQueueActions = {
   onForceQueue(): Promise<void>;

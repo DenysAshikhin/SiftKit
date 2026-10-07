@@ -1,41 +1,41 @@
-import { getErrorMessage, toError } from '../lib/errors.js';
-import { ModelJson } from '../lib/model-json.js';
+import { getErrorMessage, toError } from '../lib/errors.ts';
+import { ModelJson } from '../lib/model-json.ts';
 import {
   countInferenceTokensDetailed,
   type CountInferenceTokensOptions,
-} from '../providers/inference.js';
-import { getActiveInferenceBackend } from '../config/index.js';
-import type { SiftConfig } from '../config/index.js';
+} from '../providers/inference.ts';
+import { getActiveInferenceBackend } from '../config/index.ts';
+import type { SiftConfig } from '../config/index.ts';
 import {
   getChunkThresholdCharacters,
-} from '../config/index.js';
-import type { SummaryProgressReporter } from './progress-reporter.js';
+} from '../config/index.ts';
+import type { SummaryProgressReporter } from './progress-reporter.ts';
 import {
   buildCompactSummaryPrompt,
   buildSummaryPrompt,
-} from './prompt.js';
+} from './prompt.ts';
 import {
   buildConservativeChunkFallbackDecision,
   buildConservativeDirectFallbackDecision,
   isInternalChunkLeaf,
   normalizeStructuredDecision,
-} from './structured.js';
+} from './structured.ts';
 import {
   attachSummaryFailureContext,
   buildPlannerFailureErrorMessage,
   traceSummary,
-} from './artifacts.js';
+} from './artifacts.ts';
 import {
   getInferenceChunkThresholdCharacters,
   getPlannerActivationThresholdCharacters,
   getPlannerPromptBudget,
   sumTokenCounts,
-} from './chunking.js';
+} from './chunking.ts';
 import {
   invokeProviderSummary,
   type ProviderSummaryMetrics,
-} from './provider-invoke.js';
-import { invokePlannerMode } from './planner/mode.js';
+} from './provider-invoke.ts';
+import { invokePlannerMode } from './planner/mode.ts';
 import type {
   ChunkPromptContext,
   StructuredModelDecision,
@@ -43,10 +43,10 @@ import type {
   SummaryProviderId,
   SummaryRequest,
   SummarySourceKind,
-} from './types.js';
-import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
-import type { PresetSystemContext } from '../preset-system-context.js';
-import { emptyInferenceThroughput, mergeInferenceThroughput } from '../lib/inference-throughput.js';
+} from './types.ts';
+import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
+import { emptyInferenceThroughput, mergeInferenceThroughput } from '../lib/inference-throughput.ts';
 import type { InferenceThroughput } from '@siftkit/contracts';
 
 export type SummaryCompletionMetrics = {

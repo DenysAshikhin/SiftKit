@@ -1,6 +1,6 @@
-import type { InferenceRequestInput } from './inference-backend.js';
-import type { InferenceChatRequest } from './types.js';
-import { INFERENCE_REQUEST_COMPATIBILITY } from '../inference-presets/preset-compatibility.js';
+import type { InferenceRequestInput } from './inference-backend.ts';
+import type { InferenceChatRequest } from './types.ts';
+import { INFERENCE_REQUEST_COMPATIBILITY } from '../inference-presets/preset-compatibility.ts';
 
 export class InferenceRequestBuilder {
   build(input: InferenceRequestInput): InferenceChatRequest {

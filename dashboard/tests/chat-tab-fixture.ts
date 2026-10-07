@@ -1,10 +1,10 @@
 import React from 'react';
 import { ChatTranscriptMessageSchema } from '@siftkit/contracts';
-import type { ChatMessage, ChatSession, DashboardPreset } from '../src/types';
-import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { summarizeChatSession } from '../src/hooks/useChatSessions';
-import { ChatTab } from '../src/tabs/ChatTab';
+import type { ChatMessage, ChatSession, DashboardPreset } from '../src/types.ts';
+import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { summarizeChatSession } from '../src/hooks/useChatSessions.ts';
+import { ChatTab } from '../src/tabs/ChatTab.tsx';
 
 /** Props and sessions for rendering the real ChatTab; browser-safe, so the overflow page shares them. */
 export const PRESET = {

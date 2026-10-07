@@ -21,8 +21,8 @@ import {
   calculateTabbyReferenceRate,
   calculateThroughputRate,
   compareThroughputRate,
-} from '../lib/inference-throughput.js';
-import { serverLogger, type ServerLogger } from './server-logger.js';
+} from '../lib/inference-throughput.ts';
+import { serverLogger, type ServerLogger } from './server-logger.ts';
 
 /** Scope of the log line itself; the audited scope is one of its fields. */
 const AUDIT_LOG_SCOPE = 'inference';

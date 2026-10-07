@@ -8,7 +8,7 @@ import type {
   AssistantValidationCandidateDto,
   DesktopStateDto,
   PendingCaptureDto,
-} from '../../types.js';
+} from '../../types.ts';
 import {
   bootstrapAssistantToken,
   fetchAssistantEvidencePixels,
@@ -20,9 +20,9 @@ import {
   removeAssistantValidationCandidate,
   resolveAssistantCandidateIdentity,
   saveAssistantValidationNotes,
-} from '../../assistant-api.js';
-import { ImageLightbox } from '../../components/ImageLightbox.js';
-import { AssistantMaintenance } from './AssistantMaintenance.js';
+} from '../../assistant-api.ts';
+import { ImageLightbox } from '../../components/ImageLightbox.tsx';
+import { AssistantMaintenance } from './AssistantMaintenance.tsx';
 
 type AssistantView = 'configuration' | 'validation' | 'history';
 

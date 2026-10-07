@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { orderDescendantProcessIds } from '../src/lib/process-tree.js';
+import { orderDescendantProcessIds } from '../src/lib/process-tree.ts';
 
 test('orderDescendantProcessIds returns only graph-reachable descendants, deepest first', () => {
   const entries = [

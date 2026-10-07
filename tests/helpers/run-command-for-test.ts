@@ -1,7 +1,7 @@
-import { CommandOutputAnalyzer } from '../../src/command-output/analyzer.js';
-import { invokeProcess, invokeShellProcess } from '../../src/capture/process.js';
-import type { CommandOutputAnalyzeRequest, CommandOutputAnalyzeResult } from '../../src/command-output/types.js';
-import type { ShellName } from '../../src/capture/process.js';
+import { CommandOutputAnalyzer } from '../../src/command-output/analyzer.ts';
+import { invokeProcess, invokeShellProcess } from '../../src/capture/process.ts';
+import type { CommandOutputAnalyzeRequest, CommandOutputAnalyzeResult } from '../../src/command-output/types.ts';
+import type { ShellName } from '../../src/capture/process.ts';
 
 export interface RunCommandRequest {
   Command?: string;

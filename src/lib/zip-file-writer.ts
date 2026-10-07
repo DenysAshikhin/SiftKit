@@ -5,7 +5,7 @@ import {
   CRC32_SEED, LOCAL_HEADER_CRC_OFFSET,
   crc32, crc32Finish, crc32Update,
   encodeCentralHeader, encodeEocd, encodeLocalHeader,
-} from './zip.js';
+} from './zip.ts';
 
 const READ_CHUNK_BYTES = 1024 * 1024;
 /** Sizes and offsets are 32-bit: this writer emits no zip64 records. */
@@ -37,7 +37,10 @@ export class ZipFileWriter {
   private finished = false;
   private aborted = false;
 
-  constructor(private readonly archivePath: string) {
+  private readonly archivePath: string;
+
+  constructor(archivePath: string) {
+    this.archivePath = archivePath;
     this.fd = fs.openSync(archivePath, 'w');
   }
 

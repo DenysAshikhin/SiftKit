@@ -1,5 +1,5 @@
-import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.js';
-import { formatPsList, parseArguments, type ResolvedCliArgs } from './args.js';
+import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.ts';
+import { formatPsList, parseArguments, type ResolvedCliArgs } from './args.ts';
 
 export async function runInstall(stdout: NodeJS.WritableStream): Promise<number> {
   const result = await installSiftKit(false);

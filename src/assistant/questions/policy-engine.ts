@@ -1,7 +1,7 @@
-import type { AssistantConfig } from '../../config/types.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { SUPPORTED_QUESTION_GAP_TYPES, type QuestionCandidate } from './candidates.js';
-import type { QuestionEnvironmentStateProvider } from './environment-state.js';
+import type { AssistantConfig } from '../../config/types.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { SUPPORTED_QUESTION_GAP_TYPES, type QuestionCandidate } from './candidates.ts';
+import type { QuestionEnvironmentStateProvider } from './environment-state.ts';
 
 export interface QuestionPolicyHistory {
   readonly shownToday: number;
@@ -28,7 +28,11 @@ function isLiveStatus(status: string): boolean {
 }
 
 export class GraphQuestionPolicyContext implements QuestionPolicyContext {
-  constructor(private readonly graph: AssistantGraph) {}
+  private readonly graph: AssistantGraph;
+
+  constructor(graph: AssistantGraph) {
+    this.graph = graph;
+  }
 
   isTopicBlocked(ownerId: string, topicKey: string): boolean {
     return this.graph.policies.isTopicBlockedFromInference(ownerId, topicKey);
@@ -90,10 +94,16 @@ function score(candidate: QuestionCandidate): number {
 }
 
 export class QuestionPolicyEngine {
+  private readonly environment: QuestionEnvironmentStateProvider;
+  private readonly context: QuestionPolicyContext;
+
   constructor(
-    private readonly environment: QuestionEnvironmentStateProvider,
-    private readonly context: QuestionPolicyContext,
-  ) {}
+    environment: QuestionEnvironmentStateProvider,
+    context: QuestionPolicyContext,
+  ) {
+    this.environment = environment;
+    this.context = context;
+  }
 
   evaluate(candidate: QuestionCandidate, config: AssistantConfig): QuestionPolicyDecision {
     if (!config.Enabled) return this.ineligible('assistant_disabled');

@@ -1,6 +1,6 @@
-import { z } from '../lib/zod.js';
-import { getObservedBudgetStatePath } from '../config/paths.js';
-import { getRuntimeDatabase } from './runtime-db.js';
+import { z } from '../lib/zod.ts';
+import { getObservedBudgetStatePath } from '../config/paths.ts';
+import { getRuntimeDatabase } from './runtime-db.ts';
 
 const ObservedBudgetRowSchema = z.object({
   observed_telemetry_seen: z.number().nullable(),

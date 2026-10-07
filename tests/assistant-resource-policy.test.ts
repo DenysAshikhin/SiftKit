@@ -1,17 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 import {
   AssistantResourcePolicy,
   PowerStateSchema,
   type PowerState,
   type PowerStateProvider,
-} from '../src/assistant/jobs/resource-policy.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+} from '../src/assistant/jobs/resource-policy.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 class FixedPowerStateProvider implements PowerStateProvider {
-  constructor(private state: PowerState) {}
+  private state: PowerState;
+
+  constructor(state: PowerState) {
+    this.state = state;
+  }
 
   read(): PowerState {
     return this.state;

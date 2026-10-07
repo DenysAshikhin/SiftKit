@@ -5,29 +5,29 @@ import test from 'node:test';
 import {
   CaptureSubmissionDtoSchema, type CaptureSubmissionDto, type SuppressionAuditDto,
 } from '@siftkit/contracts';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import type { AssistantConfig } from '../src/config/types.js';
-import { CaptureIntake } from '../src/assistant/observation/capture-intake.js';
-import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
-import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.js';
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { AssertionViewBuilder } from '../src/assistant/projections/assertion-view-builder.js';
-import { isProjectableInPlaintext } from '../src/assistant/projections/assertion-view.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import type { AssistantConfig } from '../src/config/types.ts';
+import { CaptureIntake } from '../src/assistant/observation/capture-intake.ts';
+import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.ts';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
+import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.ts';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { AssertionViewBuilder } from '../src/assistant/projections/assertion-view-builder.ts';
+import { isProjectableInPlaintext } from '../src/assistant/projections/assertion-view.ts';
 import type {
   AssistantImageCapability, AssistantImageCapabilityProvider,
-} from '../src/assistant/images/image-capability.js';
-import type { EvidenceRow } from '../src/assistant/storage/rows.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
-import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.js';
+} from '../src/assistant/images/image-capability.ts';
+import type { EvidenceRow } from '../src/assistant/storage/rows.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
+import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+} from './helpers/dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
 const CAPTURED_AT = '2026-08-10T14:03:11.000Z';
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
@@ -89,7 +89,11 @@ function suppressionDto(): SuppressionAuditDto {
 }
 
 class StubImageCapability implements AssistantImageCapabilityProvider {
-  constructor(private readonly capable: boolean) {}
+  private readonly capable: boolean;
+
+  constructor(capable: boolean) {
+    this.capable = capable;
+  }
 
   read(): AssistantImageCapability {
     return {

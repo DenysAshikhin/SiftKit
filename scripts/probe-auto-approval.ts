@@ -1,4 +1,4 @@
-import { runAutoApprovalVerdictProbeCli } from '../src/cli/run-auto-approval-probe.js';
+import { runAutoApprovalVerdictProbeCli } from '../src/cli/run-auto-approval-probe.ts';
 
 async function main(): Promise<void> {
   process.exitCode = await runAutoApprovalVerdictProbeCli({

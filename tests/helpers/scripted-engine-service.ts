@@ -1,6 +1,6 @@
-import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.js';
-import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../../src/repo-search/types.js';
-import { RecordingEngineService } from './recording-engine-service.js';
+import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.ts';
+import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../../src/repo-search/types.ts';
+import { RecordingEngineService } from './recording-engine-service.ts';
 
 /** One engine call's scripted planner turns, fixed or computed from the request it answers. */
 export type ScriptedCall = MockPlannerResponseInput[] | ((request: RepoSearchExecutionRequest) => MockPlannerResponseInput[]);

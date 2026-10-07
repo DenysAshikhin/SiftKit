@@ -1,11 +1,11 @@
 import test from 'node:test';
 
-import { ChildProcessEngineLauncher } from '../../src/status-server/engine-process.js';
-import { acquireChildPortLease } from '../_runtime-helpers.js';
-import { writeManagedEngineLauncher } from '../helpers/managed-engine-fixtures.js';
-import { runManagedEngineReadinessScenario } from '../helpers/managed-engine-readiness-scenario.js';
-import { createFakeExl3PackageLocator } from '../helpers/tabby-fake.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.js';
+import { ChildProcessEngineLauncher } from '../../src/status-server/engine-process.ts';
+import { acquireChildPortLease } from '../_runtime-helpers.ts';
+import { writeManagedEngineLauncher } from '../helpers/managed-engine-fixtures.ts';
+import { runManagedEngineReadinessScenario } from '../helpers/managed-engine-readiness-scenario.ts';
+import { createFakeExl3PackageLocator } from '../helpers/tabby-fake.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.ts';
 
 /**
  * Fixture for tests/process/run-tests-watchdog.test.ts: the readiness scenario against real

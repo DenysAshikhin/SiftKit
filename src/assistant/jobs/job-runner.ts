@@ -1,17 +1,17 @@
 import type { AssistantBackgroundWorkBlock } from '@siftkit/contracts';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { AssistantConfig } from '../../config/types.js';
-import type { CandidateConsolidator } from '../ingestion/consolidator.js';
-import type { CandidatePromoter } from '../ingestion/candidate-promoter.js';
-import type { ConversationExtractor } from '../ingestion/conversation-extractor.js';
-import type { CaptureRetentionService } from '../images/capture-retention.js';
-import type { ImageExtractor } from '../images/image-extractor.js';
-import type { ProjectionCompiler } from '../projections/projection-compiler.js';
-import type { QuestionAnswerIngestor } from '../questions/answer-ingestor.js';
-import type { QuestionScheduler } from '../questions/scheduler.js';
-import type { JobRow } from '../storage/rows.js';
-import { isModelBackedJobType, type AssistantJobType } from './job-types.js';
-import type { ResourcePolicy } from './resource-policy.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { AssistantConfig } from '../../config/types.ts';
+import type { CandidateConsolidator } from '../ingestion/consolidator.ts';
+import type { CandidatePromoter } from '../ingestion/candidate-promoter.ts';
+import type { ConversationExtractor } from '../ingestion/conversation-extractor.ts';
+import type { CaptureRetentionService } from '../images/capture-retention.ts';
+import type { ImageExtractor } from '../images/image-extractor.ts';
+import type { ProjectionCompiler } from '../projections/projection-compiler.ts';
+import type { QuestionAnswerIngestor } from '../questions/answer-ingestor.ts';
+import type { QuestionScheduler } from '../questions/scheduler.ts';
+import type { JobRow } from '../storage/rows.ts';
+import { isModelBackedJobType, type AssistantJobType } from './job-types.ts';
+import type { ResourcePolicy } from './resource-policy.ts';
 
 /** The host tells the runner when background model work is allowed (§12.4). */
 export interface InteractivityGate {
@@ -64,7 +64,10 @@ export class AssistantJobRunner {
   private inFlight: AbortController | null = null;
   private jobPriorities: AssistantConfig['Background']['JobPriorities'];
 
-  constructor(private readonly options: AssistantJobRunnerOptions) {
+  private readonly options: AssistantJobRunnerOptions;
+
+  constructor(options: AssistantJobRunnerOptions) {
+    this.options = options;
     this.jobPriorities = options.jobPriorities;
   }
 

@@ -1,11 +1,11 @@
 import type { ImageDataUrl } from '@siftkit/contracts';
 
-import { z } from '../../lib/zod.js';
-import { parseJsonObjectText } from '../../lib/json.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { JsonObjectSchema } from '../../lib/json-types.js';
-import type { AssistantInferenceClient, AssistantInferenceRequest } from './client.js';
-import { ROLE_PROMPT_VERSION, buildRoleSystemPrompt, type AssistantInferenceRole } from './roles.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonObjectText } from '../../lib/json.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { JsonObjectSchema } from '../../lib/json-types.ts';
+import type { AssistantInferenceClient, AssistantInferenceRequest } from './client.ts';
+import { ROLE_PROMPT_VERSION, buildRoleSystemPrompt, type AssistantInferenceRole } from './roles.ts';
 
 export interface StructuredRunRequest<T> {
   readonly role: AssistantInferenceRole;
@@ -55,7 +55,11 @@ type ParseAttempt<T> =
  * (§8.2): the second attempt is shown what was wrong and is re-validated from scratch.
  */
 export class StructuredOutputRunner {
-  constructor(private readonly client: AssistantInferenceClient) {}
+  private readonly client: AssistantInferenceClient;
+
+  constructor(client: AssistantInferenceClient) {
+    this.client = client;
+  }
 
   async run<T>(request: StructuredRunRequest<T>): Promise<StructuredRunOutcome<T>> {
     return this.execute(request, null);

@@ -2,11 +2,11 @@
  * Shared helpers for provider communication: used by the inference provider,
  * repo-search planner protocol, and future provider integrations.
  */
-import { sleep } from './time.js';
-import { toError } from './errors.js';
-import { getNormalizedCompletionTokens } from './telemetry-metrics.js';
-import { JsonRecordReader } from './json-record-reader.js';
-import type { JsonObject, JsonValue, OptionalJsonValue } from './json-types.js';
+import { sleep } from './time.ts';
+import { toError } from './errors.ts';
+import { getNormalizedCompletionTokens } from './telemetry-metrics.ts';
+import { JsonRecordReader } from './json-record-reader.ts';
+import type { JsonObject, JsonValue, OptionalJsonValue } from './json-types.ts';
 
 // ---------------------------------------------------------------------------
 // Network error serialization

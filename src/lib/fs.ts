@@ -7,9 +7,9 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { z } from './zod.js';
-import { JsonObjectSchema, type JsonObject, type JsonValue } from './json-types.js';
-import { parseJsonObjectText, parseJsonText } from './json.js';
+import { z } from './zod.ts';
+import { JsonObjectSchema, type JsonObject, type JsonValue } from './json-types.ts';
+import { parseJsonObjectText, parseJsonText } from './json.ts';
 
 export function ensureDirectory(dirPath: string): string {
   mkdirSync(dirPath, { recursive: true });
@@ -103,4 +103,4 @@ export function safeReadJson(targetPath: string): JsonObject | null {
 }
 
 // sleep() has moved to lib/time.ts — import from there instead.
-export { sleep } from './time.js';
+export { sleep } from './time.ts';

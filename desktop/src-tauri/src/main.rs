@@ -207,7 +207,7 @@ fn daemon_spawn_control() -> JobObjectDaemonControl {
     let program = std::env::var("SIFTKIT_DAEMON_PROGRAM").unwrap_or_else(|_| "node".into());
     let arguments = std::env::var("SIFTKIT_DAEMON_ARGS")
         .map(|raw| raw.split_whitespace().map(str::to_string).collect())
-        .unwrap_or_else(|_| vec!["dist/status-server/main.js".to_string()]);
+        .unwrap_or_else(|_| vec!["src/status-server/main.ts".to_string()]);
     let working_directory = std::env::var("SIFTKIT_DAEMON_CWD").ok();
     JobObjectDaemonControl::new(program, arguments, working_directory)
 }

@@ -1,23 +1,23 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { AssistantService } from '../../src/assistant/assistant-service.js';
-import { FixedClock } from '../../src/assistant/clock.js';
-import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.js';
-import { SequentialIdGenerator } from '../../src/assistant/ids.js';
-import { LIVE_ASSERTION_STATUSES } from '../../src/assistant/storage/assertion-store.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
-import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { AssistantService } from '../../src/assistant/assistant-service.ts';
+import { FixedClock } from '../../src/assistant/clock.ts';
+import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
+import { SequentialIdGenerator } from '../../src/assistant/ids.ts';
+import { LIVE_ASSERTION_STATUSES } from '../../src/assistant/storage/assertion-store.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
 import {
   FIXTURE_START_INSTANT,
   MemoryAssistantConfigWriter,
   type AssistantTestContext,
-} from './assistant-fixture.js';
-import { FakeAssistantInference } from './assistant-inference-fake.js';
-import { createManagedTempDir } from './temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './assistant-gates.js';
-import { InMemoryDataProtector } from './in-memory-data-protector.js';
-import type { AssistantImageCapability, AssistantImageCapabilityProvider } from '../../src/assistant/images/image-capability.js';
+} from './assistant-fixture.ts';
+import { FakeAssistantInference } from './assistant-inference-fake.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './assistant-gates.ts';
+import { InMemoryDataProtector } from './in-memory-data-protector.ts';
+import type { AssistantImageCapability, AssistantImageCapabilityProvider } from '../../src/assistant/images/image-capability.ts';
 
 class StubImageCapability implements AssistantImageCapabilityProvider {
   read(): AssistantImageCapability {

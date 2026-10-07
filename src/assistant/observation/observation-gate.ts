@@ -1,4 +1,4 @@
-import type { AssistantConfig } from '../../config/types.js';
+import type { AssistantConfig } from '../../config/types.ts';
 
 /**
  * The gate every desktop ingestion path shares: nothing the shell reports is accepted while the

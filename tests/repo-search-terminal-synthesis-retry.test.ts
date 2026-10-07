@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
+import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.ts';
+import type { JsonSerializable } from '../src/lib/json-types.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-syn-loop-');
 

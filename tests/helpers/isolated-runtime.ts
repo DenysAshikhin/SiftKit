@@ -1,6 +1,6 @@
-import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
-import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
+import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.ts';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.ts';
 
 /** Isolates cwd-based SQLite storage for tests that execute requests in process. */
 export class IsolatedRuntime {

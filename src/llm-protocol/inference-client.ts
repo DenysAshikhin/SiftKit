@@ -4,11 +4,11 @@ import {
   getConfiguredEngineBaseUrl,
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   type SiftConfig,
-} from '../config/index.js';
-import { resolveSpentThinkingTokens } from '../lib/token-estimate.js';
-import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
-import { httpClient, HttpResponseError, InferenceHttpError } from '../lib/http-client.js';
-import { parseJsonObjectText } from '../lib/json.js';
+} from '../config/index.ts';
+import { resolveSpentThinkingTokens } from '../lib/token-estimate.ts';
+import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.ts';
+import { httpClient, HttpResponseError, InferenceHttpError } from '../lib/http-client.ts';
+import { parseJsonObjectText } from '../lib/json.ts';
 import {
   buildTransientProviderHttpError,
   getCompletionUsageFromResponseBody,
@@ -17,27 +17,27 @@ import {
   getTimingUsageFromResponseBody,
   isTransientProviderHttpResponse,
   retryProviderRequest,
-} from '../lib/provider-helpers.js';
-import { buildClosedThinkBlock } from './think-markers.js';
-import { assertDeadlineFitsBudget, computeRequiredGenerationMs } from './stream-deadline.js';
+} from '../lib/provider-helpers.ts';
+import { buildClosedThinkBlock } from './think-markers.ts';
+import { assertDeadlineFitsBudget, computeRequiredGenerationMs } from './stream-deadline.ts';
 import {
   buildStreamErrorFrameError,
   ProviderStreamDegenerateError,
   ProviderStreamDeadlineError,
   type ProviderStreamDegenerateReason,
-} from './stream-errors.js';
-import { readStreamErrorFrame } from './stream-error-frame.js';
-import { z } from '../lib/zod.js';
-import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.js';
+} from './stream-errors.ts';
+import { readStreamErrorFrame } from './stream-error-frame.ts';
+import { z } from '../lib/zod.ts';
+import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.ts';
 import {
   mergeInferenceThroughput,
   observeTabbyThroughput,
   unmeasuredInferenceThroughput,
-} from '../lib/inference-throughput.js';
+} from '../lib/inference-throughput.ts';
 import {
   auditInferenceThroughput,
   UNPUBLISHED_RATES,
-} from '../status-server/inference-throughput-audit.js';
+} from '../status-server/inference-throughput-audit.ts';
 import type { ThroughputAuditIdentity } from '@siftkit/contracts';
 import {
   StreamStopSchema,
@@ -47,11 +47,11 @@ import {
   type InferenceChatRequest,
   type InferenceToolDefinition,
   type NormalizedInferenceChatResponse,
-} from './types.js';
-import { InferenceToolCallParser } from './tool-call-parser.js';
-import { InferenceRequestBuilder } from './inference-request-builder.js';
-import { LiveContentClassifier, toLiveContentResult, type LiveContentSnapshot } from './live-content-classifier.js';
-import type { InferenceActivityObserver } from '../lib/progress-writer.js';
+} from './types.ts';
+import { InferenceToolCallParser } from './tool-call-parser.ts';
+import { InferenceRequestBuilder } from './inference-request-builder.ts';
+import { LiveContentClassifier, toLiveContentResult, type LiveContentSnapshot } from './live-content-classifier.ts';
+import type { InferenceActivityObserver } from '../lib/progress-writer.ts';
 
 type InferenceHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
@@ -162,7 +162,11 @@ type ThinkingBudgetContinuation = {
 };
 
 export class InferenceClient {
-  constructor(private readonly client: InferenceHttpClient = httpClient) {}
+  private readonly client: InferenceHttpClient;
+
+  constructor(client: InferenceHttpClient = httpClient) {
+    this.client = client;
+  }
 
   async countTokens(
     config: SiftConfig,

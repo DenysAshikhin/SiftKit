@@ -1,5 +1,5 @@
-import { z } from './zod.js';
-import { JsonObjectSchema, JsonValueSchema, type JsonObject, type JsonValue } from './json-types.js';
+import { z } from './zod.ts';
+import { JsonObjectSchema, JsonValueSchema, type JsonObject, type JsonValue } from './json-types.ts';
 
 function normalizeJsonText(text: string): string {
   const normalized = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;

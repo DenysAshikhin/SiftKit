@@ -5,12 +5,12 @@ import test from 'node:test';
 import {
   AutoApprovalProbeCliOutputSchema,
   runAutoApprovalVerdictProbeCli,
-} from '../src/cli/run-auto-approval-probe.js';
-import { parseJsonText } from '../src/lib/json.js';
-import { z } from '../src/lib/zod.js';
-import { ReplayMessageSchema } from '../src/repo-search/approval-verdict-probe.js';
-import { InferenceToolDefinitionsSchema } from '../src/llm-protocol/types.js';
-import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
+} from '../src/cli/run-auto-approval-probe.ts';
+import { parseJsonText } from '../src/lib/json.ts';
+import { z } from '../src/lib/zod.ts';
+import { ReplayMessageSchema } from '../src/repo-search/approval-verdict-probe.ts';
+import { InferenceToolDefinitionsSchema } from '../src/llm-protocol/types.ts';
+import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.ts';
 
 const ApprovalRequestSchema = z.object({
   messages: z.array(ReplayMessageSchema),

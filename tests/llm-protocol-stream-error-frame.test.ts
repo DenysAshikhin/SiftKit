@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readStreamErrorFrame } from '../src/llm-protocol/stream-error-frame.js';
+import { readStreamErrorFrame } from '../src/llm-protocol/stream-error-frame.ts';
 import {
   buildStreamErrorFrameError,
   ProviderContextLengthError,
   ProviderStreamErrorFrameError,
-} from '../src/llm-protocol/stream-errors.js';
+} from '../src/llm-protocol/stream-errors.ts';
 
 test('reads an object error frame carrying a message and a code', () => {
   assert.deepEqual(

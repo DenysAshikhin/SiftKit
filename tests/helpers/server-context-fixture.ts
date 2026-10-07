@@ -1,28 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { ChatMessageQueue } from '../../src/status-server/chat-message-queue.js';
-import { ChatMessageQueueStore } from '../../src/state/chat-message-queue.js';
-import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.js';
+import { ChatMessageQueue } from '../../src/status-server/chat-message-queue.ts';
+import { ChatMessageQueueStore } from '../../src/state/chat-message-queue.ts';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.ts';
 
-import { getActiveModelPreset } from '../../src/config/getters.js';
-import { getDefaultConfig } from '../../src/status-server/config-store.js';
-import { StatusEngineService } from '../../src/status-server/engine-service.js';
-import { InferenceRunFlushQueue } from '../../src/status-server/inference-run-flush-queue.js';
-import { getDefaultMetrics } from '../../src/status-server/metrics.js';
-import { DEFAULT_IDLE_SUMMARY_DELAY_MS } from '../../src/status-server/server-ops.js';
-import { StatusRunRegistry } from '../../src/status-server/status-run-registry.js';
-import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.js';
-import { ChatSessionRecoveryCache } from '../../src/status-server/chat-session-recovery-cache.js';
-import { AppliedModelPresetState } from '../../src/status-server/applied-model-preset-state.js';
-import { RecordingInferenceRuntime } from './recording-inference-runtime.js';
-import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.js';
-import type { ServerContext } from '../../src/status-server/server-types.js';
-import { RepoAgentRunStore } from '../../src/repo-agent/run-store.js';
-import { RepoAgentSessionManager } from '../../src/status-server/repo-agent-sessions.js';
-import { OrchestratorRunStore } from '../../src/orchestrator/run-store.js';
-import { OrchestratorRunRegistry } from '../../src/status-server/orchestrator-runs.js';
-import { AssistantRateLimiter } from '../../src/status-server/assistant-rate-limiter.js';
+import { getActiveModelPreset } from '../../src/config/getters.ts';
+import { getDefaultConfig } from '../../src/status-server/config-store.ts';
+import { StatusEngineService } from '../../src/status-server/engine-service.ts';
+import { InferenceRunFlushQueue } from '../../src/status-server/inference-run-flush-queue.ts';
+import { getDefaultMetrics } from '../../src/status-server/metrics.ts';
+import { DEFAULT_IDLE_SUMMARY_DELAY_MS } from '../../src/status-server/server-ops.ts';
+import { StatusRunRegistry } from '../../src/status-server/status-run-registry.ts';
+import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.ts';
+import { ChatSessionRecoveryCache } from '../../src/status-server/chat-session-recovery-cache.ts';
+import { AppliedModelPresetState } from '../../src/status-server/applied-model-preset-state.ts';
+import { RecordingInferenceRuntime } from './recording-inference-runtime.ts';
+import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.ts';
+import type { ServerContext } from '../../src/status-server/server-types.ts';
+import { RepoAgentRunStore } from '../../src/repo-agent/run-store.ts';
+import { RepoAgentSessionManager } from '../../src/status-server/repo-agent-sessions.ts';
+import { OrchestratorRunStore } from '../../src/orchestrator/run-store.ts';
+import { OrchestratorRunRegistry } from '../../src/status-server/orchestrator-runs.ts';
+import { AssistantRateLimiter } from '../../src/status-server/assistant-rate-limiter.ts';
 
 /**
  * Inert ServerContext for tests that exercise a single collaborator (queue, runner,

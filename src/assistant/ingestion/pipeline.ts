@@ -1,8 +1,8 @@
-import { stableStringify } from '../../lib/json.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { maxSensitivity, type Sensitivity } from '../domain/enums.js';
-import type { SecretScanner } from '../domain/secrets.js';
-import { IngestionEnvelopeSchema, type IngestionEnvelope } from './envelope.js';
+import { stableStringify } from '../../lib/json.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { maxSensitivity, type Sensitivity } from '../domain/enums.ts';
+import type { SecretScanner } from '../domain/secrets.ts';
+import { IngestionEnvelopeSchema, type IngestionEnvelope } from './envelope.ts';
 
 export interface SuppressTurnInput {
   readonly ownerId: string;
@@ -23,11 +23,19 @@ export type IngestionOutcome =
  * never runs here, so a chat turn never waits on the assistant.
  */
 export class IngestionPipeline {
+  private readonly graph: AssistantGraph;
+  private readonly secrets: SecretScanner;
+  private readonly conversationIngestionPriority: number;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly secrets: SecretScanner,
-    private readonly conversationIngestionPriority: number,
-  ) {}
+    graph: AssistantGraph,
+    secrets: SecretScanner,
+    conversationIngestionPriority: number,
+  ) {
+    this.graph = graph;
+    this.secrets = secrets;
+    this.conversationIngestionPriority = conversationIngestionPriority;
+  }
 
   accept(input: IngestionEnvelope): IngestionOutcome {
     const envelope = IngestionEnvelopeSchema.parse(input);

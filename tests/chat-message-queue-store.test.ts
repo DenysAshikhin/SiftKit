@@ -1,25 +1,25 @@
-import { ChatMessageQueue, type ChatQueueSubscriber } from '../src/status-server/chat-message-queue.js';
-import { ChatSessionOperationRegistry } from '../src/status-server/chat-session-operation-registry.js';
+import { ChatMessageQueue, type ChatQueueSubscriber } from '../src/status-server/chat-message-queue.ts';
+import { ChatSessionOperationRegistry } from '../src/status-server/chat-session-operation-registry.ts';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
 import { CHAT_QUEUE_MAX_PENDING, ChatMessageQueueResponseSchema, type ChatMessageQueueState } from '@siftkit/contracts';
 
-import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.js';
-import { deleteChatSession, saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { recoverInterruptedChatRuns } from '../src/status-server/chat-run-recovery.js';
-import { ChatRuntimeOwner, ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.js';
-import { ChatRunRecorder, buildChatRunSettings } from '../src/status-server/chat-run-recorder.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { currentModelTarget } from './helpers/chat-run-recorder.js';
+import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.ts';
+import { deleteChatSession, saveChatSession, type ChatSession } from '../src/state/chat-sessions.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { recoverInterruptedChatRuns } from '../src/status-server/chat-run-recovery.ts';
+import { ChatRuntimeOwner, ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.ts';
+import { ChatRunRecorder, buildChatRunSettings } from '../src/status-server/chat-run-recorder.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { currentModelTarget } from './helpers/chat-run-recorder.ts';
 import { randomUUID } from 'node:crypto';
-import type { ChatQueueClaimInput } from '../src/state/chat-message-queue.js';
-import { readChatSessionFromPath, getChatSessionPath } from '../src/state/chat-sessions.js';
+import type { ChatQueueClaimInput } from '../src/state/chat-message-queue.ts';
+import { readChatSessionFromPath, getChatSessionPath } from '../src/state/chat-sessions.ts';
 
 function recordedClaim(runtimeRoot: string, sessionId: string, input: ChatQueueClaimInput) {
   const databasePath = path.join(runtimeRoot, 'runtime.sqlite');

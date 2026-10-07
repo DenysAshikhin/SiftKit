@@ -3,14 +3,14 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
-import { JsonObjectSchema, JsonValueSchema, type JsonValue } from '../src/lib/json-types.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { digestStableJson } from '../src/lib/json-digest.js';
-import { CHAT_JOURNAL_EVENT_VERSION, type ChatJournalEvent } from '../src/state/chat-journal-schema.js';
-import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+import { z } from '../src/lib/zod.ts';
+import { JsonObjectSchema, JsonValueSchema, type JsonValue } from '../src/lib/json-types.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { digestStableJson } from '../src/lib/json-digest.ts';
+import { CHAT_JOURNAL_EVENT_VERSION, type ChatJournalEvent } from '../src/state/chat-journal-schema.ts';
+import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 const AT = '2026-09-10T11:00:00.000Z';
 const OPERATION_ID = '1a4e9b3c-6d2f-4c8a-9e1b-2f3c4d5e6f70';

@@ -1,10 +1,10 @@
 import type {
   BackgroundWorkAdmissionDecision, InteractivityGate,
-} from '../assistant/jobs/job-runner.js';
-import type { DesktopInputIdle } from '../assistant/observation/environment-cache.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../config/defaults.js';
-import { isIdle } from './server-ops.js';
-import type { ServerContext, TerminalMetadataState } from './server-types.js';
+} from '../assistant/jobs/job-runner.ts';
+import type { DesktopInputIdle } from '../assistant/observation/environment-cache.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../config/defaults.ts';
+import { isIdle } from './server-ops.ts';
+import type { ServerContext, TerminalMetadataState } from './server-types.ts';
 
 export function secondsSinceModelActivity(
   metadata: Pick<TerminalMetadataState, 'lastModelRequestFinishedAtMs' | 'serverStartedAtMs'>,
@@ -63,7 +63,11 @@ export function evaluateIdleDecision(
 export class StatusServerIdleGate implements InteractivityGate {
   private reportedMissingInputData = false;
 
-  constructor(private readonly ctx: ServerContext) {}
+  private readonly ctx: ServerContext;
+
+  constructor(ctx: ServerContext) {
+    this.ctx = ctx;
+  }
 
   evaluate(): BackgroundWorkAdmissionDecision {
     const control = this.ctx.assistantControl;

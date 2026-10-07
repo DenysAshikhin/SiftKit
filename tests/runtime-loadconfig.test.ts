@@ -1,9 +1,9 @@
-import { getActiveModelPreset } from '../src/config/getters.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 
-import type { SiftConfig } from '../src/config/index.js';
+import type { SiftConfig } from '../src/config/index.ts';
 import {
   fs,
   path,
@@ -21,9 +21,9 @@ import {
   acquireChildPortLease,
   writeManagedEngineHost,
   waitForAsyncExpectation,
-} from './_runtime-helpers.js';
-import { launchEngineVariables } from './helpers/in-process-tabby.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+} from './_runtime-helpers.ts';
+import { launchEngineVariables } from './helpers/in-process-tabby.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 test('getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo', async () => {
   await withTempEnv(async (tempRoot) => {

@@ -1,11 +1,11 @@
-import { z } from '../lib/zod.js';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import { parseJsonValueText } from '../lib/json.js';
-import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
-import { createEmptyToolTypeStats } from '../line-read-guidance.js';
-import type { TaskKind, ToolTypeStats } from './metrics.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
-import { DeferredArtifactSchema, type DeferredArtifact } from '../state/status-artifacts.js';
+import { z } from '../lib/zod.ts';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.ts';
+import { createEmptyToolTypeStats } from '../line-read-guidance.ts';
+import type { TaskKind, ToolTypeStats } from './metrics.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
+import { DeferredArtifactSchema, type DeferredArtifact } from '../state/status-artifacts.ts';
 import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 
 export const STATUS_TRUE = 'true';

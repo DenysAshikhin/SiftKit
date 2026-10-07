@@ -1,21 +1,21 @@
-import type { SiftConfig } from '../config/index.js';
-import { estimateTokenCount } from '../lib/token-estimate.js';
-import { ProgressWriter } from '../lib/progress-writer.js';
-import { renderWirePrompt } from './wire-prompt.js';
-import { z } from '../lib/zod.js';
-import type { RepoSearchProgressEvent } from './types.js';
-import { InferenceToolDefinitionsSchema, type InferenceToolDefinition } from '../llm-protocol/types.js';
-import { ApprovalVerdictSchema } from './approval-verdict.js';
+import type { SiftConfig } from '../config/index.ts';
+import { estimateTokenCount } from '../lib/token-estimate.ts';
+import { ProgressWriter } from '../lib/progress-writer.ts';
+import { renderWirePrompt } from './wire-prompt.ts';
+import { z } from '../lib/zod.ts';
+import type { RepoSearchProgressEvent } from './types.ts';
+import { InferenceToolDefinitionsSchema, type InferenceToolDefinition } from '../llm-protocol/types.ts';
+import { ApprovalVerdictSchema } from './approval-verdict.ts';
 import {
   isApprovalExemptReadOnlyTool,
   type ApprovalDecision,
   type HumanApprovalRequestInput,
   type HumanApprovalRequester,
-} from './engine/approval-gate.js';
+} from './engine/approval-gate.ts';
 import {
   LlmApprovalGate,
   type ApprovalVerdictRequester,
-} from './engine/llm-approval-gate.js';
+} from './engine/llm-approval-gate.ts';
 import {
   captureExecutingPlannerRequest,
   buildApprovalVerdictPromptMessages,
@@ -23,8 +23,8 @@ import {
   serializeProtocolMessages,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
-} from './planner-protocol.js';
-import { PlannerChatMessageSchema, type ChatMessage } from './planner-chat-message.js';
+} from './planner-protocol.ts';
+import { PlannerChatMessageSchema, type ChatMessage } from './planner-chat-message.ts';
 
 /**
  * A replayed transcript is planner history read back from a probe payload, so it is validated with
@@ -73,13 +73,23 @@ export type ApprovalVerdictModelClient = {
 };
 
 export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictModelClient {
-  constructor(private readonly options: {
+  private readonly options: {
     config: SiftConfig;
     baseUrl: string;
     model: string;
     timeoutMs: number;
     thinking: PlannerThinkingFlags;
-  }) {}
+  };
+
+  constructor(options: {
+    config: SiftConfig;
+    baseUrl: string;
+    model: string;
+    timeoutMs: number;
+    thinking: PlannerThinkingFlags;
+  }) {
+    this.options = options;
+  }
 
   request(
     messages: ChatMessage[],
@@ -124,11 +134,19 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
 class ReplayVerdictRequester implements ApprovalVerdictRequester {
   submittedMessages: ChatMessage[] = [];
 
+  private readonly messages: ChatMessage[];
+  private readonly tools: readonly InferenceToolDefinition[];
+  private readonly modelClient: ApprovalVerdictModelClient;
+
   constructor(
-    private readonly messages: ChatMessage[],
-    private readonly tools: readonly InferenceToolDefinition[],
-    private readonly modelClient: ApprovalVerdictModelClient,
-  ) {}
+    messages: ChatMessage[],
+    tools: readonly InferenceToolDefinition[],
+    modelClient: ApprovalVerdictModelClient,
+  ) {
+    this.messages = messages;
+    this.tools = tools;
+    this.modelClient = modelClient;
+  }
 
   requestApprovalVerdict(
     question: string,
@@ -178,7 +196,11 @@ class ProbeProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 }
 
 export class AutoApprovalVerdictProbe {
-  constructor(private readonly modelClient: ApprovalVerdictModelClient) {}
+  private readonly modelClient: ApprovalVerdictModelClient;
+
+  constructor(modelClient: ApprovalVerdictModelClient) {
+    this.modelClient = modelClient;
+  }
 
   async run(input: AutoApprovalReplayPayloadInput): Promise<AutoApprovalProbeResult> {
     const payload = AutoApprovalReplayPayloadSchema.parse(input);

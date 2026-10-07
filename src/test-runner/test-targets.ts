@@ -1,6 +1,10 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
-import { readCurrentTestBuildManifest, type TestBuildManifest } from './test-build-state.js';
+import { TESTS_DIRECTORY } from './test-environment.ts';
+
+type TestSuite = 'node' | 'process' | 'perf';
+type TestEntry = { source: string; suite: TestSuite };
 
 const TEST_RUNNER_OPTIONS_WITH_VALUES = new Set([
   '--test-name-pattern',
@@ -10,75 +14,73 @@ const TEST_RUNNER_OPTIONS_WITH_VALUES = new Set([
 ]);
 const DEFAULT_TEST_TIMEOUT_MS = 30_000;
 const DEFAULT_TEST_CONCURRENCY = 12;
-const TEST_BUILD_DIRECTORY = '.test-build';
-const SUITE_OPTIONS = new Map<string, TestBuildManifest['tests'][number]['suite']>([['--dashboard', 'dashboard'], ['--process', 'process'], ['--perf', 'perf']]);
+const SUITE_OPTIONS = new Map<string, TestSuite>([['--process', 'process'], ['--perf', 'perf']]);
 /** Perf tests measure CPU time, so no other test file may run beside them. */
 const SERIAL_SUITE = 'perf';
 const TIMEOUT_OPTION = '--test-timeout';
 const CONCURRENCY_OPTION = '--test-concurrency';
+const DASHBOARD_OPTION = '--dashboard';
+
+function getTestSuite(source: string): TestSuite {
+  if (source.startsWith('tests/process/')) return 'process';
+  return source.startsWith('tests/perf/') ? 'perf' : 'node';
+}
+
+// Dot-directories under tests/ are per-run scratch homes, never test sources.
+function listTestEntries(repoRoot: string): TestEntry[] {
+  return fs.readdirSync(path.join(repoRoot, TESTS_DIRECTORY), { recursive: true, encoding: 'utf8' })
+    .map((relativePath) => `${TESTS_DIRECTORY}/${relativePath.split(path.sep).join('/')}`)
+    .filter((source) => source.endsWith('.test.ts') && !source.split('/').some((segment) => segment.startsWith('.')))
+    .sort((left, right) => left.localeCompare(right))
+    .map((source) => ({ source, suite: getTestSuite(source) }));
+}
 
 function hasPathSeparator(value: string): boolean {
   return value.includes('/') || value.includes('\\');
 }
 
-function toPlatformPath(manifestPath: string): string {
-  return manifestPath.split('/').join(path.sep);
+function toPlatformPath(source: string): string {
+  return source.split('/').join(path.sep);
 }
 
-function getMatchingTestTargets(tests: TestBuildManifest['tests'], rawValue: string): string[] {
-  if (!rawValue || hasPathSeparator(rawValue)) {
-    return [];
-  }
-  const compiledValue = rawValue.replace(/\.tsx?$/u, '.js');
-  // A basename can exist in more than one suite; an exact name selects every such file.
-  const exactTargets = tests.filter((entry) => path.basename(entry.entrypoint) === compiledValue);
-  if (exactTargets.length > 0) {
-    return exactTargets.map((entry) => toPlatformPath(entry.entrypoint)).sort((left, right) => left.localeCompare(right));
-  }
-  return tests
-    .filter((entry) => path.basename(entry.entrypoint).includes(compiledValue))
-    .map((entry) => toPlatformPath(entry.entrypoint))
-    .sort((left, right) => left.localeCompare(right));
+function sortedTargets(entries: TestEntry[]): string[] {
+  return entries.map((entry) => toPlatformPath(entry.source)).sort((left, right) => left.localeCompare(right));
 }
 
-function resolveSingleTestTarget(tests: TestBuildManifest['tests'], rawValue: string): string[] {
+function resolveSingleTestTarget(tests: TestEntry[], rawValue: string): string[] {
   if (!rawValue) {
     throw new Error('A test target cannot be empty.');
   }
   if (hasPathSeparator(rawValue)) {
-    const normalizedPath = path.normalize(rawValue);
-    const normalized = normalizedPath.startsWith(`.${path.sep}`) ? normalizedPath.slice(2) : normalizedPath;
-    const normalizedManifestPath = normalized.split(path.sep).join('/');
-    const sourcePath = normalizedManifestPath.replace(/^\.\//u, '');
-    const compiledPath = sourcePath.replace(/\.tsx?$/u, '.js');
-    const matched = tests.find((entry) => entry.source === sourcePath
-      || entry.entrypoint === compiledPath
-      || entry.entrypoint === `${TEST_BUILD_DIRECTORY}/${compiledPath}`);
+    const sourcePath = path.normalize(rawValue).split(path.sep).join('/').replace(/^\.\//u, '');
+    const matched = tests.find((entry) => entry.source === sourcePath);
     if (matched) {
-      return [toPlatformPath(matched.entrypoint)];
+      return [toPlatformPath(matched.source)];
     }
-    throw new Error(`No compiled test artifact matches ${rawValue}. Run npm run build:test.`);
+    throw new Error(`No test file matches ${rawValue}.`);
   }
-  const matchingTargets = getMatchingTestTargets(tests, rawValue);
+  // A basename can exist in more than one suite; an exact name selects every such file.
+  const exactTargets = tests.filter((entry) => path.posix.basename(entry.source) === rawValue);
+  const matchingTargets = exactTargets.length > 0 ? exactTargets : tests.filter((entry) => path.posix.basename(entry.source).includes(rawValue));
   if (matchingTargets.length === 0) {
-    throw new Error(`No compiled test artifact matches ${rawValue}. Run npm run build:test.`);
+    throw new Error(`No test file matches ${rawValue}.`);
   }
-  return matchingTargets;
+  return sortedTargets(matchingTargets);
 }
 
-function getDefaultTestTargets(tests: TestBuildManifest['tests']): string[] {
-  return tests
-    .filter((entry) => entry.suite === 'node' && !entry.source.slice('tests/'.length).includes('/'))
-    .map((entry) => toPlatformPath(entry.entrypoint))
-    .sort((left, right) => left.localeCompare(right));
+function getDefaultTestTargets(tests: TestEntry[]): string[] {
+  return sortedTargets(tests.filter((entry) => entry.suite === 'node' && !entry.source.slice(`${TESTS_DIRECTORY}/`.length).includes('/')));
 }
 
 function resolveTestArguments(repoRoot: string, rawArgs: string[]) {
-  const manifest = readCurrentTestBuildManifest(repoRoot);
+  const tests = listTestEntries(repoRoot);
   const resolvedArgs: string[] = [];
   let targetCount = 0;
   let nextArgumentIsOptionValue = false;
   for (const rawArg of rawArgs) {
+    if (rawArg === DASHBOARD_OPTION) {
+      throw new Error('Dashboard tests run on Vitest: npm run test:dashboard');
+    }
     if (nextArgumentIsOptionValue) {
       resolvedArgs.push(rawArg);
       nextArgumentIsOptionValue = false;
@@ -91,10 +93,7 @@ function resolveTestArguments(repoRoot: string, rawArgs: string[]) {
     }
     const suite = SUITE_OPTIONS.get(rawArg);
     if (suite) {
-      const suiteTargets = manifest.tests
-        .filter((entry) => entry.suite === suite)
-        .map((entry) => toPlatformPath(entry.entrypoint))
-        .sort((left, right) => left.localeCompare(right));
+      const suiteTargets = sortedTargets(tests.filter((entry) => entry.suite === suite));
       resolvedArgs.push(...suiteTargets);
       targetCount += suiteTargets.length;
       continue;
@@ -103,12 +102,12 @@ function resolveTestArguments(repoRoot: string, rawArgs: string[]) {
       resolvedArgs.push(rawArg);
       continue;
     }
-    const targets = resolveSingleTestTarget(manifest.tests, rawArg);
+    const targets = resolveSingleTestTarget(tests, rawArg);
     resolvedArgs.push(...targets);
     targetCount += targets.length;
   }
-  const serialTargets = new Set(manifest.tests.filter((entry) => entry.suite === SERIAL_SUITE).map((entry) => toPlatformPath(entry.entrypoint)));
-  return { args: resolvedArgs, targetCount, tests: manifest.tests, serial: resolvedArgs.some((arg) => serialTargets.has(arg)) };
+  const serialTargets = new Set(sortedTargets(tests.filter((entry) => entry.suite === SERIAL_SUITE)));
+  return { args: resolvedArgs, targetCount, tests, serial: resolvedArgs.some((arg) => serialTargets.has(arg)) };
 }
 
 export function resolveTestTargets(repoRoot: string, rawArgs: string[]): string[] {

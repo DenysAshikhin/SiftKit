@@ -1,34 +1,34 @@
 import assert from 'node:assert/strict';
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
 after(() => isolatedRuntime.close());
 import path from 'node:path';
 import http from 'node:http';
-import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
-import { getAddressInfo, asObjectArray } from './helpers/dashboard-http.js';
+import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { getAddressInfo, asObjectArray } from './helpers/dashboard-http.ts';
 
-import { ChatMessageQueue } from '../src/status-server/chat-message-queue.js';
-import { ChatSessionOperationRegistry } from '../src/status-server/chat-session-operation-registry.js';
-import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.js';
-import { saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import type { ChatDeliveredMessage, ChatMessageQueueDelivery } from '../src/repo-search/engine/queue-delivery.js';
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
-import { ProgressWriter } from '../src/lib/progress-writer.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { ChatMessageQueue } from '../src/status-server/chat-message-queue.ts';
+import { ChatSessionOperationRegistry } from '../src/status-server/chat-session-operation-registry.ts';
+import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.ts';
+import { saveChatSession, type ChatSession } from '../src/state/chat-sessions.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
+import type { ChatDeliveredMessage, ChatMessageQueueDelivery } from '../src/repo-search/engine/queue-delivery.ts';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import type { JsonSerializable } from '../src/lib/json-types.ts';
+import { ProgressWriter } from '../src/lib/progress-writer.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 function message(id: string, content: string): ChatQueueEnqueueInput {
   return { id, content, images: [], options: { operationKind: 'message' } };

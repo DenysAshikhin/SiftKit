@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { InferenceBackendIdSchema } from './config.js';
-import { JsonDataSchema, JsonObjectSchema } from './primitives.js';
-import { RunOperationTypeSchema } from './operation-types.js';
-import { InferenceThroughputSchema } from './inference-throughput.js';
+import { InferenceBackendIdSchema } from './config.ts';
+import { JsonDataSchema, JsonObjectSchema } from './primitives.ts';
+import { RunOperationTypeSchema } from './operation-types.ts';
+import { InferenceThroughputSchema } from './inference-throughput.ts';
 
 export const RunGroupFilterSchema = z.enum(['', 'summary', 'repo_search', 'planner', 'chat', 'other']);
 export type RunGroupFilter = z.infer<typeof RunGroupFilterSchema>;

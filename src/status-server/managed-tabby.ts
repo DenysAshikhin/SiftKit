@@ -1,16 +1,16 @@
 import { existsSync } from 'node:fs';
 
-import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.js';
+import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.ts';
 import {
   Exl3PresetAdapter,
   type Exl3LaunchEnvironment,
-} from '../inference-presets/exl3-preset-adapter.js';
-import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilities.js';
-import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
-import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
-import type { EngineProcess, ManagedEngineHost } from './engine-process.js';
-import { TabbyModelClient } from './tabby-model-client.js';
-import { TabbyRunRecorder } from './tabby-run-recorder.js';
+} from '../inference-presets/exl3-preset-adapter.ts';
+import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilities.ts';
+import { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
+import type { InferenceRunFlushQueue } from './inference-run-flush-queue.ts';
+import type { EngineProcess, ManagedEngineHost } from './engine-process.ts';
+import { TabbyModelClient } from './tabby-model-client.ts';
+import { TabbyRunRecorder } from './tabby-run-recorder.ts';
 
 const STARTUP_LOG_POLL_INTERVAL_MS = 25;
 
@@ -36,13 +36,22 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private readonly adapter: Exl3PresetAdapter;
   private readonly capabilities: Exl3ModelCapabilities;
 
+  private readonly engine: Exl3EngineConfig;
+  private readonly flushQueue: InferenceRunFlushQueue;
+  private readonly host: ManagedEngineHost;
+  private readonly client: TabbyModelClient;
+
   constructor(
-    private readonly engine: Exl3EngineConfig,
-    private readonly flushQueue: InferenceRunFlushQueue,
-    private readonly host: ManagedEngineHost,
-    private readonly client = new TabbyModelClient(engine.AdminApiKey),
+    engine: Exl3EngineConfig,
+    flushQueue: InferenceRunFlushQueue,
+    host: ManagedEngineHost,
+    client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3');
+    this.client = client;
+    this.engine = engine;
+    this.flushQueue = flushQueue;
+    this.host = host;
     this.adapter = new Exl3PresetAdapter(engine.ModelRoot);
     this.capabilities = new Exl3ModelCapabilities(host.packageLocator);
   }

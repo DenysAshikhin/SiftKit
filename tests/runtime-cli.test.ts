@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { UNSUPPORTED_INPUT_MESSAGE } from '../src/summary/measure.js';
-import { runCli } from '../src/cli/index.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { UNSUPPORTED_INPUT_MESSAGE } from '../src/summary/measure.ts';
+import { runCli } from '../src/cli/index.ts';
+import { makeCaptureStream } from './_test-helpers.ts';
 import {
   fs,
   http,
@@ -12,7 +12,7 @@ import {
   withTempEnv,
   withStubServer,
   withSummaryTestServer,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 test('CLI summary fails closed with the canonical message when the external server is unreachable', async () => {
   await withTempEnv(async () => {

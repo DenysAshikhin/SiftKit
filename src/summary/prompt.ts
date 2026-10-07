@@ -1,12 +1,12 @@
-import { UNSUPPORTED_INPUT_MESSAGE } from './measure.js';
-import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
-import type { PresetSystemContext } from '../preset-system-context.js';
+import { UNSUPPORTED_INPUT_MESSAGE } from './measure.ts';
+import { PresetSystemPromptComposer } from '../preset-system-prompt.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
 import type {
   ChunkPromptContext,
   SummaryPhase,
   SummaryPolicyProfile,
   SummarySourceKind,
-} from './types.js';
+} from './types.ts';
 
 export const PROMPT_PROFILES: Record<SummaryPolicyProfile, string> = {
   general: [

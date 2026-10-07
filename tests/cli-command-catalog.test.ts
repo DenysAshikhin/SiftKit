@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { ResolvedCliArgs } from '../src/cli/args.js';
-import { CLI_COMMAND_CATALOG } from '../src/cli/command-catalog.js';
+import type { ResolvedCliArgs } from '../src/cli/args.ts';
+import { CLI_COMMAND_CATALOG } from '../src/cli/command-catalog.ts';
 
 const RESOLVED_ARGS_FIXTURE = {
   args: ['--question', 'did it pass?'],

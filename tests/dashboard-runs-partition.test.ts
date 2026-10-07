@@ -1,23 +1,23 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { getRuntimeDatabase, closeAllRuntimeDatabases, type RuntimeDatabase } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { getRuntimeDatabase, closeAllRuntimeDatabases, type RuntimeDatabase } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import test from 'node:test';
 
 import {
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
   upsertRunLog,
-} from '../src/status-server/dashboard-runs/artifact-upserts.js';
-import { deleteDashboardRunLogs } from '../src/status-server/dashboard-runs/deletion.js';
-import { queryDashboardRunDetailFromDb, queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.js';
-import { normalizeRunRecordFromDbRow } from '../src/status-server/dashboard-runs/run-records.js';
-import type { RunLogDbRow, RunLogUpsertRow } from '../src/status-server/dashboard-runs/types.js';
+} from '../src/status-server/dashboard-runs/artifact-upserts.ts';
+import { deleteDashboardRunLogs } from '../src/status-server/dashboard-runs/deletion.ts';
+import { queryDashboardRunDetailFromDb, queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.ts';
+import { normalizeRunRecordFromDbRow } from '../src/status-server/dashboard-runs/run-records.ts';
+import type { RunLogDbRow, RunLogUpsertRow } from '../src/status-server/dashboard-runs/types.ts';
 import {
   operationOnlyRunIdentity,
   UNRECORDED_RUN_IDENTITY,
   type RunIdentity,
-} from '../src/status-server/dashboard-runs/run-identity.js';
+} from '../src/status-server/dashboard-runs/run-identity.ts';
 
 type DatabaseInstance = RuntimeDatabase;
 

@@ -1,6 +1,6 @@
 import type { ChatOperationSnapshot } from '@siftkit/contracts';
-import type { ChatMessage } from '../types';
-import type { ChatSessionLive, ChatSessionRuntime, ChatSessionRuntimeStore } from './chat-session-runtime-store';
+import type { ChatMessage } from '../types.ts';
+import type { ChatSessionLive, ChatSessionRuntime, ChatSessionRuntimeStore } from './chat-session-runtime-store.ts';
 
 // Every selector returns a store-owned value or a primitive, so an unchanged store yields an identical slice.
 

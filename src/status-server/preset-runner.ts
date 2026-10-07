@@ -2,41 +2,41 @@ import {
   getConfigPath,
   getConfiguredReasoning,
   type SiftConfig,
-} from '../config/index.js';
+} from '../config/index.ts';
 import type {
   PresetListItem,
   PresetListResult,
   PresetRunRequest,
   PresetRunResult,
-} from '../command-output/types.js';
+} from '../command-output/types.ts';
 import {
   normalizeOperationModeAllowedTools,
   resolvePresetAllowedTools,
   type PresetToolName,
   type PresetKind,
   type SiftPreset,
-} from '../presets.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import type { RepoSearchExecutionResult } from '../repo-search/types.js';
-import type { RepoSearchProgressEvent } from './dashboard-runs.js';
-import type { ChatSession } from '../state/chat-sessions.js';
-import type { SummaryPolicyProfile } from '../summary/types.js';
+} from '../presets.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import type { RepoSearchExecutionResult } from '../repo-search/types.ts';
+import type { RepoSearchProgressEvent } from './dashboard-runs.ts';
+import type { ChatSession } from '../state/chat-sessions.ts';
+import type { SummaryPolicyProfile } from '../summary/types.ts';
 import {
   SUMMARY_PLANNER_TOOL_NAMES,
   type SummaryPlannerToolName as PlannerToolName,
-} from '../planner-protocol/summary-tools.js';
-import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
-import type { ProgressWriter } from '../lib/progress-writer.js';
+} from '../planner-protocol/summary-tools.ts';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.ts';
+import type { ProgressWriter } from '../lib/progress-writer.ts';
 import {
   buildChatSystemContent,
   buildPlanMarkdownFromRepoSearch,
   buildPlanRequestPrompt,
   buildRepoSearchMarkdown,
-} from './chat.js';
-import { readConfig } from './config-store.js';
-import type { StatusEngineService } from './engine-service.js';
-import { normalizeRepoSearchResult } from './repo-search-scorecard-types.js';
-import type { ModelRequestContext } from './model-request-context.js';
+} from './chat.ts';
+import { readConfig } from './config-store.ts';
+import type { StatusEngineService } from './engine-service.ts';
+import { normalizeRepoSearchResult } from './repo-search-scorecard-types.ts';
+import type { ModelRequestContext } from './model-request-context.ts';
 
 type PresetRunOptions = {
   statusBackendUrl: string;
@@ -118,7 +118,11 @@ function getFinalOutput(result: RepoSearchExecutionResult): string {
 }
 
 export class StatusPresetRunner {
-  constructor(private readonly engineService: StatusEngineService) {}
+  private readonly engineService: StatusEngineService;
+
+  constructor(engineService: StatusEngineService) {
+    this.engineService = engineService;
+  }
 
   listPresets(): PresetListResult {
     const presets = getCliPresets();

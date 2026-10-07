@@ -9,16 +9,16 @@ import {
   type OrchestratorRunState,
 } from '@siftkit/contracts';
 
-import { toError } from '../../lib/errors.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
-import { z } from '../../lib/zod.js';
-import { OrchestratorRun } from '../../orchestrator/run.js';
-import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import type { ServerContext } from '../server-types.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
+import { toError } from '../../lib/errors.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.ts';
+import { z } from '../../lib/zod.ts';
+import { OrchestratorRun } from '../../orchestrator/run.ts';
+import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
+import type { ServerContext } from '../server-types.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
 
 const OrchestratorEventsRequestSchema = z.object({
   runId: z.string().uuid(),

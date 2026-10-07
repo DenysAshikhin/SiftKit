@@ -6,7 +6,7 @@ import {
   RepoAgentApprovalSchema,
   RepoAgentApproveDecisionSchema,
   RepoAgentDenyDecisionSchema,
-} from './chat.js';
+} from './chat.ts';
 
 /** Fixed policy: one initial dispatch plus one retry per purpose; not a configurable setting. */
 export const ORCHESTRATOR_MAX_ATTEMPTS = 2;

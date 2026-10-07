@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { SettingsTab } from '../src/tabs/SettingsTab';
+import { SettingsTab } from '../src/tabs/SettingsTab.tsx';
 import {
   ASSISTANT_ACTIONS,
   DASHBOARD_CONFIG,
@@ -14,7 +14,7 @@ import {
   PRESET_ACTIONS,
   TOOL_POLICY_ACTIONS,
   WEB_SEARCH_ACTIONS,
-} from './fixtures';
+} from './fixtures.ts';
 
 type SettingsTabProps = React.ComponentProps<typeof SettingsTab>;
 

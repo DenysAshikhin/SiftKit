@@ -1,6 +1,6 @@
 import { KEY_MATERIAL_SCHEMA_VERSION, type KeyMaterialDto } from '@siftkit/contracts';
 
-import type { AssistantEncryptionKey, AssistantKeyProvider } from './key-provider.js';
+import type { AssistantEncryptionKey, AssistantKeyProvider } from './key-provider.ts';
 
 const KEY_BYTE_LENGTH = 32;
 const NOT_IMPORTED = 'No evidence key has been imported; the desktop shell holds key custody.';

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PresetCatalog } from '../src/preset-catalog.js';
-import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
-import type { ChatSession, ChatSessionMode } from '../src/state/chat-sessions.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.ts';
+import type { ChatSession, ChatSessionMode } from '../src/state/chat-sessions.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
 
 function createSession(presetId: string, mode: ChatSessionMode = 'chat'): ChatSession {
   return {

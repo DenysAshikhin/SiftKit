@@ -4,7 +4,7 @@ import type {
   DashboardPresetKind,
   DashboardPresetOperationMode,
   DashboardPresetToolName,
-} from './types.js';
+} from './types.ts';
 import {
   SUMMARY_PRESET_TOOLS,
   READ_ONLY_PRESET_TOOLS,

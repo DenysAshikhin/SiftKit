@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { initializeRuntime, loadConfig } from '../config/index.js';
-import { summarizeRequest } from '../summary/core.js';
-import { resolveSummaryProvider } from '../summary/types.js';
-import { getDeterministicExcerpt } from '../summary/measure.js';
-import { getSummaryDecision } from '../summary/decision.js';
-import { upsertRuntimeTextArtifact } from '../state/runtime-artifacts.js';
+import { initializeRuntime, loadConfig } from '../config/index.ts';
+import { summarizeRequest } from '../summary/core.ts';
+import { resolveSummaryProvider } from '../summary/types.ts';
+import { getDeterministicExcerpt } from '../summary/measure.ts';
+import { getSummaryDecision } from '../summary/decision.ts';
+import { upsertRuntimeTextArtifact } from '../state/runtime-artifacts.ts';
 import type {
   CommandOutputAnalyzeRequest,
   CommandOutputAnalyzeResult,
   CommandOutputReducerProfile,
-} from './types.js';
+} from './types.ts';
 
 function compressRepeatedLines(lines: string[]): string[] {
   if (lines.length === 0) {

@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { closeRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
-import { getConfigPath } from '../../src/config/index.js';
-import { writeConfig } from '../../src/status-server/config-store.js';
-import { getDefaultServerConfig } from './mock-config.js';
+import { closeRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.ts';
+import { getConfigPath } from '../../src/config/index.ts';
+import { writeConfig } from '../../src/status-server/config-store.ts';
+import { getDefaultServerConfig } from './mock-config.ts';
 
 export function configureDashboardTestEnv(
   tempRoot: string,

@@ -1,14 +1,14 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getActiveModelPreset } from '../src/config/getters.js';
-import type { SiftConfig } from '../src/config/types.js';
-import { requestSse } from './helpers/sse-http.js';
-import { asObject, requestJson } from './helpers/dashboard-http.js';
-import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { RecordingEngineService } from './helpers/recording-engine-service.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import type { SiftConfig } from '../src/config/types.ts';
+import { requestSse } from './helpers/sse-http.ts';
+import { asObject, requestJson } from './helpers/dashboard-http.ts';
+import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
+import { RecordingEngineService } from './helpers/recording-engine-service.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
 
 async function startRoutingHarness(t: TestContext, prefix: string): Promise<{
   harness: DashboardModelQueueHarness;

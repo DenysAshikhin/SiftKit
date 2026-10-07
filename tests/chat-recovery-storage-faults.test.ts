@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
-import { readChatRunMessages } from '../src/state/chat-sessions.js';
-import { rebuildChatRun } from '../src/status-server/chat-run-projection.js';
-import { openSessionDatabase, beginProposedRun, committedKinds, CALL, AT, assertPrefixIntact, SESSION_ID, assertStorageFailureIsFatal } from './helpers/chat-recovery-storage-faults-fixtures.js';
+import { z } from '../src/lib/zod.ts';
+import { readChatRunMessages } from '../src/state/chat-sessions.ts';
+import { rebuildChatRun } from '../src/status-server/chat-run-projection.ts';
+import { openSessionDatabase, beginProposedRun, committedKinds, CALL, AT, assertPrefixIntact, SESSION_ID, assertStorageFailureIsFatal } from './helpers/chat-recovery-storage-faults-fixtures.ts';
 
 test('SQLITE_FULL on a tool result commits nothing and closes the run as a storage failure', () => {
   const { database, databasePath } = openSessionDatabase('chat-storage-full-');

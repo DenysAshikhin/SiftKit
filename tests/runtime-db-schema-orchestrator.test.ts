@@ -3,16 +3,16 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { SiftPresetCollectionSchema } from '@siftkit/contracts';
-import { z } from '../src/lib/zod.js';
-import { CURRENT_SCHEMA_VERSION, closeAllRuntimeDatabases, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
-import { ORCHESTRATOR_RUNS_78_SQL } from '../src/state/schema-upgrades/orchestrator-runs.js';
-import { canonicalRepositoryKey } from '../src/lib/repository-key.js';
+import { z } from '../src/lib/zod.ts';
+import { CURRENT_SCHEMA_VERSION, closeAllRuntimeDatabases, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
+import { ORCHESTRATOR_RUNS_78_SQL } from '../src/state/schema-upgrades/orchestrator-runs.ts';
+import { canonicalRepositoryKey } from '../src/lib/repository-key.ts';
 
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
 const ModelPresetsRowSchema = z.object({ server_model_presets_json: z.string() });

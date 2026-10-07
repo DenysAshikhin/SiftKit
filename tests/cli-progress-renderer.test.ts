@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CliProgressRenderer, SilentProgressRenderer } from '../src/cli/progress-renderer.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { CliProgressRenderer, SilentProgressRenderer } from '../src/cli/progress-renderer.ts';
+import { makeCaptureStream } from './_test-helpers.ts';
 
 test('renders known progress kinds as single stderr lines', () => {
   const stderr = makeCaptureStream();

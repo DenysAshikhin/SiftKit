@@ -1,4 +1,4 @@
-import { findNearestSiftKitRepoRoot, moduleDirname } from '../../src/lib/paths.js';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../../src/lib/paths.ts';
 
 export function getRepoRoot(): string {
   const root = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));

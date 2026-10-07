@@ -1,4 +1,4 @@
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
 export const SENSITIVITIES = [
   'low', 'personal', 'sensitive', 'highly_sensitive', 'secret_prohibited',

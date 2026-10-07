@@ -1,6 +1,6 @@
 import { RepoAgentTurnsInputSchema } from '@siftkit/contracts';
 import { z } from 'zod';
-import type { ChatSession } from '../types';
+import type { ChatSession } from '../types.ts';
 
 export const PLAN_MAX_TURNS_VALIDATION_ERROR = 'Enter a whole number from 1 to 9007199254740991.';
 

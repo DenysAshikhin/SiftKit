@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { normalizeConfigObject } from '../src/config/normalization.js';
-import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { z } from '../src/lib/zod.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { z } from '../src/lib/zod.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 
 const ColumnNameRowsSchema = z.array(z.object({ name: z.string() }));
 const VersionRowSchema = z.object({ version: z.number() });

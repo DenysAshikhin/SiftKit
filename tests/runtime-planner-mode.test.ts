@@ -1,4 +1,4 @@
-import { getActiveModelPreset } from '../src/config/getters.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -22,16 +22,16 @@ import {
   waitForAsyncExpectation,
   getDefaultConfig,
   getPlannerPromptBudget,
-} from './_runtime-helpers.js';
-import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
+} from './_runtime-helpers.ts';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
 import {
   buildPlannerDebugArtifact,
   buildPlannerDebugReference,
   clearSummaryArtifactState,
   createPlannerDebugRecorder,
-} from '../src/summary/artifacts.js';
-import { getStatusArtifactUri } from '../src/state/status-artifacts.js';
-import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.js';
+} from '../src/summary/artifacts.ts';
+import { getStatusArtifactUri } from '../src/state/status-artifacts.ts';
+import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.ts';
 
 interface PlannerDebugEvent {
   kind?: string;

@@ -4,8 +4,8 @@ import {
   RepoAgentTurnsInputSchema,
   type ApprovalMode,
 } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { RepoAgentStartRequestSchema } from '../repo-agent/api-schemas.js';
+import { z } from '../lib/zod.ts';
+import { RepoAgentStartRequestSchema } from '../repo-agent/api-schemas.ts';
 
 export const RepoAgentStartInvocationSchema = z.object({
   kind: z.literal('start'),

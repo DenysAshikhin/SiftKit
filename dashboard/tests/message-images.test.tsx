@@ -1,18 +1,18 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
-import test, { afterEach } from 'node:test';
+import { test, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ImageMetadataSchema, computeImageTargetDimensions } from '@siftkit/contracts';
 
-import { PendingImageStrip } from '../src/components/PendingImageStrip';
-import { MessageImages } from '../src/components/MessageImages';
+import { PendingImageStrip } from '../src/components/PendingImageStrip.tsx';
+import { MessageImages } from '../src/components/MessageImages.tsx';
 import {
   downscaleDataUrl,
-} from '../src/lib/downscale-image';
-import { readImageFile } from '../src/tabs/ChatTab';
-import { fireEvent, render, screen } from './react-test-environment.js';
+} from '../src/lib/downscale-image.ts';
+import { readImageFile } from '../src/tabs/ChatTab.tsx';
+import { fireEvent, render, screen } from './react-test-environment.ts';
 
 const SMALL_PNG = 'data:image/png;base64,AA==';
 const LARGE_PNG = 'data:image/png;base64,AQ==';
@@ -172,7 +172,7 @@ test('the removal notice counts every deleted image', () => {
   assert.match(renderImages([PNG_A], [META], 2), /2 images removed/u);
 });
 
-test('uses a persisted caption without requesting it', { concurrency: false }, async () => {
+test('uses a persisted caption without requesting it', async () => {
   let fetchCalls = 0;
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
@@ -205,7 +205,7 @@ test('uses a persisted caption without requesting it', { concurrency: false }, a
   assert.match(screen.getByText('persisted caption').textContent ?? '', /persisted caption/u);
 });
 
-test('deduplicates caption requests while one request is pending', { concurrency: false }, async () => {
+test('deduplicates caption requests while one request is pending', async () => {
   let resolveResponse: ((response: Response) => void) | null = null;
   let fetchCalls = 0;
   const responsePromise = new Promise<Response>((resolve) => { resolveResponse = resolve; });
@@ -237,7 +237,7 @@ test('deduplicates caption requests while one request is pending', { concurrency
   assert.match((await screen.findByText('fetched caption')).textContent ?? '', /fetched caption/u);
 });
 
-test('shows a caption error without an unhandled rejection', { concurrency: false }, async () => {
+test('shows a caption error without an unhandled rejection', async () => {
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: async () => { throw new Error('caption service unavailable'); },

@@ -1,4 +1,4 @@
-import type { AssistantRuntime } from '../assistant/assistant-service.js';
+import type { AssistantRuntime } from '../assistant/assistant-service.ts';
 import type { SiftPreset } from '@siftkit/contracts';
 
 export interface ChatTurnRecord {
@@ -21,7 +21,11 @@ type AssistantMemoryService = Pick<
  * break a chat turn.
  */
 export class ChatMemorySeam {
-  constructor(private readonly assistant: AssistantMemoryService | null) {}
+  private readonly assistant: AssistantMemoryService | null;
+
+  constructor(assistant: AssistantMemoryService | null) {
+    this.assistant = assistant;
+  }
 
   async buildMemoryContext(preset: SiftPreset, userMessage: string): Promise<string> {
     const assistant = this.assistant;

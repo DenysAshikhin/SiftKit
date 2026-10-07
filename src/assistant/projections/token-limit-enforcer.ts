@@ -1,7 +1,11 @@
-import type { TokenCounter } from '../domain/tokens.js';
+import type { TokenCounter } from '../domain/tokens.ts';
 
 export class TokenLimitEnforcer {
-  constructor(private readonly tokens: TokenCounter) {}
+  private readonly tokens: TokenCounter;
+
+  constructor(tokens: TokenCounter) {
+    this.tokens = tokens;
+  }
 
   async enforce(
     lines: readonly string[],

@@ -4,10 +4,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { OrchestratorCheckResult, OrchestratorVerificationCheck } from '@siftkit/contracts';
-import { evaluateAttempt } from '../src/orchestrator/verification.js';
-import { renderOrchestratorPlan } from '../src/orchestrator/plan.js';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { evaluateAttempt } from '../src/orchestrator/verification.ts';
+import { renderOrchestratorPlan } from '../src/orchestrator/plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const COMMAND = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
 const EVIDENCE: OrchestratorVerificationCheck = { kind: 'evidence', instruction: 'Confirm the install command.', paths: ['README.md'] };

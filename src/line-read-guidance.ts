@@ -1,14 +1,14 @@
-import { getRuntimeDatabase, runtimeDatabaseExists } from './state/runtime-db.js';
+import { getRuntimeDatabase, runtimeDatabaseExists } from './state/runtime-db.ts';
 import Database from 'better-sqlite3';
 
-import type { SiftConfig } from './config/index.js';
-import { getConfiguredContextTokens } from './config/index.js';
-import { getIdleSummarySnapshotsPath } from './config/paths.js';
-import { getPlannerPromptBudget } from './summary/chunking.js';
-import { DEFAULT_MAX_TURNS, TurnBudget } from './repo-search/engine/turn-budget.js';
-import { z } from './lib/zod.js';
-import { parseJsonValueText } from './lib/json.js';
-import { ToolTypeStatsSchema, type ToolTypeStats } from './status-server/metrics.js';
+import type { SiftConfig } from './config/index.ts';
+import { getConfiguredContextTokens } from './config/index.ts';
+import { getIdleSummarySnapshotsPath } from './config/paths.ts';
+import { getPlannerPromptBudget } from './summary/chunking.ts';
+import { DEFAULT_MAX_TURNS, TurnBudget } from './repo-search/engine/turn-budget.ts';
+import { z } from './lib/zod.ts';
+import { parseJsonValueText } from './lib/json.ts';
+import { ToolTypeStatsSchema, type ToolTypeStats } from './status-server/metrics.ts';
 
 const ToolStatsSnapshotRowSchema = z.object({ tool_stats_json: z.string().nullish() });
 

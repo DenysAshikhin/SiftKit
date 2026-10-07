@@ -6,8 +6,8 @@ import {
   asObject,
   asObjectArray,
   requestJson,
-} from './helpers/dashboard-http.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
+} from './helpers/dashboard-http.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
 
 test('config HTTP boundary creates defaults once and rejects invalid persisted catalogs', async () => {
   const fixture = await DashboardTestServer.start('siftkit-config-preset-http-');

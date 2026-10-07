@@ -1,21 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { ChatRunEffectiveSettings } from '@siftkit/contracts';
-import type { SiftConfig } from '../../src/config/types.js';
-import { saveChatSession, type ChatSession } from '../../src/state/chat-sessions.js';
-import { buildChatRunSettings, ChatRunRecorder, type ChatRunRecorderStart } from '../../src/status-server/chat-run-recorder.js';
-import { importChatSessionBaseline } from '../../src/status-server/chat-history-import.js';
-import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.js';
-import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.js';
-import type { ServerContext } from '../../src/status-server/server-types.js';
-import { createTestServerContext } from './server-context-fixture.js';
-import { createTestChatSession } from './chat-sessions.js';
-import { getDefaultConfigObject } from '../../src/config/defaults.js';
-import { mockModelPreset } from './mock-config.js';
-import { createManagedTempDir } from './temp-dirs.js';
-import { resolveModelRequestContext, type ModelRequestContext } from '../../src/status-server/model-request-context.js';
-import { getActiveModelPreset } from '../../src/config/getters.js';
+import type { SiftConfig } from '../../src/config/types.ts';
+import { saveChatSession, type ChatSession } from '../../src/state/chat-sessions.ts';
+import { buildChatRunSettings, ChatRunRecorder, type ChatRunRecorderStart } from '../../src/status-server/chat-run-recorder.ts';
+import { importChatSessionBaseline } from '../../src/status-server/chat-history-import.ts';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.ts';
+import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.ts';
+import type { ServerContext } from '../../src/status-server/server-types.ts';
+import { createTestServerContext } from './server-context-fixture.ts';
+import { createTestChatSession } from './chat-sessions.ts';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import { mockModelPreset } from './mock-config.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
+import { resolveModelRequestContext, type ModelRequestContext } from '../../src/status-server/model-request-context.ts';
+import { getActiveModelPreset } from '../../src/config/getters.ts';
 
 /** The target an inheriting operation resolves to under `config`: its active model. */
 export function currentModelTarget(config: SiftConfig): ModelRequestContext {

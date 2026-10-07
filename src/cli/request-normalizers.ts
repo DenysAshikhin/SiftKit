@@ -1,10 +1,10 @@
-import type { OptionalJsonValue } from '../lib/json-types.js';
+import type { OptionalJsonValue } from '../lib/json-types.ts';
 import type {
   CommandOutputReducerProfile,
   CommandOutputRiskLevel,
-} from '../command-output/types.js';
-import type { ShellName } from '../capture/process.js';
-import type { SummaryPolicyProfile } from '../summary/types.js';
+} from '../command-output/types.ts';
+import type { ShellName } from '../capture/process.ts';
+import type { SummaryPolicyProfile } from '../summary/types.ts';
 
 export function normalizeCliFormat(value: OptionalJsonValue): 'text' | 'json' {
   return value === 'json' ? 'json' : 'text';

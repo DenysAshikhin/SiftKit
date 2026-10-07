@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { IdleSummaryResponseSchema } from '@siftkit/contracts';
-import { normalizeIdleSummarySnapshotRow } from '../src/status-server/dashboard-runs.js';
+import { normalizeIdleSummarySnapshotRow } from '../src/status-server/dashboard-runs.ts';
 
 test('IdleSummaryResponseSchema accepts an empty payload', () => {
   const payload = { latest: null, snapshots: [] };

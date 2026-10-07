@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TemporaryTimingRecorder } from '../src/lib/temporary-timing-recorder.js';
-import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.js';
-import { FAILED_COMMAND_TAIL_CAP_TOKENS } from '../src/repo-search/engine/turn-budget.js';
-import { estimateTokenCount } from '../src/lib/token-estimate.js';
+import { TemporaryTimingRecorder } from '../src/lib/temporary-timing-recorder.ts';
+import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.ts';
+import { FAILED_COMMAND_TAIL_CAP_TOKENS } from '../src/repo-search/engine/turn-budget.ts';
+import { estimateTokenCount } from '../src/lib/token-estimate.ts';
 
 function makeBudgeter(): ToolResultBudgeter {
   // config undefined + useEstimatedTokensOnly -> pure char-based estimates, no HTTP.

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { normalizeConfigObject } from '../src/config/normalization.js';
-import { getPresetFieldAvailability } from '../src/inference-presets/preset-compatibility.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { getPresetFieldAvailability } from '../src/inference-presets/preset-compatibility.ts';
 
 function presetWith(idleAction: string) {
   const base = getDefaultConfigObject();

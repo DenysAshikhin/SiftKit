@@ -1,8 +1,12 @@
-import type { ChatMessage as PlannerChatMessage } from './repo-search/planner-chat-message.js';
+import type { ChatMessage as PlannerChatMessage } from './repo-search/planner-chat-message.ts';
 import type { PersistedChatTranscriptMessage } from '@siftkit/contracts';
 
 export class ThinkingRetentionPolicy {
-  constructor(private readonly maintainPerStepThinking: boolean) {}
+  private readonly maintainPerStepThinking: boolean;
+
+  constructor(maintainPerStepThinking: boolean) {
+    this.maintainPerStepThinking = maintainPerStepThinking;
+  }
 
   prunePersistedMessages(messages: PersistedChatTranscriptMessage[]): PersistedChatTranscriptMessage[] {
     if (this.maintainPerStepThinking) {

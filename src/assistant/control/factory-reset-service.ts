@@ -1,18 +1,18 @@
 import fs from 'node:fs';
 
 import type { AssistantFactoryResetPreview } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { Clock } from '../clock.js';
-import type { KeyCustodyService } from '../crypto/key-custody.js';
-import { assistantEvidenceDir } from '../layout.js';
-import { CountRowSchema } from '../storage/rows.js';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { Clock } from '../clock.ts';
+import type { KeyCustodyService } from '../crypto/key-custody.ts';
+import { assistantEvidenceDir } from '../layout.ts';
+import { CountRowSchema } from '../storage/rows.ts';
 import {
   ASSISTANT_FTS_TABLE_NAMES, ASSISTANT_TABLE_NAMES, GRAPH_VERSION_METADATA_KEY,
   seedAssistantRegistries,
-} from '../storage/schema.js';
-import type { DeletionPreviewService } from './deletion-preview.js';
+} from '../storage/schema.ts';
+import type { DeletionPreviewService } from './deletion-preview.ts';
 
 const BlobStatsRowSchema = z.object({ count: z.number(), bytes: z.number() });
 

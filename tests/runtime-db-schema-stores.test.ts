@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { z } from '../src/lib/zod.js';
-import { getRuntimeDatabase, closeAllRuntimeDatabases, pruneRuntimeHistory } from '../src/state/runtime-db.js';
-import { insertRuntimeErrorEvent } from '../src/state/runtime-error-events.js';
-import { readMetrics } from '../src/status-server/metrics.js';
-import { queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.js';
-import { previewDashboardRunLogDeletion } from '../src/status-server/dashboard-runs/deletion.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { z } from '../src/lib/zod.ts';
+import { getRuntimeDatabase, closeAllRuntimeDatabases, pruneRuntimeHistory } from '../src/state/runtime-db.ts';
+import { insertRuntimeErrorEvent } from '../src/state/runtime-error-events.ts';
+import { readMetrics } from '../src/status-server/metrics.ts';
+import { queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.ts';
+import { previewDashboardRunLogDeletion } from '../src/status-server/dashboard-runs/deletion.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 test('fresh initialization owns run logs and idle snapshots with their current indexes', () => {
   const dbPath = join(createManagedTempDir('siftkit-store-schema-'), 'runtime.sqlite');

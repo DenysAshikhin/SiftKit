@@ -1,15 +1,15 @@
-import { getActiveModelPreset } from '../src/config/getters.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { invokeSummaryCore } from '../src/summary/core-runner.js';
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { invokeSummaryCore } from '../src/summary/core-runner.ts';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 class TempSummaryEnv {
   readonly tempRoot = createManagedTempDir('siftkit-summary-core-runner-');

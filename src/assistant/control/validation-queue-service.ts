@@ -1,9 +1,9 @@
 import type { AssistantValidationCandidateDto } from '@siftkit/contracts';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { normalizeLiteralValue } from '../domain/keys.js';
-import type { CandidatePromoter, PromotionOutcome } from '../ingestion/candidate-promoter.js';
-import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { normalizeLiteralValue } from '../domain/keys.ts';
+import type { CandidatePromoter, PromotionOutcome } from '../ingestion/candidate-promoter.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../errors.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
 
 interface ValidationQueueServiceOptions {
   readonly graph: AssistantGraph;

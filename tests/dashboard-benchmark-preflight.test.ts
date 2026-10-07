@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { createBenchmarkQuestionPreset, createBenchmarkSessionPlan, readBenchmarkSessionDetail, updateBenchmarkAttempt } from '../src/state/dashboard-benchmark.js';
-import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { hasActiveBenchmarkJob, startBenchmarkJob } from '../src/status-server/dashboard-benchmark-runner.js';
-import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
-import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
-import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { createBenchmarkQuestionPreset, createBenchmarkSessionPlan, readBenchmarkSessionDetail, updateBenchmarkAttempt } from '../src/state/dashboard-benchmark.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { hasActiveBenchmarkJob, startBenchmarkJob } from '../src/status-server/dashboard-benchmark-runner.ts';
+import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
+import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
 
 const retainedPreset = mockModelPreset({ id: 'retained', label: 'Retained EXL3' });
 const { Backend: _backend, ...missingBackendPreset } = retainedPreset;

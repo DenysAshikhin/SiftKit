@@ -9,15 +9,15 @@ import {
   type ModelRuntimePreset,
   type ModelPresetField,
 } from '@siftkit/contracts';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.ts';
 import {
   buildPresetRequestDefaults,
   getExl3CacheModes,
   getPresetFieldAvailability,
   type PresetFieldAvailability,
-} from '../src/inference-presets/preset-compatibility.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/inference-presets/preset-compatibility.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];

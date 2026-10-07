@@ -1,11 +1,11 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SummaryPlannerActionAdapter, type SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.js';
-import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
-import type { AgentLoopResponseContext } from '../src/agent-loop/types.js';
-import { CLEAN_STREAM_STOP, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.js';
+import { SummaryPlannerActionAdapter, type SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.ts';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.ts';
+import type { AgentLoopResponseContext } from '../src/agent-loop/types.ts';
+import { CLEAN_STREAM_STOP, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.ts';
 
 const usage = {
   promptTokens: 1,

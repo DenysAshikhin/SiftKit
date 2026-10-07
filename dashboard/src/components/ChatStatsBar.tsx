@@ -1,8 +1,8 @@
 import React from 'react';
 
-import { formatLiveContextTokens, type LiveContextUsage } from '../lib/contextBar';
-import { formatNumber } from '../lib/format';
-import type { LastTurnTelemetry } from '../lib/format';
+import { formatLiveContextTokens, type LiveContextUsage } from '../lib/contextBar.ts';
+import { formatNumber } from '../lib/format.ts';
+import type { LastTurnTelemetry } from '../lib/format.ts';
 
 export type ChatSessionStats = {
   cacheHitRate: number | null;

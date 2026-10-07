@@ -3,22 +3,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { acquireChildPortLease, writeManagedEngineHost } from './_runtime-helpers.js';
-import type { ManagedEngineHostFixture } from './helpers/managed-engine-fixtures.js';
-import type { FakeTabbyOptions } from './helpers/in-process-tabby.js';
-import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
+import { acquireChildPortLease, writeManagedEngineHost } from './_runtime-helpers.ts';
+import type { ManagedEngineHostFixture } from './helpers/managed-engine-fixtures.ts';
+import type { FakeTabbyOptions } from './helpers/in-process-tabby.ts';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
 
-import { startStatusServer } from '../src/status-server/index.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { getConfigPath, type ModelRuntimePreset } from '../src/config/index.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
-import { asObject, getAddressInfo, requestRawText, type JsonResponse, type RawTextResponse } from './helpers/dashboard-http.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { testHttpAgent } from './helpers/http-agent.js';
-import { buildTabbyUsage } from './helpers/streaming-client.js';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { getConfigPath, type ModelRuntimePreset } from '../src/config/index.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
+import { asObject, getAddressInfo, requestRawText, type JsonResponse, type RawTextResponse } from './helpers/dashboard-http.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
+import { buildTabbyUsage } from './helpers/streaming-client.ts';
 
 // Healthcheck timeout must stay well above realistic localhost round-trip latency under
 // full-suite CPU contention; a sub-100ms timeout made every probe to the freshly-spawned

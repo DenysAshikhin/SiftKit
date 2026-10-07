@@ -1,9 +1,9 @@
 import React from 'react';
-import { MarkdownContent } from '../components/MarkdownContent';
+import { MarkdownContent } from '../components/MarkdownContent.tsx';
 
-import { RUN_LOG_TYPE_PRESETS, normalizeRunLogTypeFilter } from '../run-log-admin';
-import { StatusDot } from '../components/StatusDot';
-import { FilterChips, type FilterChipItem } from '../components/FilterChips';
+import { RUN_LOG_TYPE_PRESETS, normalizeRunLogTypeFilter } from '../run-log-admin.ts';
+import { StatusDot } from '../components/StatusDot.tsx';
+import { FilterChips, type FilterChipItem } from '../components/FilterChips.tsx';
 import {
   extractRunFinalOutput,
   formatDate,
@@ -12,9 +12,9 @@ import {
   formatShortTime,
   normalizeFinalOutputText,
   runGroupLabel,
-} from '../lib/format';
-import type { RepoSearchChatStep } from '../lib/chat-steps';
-import type { RunDetailResponse, RunGroupFilter, RunRecord } from '../types';
+} from '../lib/format.ts';
+import type { RepoSearchChatStep } from '../lib/chat-steps.ts';
+import type { RunDetailResponse, RunGroupFilter, RunRecord } from '../types.ts';
 
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
 const RUN_GROUP_KEYS = ['summary', 'repo_search', 'planner', 'chat', 'other'] as const satisfies readonly RunGroupKey[];

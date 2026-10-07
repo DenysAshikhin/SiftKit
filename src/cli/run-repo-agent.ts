@@ -1,6 +1,6 @@
-import type { RepoAgentInvocation } from './repo-agent-args.js';
-import { RepoAgentCommand } from './repo-agent-command.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
+import type { RepoAgentInvocation } from './repo-agent-args.ts';
+import { RepoAgentCommand } from './repo-agent-command.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
 
 export async function runRepoAgentCli(options: {
   invocation: RepoAgentInvocation;

@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../src/lib/http-client.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
+import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../src/lib/http-client.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
 import {
   MIN_EXPECTED_TOKENS_PER_SECOND,
   assertDeadlineFitsBudget,
   computeRequiredGenerationMs,
-} from '../src/llm-protocol/stream-deadline.js';
-import { buildStreamingTestConfig, contentFrame } from './helpers/streaming-client.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+} from '../src/llm-protocol/stream-deadline.ts';
+import { buildStreamingTestConfig, contentFrame } from './helpers/streaming-client.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 
 test('required generation time is derived from the throughput floor', () => {
   assert.equal(MIN_EXPECTED_TOKENS_PER_SECOND, 20);

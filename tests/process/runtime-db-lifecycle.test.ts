@@ -4,13 +4,13 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import test from 'node:test';
 
-import { z } from '../../src/lib/zod.js';
+import { z } from '../../src/lib/zod.ts';
 import {
   closeAllRuntimeDatabases,
   closeRuntimeDatabase,
   getRuntimeDatabase,
-} from '../../src/state/runtime-db.js';
-import { twoPaths, readValues } from '../helpers/runtime-db-lifecycle-fixtures.js';
+} from '../../src/state/runtime-db.ts';
+import { twoPaths, readValues } from '../helpers/runtime-db-lifecycle-fixtures.ts';
 
 const JournalModeRowSchema = z.object({ journal_mode: z.string() });
 

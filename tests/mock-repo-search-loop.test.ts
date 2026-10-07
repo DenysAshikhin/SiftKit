@@ -3,42 +3,42 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { z } from '../src/lib/zod.js';
-import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
-import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.js';
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { z } from '../src/lib/zod.ts';
+import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.ts';
+import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.ts';
+import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 
 import {
   runTaskLoop,
   buildScorecard,
   type TaskResult,
-} from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
-import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
-import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
-import { POST_LIMIT_ANSWER_SLACK_TURNS, resolvePlannerThinkingFlags } from '../src/repo-search/engine/task-loop-support.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
-import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
-import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { estimateTokenCount, getTokenEstimateCharactersPerToken } from '../src/lib/token-estimate.js';
-import { buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
-import { toProtocolTools } from '../src/providers/inference.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { parseLoggedEvent, plannerLogMessages } from './helpers/logged-events.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { acquireChildPortLease } from './helpers/test-endpoints.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/engine.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.ts';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
+import { TurnBudget } from '../src/repo-search/engine/turn-budget.ts';
+import { POST_LIMIT_ANSWER_SLACK_TURNS, resolvePlannerThinkingFlags } from '../src/repo-search/engine/task-loop-support.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
+import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.ts';
+import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { estimateTokenCount, getTokenEstimateCharactersPerToken } from '../src/lib/token-estimate.ts';
+import { buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.ts';
+import { toProtocolTools } from '../src/providers/inference.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { parseLoggedEvent, plannerLogMessages } from './helpers/logged-events.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { acquireChildPortLease } from './helpers/test-endpoints.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 

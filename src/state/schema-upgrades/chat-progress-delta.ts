@@ -1,8 +1,8 @@
-import { z } from '../../lib/zod.js';
-import { stableStringify } from '../../lib/json.js';
-import { digestStableJson } from '../../lib/json-digest.js';
-import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../database-handle.js';
+import { z } from '../../lib/zod.ts';
+import { stableStringify } from '../../lib/json.ts';
+import { digestStableJson } from '../../lib/json-digest.ts';
+import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
 
 /** Both progress shapes a marker-73 file can hold: the pre-batching whole-text payload and the delta that replaced it. Migration-only. */
 const ProgressBodySchema = z.strictObject({

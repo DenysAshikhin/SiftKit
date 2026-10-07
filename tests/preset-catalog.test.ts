@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { SiftPreset } from '@siftkit/contracts';
-import { PresetCatalog } from '../src/preset-catalog.js';
+import { PresetCatalog } from '../src/preset-catalog.ts';
 
 function customPreset(
   base: SiftPreset,

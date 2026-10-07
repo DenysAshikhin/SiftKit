@@ -1,9 +1,9 @@
-import type { ChatMessageQueueStore } from '../state/chat-message-queue.js';
-import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
+import type { ChatMessageQueueStore } from '../state/chat-message-queue.ts';
+import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.ts';
 import type { ChatMessageQueueState, ChatQueueOperationKind } from '@siftkit/contracts';
-import type { TranscriptManager } from '../repo-search/engine/transcript-manager.js';
-import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
-import type { ChatRunRecorder } from './chat-run-recorder.js';
+import type { TranscriptManager } from '../repo-search/engine/transcript-manager.ts';
+import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.ts';
+import type { ChatRunRecorder } from './chat-run-recorder.ts';
 
 type QueueDeliveryOptions = {
   recorder: ChatRunRecorder;
@@ -22,7 +22,13 @@ export interface ChatQueueSubscriber {
 export class ChatMessageQueue {
   private readonly channels = new Map<string, Set<ChatQueueSubscriber>>();
 
-  constructor(readonly store: ChatMessageQueueStore, private readonly operations: ChatSessionOperationRegistry) {}
+  readonly store: ChatMessageQueueStore;
+  private readonly operations: ChatSessionOperationRegistry;
+
+  constructor(store: ChatMessageQueueStore, operations: ChatSessionOperationRegistry) {
+    this.store = store;
+    this.operations = operations;
+  }
 
   state(sessionId: string): ChatMessageQueueState {
     const active = this.operations.getActiveOperation(sessionId);
@@ -65,10 +71,16 @@ export class ChatMessageQueue {
 }
 
 class SessionChatMessageQueueDelivery implements ChatMessageQueueDelivery {
+  private readonly owner: ChatMessageQueue;
+  private readonly options: QueueDeliveryOptions;
+
   constructor(
-    private readonly owner: ChatMessageQueue,
-    private readonly options: QueueDeliveryOptions,
-  ) {}
+    owner: ChatMessageQueue,
+    options: QueueDeliveryOptions,
+  ) {
+    this.owner = owner;
+    this.options = options;
+  }
 
   initial() {
     if (!this.options.forceId) return [];

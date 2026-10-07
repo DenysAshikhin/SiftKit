@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TASK_END_REASONS, TaskEndReasonSchema } from '../src/repo-search/engine/task-loop-support.js';
-import { buildScorecard } from '../src/repo-search/engine.js';
-import { buildMockTaskResult } from './_test-helpers.js';
+import { TASK_END_REASONS, TaskEndReasonSchema } from '../src/repo-search/engine/task-loop-support.ts';
+import { buildScorecard } from '../src/repo-search/engine.ts';
+import { buildMockTaskResult } from './_test-helpers.ts';
 
 test('TASK_END_REASONS lists every reason the loop can assign', () => {
   assert.deepEqual([...TASK_END_REASONS].sort(), [

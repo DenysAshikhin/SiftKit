@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EntityResolver } from '../src/assistant/graph/entity-resolver.js';
-import { AuditStore } from '../src/assistant/storage/audit-store.js';
-import { NodeStore } from '../src/assistant/storage/node-store.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { EntityResolver } from '../src/assistant/graph/entity-resolver.ts';
+import { AuditStore } from '../src/assistant/storage/audit-store.ts';
+import { NodeStore } from '../src/assistant/storage/node-store.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 interface ResolverHarness {
   readonly resolver: EntityResolver;

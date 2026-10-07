@@ -6,12 +6,12 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
-import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import type { ModelRequestQueueDiagnostics } from '../src/lib/operation-stream.js';
-import { readStatusModelRequests } from './helpers/model-request-status.js';
-import { readChatStream } from './helpers/chat-stream-views.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
+import { requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.ts';
+import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
+import type { ModelRequestQueueDiagnostics } from '../src/lib/operation-stream.ts';
+import { readStatusModelRequests } from './helpers/model-request-status.ts';
+import { readChatStream } from './helpers/chat-stream-views.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
 
 test('DashboardModelQueueHarness validates options before acquiring process resources', () => {
   const previousCwd = process.cwd();

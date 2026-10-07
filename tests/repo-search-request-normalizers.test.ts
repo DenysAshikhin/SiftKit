@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeRepoSearchMockCommandResults } from '../src/status-server/repo-search-request-normalizers.js';
+import { normalizeRepoSearchMockCommandResults } from '../src/status-server/repo-search-request-normalizers.ts';
 
 test('returns undefined for non-object inputs', () => {
   assert.equal(normalizeRepoSearchMockCommandResults(null), undefined);

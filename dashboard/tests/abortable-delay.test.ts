@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
-import test from 'node:test';
-import { waitForAbortableDelay } from '../src/lib/abortable-delay';
+import { test } from 'vitest';
+import { waitForAbortableDelay } from '../src/lib/abortable-delay.ts';
 
 test('abortable delay removes its listener after its timer settles', async () => {
   const controller = new AbortController();

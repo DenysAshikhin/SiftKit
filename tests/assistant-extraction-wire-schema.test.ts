@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { z } from '../src/lib/zod.js';
-import { CandidateObjectRefSchema } from '../src/assistant/domain/keys.js';
-import { ImageExtractionSchema } from '../src/assistant/images/image-extractor.js';
-import { ConversationExtractionSchema } from '../src/assistant/ingestion/conversation-extractor.js';
+import { z } from '../src/lib/zod.ts';
+import { CandidateObjectRefSchema } from '../src/assistant/domain/keys.ts';
+import { ImageExtractionSchema } from '../src/assistant/images/image-extractor.ts';
+import { ConversationExtractionSchema } from '../src/assistant/ingestion/conversation-extractor.ts';
 
 function schemaText<T>(schema: z.ZodType<T>): string {
   return JSON.stringify(z.toJSONSchema(schema));

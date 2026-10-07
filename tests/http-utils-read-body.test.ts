@@ -5,8 +5,8 @@ import http from 'node:http';
 import {
   RequestBodyTooLargeError,
   readBody,
-} from '../src/status-server/http-utils.js';
-import { testHttpAgent } from './helpers/http-agent.js';
+} from '../src/status-server/http-utils.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
 
 type ReadOutcome = { ok: true; text: string } | { ok: false; error: Error };
 

@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
 import {
   ApprovalGate,
   DEFAULT_DECISION_TIMEOUT_MS,
   buildApprovalTimeoutMessage,
   type ApprovalDecision,
   type HumanApprovalRequester,
-} from '../src/repo-search/engine/approval-gate.js';
-import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
+} from '../src/repo-search/engine/approval-gate.ts';
+import { ApprovalGateHarness } from './helpers/approval-gate-harness.ts';
 
 class CollectingWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
   /** Every test here drives the gate, whose only event kind is approval_request. */
@@ -367,7 +367,11 @@ class RecordingObserver {
 }
 
 class ThrowingObserver {
-  constructor(private readonly failingHook: 'decision' | 'timeout') {}
+  private readonly failingHook: 'decision' | 'timeout';
+
+  constructor(failingHook: 'decision' | 'timeout') {
+    this.failingHook = failingHook;
+  }
 
   onDecision(): void {
     if (this.failingHook === 'decision') {

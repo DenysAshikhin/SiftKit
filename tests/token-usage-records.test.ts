@@ -1,9 +1,9 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import { foldTurnTokenRecords } from '../src/repo-search/engine/turn-token-record.js';
+import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.ts';
+import { foldTurnTokenRecords } from '../src/repo-search/engine/turn-token-record.ts';
 
 test('tracker retains one record per turn and snapshot equals the fold of those records', async () => {
   const tracker = new TokenUsageTracker(undefined, true);

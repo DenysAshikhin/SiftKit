@@ -1,9 +1,9 @@
-import { togglePresetTool } from '../preset-editor';
+import { togglePresetTool } from '../preset-editor.ts';
 import type {
   DashboardOperationModeAllowedTools,
   DashboardPresetOperationMode,
   DashboardPresetToolName,
-} from '../types';
+} from '../types.ts';
 
 export const TOOL_POLICY_GROUPS = [
   { title: 'Text & JSON', tools: ['find_text', 'read_lines', 'json_filter', 'json_get'] },

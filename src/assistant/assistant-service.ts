@@ -1,4 +1,4 @@
-import type { RuntimeDatabase } from '../state/runtime-db.js';
+import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import type {
   ActivityEventDto,
   AssistantBackgroundWorkDecisionDto,
@@ -19,72 +19,72 @@ import type {
   SuppressionAuditDto,
 } from '@siftkit/contracts';
 import { PENDING_CAPTURE_LIST_STATES, PENDING_CAPTURE_STATES } from '@siftkit/contracts';
-import type { AssistantConfig } from '../config/types.js';
-import { AssistantGraph } from './assistant-graph.js';
-import type { Clock } from './clock.js';
-import { AssistantConflictError, AssistantNotFoundError } from './errors.js';
-import type { DataProtector } from './crypto/dpapi.js';
-import { ImportedKeyProvider } from './crypto/imported-key-provider.js';
+import type { AssistantConfig } from '../config/types.ts';
+import { AssistantGraph } from './assistant-graph.ts';
+import type { Clock } from './clock.ts';
+import { AssistantConflictError, AssistantNotFoundError } from './errors.ts';
+import type { DataProtector } from './crypto/dpapi.ts';
+import { ImportedKeyProvider } from './crypto/imported-key-provider.ts';
 import {
   CustodyDelegatingKeyProvider, KeyCustodyService, type AssistantCustodyConfigPort,
-} from './crypto/key-custody.js';
-import { FileKeyProvider } from './crypto/key-provider.js';
-import { assistantKeyFile } from './layout.js';
-import { SecretScanner } from './domain/secrets.js';
-import type { TokenCounter } from './domain/tokens.js';
-import type { IdGenerator } from './ids.js';
-import type { AssistantInferenceClient } from './inference/client.js';
-import { StructuredOutputRunner } from './inference/structured-runner.js';
-import { CandidateGate } from './ingestion/candidate-gate.js';
-import { CandidatePromoter } from './ingestion/candidate-promoter.js';
-import { CandidateConsolidator } from './ingestion/consolidator.js';
-import { ConversationExtractor } from './ingestion/conversation-extractor.js';
-import { ConversationIngestor, type ChatTurnInput } from './ingestion/conversation-ingestor.js';
-import { IngestionPipeline } from './ingestion/pipeline.js';
+} from './crypto/key-custody.ts';
+import { FileKeyProvider } from './crypto/key-provider.ts';
+import { assistantKeyFile } from './layout.ts';
+import { SecretScanner } from './domain/secrets.ts';
+import type { TokenCounter } from './domain/tokens.ts';
+import type { IdGenerator } from './ids.ts';
+import type { AssistantInferenceClient } from './inference/client.ts';
+import { StructuredOutputRunner } from './inference/structured-runner.ts';
+import { CandidateGate } from './ingestion/candidate-gate.ts';
+import { CandidatePromoter } from './ingestion/candidate-promoter.ts';
+import { CandidateConsolidator } from './ingestion/consolidator.ts';
+import { ConversationExtractor } from './ingestion/conversation-extractor.ts';
+import { ConversationIngestor, type ChatTurnInput } from './ingestion/conversation-ingestor.ts';
+import { IngestionPipeline } from './ingestion/pipeline.ts';
 import {
   AssistantJobRunner, type InteractivityGate, type ModelResidencyGate,
-} from './jobs/job-runner.js';
-import { AssistantResourcePolicy } from './jobs/resource-policy.js';
-import { EnvelopeVerifier, type EnvelopeVerdict } from './mobile/envelope-verifier.js';
-import { CaptureQueueStore } from './images/capture-queue-store.js';
-import { CaptureRetentionService } from './images/capture-retention.js';
+} from './jobs/job-runner.ts';
+import { AssistantResourcePolicy } from './jobs/resource-policy.ts';
+import { EnvelopeVerifier, type EnvelopeVerdict } from './mobile/envelope-verifier.ts';
+import { CaptureQueueStore } from './images/capture-queue-store.ts';
+import { CaptureRetentionService } from './images/capture-retention.ts';
 import {
   UnavailableImageCapabilityProvider, isUsableCapability,
   type AssistantImageCapabilityProvider,
-} from './images/image-capability.js';
-import { ImageExtractor } from './images/image-extractor.js';
-import { ActivityLog } from './observation/activity-log.js';
-import { CaptureIntake, type CaptureOutcome } from './observation/capture-intake.js';
+} from './images/image-capability.ts';
+import { ImageExtractor } from './images/image-extractor.ts';
+import { ActivityLog } from './observation/activity-log.ts';
+import { CaptureIntake, type CaptureOutcome } from './observation/capture-intake.ts';
 import {
   DesktopEnvironmentCache, type DesktopInputIdle,
-} from './observation/environment-cache.js';
-import { ProjectionCompiler } from './projections/projection-compiler.js';
-import { ProjectionSummarizer } from './projections/projection-summarizer.js';
-import { MemoryRetriever, type RetrieveResult } from './retrieval/memory-retriever.js';
-import { GraphQuestionCandidateSource } from './questions/candidates.js';
-import { QuestionPlanner } from './questions/planner.js';
+} from './observation/environment-cache.ts';
+import { ProjectionCompiler } from './projections/projection-compiler.ts';
+import { ProjectionSummarizer } from './projections/projection-summarizer.ts';
+import { MemoryRetriever, type RetrieveResult } from './retrieval/memory-retriever.ts';
+import { GraphQuestionCandidateSource } from './questions/candidates.ts';
+import { QuestionPlanner } from './questions/planner.ts';
 import {
   GraphQuestionPolicyContext, QuestionPolicyEngine,
-} from './questions/policy-engine.js';
-import { QuestionScheduler } from './questions/scheduler.js';
-import { QuestionAnswerIngestor } from './questions/answer-ingestor.js';
-import { QuestionFeedbackService, type AssistantQuestionConfigWriter } from './questions/feedback-service.js';
-import { BackupService } from './control/backup-service.js';
-import { DeletionPreviewService } from './control/deletion-preview.js';
-import { ExportService } from './control/export-service.js';
-import { FactoryResetService } from './control/factory-reset-service.js';
+} from './questions/policy-engine.ts';
+import { QuestionScheduler } from './questions/scheduler.ts';
+import { QuestionAnswerIngestor } from './questions/answer-ingestor.ts';
+import { QuestionFeedbackService, type AssistantQuestionConfigWriter } from './questions/feedback-service.ts';
+import { BackupService } from './control/backup-service.ts';
+import { DeletionPreviewService } from './control/deletion-preview.ts';
+import { ExportService } from './control/export-service.ts';
+import { FactoryResetService } from './control/factory-reset-service.ts';
 import {
   GraphCleanupService,
   type GraphCleanupOptions,
-} from './control/graph-cleanup-service.js';
-import { MemoryQueryService } from './control/memory-query-service.js';
-import { MemoryMutationService } from './control/memory-mutation-service.js';
-import { PolicyControlService } from './control/policy-control-service.js';
-import { RestoreService } from './control/restore-service.js';
-import { ValidationQueueService } from './control/validation-queue-service.js';
-import { normalizeAliasText } from './domain/keys.js';
-import { OWNER_PRONOUN_ALIASES } from './domain/owner-identity.js';
-import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
+} from './control/graph-cleanup-service.ts';
+import { MemoryQueryService } from './control/memory-query-service.ts';
+import { MemoryMutationService } from './control/memory-mutation-service.ts';
+import { PolicyControlService } from './control/policy-control-service.ts';
+import { RestoreService } from './control/restore-service.ts';
+import { ValidationQueueService } from './control/validation-queue-service.ts';
+import { normalizeAliasText } from './domain/keys.ts';
+import { OWNER_PRONOUN_ALIASES } from './domain/owner-identity.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.ts';
 
 /** The closed set of desktop-shell payloads whose contract rejections are audited. */
 export type DesktopPayloadKind =
@@ -103,7 +103,11 @@ class RouteOnlyQuestionConfigWriter implements AssistantQuestionConfigWriter {
 
 /** Reads the live custody mode off the service and persists a flip through the durable writer. */
 class ServiceCustodyConfigPort implements AssistantCustodyConfigPort {
-  constructor(private readonly service: AssistantService) {}
+  private readonly service: AssistantService;
+
+  constructor(service: AssistantService) {
+    this.service = service;
+  }
 
   readCustody(): KeyCustody {
     return this.service.config.KeyCustody;

@@ -7,10 +7,10 @@ import {
   buildRepoToolRequestedCommand,
   buildEffectiveTranscriptAction,
   executeRepoTool,
-} from '../../src/repo-search/engine/repo-tools.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../../src/repo-search/engine/runtime-profile.js';
-import { makeContext, makeRepo, nativeCall } from '../helpers/repo-tools-fixtures.js';
-import { fingerprintToolCall } from '../../src/tool-loop-governor.js';
+} from '../../src/repo-search/engine/repo-tools.ts';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../../src/repo-search/engine/runtime-profile.ts';
+import { makeContext, makeRepo, nativeCall } from '../helpers/repo-tools-fixtures.ts';
+import { fingerprintToolCall } from '../../src/tool-loop-governor.ts';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 

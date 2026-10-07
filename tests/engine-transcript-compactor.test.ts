@@ -7,24 +7,24 @@ import { z } from 'zod';
 import {
   COMPACTION_SUMMARY_MARKER,
   TranscriptCompactor,
-} from '../src/repo-search/engine/transcript-compactor.js';
-import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.js';
-import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import { COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS, TurnBudget } from '../src/repo-search/engine/turn-budget.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
+} from '../src/repo-search/engine/transcript-compactor.ts';
+import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.ts';
+import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.ts';
+import { COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS, TurnBudget } from '../src/repo-search/engine/turn-budget.ts';
+import type { JsonSerializable } from '../src/lib/json-types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
 import {
   resolveRepoSearchPlannerToolDefinitions,
-} from '../src/repo-search/planner-protocol.js';
-import { findPlannerContextViolation, type ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
-import { toProtocolTools } from '../src/providers/inference.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
+} from '../src/repo-search/planner-protocol.ts';
+import { findPlannerContextViolation, type ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
+import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
+import { toProtocolTools } from '../src/providers/inference.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
 
 const PLANNER_TOOLS = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
 const NEW_EPOCH = {

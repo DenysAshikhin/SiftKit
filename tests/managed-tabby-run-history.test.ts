@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
-import { listInferenceRuns, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
-import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
-import { writeFakeEngineHost } from './helpers/tabby-fake.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
+import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
+import { listInferenceRuns, readInferenceRunLogTextByStream } from '../src/state/inference-runs.ts';
+import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
+import { writeFakeEngineHost } from './helpers/tabby-fake.ts';
 
 const ENTRYPOINT = 'tabby-main.py';
 

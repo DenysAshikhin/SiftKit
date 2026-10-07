@@ -7,10 +7,10 @@ import {
   ApprovalModeSchema,
 } from '@siftkit/contracts';
 
-import { z } from '../lib/zod.js';
-import { RepoSearchMockCommandResultSchema } from '../repo-search/types.js';
-import { RepoAgentRunIdSchema } from './run-schemas.js';
-import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.js';
+import { z } from '../lib/zod.ts';
+import { RepoSearchMockCommandResultSchema } from '../repo-search/types.ts';
+import { RepoAgentRunIdSchema } from './run-schemas.ts';
+import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.ts';
 
 export const RepoAgentStartRequestSchema = z.strictObject({
   prompt: z.string().trim().min(1),

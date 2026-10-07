@@ -1,11 +1,11 @@
 import { inspect } from 'node:util';
-import type { JsonSerializable } from '../lib/json-types.js';
+import type { JsonSerializable } from '../lib/json-types.ts';
 import {
   normalizeCliReducerProfile,
   normalizeCliRiskLevel,
-} from './request-normalizers.js';
-import { parseOptionalSummaryProvider } from '../summary/types.js';
-import type { SummaryProviderId } from '../summary/types.js';
+} from './request-normalizers.ts';
+import { parseOptionalSummaryProvider } from '../summary/types.ts';
+import type { SummaryProviderId } from '../summary/types.ts';
 
 /** Canonical repo-search synopsis — single source for `help` and `repo-search --help`. */
 export const REPO_SEARCH_SYNOPSIS =

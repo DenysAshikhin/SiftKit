@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
-import { RepoAgentTurnsControl } from '../src/components/RepoAgentTurnsControl';
+import { fireEvent, render as renderComponent, screen } from './react-test-environment.ts';
+import { RepoAgentTurnsControl } from '../src/components/RepoAgentTurnsControl.tsx';
 
 function renderControl(options: {
   defaultMaxTurns?: number;

@@ -11,12 +11,12 @@ import {
   readInferenceRun,
   readInferenceRunLogTextByStream,
   readInferenceRunLogTextStatsByStream,
-} from '../src/state/inference-runs.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
+} from '../src/state/inference-runs.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
 
 // SQLite .get()/.all() return `unknown`; narrow to JsonObject at the boundary.
 function asRow<T>(value: T): JsonObject {

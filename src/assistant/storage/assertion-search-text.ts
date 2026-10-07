@@ -1,8 +1,8 @@
-import { parseJsonValueText } from '../../lib/json.js';
-import { normalizeLiteralValue } from '../domain/keys.js';
-import type { AssertionSearchText } from './assertion-store.js';
-import type { NodeStore } from './node-store.js';
-import type { AssertionRow } from './rows.js';
+import { parseJsonValueText } from '../../lib/json.ts';
+import { normalizeLiteralValue } from '../domain/keys.ts';
+import type { AssertionSearchText } from './assertion-store.ts';
+import type { NodeStore } from './node-store.ts';
+import type { AssertionRow } from './rows.ts';
 
 /**
  * Renders a literal-object assertion's object text from its stored value. The single derivation

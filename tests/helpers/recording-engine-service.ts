@@ -1,8 +1,8 @@
-import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../../src/repo-search/types.js';
-import type { SummaryRequest, SummaryResult } from '../../src/summary/types.js';
-import { StatusEngineService } from '../../src/status-server/engine-service.js';
-import { getActiveModelPreset } from '../../src/config/getters.js';
-import type { SiftConfig } from '../../src/config/types.js';
+import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../../src/repo-search/types.ts';
+import type { SummaryRequest, SummaryResult } from '../../src/summary/types.ts';
+import { StatusEngineService } from '../../src/status-server/engine-service.ts';
+import { getActiveModelPreset } from '../../src/config/getters.ts';
+import type { SiftConfig } from '../../src/config/types.ts';
 
 /** One engine call in execution order: its prompt or question, and the model profile it ran on. */
 export type RecordedExecution = { text: string; modelPresetId: string | null };

@@ -1,10 +1,10 @@
-import { countRenders } from './render-tracker.js';
-import { render } from './react-test-environment.js';
-import test from 'node:test';
+import { countRenders } from './render-tracker.ts';
+import { render } from './react-test-environment.ts';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MarkdownBlocks, MarkdownContent } from '../src/components/MarkdownContent';
+import { MarkdownBlocks, MarkdownContent } from '../src/components/MarkdownContent.tsx';
 
 /** Blocks drop only the insignificant newline text nodes a whole-document render puts between block elements. */
 function withoutInterBlockNewlines(html: string): string {

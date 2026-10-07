@@ -15,8 +15,8 @@ import {
   SiftPresetSchema,
   type OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
-import { PresetCatalog } from '../src/preset-catalog.js';
-import { makeOrchestratorTask } from './helpers/orchestrator-plan.js';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import { makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
 const FINDING = {
   id: 'D1', title: 'Duplicated admission path', purpose: 'One admission path',

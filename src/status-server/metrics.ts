@@ -1,10 +1,10 @@
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import { z } from '../lib/zod.js';
-import { JsonObjectSchema, type JsonValue } from '../lib/json-types.js';
-import { createEmptyToolTypeStats } from '../line-read-guidance.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { emptyInferenceThroughput } from '../lib/inference-throughput.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import { z } from '../lib/zod.ts';
+import { JsonObjectSchema, type JsonValue } from '../lib/json-types.ts';
+import { createEmptyToolTypeStats } from '../line-read-guidance.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { emptyInferenceThroughput } from '../lib/inference-throughput.ts';
 import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 
 

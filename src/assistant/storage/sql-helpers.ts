@@ -1,5 +1,5 @@
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
 
 /** SQLite's default parameter cap is 999; stay far under it per chunk. */
 const ID_CHUNK = 400;

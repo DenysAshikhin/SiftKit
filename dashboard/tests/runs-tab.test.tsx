@@ -1,9 +1,9 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { RunsTab, type RunsTabProps } from '../src/tabs/RunsTab';
-import type { RunRecord, RunDetailResponse } from '../src/types';
+import { RunsTab, type RunsTabProps } from '../src/tabs/RunsTab.tsx';
+import type { RunRecord, RunDetailResponse } from '../src/types.ts';
 
 function makeRun(overrides: Partial<RunRecord>): RunRecord {
   return {

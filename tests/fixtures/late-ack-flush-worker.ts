@@ -10,13 +10,13 @@
  */
 import { parentPort, workerData, Worker } from 'node:worker_threads';
 
-import { z } from '../../src/lib/zod.js';
+import { z } from '../../src/lib/zod.ts';
 import {
   FlushWorkerRequestSchema,
   FlushWorkerResponseSchema,
   type FlushWorkerRequest,
   type FlushWorkerResponse,
-} from '../../src/status-server/inference-run-flush-messages.js';
+} from '../../src/status-server/inference-run-flush-messages.ts';
 
 /** What the queue forwards to this module untouched; only this module reads it, so only it validates it. */
 const LateAckWorkerDataSchema = z.object({

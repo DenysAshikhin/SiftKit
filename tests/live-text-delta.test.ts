@@ -5,7 +5,7 @@ import {
   LIVE_TEXT_FLUSH_MAX_LATENCY_MS,
   LIVE_TEXT_FLUSH_MAX_PENDING_CHARS,
   LiveTextDeltaTracker,
-} from '../src/status-server/live-text-delta.js';
+} from '../src/status-server/live-text-delta.ts';
 
 test('merges contiguous snapshots into one pending delta and flushes on latency', () => {
   const tracker = new LiveTextDeltaTracker();

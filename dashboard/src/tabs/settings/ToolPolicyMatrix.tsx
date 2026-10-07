@@ -1,11 +1,11 @@
 import React from 'react';
-import { buildToolPolicyMatrixRows } from '../../lib/tool-policy-matrix';
-import type { ToolPolicySettingsActions } from '../../settings-action-groups';
+import { buildToolPolicyMatrixRows } from '../../lib/tool-policy-matrix.ts';
+import type { ToolPolicySettingsActions } from '../../settings-action-groups.ts';
 import type {
   DashboardOperationModeAllowedTools,
   DashboardPresetOperationMode,
   DashboardPresetToolName,
-} from '../../types';
+} from '../../types.ts';
 
 const MODE_COLUMNS: { mode: DashboardPresetOperationMode; label: string }[] = [
   { mode: 'summary', label: 'summary' },

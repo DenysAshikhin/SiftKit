@@ -1,6 +1,6 @@
-import type { ModelRuntimePreset } from '../config/types.js';
-import { resumeModelRequestAdmission } from './server-ops.js';
-import type { ServerContext } from './server-types.js';
+import type { ModelRuntimePreset } from '../config/types.ts';
+import { resumeModelRequestAdmission } from './server-ops.ts';
+import type { ServerContext } from './server-types.ts';
 
 export class ModelIdleController {
   private timer: NodeJS.Timeout | null = null;
@@ -8,7 +8,11 @@ export class ModelIdleController {
   private idleAction: 'unload' | null = null;
   private deadlineUtc: string | null = null;
 
-  constructor(private readonly ctx: ServerContext) {}
+  private readonly ctx: ServerContext;
+
+  constructor(ctx: ServerContext) {
+    this.ctx = ctx;
+  }
 
   clearForIncomingRequest(): void {
     this.clear();

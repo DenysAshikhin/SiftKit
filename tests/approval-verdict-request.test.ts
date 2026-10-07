@@ -4,20 +4,20 @@ import fs from 'node:fs';
 import {
   requestApprovalVerdict,
   type ExecutingPlannerRequest,
-} from '../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
-import { buildApprovalVerdictJsonSchema } from '../src/repo-search/approval-verdict.js';
+} from '../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { TaskLoop } from '../src/repo-search/engine/task-loop.ts';
+import { buildApprovalVerdictJsonSchema } from '../src/repo-search/approval-verdict.ts';
 import { ApprovalModeSchema } from '@siftkit/contracts';
-import { RepoSearchApprovalRequestSchema } from '../src/repo-search/engine/approval-gate.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { RepoSearchApprovalRequestSchema } from '../src/repo-search/engine/approval-gate.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.

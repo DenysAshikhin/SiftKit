@@ -1,10 +1,10 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import React, { act, Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { LiveStreamedText, STREAM_ADVANCE_INTERVAL_MS, type StreamFormat } from '../src/components/LiveStreamedText';
+import { LiveStreamedText, STREAM_ADVANCE_INTERVAL_MS, type StreamFormat } from '../src/components/LiveStreamedText.tsx';
 
 type Harness = {
   container: HTMLElement;

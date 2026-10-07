@@ -1,11 +1,11 @@
-import type { IgnorePolicy } from '../command-safety.js';
-import type { GitToolArgs } from '../repo-tool-arguments.js';
-import { spawnDirectCommand } from '../../lib/command-spawn.js';
+import type { IgnorePolicy } from '../command-safety.ts';
+import type { GitToolArgs } from '../repo-tool-arguments.ts';
+import { spawnDirectCommand } from '../../lib/command-spawn.ts';
 import {
   isRepoRelativePathIgnored,
   resolveRepoScopedPath,
-} from './repo-paths.js';
-import type { RepoToolExecution } from './repo-tools.js';
+} from './repo-paths.ts';
+import type { RepoToolExecution } from './repo-tools.ts';
 
 export const SAFE_GIT_BASE_ARGS = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=', '--no-optional-locks'];
 const DIFF_SAFETY_ARGS = ['--no-ext-diff', '--no-textconv'];

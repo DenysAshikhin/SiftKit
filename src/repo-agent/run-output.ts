@@ -1,7 +1,7 @@
-import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
-import type { RepoSearchExecutionResult } from '../repo-search/types.js';
-import { taskPassed } from '../repo-search/engine/task-loop-support.js';
-import { z } from '../lib/zod.js';
+import { RepoSearchOutputFormatter } from '../repo-search/output-format.ts';
+import type { RepoSearchExecutionResult } from '../repo-search/types.ts';
+import { taskPassed } from '../repo-search/engine/task-loop-support.ts';
+import { z } from '../lib/zod.ts';
 
 export const RepoAgentExecutionOutcomeSchema = z.discriminatedUnion('status', [
   z.strictObject({ status: z.literal('completed'), output: z.string() }),

@@ -3,7 +3,7 @@ import { useId, useState } from 'react';
 import {
   PLAN_MAX_TURNS_VALIDATION_ERROR,
   PlanMaxTurnsOverrideSchema,
-} from '../lib/chat-composer-inputs';
+} from '../lib/chat-composer-inputs.ts';
 
 export function RepoAgentTurnsControl(props: {
   value: string;

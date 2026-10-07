@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getActiveModelPreset, getConfiguredEngineNumCtx } from '../src/config/getters.js';
-import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
+import { getActiveModelPreset, getConfiguredEngineNumCtx } from '../src/config/getters.ts';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -10,33 +10,33 @@ import {
   readChatSessionFromPath,
   getChatSessionPath,
   deleteChatSession,
-} from '../src/state/chat-sessions.js';
-import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
+} from '../src/state/chat-sessions.ts';
+import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.ts';
 import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
-import { condenseChatSession } from '../src/status-server/chat.js';
-import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
-import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase, runtimeDatabaseExists } from '../src/state/runtime-db.js';
-import { ChatToolResultsError } from '../src/status-server/chat-tool-results.js';
-import { JsonValueSchema } from '../src/lib/json-types.js';
-import { z } from '../src/lib/zod.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
+import { condenseChatSession } from '../src/status-server/chat.ts';
+import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.ts';
+import type { JsonSerializable } from '../src/lib/json-types.ts';
+import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase, runtimeDatabaseExists } from '../src/state/runtime-db.ts';
+import { ChatToolResultsError } from '../src/status-server/chat-tool-results.ts';
+import { JsonValueSchema } from '../src/lib/json-types.ts';
+import { z } from '../src/lib/zod.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.ts';
 
 const TYPED_THROUGHPUT = readTabbyThroughput({ usage: {
   prompt_tokens: 12, prompt_tokens_details: { cached_tokens: 2 },
   prompt_time: 0.04, prompt_tokens_per_sec: 250,
   completion_tokens: 5, completion_time: 0.05, completion_tokens_per_sec: 100,
 } });
-import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.js';
+import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.ts';
 import {
   LEGACY_FIXTURE_SESSION_ID,
   readChatMessageRows,
   seedLegacyChatDatabase,
-} from './helpers/legacy-chat-schema-fixture.js';
-import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+} from './helpers/legacy-chat-schema-fixture.ts';
+import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 

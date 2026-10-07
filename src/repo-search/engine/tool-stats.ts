@@ -1,5 +1,5 @@
-import { createEmptyToolTypeStats } from '../../line-read-guidance.js';
-import type { ToolTypeStats } from '../../status-server/metrics.js';
+import { createEmptyToolTypeStats } from '../../line-read-guidance.ts';
+import type { ToolTypeStats } from '../../status-server/metrics.ts';
 
 export type ToolCallStatsInput = {
   toolType: string;

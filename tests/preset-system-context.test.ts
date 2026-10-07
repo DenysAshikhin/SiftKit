@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { after, beforeEach } from 'node:test';
 
-import { PresetSystemContextBuilder } from '../src/preset-system-context.js';
+import { PresetSystemContextBuilder } from '../src/preset-system-context.ts';
 
 const TEST_ROOT = join(tmpdir(), `siftkit-preset-system-context-${process.pid}`);
 const REPO_ROOT = join(TEST_ROOT, 'repo');

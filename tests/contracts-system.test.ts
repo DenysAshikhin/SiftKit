@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DashboardHealthSchema, WebSearchQuotaResponseSchema, WebSearchProviderIdSchema, ActiveStatusRunSchema } from '@siftkit/contracts';
-import { readWebSearchQuotas } from '../src/status-server/web-search-quota.js';
-import { HttpClient } from '../src/lib/http-client.js';
-import { DEFAULT_WEB_SEARCH_CONFIG } from '../src/status-server/config-store.js';
-import type { WebSearchConfig } from '../src/web-search/types.js';
+import { readWebSearchQuotas } from '../src/status-server/web-search-quota.ts';
+import { HttpClient } from '../src/lib/http-client.ts';
+import { DEFAULT_WEB_SEARCH_CONFIG } from '../src/status-server/config-store.ts';
+import type { WebSearchConfig } from '../src/web-search/types.ts';
 
 // A real HttpClient whose network call always fails, so readWebSearchQuotas takes its
 // catch-fallback path and emits genuine ProviderQuota objects with real provider ids,

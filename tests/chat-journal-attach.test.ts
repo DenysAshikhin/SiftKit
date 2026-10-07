@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.js';
-import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.js';
-import { applyChatProjectionRecords, chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.js';
-import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
-import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.js';
-import { COMPACTION_SUMMARY_MARKER } from '../src/repo-search/engine/transcript-compactor.js';
+import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.ts';
+import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.ts';
+import { applyChatProjectionRecords, chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.ts';
+import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.ts';
+import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.ts';
+import { COMPACTION_SUMMARY_MARKER } from '../src/repo-search/engine/transcript-compactor.ts';
 
 const NO_LIVE_BINDING = { approval: null, question: null, controlOperationId: null, activeOperation: null };
 const TRANSFER_ID = '4f9c1f9a-1111-4000-8000-000000000001';

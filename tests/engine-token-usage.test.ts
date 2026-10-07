@@ -1,5 +1,5 @@
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
@@ -7,17 +7,17 @@ after(() => isolatedRuntime.close());
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
+import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.ts';
 import {
   calculateThroughputRate,
   emptyInferenceThroughput,
   readTabbyThroughput,
-} from '../src/lib/inference-throughput.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { buildScorecard } from '../src/repo-search/engine.js';
-import { buildMockTaskResult } from './_test-helpers.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { mockConfig } from './_runtime-helpers.js';
+} from '../src/lib/inference-throughput.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { buildScorecard } from '../src/repo-search/engine.ts';
+import { buildMockTaskResult } from './_test-helpers.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { mockConfig } from './_runtime-helpers.ts';
 
 async function closeServer(server: http.Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {

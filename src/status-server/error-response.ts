@@ -1,16 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { toError } from '../lib/errors.js';
+import { toError } from '../lib/errors.ts';
 import {
   getPrimaryCauseDiagnostic,
   serializeErrorDiagnostic,
   type ServerErrorPayload,
-} from '../lib/error-diagnostics.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
+} from '../lib/error-diagnostics.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
 import {
   createRuntimeErrorEventId,
   insertRuntimeErrorEvent,
-} from '../state/runtime-error-events.js';
-import { sendJson } from './http-utils.js';
+} from '../state/runtime-error-events.ts';
+import { sendJson } from './http-utils.ts';
 
 export type ServerErrorResponseOptions = {
   taskKind?: string | null;

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { writeManagedEngineLauncher } from '../helpers/managed-engine-fixtures.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.js';
+import { writeManagedEngineLauncher } from '../helpers/managed-engine-fixtures.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.ts';
 
 test('managed engine fixture launches the fake TabbyAPI from the fake venv and exposes lifecycle observation files', async () => {
   const tempRoot = createManagedTempDir('siftkit-managed-launcher-fixture-');

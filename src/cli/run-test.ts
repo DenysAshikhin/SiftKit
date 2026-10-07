@@ -1,6 +1,6 @@
-import { getActiveInferenceBackend, getConfigPath, getConfiguredModel, loadConfig } from '../config/index.js';
-import { getInferenceProviderStatus, listInferenceModels } from '../providers/inference.js';
-import { formatPsList } from './args.js';
+import { getActiveInferenceBackend, getConfigPath, getConfiguredModel, loadConfig } from '../config/index.ts';
+import { getInferenceProviderStatus, listInferenceModels } from '../providers/inference.ts';
+import { formatPsList } from './args.ts';
 
 export type TestResult = {
   Ready: boolean;

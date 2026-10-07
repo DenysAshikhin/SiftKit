@@ -1,15 +1,15 @@
 import type { TestContext } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { getConfigPath } from '../../src/config/index.js';
-import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
-import { writeConfig } from '../../src/status-server/config-store.js';
-import { InferenceRunFlushQueue } from '../../src/status-server/inference-run-flush-queue.js';
-import { getRuntimeRoot } from '../../src/status-server/paths.js';
-import { clearIdleSummaryTimer } from '../../src/status-server/server-ops.js';
-import type { ServerContext } from '../../src/status-server/server-types.js';
-import { createTestServerContext } from './server-context-fixture.js';
-import { IsolatedRuntime } from './isolated-runtime.js';
-import { getDefaultServerConfig } from './mock-config.js';
+import { getConfigPath } from '../../src/config/index.ts';
+import { getRuntimeDatabasePath } from '../../src/state/runtime-db.ts';
+import { writeConfig } from '../../src/status-server/config-store.ts';
+import { InferenceRunFlushQueue } from '../../src/status-server/inference-run-flush-queue.ts';
+import { getRuntimeRoot } from '../../src/status-server/paths.ts';
+import { clearIdleSummaryTimer } from '../../src/status-server/server-ops.ts';
+import type { ServerContext } from '../../src/status-server/server-types.ts';
+import { createTestServerContext } from './server-context-fixture.ts';
+import { IsolatedRuntime } from './isolated-runtime.ts';
+import { getDefaultServerConfig } from './mock-config.ts';
 
 /** A context whose normal drains would wait far longer than any shutdown budget. */
 export function createDeferredContext(t: TestContext, idleDelayMs: number): { ctx: ServerContext; runtime: IsolatedRuntime } {

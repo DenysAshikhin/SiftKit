@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { OptionalJsonValue } from '../src/lib/json-types.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getActiveModelPreset, readConfig } from '../src/status-server/config-store.js';
-import { queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { requestJson, asObjectArray } from './helpers/dashboard-http.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
+import type { OptionalJsonValue } from '../src/lib/json-types.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getActiveModelPreset, readConfig } from '../src/status-server/config-store.ts';
+import { queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { requestJson, asObjectArray } from './helpers/dashboard-http.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
 
 function postRunning(baseUrl: string, requestId: string, taskKind: 'chat' | 'summary' = 'chat') {
   return requestJson(`${baseUrl}/status`, {

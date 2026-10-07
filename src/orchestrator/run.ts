@@ -25,27 +25,27 @@ import {
   type RepoAgentDecision,
 } from '@siftkit/contracts';
 
-import type { SiftConfig } from '../config/types.js';
-import { toError } from '../lib/errors.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.js';
-import { readConfig } from '../status-server/config-store.js';
-import type { OrchestratorLiveRun, RepositoryAccess, RepositoryLease } from '../status-server/orchestrator-runs.js';
-import type { RepoAgentSession } from '../status-server/repo-agent-sessions.js';
-import type { ServerContext } from '../status-server/server-types.js';
-import { buildDriftCorrectionWork, validateDriftReview } from './drift-review.js';
-import { OrchestratorPhaseRunner, type OrchestratorPhaseRequest } from './phase-runner.js';
-import { renderOrchestratorPlan, validateOrchestratorPlan } from './plan.js';
+import type { SiftConfig } from '../config/types.ts';
+import { toError } from '../lib/errors.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
+import { readConfig } from '../status-server/config-store.ts';
+import type { OrchestratorLiveRun, RepositoryAccess, RepositoryLease } from '../status-server/orchestrator-runs.ts';
+import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
+import type { ServerContext } from '../status-server/server-types.ts';
+import { buildDriftCorrectionWork, validateDriftReview } from './drift-review.ts';
+import { OrchestratorPhaseRunner, type OrchestratorPhaseRequest } from './phase-runner.ts';
+import { renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
 import {
   buildChildApprovalPrompt,
   buildCheckApprovalPrompt,
   buildDriftCorrectionPrompt,
   buildImplementationInstruction,
   type ImplementationRetryEvidence,
-} from './prompts.js';
-import { isMutatingTask, selectTasksToStart } from './scheduler.js';
-import { evaluateAttempt, runVerificationCheck, unexecutedCheck } from './verification.js';
-import { startOrchestratorChild, toChildOutcome, type ChildOutcome } from './workers.js';
+} from './prompts.ts';
+import { isMutatingTask, selectTasksToStart } from './scheduler.ts';
+import { evaluateAttempt, runVerificationCheck, unexecutedCheck } from './verification.ts';
+import { startOrchestratorChild, toChildOutcome, type ChildOutcome } from './workers.ts';
 import {
   captureWorkspace,
   changesNeedDriftReview,
@@ -57,7 +57,7 @@ import {
   removeOwnedTemporaryPath,
   renderWorkspaceDiff,
   type WorkspaceSnapshot,
-} from './workspace.js';
+} from './workspace.ts';
 
 const PLAN_PREPARATION_ATTEMPTS = 2;
 const DRIFT_REVIEW_ATTEMPTS = 2;
@@ -69,8 +69,11 @@ type PendingUserDecision = { approvalId: string; resolve(decision: RepoAgentDeci
 
 /** A stop with a precise, stored diagnosis. */
 class OrchestratorRunFailure extends Error {
-  constructor(readonly failure: OrchestratorFailure) {
+  readonly failure: OrchestratorFailure;
+
+  constructor(failure: OrchestratorFailure) {
     super(failure.message);
+    this.failure = failure;
   }
 }
 
@@ -97,12 +100,19 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   private registered = false;
   private state: OrchestratorRunState;
 
+  private readonly ctx: ServerContext;
+  private readonly config: SiftConfig;
+  private readonly options: OrchestratorPresetOptions;
+
   private constructor(
-    private readonly ctx: ServerContext,
+    ctx: ServerContext,
     state: OrchestratorRunState,
-    private readonly config: SiftConfig,
-    private readonly options: OrchestratorPresetOptions,
+    config: SiftConfig,
+    options: OrchestratorPresetOptions,
   ) {
+    this.ctx = ctx;
+    this.config = config;
+    this.options = options;
     this.runId = state.runId;
     this.state = state;
     this.phases = new OrchestratorPhaseRunner(ctx, config);

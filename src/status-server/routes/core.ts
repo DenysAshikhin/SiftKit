@@ -1,7 +1,7 @@
 /** Core API route table and dispatcher. */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { ServerContext } from '../server-types.js';
-import { RouteTable } from '../route-table.js';
+import type { ServerContext } from '../server-types.ts';
+import { RouteTable } from '../route-table.ts';
 import {
   HealthEndpoint,
   StatusReadEndpoint,
@@ -11,21 +11,21 @@ import {
   StatusRestartEndpoint,
   InferenceRuntimeReadEndpoint,
   ModelResidencyEndpoint,
-} from './server-admin.js';
+} from './server-admin.ts';
 import {
   CommandOutputAnalyzeEndpoint,
   PresetListEndpoint,
   PresetRunEndpoint,
   EvalRunEndpoint,
   SummaryEndpoint,
-} from './operations.js';
-import { RepoSearchEndpoint, RepoSearchApprovalEndpoint } from './repo-search.js';
+} from './operations.ts';
+import { RepoSearchEndpoint, RepoSearchApprovalEndpoint } from './repo-search.ts';
 import {
   RepoAgentStartEndpoint,
   RepoAgentDecideEndpoint,
   RepoAgentStatusEndpoint,
-} from './repo-agent.js';
-import { StatusCompleteEndpoint, StatusPostEndpoint } from './status-post.js';
+} from './repo-agent.ts';
+import { StatusCompleteEndpoint, StatusPostEndpoint } from './status-post.ts';
 import {
   OrchestratorAbortEndpoint,
   OrchestratorDecideEndpoint,
@@ -33,7 +33,7 @@ import {
   OrchestratorListEndpoint,
   OrchestratorStartEndpoint,
   OrchestratorStatusEndpoint,
-} from './orchestrator.js';
+} from './orchestrator.ts';
 
 const STATUS_POST_ENDPOINT = new StatusPostEndpoint();
 

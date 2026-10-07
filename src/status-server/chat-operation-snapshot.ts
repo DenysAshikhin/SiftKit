@@ -1,12 +1,12 @@
 import { buildChatRunMessageIdPrefix, buildChatMessageId, ChatOperationIdSchema, ChatSessionOperationKindSchema, DurableChatApprovalSchema, DurableChatQuestionSchema, type ChatOperationSnapshot, type ChatProjectionCapture, type DurableChatApproval, type DurableChatQuestion, type ChatSnapshotTokenTurn, type ChatTranscriptMessage, type ChatRecoveryStatus, type ChatRecoveryIssue } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.js';
-import { readChatRunMessages } from '../state/chat-sessions.js';
-import { readChatHistoryRevisionCount } from '../state/chat-history-revisions.js';
-import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
-import { ChatRunProjection, reconcileChatRun } from './chat-run-projection.js';
-import type { ChatRun } from '../state/chat-journal-schema.js';
+import { z } from '../lib/zod.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.ts';
+import { readChatRunMessages } from '../state/chat-sessions.ts';
+import { readChatHistoryRevisionCount } from '../state/chat-history-revisions.ts';
+import { ChatMessageQueueStore } from '../state/chat-message-queue.ts';
+import { ChatRunProjection, reconcileChatRun } from './chat-run-projection.ts';
+import type { ChatRun } from '../state/chat-journal-schema.ts';
 
 /** The pending gate's exact binding; its presence alone does not authorize an expired decision. */
 const ChatLiveApprovalBindingSchema = z.strictObject({ runId: z.string().uuid(), approvalId: z.string().uuid() });
@@ -26,7 +26,11 @@ export class ChatOperationSnapshotReader {
   private readonly calls = new Map<string, string>();
   private readonly tokenTurns = new Map<number, ChatSnapshotTokenTurn>();
 
-  constructor(private readonly operationId: string) {}
+  private readonly operationId: string;
+
+  constructor(operationId: string) {
+    this.operationId = operationId;
+  }
 
   /** View, projection cursor and queue from one transaction, so a transfer never mixes two states. */
   capture(database: RuntimeDatabase, live: ChatLiveOperationBinding, nowMs = Date.now()): ChatProjectionCapture {

@@ -4,24 +4,24 @@ import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { isJsonObject, type JsonObject, type JsonValue, type OptionalJsonValue } from '../src/lib/json-types.js';
-import { calculateThroughputRates, mergeInferenceThroughput, readTabbyThroughput, unmeasuredInferenceThroughput } from '../src/lib/inference-throughput.js';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
-import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.js';
-import { buildChatAnswerCompletion } from '../src/status-server/chat-run-recorder.js';
-import { buildDashboardRunDetail } from '../src/status-server/dashboard-runs.js';
-import { buildBenchmarkAttemptMetrics } from '../src/status-server/dashboard-benchmark-runner.js';
-import { auditInferenceThroughput } from '../src/status-server/inference-throughput-audit.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { buildStructuredStubDecision, startStubStatusServer } from './_runtime-helpers.js';
-import { buildMockScorecard, TEST_THROUGHPUT_AUDIT, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { asObject, asObjectArray, closeHttpServer, getAddressInfo, requestJson, requestRawText } from './helpers/dashboard-http.js';
-import { mockRunRecord } from './helpers/mock-run-record.js';
-import { requestSse } from './helpers/sse-http.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { buildStreamingTestConfig, buildTabbyUsage } from './helpers/streaming-client.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { isJsonObject, type JsonObject, type JsonValue, type OptionalJsonValue } from '../src/lib/json-types.ts';
+import { calculateThroughputRates, mergeInferenceThroughput, readTabbyThroughput, unmeasuredInferenceThroughput } from '../src/lib/inference-throughput.ts';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
+import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.ts';
+import { buildChatAnswerCompletion } from '../src/status-server/chat-run-recorder.ts';
+import { buildDashboardRunDetail } from '../src/status-server/dashboard-runs.ts';
+import { buildBenchmarkAttemptMetrics } from '../src/status-server/dashboard-benchmark-runner.ts';
+import { auditInferenceThroughput } from '../src/status-server/inference-throughput-audit.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { buildStructuredStubDecision, startStubStatusServer } from './_runtime-helpers.ts';
+import { buildMockScorecard, TEST_THROUGHPUT_AUDIT, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
+import { asObject, asObjectArray, closeHttpServer, getAddressInfo, requestJson, requestRawText } from './helpers/dashboard-http.ts';
+import { mockRunRecord } from './helpers/mock-run-record.ts';
+import { requestSse } from './helpers/sse-http.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { buildStreamingTestConfig, buildTabbyUsage } from './helpers/streaming-client.ts';
 
 // The investigated dropped-count workload: 754 emitted tokens (tool-call markup included) in
 // 35.07 s while the visible text is a handful of tokens. Rates are self-consistent, so a

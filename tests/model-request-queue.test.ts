@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test, { mock, type TestContext } from 'node:test';
 
-import { getActiveModelPreset } from '../src/config/getters.js';
-import type { ModelRuntimePreset } from '../src/config/types.js';
-import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import type { ModelRuntimePreset } from '../src/config/types.ts';
+import { getDefaultConfig, readConfig } from '../src/status-server/config-store.ts';
 import {
   DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS,
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
@@ -17,32 +17,32 @@ import {
   renewModelRequestActivity,
   releaseModelRequest,
   resumeModelRequestAdmission,
-} from '../src/status-server/server-ops.js';
-import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
-import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
-import { ServerModelLockAdapter } from '../src/status-server/repo-agent-lock-adapter.js';
-import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
-import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
+} from '../src/status-server/server-ops.ts';
+import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.ts';
+import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
+import { ServerModelLockAdapter } from '../src/status-server/repo-agent-lock-adapter.ts';
+import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
+import { ModelIdleController } from '../src/status-server/model-idle-controller.ts';
 import type { ModelLifecycleActionResult } from '@siftkit/contracts';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-inference-runtime.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
-import type { FullJsonResponse, SseStreamOptions } from '../src/lib/http-client.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-inference-runtime.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
+import type { FullJsonResponse, SseStreamOptions } from '../src/lib/http-client.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 import {
   createPresetRoutingConfig,
   PRESET_ROUTING_MODEL_A,
   PRESET_ROUTING_MODEL_B,
   PRESET_ROUTING_MODEL_C,
-} from './helpers/preset-routing-config.js';
-import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.js';
+} from './helpers/preset-routing-config.ts';
+import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.ts';
 
 const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
 const REAL_CLEAR_TIMEOUT = globalThis.clearTimeout;
@@ -82,12 +82,14 @@ class BlockingQueueRuntime extends QueueRuntime {
   private readonly releaseTransitionDeferred = createDeferred();
   private blockEnsure = false;
   private blockUnload = false;
+  private readonly stopProcessOnUnload: boolean;
 
   constructor(
     events: string[],
-    private readonly stopProcessOnUnload = false,
+    stopProcessOnUnload = false,
   ) {
     super('exl3', events);
+    this.stopProcessOnUnload = stopProcessOnUnload;
   }
 
   blockNextEnsure(): void {
@@ -196,8 +198,11 @@ async function createPresetQueueHarness(
 class FailingQueueRuntime extends BlockingQueueRuntime {
   private failingEnsure: string | null = null;
 
-  constructor(private readonly recordedEvents: string[]) {
+  private readonly recordedEvents: string[];
+
+  constructor(recordedEvents: string[]) {
     super(recordedEvents);
+    this.recordedEvents = recordedEvents;
   }
 
   failNextEnsure(presetId: string): void {

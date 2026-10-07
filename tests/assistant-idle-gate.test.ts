@@ -3,22 +3,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 import {
   StatusServerIdleGate, evaluateIdleDecision, secondsSinceModelActivity,
-} from '../src/status-server/assistant-idle-gate.js';
-import { acquireModelRequestWithWait, releaseModelRequest } from '../src/status-server/server-ops.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+} from '../src/status-server/assistant-idle-gate.ts';
+import { acquireModelRequestWithWait, releaseModelRequest } from '../src/status-server/server-ops.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 const idle = (secondsSinceMouseInput: number, secondsSinceKeyboardInput: number) => ({
   secondsSinceMouseInput, secondsSinceKeyboardInput,
@@ -82,8 +82,8 @@ test('no server code stamps or references the removed idle-gate activity plumbin
 });
 
 test('the environment cache exposes both input signals only while heartbeats are fresh', async () => {
-  const { DesktopEnvironmentCache } = await import('../src/assistant/observation/environment-cache.js');
-  const { FixedClock } = await import('../src/assistant/clock.js');
+  const { DesktopEnvironmentCache } = await import('../src/assistant/observation/environment-cache.ts');
+  const { FixedClock } = await import('../src/assistant/clock.ts');
   const clock = new FixedClock('2026-08-28T09:00:00.000Z');
   const cache = new DesktopEnvironmentCache(clock);
 

@@ -12,7 +12,7 @@ import {
   acquireChildPortLease,
   writeManagedEngineLauncher,
   type HealthCheckResponse,
-} from '../_runtime-helpers.js';
+} from '../_runtime-helpers.ts';
 
 test('real status server reports a startup warning when the managed engine exits during startup', async () => {
   await withTempEnv(async (tempRoot) => {

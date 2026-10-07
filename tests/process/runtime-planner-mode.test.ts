@@ -12,7 +12,7 @@ import {
   spawnProcess,
   withTempEnv,
   waitForAsyncExpectation,
-} from '../_runtime-helpers.js';
+} from '../_runtime-helpers.ts';
 
 const SIFTKIT_REPO_ROOT = process.cwd();
 

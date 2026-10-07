@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService,
   SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.js';
-import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.js';
-import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
+} from '../src/assistant/projections/projection-summarizer.ts';
+import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.ts';
+import { seedOwnerAssertion } from './helpers/gate-e-seed.ts';
 
 /** A summarizer that never rewrites: compile stays deterministic and model-free. */
 class PassthroughSummarizer implements ProjectionSummaryService {

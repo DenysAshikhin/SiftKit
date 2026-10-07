@@ -1,5 +1,5 @@
-import { getErrorMessage, toError } from '../lib/errors.js';
-import { sleep, formatElapsed } from '../lib/time.js';
+import { getErrorMessage, toError } from '../lib/errors.ts';
+import { sleep, formatElapsed } from '../lib/time.ts';
 import {
   clearUnrefTimer,
   deferredDrainWaitMs,
@@ -8,32 +8,32 @@ import {
   idleTimeoutError,
   normalizeTimeoutMs,
   scheduleUnrefTimer,
-} from './idle-drain.js';
-import { mergeToolTypeStats } from '../line-read-guidance.js';
-import { recordWebSearchUsage } from './web-search-usage.js';
-import { parseStatusMetadata, parseStatusMetadataRecord } from './status-file.js';
-import { normalizeMetrics, writeMetrics } from './metrics.js';
-import { mergeInferenceThroughput } from '../lib/inference-throughput.js';
+} from './idle-drain.ts';
+import { mergeToolTypeStats } from '../line-read-guidance.ts';
+import { recordWebSearchUsage } from './web-search-usage.ts';
+import { parseStatusMetadata, parseStatusMetadataRecord } from './status-file.ts';
+import { normalizeMetrics, writeMetrics } from './metrics.ts';
+import { mergeInferenceThroughput } from '../lib/inference-throughput.ts';
 import {
   buildStatusRequestLogBody,
   updateRunLogSpeculativeMetricsByRequestId,
-} from './dashboard-runs.js';
+} from './dashboard-runs.ts';
 import {
   enqueueDeferredArtifacts,
   getPublishedStatusText,
   scheduleIdleSummaryIfNeeded,
   writePublishedStatus,
-} from './server-ops.js';
-import { serverLogger } from './server-logger.js';
-import type { ServerContext, TerminalMetadataQueueItem } from './server-types.js';
-import type { ActiveRunState } from './status-run-registry.js';
-import { RepeatSuppressor } from './repeat-suppressor.js';
+} from './server-ops.ts';
+import { serverLogger } from './server-logger.ts';
+import type { ServerContext, TerminalMetadataQueueItem } from './server-types.ts';
+import type { ActiveRunState } from './status-run-registry.ts';
+import { RepeatSuppressor } from './repeat-suppressor.ts';
 import {
   logToolStatsLines,
   normalizeTaskKind,
   persistStatusRunLog,
   type DeferredTerminalMetadataJob,
-} from './status-run-log.js';
+} from './status-run-log.ts';
 
 /** Folds the per-cycle terminal-metadata drain wait into an entry and a resume line. */
 const terminalMetadataDrainSuppressor = new RepeatSuppressor();

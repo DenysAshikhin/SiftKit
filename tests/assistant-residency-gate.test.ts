@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { InferenceModelState, InferenceRuntimeStatus } from '@siftkit/contracts';
-import { StatusServerResidencyGate } from '../src/status-server/assistant-residency-gate.js';
+import { StatusServerResidencyGate } from '../src/status-server/assistant-residency-gate.ts';
 
 function statusWith(modelState: InferenceModelState): InferenceRuntimeStatus {
   return {

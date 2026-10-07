@@ -1,5 +1,5 @@
-import type { ChatSession } from '../../src/state/chat-sessions.js';
-import { mockModelPreset } from './mock-config.js';
+import type { ChatSession } from '../../src/state/chat-sessions.ts';
+import { mockModelPreset } from './mock-config.ts';
 
 export function createTestChatSession(runtimeRoot: string): ChatSession {
   const timestamp = '2026-08-08T00:00:00.000Z';

@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildIdleSummarySnapshot } from '../src/status-server/idle-summary.js';
-import { normalizeIdleSummarySnapshotRow } from '../src/status-server/dashboard-runs.js';
-import { emptyInferenceThroughput, readTabbyThroughput, mergeInferenceThroughput } from '../src/lib/inference-throughput.js';
-import { auditIdleSummarySnapshot } from '../src/status-server/server-ops.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
+import { buildIdleSummarySnapshot } from '../src/status-server/idle-summary.ts';
+import { normalizeIdleSummarySnapshotRow } from '../src/status-server/dashboard-runs.ts';
+import { emptyInferenceThroughput, readTabbyThroughput, mergeInferenceThroughput } from '../src/lib/inference-throughput.ts';
+import { auditIdleSummarySnapshot } from '../src/status-server/server-ops.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
 import type { InferenceThroughput } from '@siftkit/contracts';
-import type { JsonObject } from '../src/lib/json-types.js';
+import type { JsonObject } from '../src/lib/json-types.ts';
 
 const EMITTED_AT = new Date('2026-06-17T00:00:00.000Z');
 

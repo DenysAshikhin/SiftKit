@@ -1,12 +1,12 @@
-import type { SummaryApiRequest, SummaryTimingInput } from '../summary/types.js';
-import { parseArguments, type ResolvedCliArgs } from './args.js';
-import { readCliTextInput } from './input.js';
-import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './request-normalizers.js';
-import { CliProgressRenderer } from './progress-renderer.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
-import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
-import { getActiveModelPreset, loadConfig } from '../config/index.js';
-import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
+import type { SummaryApiRequest, SummaryTimingInput } from '../summary/types.ts';
+import { parseArguments, type ResolvedCliArgs } from './args.ts';
+import { readCliTextInput } from './input.ts';
+import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './request-normalizers.ts';
+import { CliProgressRenderer } from './progress-renderer.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
+import { ImageAttachmentReader } from '../llm-protocol/image-attachments.ts';
+import { getActiveModelPreset, loadConfig } from '../config/index.ts';
+import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.ts';
 
 export async function runSummary(options: ResolvedCliArgs & {
   stdinText?: string | Buffer;

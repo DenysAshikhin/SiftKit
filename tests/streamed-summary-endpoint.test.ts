@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SummaryResultSchema } from '../src/summary/types.js';
-import { requestSse } from './helpers/sse-http.js';
-import { startHarness } from './helpers/streamed-op-harness.js';
+import { SummaryResultSchema } from '../src/summary/types.ts';
+import { requestSse } from './helpers/sse-http.ts';
+import { startHarness } from './helpers/streamed-op-harness.ts';
 
 test('summary streams progress frames before a schema-valid result frame', async (t) => {
   const harness = await startHarness('siftkit-streamed-summary-', t);

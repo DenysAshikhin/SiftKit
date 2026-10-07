@@ -3,10 +3,10 @@ import {
   getRuntimeArtifactUri,
   readRuntimeArtifact,
   upsertRuntimeTextArtifact,
-} from '../state/runtime-artifacts.js';
-import { createTracer } from '../lib/trace.js';
-import type { JsonSerializable } from '../lib/json-types.js';
-import type { JsonLogger } from './types.js';
+} from '../state/runtime-artifacts.ts';
+import { createTracer } from '../lib/trace.ts';
+import type { JsonSerializable } from '../lib/json-types.ts';
+import type { JsonLogger } from './types.ts';
 
 export const traceRepoSearch = createTracer('SIFTKIT_TRACE_REPO_SEARCH', 'repo-search');
 

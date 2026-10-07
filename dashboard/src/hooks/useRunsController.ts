@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
-import { deleteRunLogs, getRunDetail, getRuns, previewRunLogDelete } from '../api';
+import { deleteRunLogs, getRunDetail, getRuns, previewRunLogDelete } from '../api.ts';
 import {
   buildRunLogDeleteCriteria,
   describeRunLogDeleteCriteria,
   normalizeRunLogTypeFilter,
   toggleRunLogTypeFilter,
-} from '../run-log-admin';
-import { buildRunsSignature, classifyRunGroup, readSearchParams } from '../lib/format';
-import { buildRepoSearchChatSteps } from '../lib/chat-steps';
-import type { RunGroupFilter, RunLogDeleteType, RunRecord } from '../types';
-import type { RunsTabProps } from '../tabs/RunsTab';
-import type { RunsCacheReset } from './useDashboardRefresh';
-import type { ToastLevel } from './useToasts';
+} from '../run-log-admin.ts';
+import { buildRunsSignature, classifyRunGroup, readSearchParams } from '../lib/format.ts';
+import { buildRepoSearchChatSteps } from '../lib/chat-steps.ts';
+import type { RunGroupFilter, RunLogDeleteType, RunRecord } from '../types.ts';
+import type { RunsTabProps } from '../tabs/RunsTab.tsx';
+import type { RunsCacheReset } from './useDashboardRefresh.ts';
+import type { ToastLevel } from './useToasts.ts';
 
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
 

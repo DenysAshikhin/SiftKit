@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { startStubStatusServer } from './_runtime-helpers.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { requestJson } from './helpers/dashboard-http.js';
-import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
-import type { GpuMemoryProbe } from '../src/status-server/gpu-memory.js';
+import { startStubStatusServer } from './_runtime-helpers.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
+import type { GpuMemoryProbe } from '../src/status-server/gpu-memory.ts';
 
 const MIB = 1_048_576;
 

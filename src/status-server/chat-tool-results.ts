@@ -2,9 +2,9 @@ import type Database from 'better-sqlite3';
 
 import { RunOperationTypeSchema } from '@siftkit/contracts';
 
-import { z } from '../lib/zod.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { isJsonObject, type JsonObject } from '../lib/json-types.js';
+import { z } from '../lib/zod.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { isJsonObject, type JsonObject } from '../lib/json-types.ts';
 import {
   ExecutedCommandResultSchema,
   IDENTIFIED_TOOL_RESULT_FORMAT,
@@ -13,7 +13,7 @@ import {
   TurnCommandStartEventSchema,
   TurnCommandResultFinalizedEventSchema,
   type ToolResultFormat,
-} from '../repo-search/live-snapshot/schemas.js';
+} from '../repo-search/live-snapshot/schemas.ts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -37,12 +37,17 @@ export type ChatToolResultsFailure = z.infer<typeof ChatToolResultsFailureSchema
  * responses and server logs, and a tool result can be an entire file.
  */
 export class ChatToolResultsError extends Error {
+  readonly reason: ChatToolResultsFailure;
+  readonly requestId: string | null;
+
   constructor(
-    readonly reason: ChatToolResultsFailure,
-    readonly requestId: string | null,
+    reason: ChatToolResultsFailure,
+    requestId: string | null,
     message: string,
   ) {
     super(message);
+    this.reason = reason;
+    this.requestId = requestId;
     this.name = 'ChatToolResultsError';
   }
 }

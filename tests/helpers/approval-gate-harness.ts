@@ -1,8 +1,8 @@
 import type { ApprovalMode } from '@siftkit/contracts';
-import { ProgressWriter } from '../../src/lib/progress-writer.js';
-import { ApprovalGate } from '../../src/repo-search/engine/approval-gate.js';
-import { ServerLogger } from '../../src/status-server/server-logger.js';
-import type { RepoSearchProgressEvent } from '../../src/repo-search/types.js';
+import { ProgressWriter } from '../../src/lib/progress-writer.ts';
+import { ApprovalGate } from '../../src/repo-search/engine/approval-gate.ts';
+import { ServerLogger } from '../../src/status-server/server-logger.ts';
+import type { RepoSearchProgressEvent } from '../../src/repo-search/types.ts';
 
 export type ApprovalGateHarnessOptions = {
   mode: ApprovalMode;

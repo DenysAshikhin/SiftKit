@@ -1,14 +1,14 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BenchmarkTab, deriveBenchmarkTiles } from '../src/tabs/BenchmarkTab';
+import { BenchmarkTab, deriveBenchmarkTiles } from '../src/tabs/BenchmarkTab.tsx';
 import type {
   DashboardBenchmarkAttempt,
   DashboardBenchmarkQuestionPreset,
   DashboardBenchmarkSession,
-} from '../src/types';
-import { MANAGED_PRESET } from './fixtures.js';
+} from '../src/types.ts';
+import { MANAGED_PRESET } from './fixtures.ts';
 
 const PROMPT = {
   id: 'prompt-1', title: 'Trace repo-search', taskKind: 'repo-search',

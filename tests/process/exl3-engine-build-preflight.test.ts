@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { Exl3ModelCapabilities } from '../../src/inference-presets/exl3-model-capabilities.js';
+import { Exl3ModelCapabilities } from '../../src/inference-presets/exl3-model-capabilities.ts';
 
 
 test('Exl3ModelCapabilities reports an executable that cannot run the package probe', () => {

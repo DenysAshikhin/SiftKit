@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { QueryIntentExtractor } from '../src/assistant/retrieval/query-intent.js';
-import { MemoryRetriever } from '../src/assistant/retrieval/memory-retriever.js';
+import { QueryIntentExtractor } from '../src/assistant/retrieval/query-intent.ts';
+import { MemoryRetriever } from '../src/assistant/retrieval/memory-retriever.ts';
 import {
   EstimateTokenCounter, type TokenCount, type TokenCounter,
-} from '../src/assistant/domain/tokens.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+} from '../src/assistant/domain/tokens.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 
 test('intent extraction finds entities, temporal intent, and task type', () => {
   const extractor = new QueryIntentExtractor();

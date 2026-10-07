@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { findFiles } from '../src/find-files.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { findFiles } from '../src/find-files.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 test('findFiles returns matching files in a directory tree', () => {
   const tempRoot = createManagedTempDir('siftkit-findfiles-');

@@ -3,18 +3,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { executeRepoTool } from '../src/repo-search/engine/repo-tools.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+import { executeRepoTool } from '../src/repo-search/engine/repo-tools.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
 import {
   RepoExecutableToolCallSchema,
   type RepoExecutableToolCall,
-} from '../src/repo-search/repo-tool-arguments.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { gifBufferWithSize, rasterBuffer } from './helpers/image-fixtures.js';
-import { makeRepoToolContext } from './helpers/repo-tool-context.js';
-import { makeProcessor } from './helpers/tool-action-processor.js';
+} from '../src/repo-search/repo-tool-arguments.ts';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
+import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { gifBufferWithSize, rasterBuffer } from './helpers/image-fixtures.ts';
+import { makeRepoToolContext } from './helpers/repo-tool-context.ts';
+import { makeProcessor } from './helpers/tool-action-processor.ts';
 
 function nativeCall(toolName: string, args: JsonObject): RepoExecutableToolCall {
   return RepoExecutableToolCallSchema.parse({ toolName, args });

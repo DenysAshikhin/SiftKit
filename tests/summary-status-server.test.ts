@@ -1,23 +1,23 @@
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { summarizeRequest } from '../src/summary.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
-import { getConfigPath } from '../src/config/index.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
-import { requestSse } from './helpers/sse-http.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { waitForAsyncExpectation } from './_runtime-helpers.js';
+import { summarizeRequest } from '../src/summary.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
+import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.ts';
+import { requestSse } from './helpers/sse-http.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { waitForAsyncExpectation } from './_runtime-helpers.ts';
 
 
 test('summary endpoint defaults model request timeout to 240 seconds', () => {
@@ -27,7 +27,7 @@ test('summary endpoint defaults model request timeout to 240 seconds', () => {
 });
 
 test('summary endpoint forwards promptPrefix and inferenceMaxTokens to the summary engine', () => {
-  const routeText = fs.readFileSync(path.join(process.cwd(), 'dist', 'status-server', 'routes', 'operations.js'), 'utf8');
+  const routeText = fs.readFileSync(path.join(process.cwd(), 'src', 'status-server', 'routes', 'operations.ts'), 'utf8');
   assert.match(routeText, /promptPrefix:\s*summaryRequest\.promptPrefix/u);
   assert.match(routeText, /inferenceMaxTokens:\s*summaryRequest\.inferenceMaxTokens/u);
 });

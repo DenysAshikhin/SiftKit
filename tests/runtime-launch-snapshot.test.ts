@@ -5,9 +5,9 @@ import {
   writeRuntimeLaunchSnapshot,
   readRuntimeLaunchSnapshot,
   type RuntimeLaunchSnapshot,
-} from '../src/status-server/runtime-launch-snapshot.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/status-server/runtime-launch-snapshot.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function tempDbPath(): string {
   const dbPath = path.join(createManagedTempDir('sk-snap-'), 'runtime.sqlite');

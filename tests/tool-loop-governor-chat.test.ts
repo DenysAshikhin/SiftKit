@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateFinishAttempt } from '../src/tool-loop-governor.js';
+import { evaluateFinishAttempt } from '../src/tool-loop-governor.ts';
 
 const anchoredOutput = 'See src/foo.ts:42 for details.';
 const oneSupportingCall = [{ toolName: 'read', promptResultText: 'src/foo.ts:42 export const x = 1;' }];

@@ -1,4 +1,4 @@
-import type { Sensitivity } from './enums.js';
+import type { Sensitivity } from './enums.ts';
 
 export const SENSITIVE_TOPICS = ['health', 'finance', 'relationship', 'precise_location'] as const;
 export type SensitiveTopic = (typeof SENSITIVE_TOPICS)[number];

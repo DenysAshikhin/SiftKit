@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../types';
+import type { ChatMessage } from '../types.ts';
 
 type CompactionFold = { kind: 'compaction'; key: string; originals: ChatMessage[]; summary: ChatMessage | null };
 

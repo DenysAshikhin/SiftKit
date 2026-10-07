@@ -3,13 +3,13 @@
  * route handlers in `routes/`.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { sendJson } from './http-utils.js';
-import { handleDashboardRoute } from './routes/dashboard.js';
-import { handleChatRoute } from './routes/chat.js';
-import { handleCoreRoute } from './routes/core.js';
-import type { ServerContext } from './server-types.js';
-import { handleInferencePassthroughRoute } from './routes/inference-passthrough.js';
-import { handleAssistantRoute } from './routes/assistant.js';
+import { sendJson } from './http-utils.ts';
+import { handleDashboardRoute } from './routes/dashboard.ts';
+import { handleChatRoute } from './routes/chat.ts';
+import { handleCoreRoute } from './routes/core.ts';
+import type { ServerContext } from './server-types.ts';
+import { handleInferencePassthroughRoute } from './routes/inference-passthrough.ts';
+import { handleAssistantRoute } from './routes/assistant.ts';
 
 async function dispatch(ctx: ServerContext, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');

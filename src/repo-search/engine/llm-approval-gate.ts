@@ -1,23 +1,23 @@
-import { getErrorMessage } from '../../lib/errors.js';
-import { parseJsonValueText } from '../../lib/json.js';
-import type { ProgressWriter } from '../../lib/progress-writer.js';
-import type { RepoSearchProgressEvent } from '../types.js';
-import type { PlannerActionResponse } from '../planner-protocol.js';
-import type { ChatMessage } from '../planner-chat-message.js';
+import { getErrorMessage } from '../../lib/errors.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
+import type { ProgressWriter } from '../../lib/progress-writer.ts';
+import type { RepoSearchProgressEvent } from '../types.ts';
+import type { PlannerActionResponse } from '../planner-protocol.ts';
+import type { ChatMessage } from '../planner-chat-message.ts';
 import {
   APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_POLICY_LINES,
   buildApprovalReviewRequest,
-} from '../approval-review-policy.js';
+} from '../approval-review-policy.ts';
 import {
   isApprovalExemptReadOnlyTool,
   type ApprovalDecision,
   type ApprovalRequestInput,
   type HumanApprovalRequester,
-} from './approval-gate.js';
-import type { JsonLogger } from '../types.js';
-import { ApprovalVerdictSchema, type ApprovalVerdict } from '../approval-verdict.js';
-import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
+} from './approval-gate.ts';
+import type { JsonLogger } from '../types.ts';
+import { ApprovalVerdictSchema, type ApprovalVerdict } from '../approval-verdict.ts';
+import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
 
 const FORBIDDEN_TOOL_CALL_REASON = 'approval reviewer attempted a forbidden tool call';
 
@@ -53,14 +53,25 @@ export function buildApprovalVerdictQuestion(
  * verdict before acting on it, so the authorization is recoverable evidence.
  */
 export class LlmApprovalGate {
-  constructor(private readonly deps: {
+  private readonly deps: {
     requestId: string;
     humanGate: HumanApprovalRequester;
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     logger: JsonLogger | null;
     evidenceRecorder?: Pick<ChatRunEvidenceRecorder, 'recordApprovalReviewed'>;
-  }) {}
+  };
+
+  constructor(deps: {
+    requestId: string;
+    humanGate: HumanApprovalRequester;
+    verdictRequester: ApprovalVerdictRequester;
+    progressWriter: ProgressWriter<RepoSearchProgressEvent>;
+    logger: JsonLogger | null;
+    evidenceRecorder?: Pick<ChatRunEvidenceRecorder, 'recordApprovalReviewed'>;
+  }) {
+    this.deps = deps;
+  }
 
   async request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
     // A read-only tool never reaches the reviewer. The exemption is static policy, not a verdict,

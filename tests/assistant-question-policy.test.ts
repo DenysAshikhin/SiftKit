@@ -1,22 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { AssistantConfig } from '../src/config/types.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+import type { AssistantConfig } from '../src/config/types.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 import {
   GraphQuestionCandidateSource,
   type QuestionCandidate,
-} from '../src/assistant/questions/candidates.js';
+} from '../src/assistant/questions/candidates.ts';
 import type {
   QuestionEnvironmentState,
   QuestionEnvironmentStateProvider,
-} from '../src/assistant/questions/environment-state.js';
+} from '../src/assistant/questions/environment-state.ts';
 import {
   QuestionPolicyEngine,
   type QuestionPolicyContext,
   type QuestionPolicyHistory,
-} from '../src/assistant/questions/policy-engine.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+} from '../src/assistant/questions/policy-engine.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 const available: QuestionEnvironmentState = {
   kind: 'available',

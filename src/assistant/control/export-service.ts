@@ -1,14 +1,14 @@
 import type { AssistantExportRequest } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
-import type { ZipFileWriter } from '../../lib/zip-file-writer.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import { CURRENT_SCHEMA_VERSION } from '../../state/runtime-db.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { TempArchiveBuilder, type TempArchive } from './temp-archive.js';
+import { z } from '../../lib/zod.ts';
+import type { ZipFileWriter } from '../../lib/zip-file-writer.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import { CURRENT_SCHEMA_VERSION } from '../../state/runtime-db.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { TempArchiveBuilder, type TempArchive } from './temp-archive.ts';
 import {
   AliasRowSchema, AssertionEvidenceRowSchema, AssertionRowSchema, AuditEventRowSchema,
   EvidenceRowSchema, NodeRowSchema, PolicyRowSchema, QuestionRowSchema,
-} from '../storage/rows.js';
+} from '../storage/rows.ts';
 
 /**
  * One owner-scoped table rendered as JSON Lines. Rows are exported as stored (snake_case) so the
@@ -72,11 +72,19 @@ const TABLE_EXPORTS: readonly TableExport[] = [
  * `mkdtemp` directory and is the caller's to delete: `cleanup()` is not optional.
  */
 export class ExportService {
+  private readonly graph: AssistantGraph;
+  private readonly database: RuntimeDatabase;
+  private readonly ownerId: string;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly database: RuntimeDatabase,
-    private readonly ownerId: string,
-  ) {}
+    graph: AssistantGraph,
+    database: RuntimeDatabase,
+    ownerId: string,
+  ) {
+    this.graph = graph;
+    this.database = database;
+    this.ownerId = ownerId;
+  }
 
   async export(request: AssistantExportRequest): Promise<TempArchive> {
     const builder = new TempArchiveBuilder('siftkit-export-');

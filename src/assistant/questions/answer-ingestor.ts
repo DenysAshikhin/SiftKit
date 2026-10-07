@@ -1,5 +1,5 @@
-import type { CandidatePromoter, PromotionOutcome } from '../ingestion/candidate-promoter.js';
-import type { ConversationExtractor } from '../ingestion/conversation-extractor.js';
+import type { CandidatePromoter, PromotionOutcome } from '../ingestion/candidate-promoter.ts';
+import type { ConversationExtractor } from '../ingestion/conversation-extractor.ts';
 
 export interface QuestionAnswerIngestResult {
   readonly observationIds: readonly string[];
@@ -8,10 +8,16 @@ export interface QuestionAnswerIngestResult {
 }
 
 export class QuestionAnswerIngestor {
+  private readonly extractor: ConversationExtractor;
+  private readonly promoter: CandidatePromoter;
+
   constructor(
-    private readonly extractor: ConversationExtractor,
-    private readonly promoter: CandidatePromoter,
-  ) {}
+    extractor: ConversationExtractor,
+    promoter: CandidatePromoter,
+  ) {
+    this.extractor = extractor;
+    this.promoter = promoter;
+  }
 
   async ingest(
     ownerId: string,

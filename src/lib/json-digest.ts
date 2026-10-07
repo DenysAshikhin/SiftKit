@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { writeStableJson } from './json.js';
-import type { JsonValue } from './json-types.js';
+import { writeStableJson } from './json.ts';
+import type { JsonValue } from './json-types.ts';
 
 /** sha256 over the stable serialization, so equal JSON values digest equally regardless of key order. Node-only: json.ts is shared with the browser dashboard. */
 export function digestStableJson(value: JsonValue): string {

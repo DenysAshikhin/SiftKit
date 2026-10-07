@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { LiveRunSnapshotCollector } from '../src/repo-search/live-snapshot/collector.js';
-import { LiveRunSnapshotSchema } from '../src/repo-search/live-snapshot/schemas.js';
+import { LiveRunSnapshotCollector } from '../src/repo-search/live-snapshot/collector.ts';
+import { LiveRunSnapshotSchema } from '../src/repo-search/live-snapshot/schemas.ts';
 import {
   attachLiveRunSnapshot,
   isLiveRunSnapshotEnabled,
   LiveRunSnapshotWriter,
-} from '../src/repo-search/live-snapshot/writer.js';
-import { createJsonLogger } from '../src/repo-search/logging.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/repo-search/live-snapshot/writer.ts';
+import { createJsonLogger } from '../src/repo-search/logging.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function readSnapshot(filePath: string): ReturnType<typeof LiveRunSnapshotSchema.parse> {
   return LiveRunSnapshotSchema.parse(JSON.parse(fs.readFileSync(filePath, 'utf8')));

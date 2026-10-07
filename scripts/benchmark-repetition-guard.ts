@@ -1,25 +1,6 @@
 import { performance } from 'node:perf_hooks';
-import { z } from '../src/lib/zod.js';
-import { getErrorMessage, toError } from '../src/lib/errors.js';
-
-type TokenRepetitionDetection = {
-  totalTokens: number;
-  windowTokens: number;
-  periodTokens: number;
-  repeatedTokens: string[];
-  truncatedText: string;
-};
-
-type RepetitionGuardModule = {
-  detectRecentTokenRepetition: (text: string) => TokenRepetitionDetection | null;
-};
-
-const RepetitionGuardModuleSchema = z.custom<RepetitionGuardModule>(
-  (value) => typeof value === 'object'
-    && value !== null
-    && 'detectRecentTokenRepetition' in value
-    && typeof value.detectRecentTokenRepetition === 'function',
-);
+import { getErrorMessage } from '../src/lib/errors.ts';
+import { detectRecentTokenRepetition } from '../src/repo-search/repetition-guard.ts';
 
 type BenchmarkCase = {
   name: string;
@@ -73,10 +54,7 @@ function iterationsFor(tokens: number): number {
   return Math.min(MAX_ITERATIONS, Math.max(MIN_ITERATIONS, rawIterations));
 }
 
-function runCase(
-  benchmarkCase: BenchmarkCase,
-  detectRecentTokenRepetition: RepetitionGuardModule['detectRecentTokenRepetition'],
-): BenchmarkResult {
+function runCase(benchmarkCase: BenchmarkCase): BenchmarkResult {
   const iterations = iterationsFor(benchmarkCase.tokens);
   let detected = 0;
 
@@ -123,31 +101,9 @@ function printResults(results: BenchmarkResult[]): void {
   }
 }
 
-function guardModulePath(kind: 'dist' | 'src'): string {
-  return kind === 'dist'
-    ? '../dist/repo-search/repetition-guard.js'
-    : '../src/repo-search/repetition-guard.js';
-}
-
-async function loadRepetitionGuard(): Promise<RepetitionGuardModule> {
-  let lastError: Error | null = null;
-  for (const modulePath of [guardModulePath('dist'), guardModulePath('src')]) {
-    try {
-      return RepetitionGuardModuleSchema.parse(await import(modulePath));
-    } catch (error) {
-      lastError = toError(error);
-    }
-  }
-  throw lastError ?? new Error('Failed to load repetition guard module.');
-}
-
-async function main(): Promise<void> {
-  const module = await loadRepetitionGuard();
-  const results = buildCases().map((benchmarkCase) => runCase(benchmarkCase, module.detectRecentTokenRepetition));
-  printResults(results);
-}
-
-main().catch((error) => {
+try {
+  printResults(buildCases().map(runCase));
+} catch (error) {
   process.stderr.write(`${getErrorMessage(error)}\n`);
   process.exitCode = 1;
-});
+}

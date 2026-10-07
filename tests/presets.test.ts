@@ -5,22 +5,22 @@ import test from 'node:test';
 
 import { READ_ONLY_PRESET_TOOLS } from '@siftkit/contracts';
 
-import { PersistedConfigInvalidError } from '../src/config/errors.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
+import { PersistedConfigInvalidError } from '../src/config/errors.ts';
+import { PresetCatalog } from '../src/preset-catalog.ts';
 import {
   getDefaultOperationModeAllowedTools,
   normalizeOperationModeAllowedTools,
-} from '../src/presets.js';
+} from '../src/presets.ts';
 import {
   getDefaultConfig,
   readConfig,
   writeConfig,
-} from '../src/status-server/config-store.js';
+} from '../src/status-server/config-store.ts';
 import {
   closeAllRuntimeDatabases,
   getRuntimeDatabase,
-} from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function withTempRepo(run: (repoRoot: string) => void): void {
   const tempRoot = createManagedTempDir('siftkit-preset-test-');

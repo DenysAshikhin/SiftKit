@@ -1,4 +1,4 @@
-import type { JsonSerializable } from '../../lib/json-types.js';
+import type { JsonSerializable } from '../../lib/json-types.ts';
 import {
   ApprovalVerdictEventSchema,
   LIVE_SNAPSHOT_COMMAND_CHARS,
@@ -19,7 +19,7 @@ import {
   type LiveRunPhaseName,
   type LiveRunSnapshot,
   type LiveRunTurn,
-} from './schemas.js';
+} from './schemas.ts';
 
 type MutableProviderRequest = {
   stage: string;
@@ -133,12 +133,20 @@ export class LiveRunSnapshotCollector {
     approvalDenials: 0,
   };
 
-  constructor(private readonly meta: {
+  private readonly meta: {
+    requestId: string;
+    taskKind: string;
+    repoRoot: string;
+    startedAtMs: number;
+  };
+
+  constructor(meta: {
     requestId: string;
     taskKind: string;
     repoRoot: string;
     startedAtMs: number;
   }) {
+    this.meta = meta;
     this.phase = { name: 'starting', turn: null, startedAtMs: meta.startedAtMs, detail: null };
   }
 

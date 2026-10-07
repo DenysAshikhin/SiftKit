@@ -5,7 +5,7 @@ import {
   PROMPT_COMPACTION_RESERVE_MAX_CONTEXT_RATIO,
   PROMPT_COMPACTION_RESERVE_TOKENS,
   resolveContextTokenBudget,
-} from '../src/lib/context-token-budget.js';
+} from '../src/lib/context-token-budget.ts';
 
 test('155k context keeps a 15k compaction reserve', () => {
   assert.equal(PROMPT_COMPACTION_RESERVE_TOKENS, 15_000);

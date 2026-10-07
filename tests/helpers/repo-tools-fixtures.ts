@@ -1,14 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { buildIgnorePolicy } from '../../src/repo-search/command-safety.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
-import type { RepoToolContext } from '../../src/repo-search/engine/repo-tools.js';
-import { resolveImageTokenBudget } from '../../src/llm-protocol/image-token-budget.js';
-import { RepoExecutableToolCallSchema, type RepoExecutableToolCall } from '../../src/repo-search/repo-tool-arguments.js';
-import { makeMockWebTools } from './mock-web-tools.js';
-import { makeTestPreset } from './model-presets.js';
-import { createManagedTempDir } from './temp-dirs.js';
+import { buildIgnorePolicy } from '../../src/repo-search/command-safety.ts';
+import type { JsonObject } from '../../src/lib/json-types.ts';
+import type { RepoToolContext } from '../../src/repo-search/engine/repo-tools.ts';
+import { resolveImageTokenBudget } from '../../src/llm-protocol/image-token-budget.ts';
+import { RepoExecutableToolCallSchema, type RepoExecutableToolCall } from '../../src/repo-search/repo-tool-arguments.ts';
+import { makeMockWebTools } from './mock-web-tools.ts';
+import { makeTestPreset } from './model-presets.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
 
 export function nativeCall(toolName: string, args: JsonObject): RepoExecutableToolCall {
   return RepoExecutableToolCallSchema.parse({ toolName, args });

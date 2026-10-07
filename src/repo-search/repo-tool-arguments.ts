@@ -1,7 +1,7 @@
-import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.js';
+import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.ts';
 import { CHAT_QUESTION_MAX_CHOICES } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
+import { z } from '../lib/zod.ts';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.ts';
 
 const PATH_CONTROL_ESCAPES = /[\t\n\r\b\f]/gu;
 const COMMAND_PATH_CONTROL_ESCAPES = /(?<=\S)[\t\r\b\f](?=\S)/gu;

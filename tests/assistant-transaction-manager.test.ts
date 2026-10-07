@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { z } from 'zod';
-import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 const ValueRowSchema = z.object({ value: z.string() });
 

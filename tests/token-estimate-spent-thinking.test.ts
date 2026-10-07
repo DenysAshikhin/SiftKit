@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSpentThinkingTokens } from '../src/lib/token-estimate.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { resolveSpentThinkingTokens } from '../src/lib/token-estimate.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
 
 // An unpinned mock config carries the shipped 2.5 chars/token estimate, so a
 // default change fails loudly here instead of going silently untested.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { SummaryPlannerLoopRuntime } from '../src/summary/planner/mode.js';
+import { SummaryPlannerLoopRuntime } from '../src/summary/planner/mode.ts';
 
 test('summary read_lines expansion is inert when ExpandReads is disabled', () => {
   const noOverlapExpanded = SummaryPlannerLoopRuntime.computeReadLinesRange({

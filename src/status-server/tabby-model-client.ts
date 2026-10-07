@@ -3,7 +3,7 @@ import { z } from 'zod';
 import {
   Exl3LoadRequestSchema,
   type Exl3LoadRequest,
-} from '../inference-presets/exl3-preset-adapter.js';
+} from '../inference-presets/exl3-preset-adapter.ts';
 
 const TabbyModelCardSchema = z.object({
   id: z.string(),
@@ -45,7 +45,11 @@ async function readError(response: Response): Promise<string> {
 }
 
 export class TabbyModelClient {
-  constructor(private readonly adminApiKey: string) {}
+  private readonly adminApiKey: string;
+
+  constructor(adminApiKey: string) {
+    this.adminApiKey = adminApiKey;
+  }
 
   async isProcessReady(baseUrl: string, timeoutMs: number): Promise<boolean> {
     let response: Response;

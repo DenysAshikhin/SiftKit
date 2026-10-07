@@ -1,15 +1,15 @@
-import type { OptionalJsonValue } from '../lib/json-types.js';
-import { getActiveModelPreset, readConfig } from './config-store.js';
+import type { OptionalJsonValue } from '../lib/json-types.ts';
+import { getActiveModelPreset, readConfig } from './config-store.ts';
 import {
   upsertRunLog,
   type RunLogGroup,
   type RunLogKind,
-} from './dashboard-runs.js';
-import { UNRECORDED_RUN_IDENTITY } from './dashboard-runs/run-identity.js';
-import type { TaskKind, ToolTypeStats } from './metrics.js';
-import { serverLogger } from './server-logger.js';
-import { parseStatusMetadata } from './status-file.js';
-import type { ServerContext } from './server-types.js';
+} from './dashboard-runs.ts';
+import { UNRECORDED_RUN_IDENTITY } from './dashboard-runs/run-identity.ts';
+import type { TaskKind, ToolTypeStats } from './metrics.ts';
+import { serverLogger } from './server-logger.ts';
+import { parseStatusMetadata } from './status-file.ts';
+import type { ServerContext } from './server-types.ts';
 
 export function normalizeTaskKind(value: OptionalJsonValue): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'

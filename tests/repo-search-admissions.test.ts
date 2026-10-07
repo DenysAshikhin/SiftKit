@@ -1,20 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { PresetCatalog } from '../src/preset-catalog.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs/artifact-upserts.js';
-import { queryDashboardRunDetailFromDb } from '../src/status-server/dashboard-runs/queries.js';
-import { buildRunIdentity } from '../src/status-server/dashboard-runs/run-identity.js';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs/artifact-upserts.ts';
+import { queryDashboardRunDetailFromDb } from '../src/status-server/dashboard-runs/queries.ts';
+import { buildRunIdentity } from '../src/status-server/dashboard-runs/run-identity.ts';
 import {
   createRepoSearchAdmissionRecord,
   markRepoSearchAdmissionFailed,
   upsertRepoSearchAdmission,
   type RepoSearchAdmissionRecord,
-} from '../src/status-server/repo-search-admissions.js';
-import { parseRepoSearchRequest } from '../src/status-server/route-request-normalizers.js';
-import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/status-server/repo-search-admissions.ts';
+import { parseRepoSearchRequest } from '../src/status-server/route-request-normalizers.ts';
+import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function admit(dir: string): RepoSearchAdmissionRecord {
   const routeRequest = parseRepoSearchRequest({ prompt: 'find tool calls', repoRoot: dir, model: 'mock-model' });

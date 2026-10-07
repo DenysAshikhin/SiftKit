@@ -1,8 +1,8 @@
 import { InferenceThroughputSchema, type ReasoningEffort } from '@siftkit/contracts';
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
 
-export type { JsonObject, JsonValue } from '../lib/json-types.js';
+export type { JsonObject, JsonValue } from '../lib/json-types.ts';
 
 export const INFERENCE_PROTOCOL_FORMAT = 'openai-compatible' as const;
 

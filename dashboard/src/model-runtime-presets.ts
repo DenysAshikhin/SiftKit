@@ -1,4 +1,4 @@
-import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from './types.js';
+import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from './types.ts';
 
 function createPresetIdFromLabel(label: string): string {
   const normalized = String(label || '')

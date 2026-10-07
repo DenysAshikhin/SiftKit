@@ -14,8 +14,8 @@ import {
   type ChatTextRowMetadata,
   type ChatTranscriptMessage,
 } from '@siftkit/contracts';
-import { JsonValueSchema, type JsonSerializable } from '../lib/json-types.js';
-import { stableStringify } from '../lib/json.js';
+import { JsonValueSchema, type JsonSerializable } from '../lib/json-types.ts';
+import { stableStringify } from '../lib/json.ts';
 
 export const CHAT_PROJECTION_EVENT_NAME = 'chat_projection';
 /** Raw code units escaped per string segment; escaping can grow each unit to six bytes. */

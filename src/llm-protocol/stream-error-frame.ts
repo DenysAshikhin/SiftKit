@@ -1,6 +1,6 @@
-import { JsonValueSchema, type JsonValue } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
-import type { JsonObject } from './types.js';
+import { JsonValueSchema, type JsonValue } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
+import type { JsonObject } from './types.ts';
 
 /**
  * OpenAI-compatible providers reserve a top-level `error` key for fatal stream

@@ -1,8 +1,8 @@
 import { isOrchestratorTerminalPhase, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
 
-import { getAbortError } from '../lib/abort.js';
-import { canonicalRepositoryKey } from '../lib/repository-key.js';
-import type { OrchestratorRunStore } from '../orchestrator/run-store.js';
+import { getAbortError } from '../lib/abort.ts';
+import { canonicalRepositoryKey } from '../lib/repository-key.ts';
+import type { OrchestratorRunStore } from '../orchestrator/run-store.ts';
 
 export type RepositoryAccess = 'shared' | 'exclusive';
 
@@ -91,7 +91,11 @@ export class OrchestratorRunRegistry {
   private readonly listeners = new Map<string, Set<StateListener>>();
   private shutdownPromise: Promise<void> | null = null;
 
-  constructor(private readonly store: OrchestratorRunStore) {}
+  private readonly store: OrchestratorRunStore;
+
+  constructor(store: OrchestratorRunStore) {
+    this.store = store;
+  }
 
   /** A stored nonterminal parent has no owner after a restart; it is interrupted, never resumed. */
   reconcileOnStartup(): string[] {

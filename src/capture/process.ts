@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { findCommandInPath, resolveExternalCommand } from './command-path.js';
+import { findCommandInPath, resolveExternalCommand } from './command-path.ts';
 
 export type ShellName = 'auto' | 'pwsh' | 'powershell' | 'bash' | 'sh' | 'cmd';
 

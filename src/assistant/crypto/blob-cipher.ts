@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
-import { z } from '../../lib/zod.js';
-import type { AssistantKeyProvider } from './key-provider.js';
+import { z } from '../../lib/zod.ts';
+import type { AssistantKeyProvider } from './key-provider.ts';
 
 const MAGIC = Buffer.from('SKEV1\0', 'latin1');
 const HEADER_LENGTH_BYTES = 4;
@@ -28,7 +28,11 @@ export interface EncryptedBlob {
  * mismatch is a hard read error — never a silent fallback (§13.4).
  */
 export class BlobCipher {
-  constructor(private readonly keys: AssistantKeyProvider) {}
+  private readonly keys: AssistantKeyProvider;
+
+  constructor(keys: AssistantKeyProvider) {
+    this.keys = keys;
+  }
 
   encrypt(plaintext: Buffer): EncryptedBlob {
     const key = this.keys.getActiveKey();

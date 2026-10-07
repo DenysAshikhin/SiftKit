@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
-import { findNearestSiftKitRepoRoot } from '../../src/lib/paths.js';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.ts';
+import { findNearestSiftKitRepoRoot } from '../../src/lib/paths.ts';
 
 /** The one wording for a leaked temp directory, so acceptance checks grep for a single string. */
 export const TEMP_DIR_LEAK_HEADER = 'TEMP DIRECTORIES LEFT BEHIND';

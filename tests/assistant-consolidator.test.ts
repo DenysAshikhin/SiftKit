@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
-import { CandidateConsolidator } from '../src/assistant/ingestion/consolidator.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+import type { AssistantGraph } from '../src/assistant/assistant-graph.ts';
+import { CandidateConsolidator } from '../src/assistant/ingestion/consolidator.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
 
 function seedCandidate(
   graph: AssistantGraph,

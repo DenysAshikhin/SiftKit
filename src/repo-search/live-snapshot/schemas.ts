@@ -1,9 +1,9 @@
 import { RunOperationTypeSchema } from '@siftkit/contracts';
 
-import { z } from '../../lib/zod.js';
-import { JsonValueSchema } from '../../lib/json-types.js';
-import { StreamStopSchema } from '../../llm-protocol/types.js';
-import { RejectionKindSchema } from '../engine/task-loop-support.js';
+import { z } from '../../lib/zod.ts';
+import { JsonValueSchema } from '../../lib/json-types.ts';
+import { StreamStopSchema } from '../../llm-protocol/types.ts';
+import { RejectionKindSchema } from '../engine/task-loop-support.ts';
 
 /** Newest turns are kept; older ones age out so the file stays small enough to rewrite constantly. */
 export const LIVE_SNAPSHOT_MAX_TURNS = 100;

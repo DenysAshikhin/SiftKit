@@ -15,9 +15,9 @@ import {
   runtimeDatabaseExists,
   setRuntimeMetadataValue,
   writeRuntimeDatabaseImage,
-} from '../src/state/runtime-db.js';
-import { z } from '../src/lib/zod.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/state/runtime-db.ts';
+import { z } from '../src/lib/zod.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const MarkerRowSchema = z.object({ value: z.string() });
 

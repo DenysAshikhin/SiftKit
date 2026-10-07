@@ -1,12 +1,12 @@
-import { PresetSystemPromptComposer } from '../../preset-system-prompt.js';
-import type { PresetSystemContext } from '../../preset-system-context.js';
-import { getSourceInstructions } from '../prompt.js';
-import type { SummarySourceKind } from '../types.js';
-import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
-import { parseJsonValueText } from '../../lib/json.js';
-import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
-import { truncatePlannerText } from './formatters.js';
-import type { ChatMessage } from '../../repo-search/planner-chat-message.js';
+import { PresetSystemPromptComposer } from '../../preset-system-prompt.ts';
+import type { PresetSystemContext } from '../../preset-system-context.ts';
+import { getSourceInstructions } from '../prompt.ts';
+import type { SummarySourceKind } from '../types.ts';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
+import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.ts';
+import { truncatePlannerText } from './formatters.ts';
+import type { ChatMessage } from '../../repo-search/planner-chat-message.ts';
 
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 // Keep the preview-length constant local here but re-export so the

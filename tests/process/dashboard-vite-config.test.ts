@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 
-import viteConfig from '../../dashboard/vite.config.js';
+import viteConfig from '../../dashboard/vite.config.ts';
 
 const ProxyTableSchema = z.record(
   z.string(),

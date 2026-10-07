@@ -1,8 +1,8 @@
-import { parseArguments, type ResolvedCliArgs } from './args.js';
-import { readCliTextInput } from './input.js';
-import { normalizeCliFormat } from './request-normalizers.js';
-import { CliProgressRenderer } from './progress-renderer.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
+import { parseArguments, type ResolvedCliArgs } from './args.ts';
+import { readCliTextInput } from './input.ts';
+import { normalizeCliFormat } from './request-normalizers.ts';
+import { CliProgressRenderer } from './progress-renderer.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
 
 export async function runPresetCli(options: ResolvedCliArgs & {
   stdinText?: string | Buffer;

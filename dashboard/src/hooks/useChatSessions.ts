@@ -12,7 +12,7 @@ import {
   type ChatRepoAgentStreamRequest,
   type ChatQuestionReply,
 } from '@siftkit/contracts';
-import { toError } from '../../../src/lib/errors.js';
+import { toError } from '../../../src/lib/errors.ts';
 import {
   condenseChatSession,
   createChatSession,
@@ -39,7 +39,7 @@ import {
   getQueuedChatMessage, editQueuedChatMessage, removeQueuedChatMessage,
   ChatQueueRejectedError,
   type RepoAgentDecision,
-} from '../api';
+} from '../api.ts';
 import {
   PLAN_MAX_TURNS_VALIDATION_ERROR,
   PlanMaxTurnsOverrideSchema,
@@ -47,18 +47,18 @@ import {
   requireSelectedSession,
   resolveRepoRoot,
   type ParsedMaxTurnsOverride,
-} from '../lib/chat-composer-inputs';
-import type { ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store';
-import { ChatRuntimeHub } from '../lib/chat-runtime-hub';
-import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
-import { useLatest } from '../lib/use-latest';
-import { ownedStreamTransitions, toRuntimeTransitions } from '../lib/chat-stream-transitions';
-import type { ChatStreamEvent } from '../lib/chat-stream-parser';
-import { ChatSessionSummarySchema } from '../types';
-import type { ChatSession, ChatSessionResponse, ChatSessionSummary } from '../types';
-import type { ToastLevel } from './useToasts';
-import type { PendingImage } from '../lib/downscale-image';
-import { waitForAbortableDelay } from '../lib/abortable-delay';
+} from '../lib/chat-composer-inputs.ts';
+import type { ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store.ts';
+import { ChatRuntimeHub } from '../lib/chat-runtime-hub.ts';
+import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state.ts';
+import { useLatest } from '../lib/use-latest.ts';
+import { ownedStreamTransitions, toRuntimeTransitions } from '../lib/chat-stream-transitions.ts';
+import type { ChatStreamEvent } from '../lib/chat-stream-parser.ts';
+import { ChatSessionSummarySchema } from '../types.ts';
+import type { ChatSession, ChatSessionResponse, ChatSessionSummary } from '../types.ts';
+import type { ToastLevel } from './useToasts.ts';
+import type { PendingImage } from '../lib/downscale-image.ts';
+import { waitForAbortableDelay } from '../lib/abortable-delay.ts';
 
 const CHAT_ATTACH_RECONNECT_MS = 1000;
 

@@ -1,9 +1,9 @@
-import type { AssistantGraph } from '../assistant-graph.js';
-import { normalizeAliasText } from '../domain/keys.js';
-import { renderAssertionLiteral } from '../storage/assertion-search-text.js';
-import type { AssertionRow, NodeRow } from '../storage/rows.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
-import type { AssertionView } from './assertion-view.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { normalizeAliasText } from '../domain/keys.ts';
+import { renderAssertionLiteral } from '../storage/assertion-search-text.ts';
+import type { AssertionRow, NodeRow } from '../storage/rows.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
+import type { AssertionView } from './assertion-view.ts';
 
 /** Slug used as a projection `topic_key`: stable, lowercase, filesystem-safe. */
 export function toTopicKey(displayName: string): string {
@@ -16,7 +16,11 @@ export function toTopicKey(displayName: string): string {
  * projections and retrieval cannot disagree about how a fact reads.
  */
 export class AssertionViewBuilder {
-  constructor(private readonly graph: AssistantGraph) {}
+  private readonly graph: AssistantGraph;
+
+  constructor(graph: AssistantGraph) {
+    this.graph = graph;
+  }
 
   build(row: AssertionRow): AssertionView {
     const [view] = this.buildMany([row]);

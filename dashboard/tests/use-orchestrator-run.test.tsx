@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { OrchestratorRunStateSchema, type OrchestratorRunState } from '@siftkit/contracts';
-import { renderHook, waitFor } from './react-test-environment.js';
-import { useOrchestratorRun } from '../src/hooks/useOrchestratorRun.js';
+import { renderHook, waitFor } from './react-test-environment.ts';
+import { useOrchestratorRun } from '../src/hooks/useOrchestratorRun.ts';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const APPROVAL_ID = '00000000-0000-4000-8000-000000000003';

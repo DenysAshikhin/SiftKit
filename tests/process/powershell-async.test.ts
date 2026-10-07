@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnPowerShellAsync, spawnPowerShellSync } from '../../src/lib/powershell.js';
+import { spawnPowerShellAsync, spawnPowerShellSync } from '../../src/lib/powershell.ts';
 import {
   PROCESS_LIFETIME_MS,
   createProcessTreeFixture,
-} from '../helpers/process-tree-fixture.js';
+} from '../helpers/process-tree-fixture.ts';
 
 /**
  * The `run` tool always goes through PowerShell, so the incident's chain was

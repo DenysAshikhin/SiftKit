@@ -1,9 +1,9 @@
-import { render } from '../react-test-environment.js';
-import test from 'node:test';
+import { render } from '../react-test-environment.ts';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 
-import { isChatLogAtBottom, scrollChatLogToBottom, useChatScroll } from '../../src/hooks/useChatScroll';
+import { isChatLogAtBottom, scrollChatLogToBottom, useChatScroll } from '../../src/hooks/useChatScroll.ts';
 
 function LogProbe({ withContent }: { withContent: boolean }) {
   const { chatLogRef } = useChatScroll('s1', null);

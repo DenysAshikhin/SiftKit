@@ -1,5 +1,5 @@
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
@@ -7,22 +7,22 @@ after(() => isolatedRuntime.close());
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
-import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import type { InferenceToolDefinition } from '../src/llm-protocol/types.ts';
+import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 /**
  * Wildly divergent from any prompt this loop can build, so a re-introduced

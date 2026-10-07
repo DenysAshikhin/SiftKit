@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import test from 'node:test';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { ChatSubmissionStore, digestChatSubmission } from '../src/state/chat-submissions.js';
-import { saveChatSession } from '../src/state/chat-sessions.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
-import { createTestChatSession } from './helpers/chat-sessions.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { ChatSubmissionStore, digestChatSubmission } from '../src/state/chat-submissions.ts';
+import { saveChatSession } from '../src/state/chat-sessions.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 test('submission receipts validate ownership, remain immutable, and cascade with their run', (t) => {
   t.after(closeAllRuntimeDatabases);

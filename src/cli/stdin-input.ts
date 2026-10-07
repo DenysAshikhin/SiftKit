@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
-import { parseArguments } from './args.js';
-import { CLI_COMMAND_CATALOG } from './command-catalog.js';
+import { parseArguments } from './args.ts';
+import { CLI_COMMAND_CATALOG } from './command-catalog.ts';
 
 // Only these command handlers consume `stdinText`. Every other command ignores
 // stdin entirely, so reading it would do nothing useful and risks blocking

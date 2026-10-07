@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ChatRuntimeOwner, CHAT_OWNER_LEASE_MS } from '../src/state/chat-runtime-owner.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { heartbeatChatRuntimeOwner } from '../src/status-server/chat-run-recovery.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { admittedChatRun } from './helpers/chat-run-recorder.js';
-import { serverLogger } from '../src/status-server/server-logger.js';
+import { ChatRuntimeOwner, CHAT_OWNER_LEASE_MS } from '../src/state/chat-runtime-owner.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { heartbeatChatRuntimeOwner } from '../src/status-server/chat-run-recovery.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { admittedChatRun } from './helpers/chat-run-recorder.ts';
+import { serverLogger } from '../src/status-server/server-logger.ts';
 
 test('another owner cannot acquire a live lease, including immediately before expiry', () => {
   const path = join(createManagedTempDir('chat-owner-live-'), 'runtime.sqlite');

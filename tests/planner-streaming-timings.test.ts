@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { requestRepoSearchPlannerProtocolAction } from '../src/repo-search/planner-protocol.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { requestRepoSearchPlannerProtocolAction } from '../src/repo-search/planner-protocol.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 type FakeInferenceServer = { baseUrl: string; lastBody: () => string; close: () => Promise<void> };
 

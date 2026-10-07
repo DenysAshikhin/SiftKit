@@ -1,27 +1,27 @@
-import type { SiftConfig } from '../../config/index.js';
-import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.js';
-import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import { estimateTokenCount } from '../../lib/token-estimate.js';
+import type { SiftConfig } from '../../config/index.ts';
+import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.ts';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.ts';
+import { estimateTokenCount } from '../../lib/token-estimate.ts';
 import {
   plannerMessageKeepsReasoningContent,
   type CompactionCacheOrigin,
   type PlannerThinkingFlags,
-} from '../planner-protocol.js';
-import type { ChatMessage } from '../planner-chat-message.js';
-import type { InferenceToolDefinition } from '../../llm-protocol/types.js';
-import { IncrementalTokenCounter } from '../incremental-token-counter.js';
-import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.js';
-import { renderWirePrompt, type WirePrompt } from '../wire-prompt.js';
-import type { JsonLogger } from '../types.js';
-import { ProgressReporter } from './progress-reporter.js';
-import { TranscriptManager } from './transcript-manager.js';
+} from '../planner-protocol.ts';
+import type { ChatMessage } from '../planner-chat-message.ts';
+import type { InferenceToolDefinition } from '../../llm-protocol/types.ts';
+import { IncrementalTokenCounter } from '../incremental-token-counter.ts';
+import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.ts';
+import { renderWirePrompt, type WirePrompt } from '../wire-prompt.ts';
+import type { JsonLogger } from '../types.ts';
+import { ProgressReporter } from './progress-reporter.ts';
+import { TranscriptManager } from './transcript-manager.ts';
 import {
   TranscriptCompactor,
   writePromptCacheEpochReset,
   type CompactionRetention,
-} from './transcript-compactor.js';
-import { TurnBudget } from './turn-budget.js';
-import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
+} from './transcript-compactor.ts';
+import { TurnBudget } from './turn-budget.ts';
+import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
 
 /** Log visibility only: a character estimate of the preserved reasoning mass, no extra tokenize round-trip. */
 function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMessage[], reasoningContentEnabled: boolean): number {
@@ -51,8 +51,23 @@ export type PreparedTurnBudget =
     };
 
 export class PromptPreparer {
+  private readonly options: {
+      taskId: string;
+      config: SiftConfig;
+      useEstimatedTokensOnly: boolean;
+      budget: TurnBudget;
+      plannerTools: readonly InferenceToolDefinition[];
+      thinking: PlannerThinkingFlags;
+      transcript: TranscriptManager;
+      runtimeProfile: RepoSearchRuntimeProfile;
+      compactor: TranscriptCompactor;
+      progress: ProgressReporter;
+      logger: JsonLogger | null;
+      timingRecorder: TemporaryTimingRecorder | null;
+    };
+
   constructor(
-    private readonly options: {
+    options: {
       taskId: string;
       config: SiftConfig;
       useEstimatedTokensOnly: boolean;
@@ -66,7 +81,9 @@ export class PromptPreparer {
       logger: JsonLogger | null;
       timingRecorder: TemporaryTimingRecorder | null;
     },
-  ) {}
+  ) {
+    this.options = options;
+  }
 
   private readonly promptTokenCounter = new IncrementalTokenCounter();
 

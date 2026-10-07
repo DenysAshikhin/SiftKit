@@ -1,7 +1,7 @@
-import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
-import { buildUserContent } from '../../llm-protocol/image-attachments.js';
-import { AgentLoop } from '../../agent-loop/agent-loop.js';
-import { AgentLoopActionParser } from '../../agent-loop/action-parser.js';
+import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.ts';
+import { buildUserContent } from '../../llm-protocol/image-attachments.ts';
+import { AgentLoop } from '../../agent-loop/agent-loop.ts';
+import { AgentLoopActionParser } from '../../agent-loop/action-parser.ts';
 import type {
   AgentLoopFinishAction,
   AgentLoopFinishEvaluation,
@@ -13,9 +13,9 @@ import type {
   AgentLoopToolAction,
   AgentLoopToolExecution,
   AgentLoopToolResult,
-} from '../../agent-loop/types.js';
-import type { InferenceToolCall, InferenceToolDefinition, NormalizedInferenceChatResponse, StreamStop } from '../../llm-protocol/types.js';
-import { createEmptyToolTypeStats } from '../../line-read-guidance.js';
+} from '../../agent-loop/types.ts';
+import type { InferenceToolCall, InferenceToolDefinition, NormalizedInferenceChatResponse, StreamStop } from '../../llm-protocol/types.ts';
+import { createEmptyToolTypeStats } from '../../line-read-guidance.ts';
 import {
   countInferenceTokens,
   generateInferenceChatResponse,
@@ -23,34 +23,34 @@ import {
   toProtocolTools,
   type CountInferenceTokensOptions,
   type InferenceGenerateResult,
-} from '../../providers/inference.js';
-import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.js';
-import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
-import { emptyInferenceThroughput } from '../../lib/inference-throughput.js';
+} from '../../providers/inference.ts';
+import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.ts';
+import { getProcessedPromptTokens } from '../../lib/provider-helpers.ts';
+import { emptyInferenceThroughput } from '../../lib/inference-throughput.ts';
 import type { InferenceThroughput } from '@siftkit/contracts';
-import { getErrorMessage, toError } from '../../lib/errors.js';
-import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
-import { NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
-import { buildConservativeDirectFallbackDecision, normalizeStructuredDecision } from '../structured.js';
+import { getErrorMessage, toError } from '../../lib/errors.ts';
+import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.ts';
+import { NativePlannerToolCallError } from '../../planner-protocol/native-actions.ts';
+import { buildConservativeDirectFallbackDecision, normalizeStructuredDecision } from '../structured.ts';
 import {
   executePlannerTool,
   formatPlannerResult,
   formatPlannerToolResultHeader,
   type PlannerToolResult,
-} from './tools.js';
-import { createPlannerDebugRecorder, traceSummary } from '../artifacts.js';
-import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
+} from './tools.ts';
+import { createPlannerDebugRecorder, traceSummary } from '../artifacts.ts';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.ts';
 import {
   buildPlannerForcedFinishUserPrompt,
   buildPlannerInputSection,
   buildPlannerInvalidResponseUserPrompt,
   buildPlannerSystemPrompt,
   renderPlannerTranscript,
-} from './prompts.js';
-import { estimatePromptTokenCount, getPlannerPromptBudget } from '../chunking.js';
-import { notifyStatusBackend } from '../../config/index.js';
-import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import type { PresetSystemContext } from '../../preset-system-context.js';
+} from './prompts.ts';
+import { estimatePromptTokenCount, getPlannerPromptBudget } from '../chunking.ts';
+import { notifyStatusBackend } from '../../config/index.ts';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.ts';
+import type { PresetSystemContext } from '../../preset-system-context.ts';
 import {
   SummaryPlannerActionAdapter,
   SummaryPlannerModelClient,
@@ -58,33 +58,33 @@ import {
   SummaryPlannerResultAssembler,
   SummaryPlannerToolAdapter,
   type SummaryPlannerLoopController,
-} from './agent-loop-adapter.js';
+} from './agent-loop-adapter.ts';
 import {
   allowsUnsupportedInput,
   type StructuredModelDecision,
   type SummaryProviderId,
   type SummarySourceKind,
-} from '../types.js';
+} from '../types.ts';
 import {
   buildSummaryPlannerToolDefinitions,
   DEFAULT_SUMMARY_PLANNER_TOOL_NAMES,
   SummaryNativeToolCallSchema,
   type SummaryClassification,
   type SummaryPlannerToolName as PlannerToolName,
-} from '../../planner-protocol/summary-tools.js';
+} from '../../planner-protocol/summary-tools.ts';
 import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
   classifyToolOutputNovelty,
   fingerprintToolCall,
-} from '../../tool-loop-governor.js';
+} from '../../tool-loop-governor.ts';
 import {
   buildToolBatchMessages,
   buildToolExchangeMessages,
   upsertTrailingUserMessage,
   type ToolBatchOutcome,
-} from '../../tool-call-messages.js';
-import { findContiguousUnreadRange, ToolOutputFitter, type ToolOutputTruncationUnit } from '../../tool-output-fit.js';
+} from '../../tool-call-messages.ts';
+import { findContiguousUnreadRange, ToolOutputFitter, type ToolOutputTruncationUnit } from '../../tool-output-fit.ts';
 
 const MAX_PLANNER_TOOL_CALLS = 30;
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
@@ -286,10 +286,16 @@ function getSummaryPlannerModelData(context: AgentLoopResponseContext): SummaryP
 }
 
 class SummaryPlannerToolOutputTokenCounter {
+  private readonly config: SiftConfig;
+  private readonly tokenizeOptions: CountInferenceTokensOptions | undefined;
+
   constructor(
-    private readonly config: SiftConfig,
-    private readonly tokenizeOptions: CountInferenceTokensOptions | undefined,
-  ) {}
+    config: SiftConfig,
+    tokenizeOptions: CountInferenceTokensOptions | undefined,
+  ) {
+    this.config = config;
+    this.tokenizeOptions = tokenizeOptions;
+  }
 
   async countToolOutputTokens(textToCount: string): Promise<number> {
     const tokenCountRaw = await countInferenceTokens(this.config, textToCount, this.tokenizeOptions);
@@ -298,6 +304,9 @@ class SummaryPlannerToolOutputTokenCounter {
 }
 
 export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
+  private readonly requestContext: SummaryPlannerRequestContext;
+  private readonly transcriptState: SummaryPlannerTranscriptState;
+  private readonly completionState: SummaryPlannerCompletionState;
   private prompt = '';
   private promptTokenCount = 0;
   private readonly tokenizeOptions: CountInferenceTokensOptions | undefined;
@@ -322,10 +331,13 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   constructor(
-    private readonly requestContext: SummaryPlannerRequestContext,
-    private readonly transcriptState: SummaryPlannerTranscriptState,
-    private readonly completionState: SummaryPlannerCompletionState,
+    requestContext: SummaryPlannerRequestContext,
+    transcriptState: SummaryPlannerTranscriptState,
+    completionState: SummaryPlannerCompletionState,
   ) {
+    this.requestContext = requestContext;
+    this.transcriptState = transcriptState;
+    this.completionState = completionState;
     this.tokenizeOptions = getPlannerTokenizeOptions(this.options.requestTimeoutSeconds);
     this.protocolToolDefinitions = toProtocolTools(this.requestContext.toolDefinitions);
   }

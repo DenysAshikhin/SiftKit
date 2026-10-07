@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import {
   APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE,
   requestApprovalVerdict,
-} from '../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import type { SiftConfig } from '../src/config/types.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { buildReasoningDeltas, startFakeChatServer } from './helpers/fake-chat-server.js';
-import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import type { SiftConfig } from '../src/config/types.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { buildReasoningDeltas, startFakeChatServer } from './helpers/fake-chat-server.ts';
+import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const VERDICT = '{"verdict":"deny","reason":"introduces a remote-execution dropper"}';
 const transcript: ChatMessage[] = [

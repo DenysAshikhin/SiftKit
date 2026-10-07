@@ -2,11 +2,11 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { DurableChatApprovalSchema, DurableChatQuestionSchema } from '@siftkit/contracts';
 import '../src/styles.css';
-import { ChatTab } from '../src/tabs/ChatTab';
-import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';
-import { chatSnapshot } from './chat-snapshot-fixture.js';
-import { HOSTILE_PATH, OVERFLOW_PRESENT, SHORT_ANSWER, SHORT_QUESTION, UNBROKEN, type OverflowReport } from './chat-overflow-content.js';
-import { REPO_AGENT_PRESET, SESSION_A, buildDefaultStore, buildProps, msg, orchestratorProps } from './chat-tab-fixture.js';
+import { ChatTab } from '../src/tabs/ChatTab.tsx';
+import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
+import { chatSnapshot } from './chat-snapshot-fixture.ts';
+import { HOSTILE_PATH, OVERFLOW_PRESENT, SHORT_ANSWER, SHORT_QUESTION, UNBROKEN, type OverflowReport } from './chat-overflow-content.ts';
+import { REPO_AGENT_PRESET, SESSION_A, buildDefaultStore, buildProps, msg, orchestratorProps } from './chat-tab-fixture.ts';
 
 /** Real ChatTab scenarios filled with content that cannot wrap; tests/process/chat-overflow.test.ts drives this page in headless Chrome. */
 const WIDE_TABLE = [

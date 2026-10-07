@@ -1,21 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { DossierCompiler } from '../src/assistant/projections/dossier-compiler.js';
-import { ProfileCompiler } from '../src/assistant/projections/profile-compiler.js';
-import { TokenLimitEnforcer } from '../src/assistant/projections/token-limit-enforcer.js';
-import type { AssertionView } from '../src/assistant/projections/assertion-view.js';
-import { renderFrontmatter, parseFrontmatter } from '../src/assistant/projections/frontmatter.js';
-import { renderAssertionSentence } from '../src/assistant/projections/assertion-sentence.js';
-import { RELATION_TYPES } from '../src/assistant/domain/relation-types.js';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { DossierCompiler } from '../src/assistant/projections/dossier-compiler.ts';
+import { ProfileCompiler } from '../src/assistant/projections/profile-compiler.ts';
+import { TokenLimitEnforcer } from '../src/assistant/projections/token-limit-enforcer.ts';
+import type { AssertionView } from '../src/assistant/projections/assertion-view.ts';
+import { renderFrontmatter, parseFrontmatter } from '../src/assistant/projections/frontmatter.ts';
+import { renderAssertionSentence } from '../src/assistant/projections/assertion-sentence.ts';
+import { RELATION_TYPES } from '../src/assistant/domain/relation-types.ts';
+import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService,
   SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.js';
-import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+} from '../src/assistant/projections/projection-summarizer.ts';
+import type { AssistantGraph } from '../src/assistant/assistant-graph.ts';
+import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
 
 class UnusedProjectionSummarizer implements ProjectionSummaryService {
   async summarize(): Promise<SummarizeProjectionResult> {

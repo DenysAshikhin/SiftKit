@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { KeyMaterialDtoSchema } from '@siftkit/contracts';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
-import { z } from '../src/lib/zod.js';
-import { requestJson } from './helpers/dashboard-http.js';
-import { withAssistantServer } from './helpers/assistant-server-harness.js';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfig, readConfig } from '../src/status-server/config-store.ts';
+import { z } from '../src/lib/zod.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
+import { withAssistantServer } from './helpers/assistant-server-harness.ts';
 
 const AssistantViewSchema = z.object({
   assistant: z.object({ Enabled: z.boolean(), KeyCustody: z.string() }),

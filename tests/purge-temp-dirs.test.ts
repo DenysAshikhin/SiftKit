@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { parseMinAgeMinutes, purgeTempDirectories } from '../scripts/purge-temp-dirs.js';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { parseMinAgeMinutes, purgeTempDirectories } from '../scripts/purge-temp-dirs.ts';
 
 test('parseMinAgeMinutes defaults to 60 and reads an explicit value', () => {
   assert.equal(parseMinAgeMinutes([]), 60);

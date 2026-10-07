@@ -1,10 +1,10 @@
-import type { RunDetailResponse } from '../types.js';
+import type { RunDetailResponse } from '../types.ts';
 import {
   formatStepContextUsed,
   isRecord,
   readStringField,
-} from './format.js';
-import { getDisplayToolCommand } from './display-command.js';
+} from './format.ts';
+import { getDisplayToolCommand } from './display-command.ts';
 
 export type RepoSearchChatStep = {
   id: string;

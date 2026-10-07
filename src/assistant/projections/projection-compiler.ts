@@ -1,22 +1,22 @@
-import type { AssistantGraph } from '../assistant-graph.js';
-import { hashTextContent } from '../domain/keys.js';
-import { RELATION_DEFINITIONS } from '../domain/relation-types.js';
-import { stalenessFactor } from '../domain/staleness.js';
-import { routeTier, tierUtility } from '../domain/tier-utility.js';
-import type { TokenCounter } from '../domain/tokens.js';
-import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
-import { planTier3Archives } from './archive-planner.js';
-import { AssertionViewBuilder } from './assertion-view-builder.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { hashTextContent } from '../domain/keys.ts';
+import { RELATION_DEFINITIONS } from '../domain/relation-types.ts';
+import { stalenessFactor } from '../domain/staleness.ts';
+import { routeTier, tierUtility } from '../domain/tier-utility.ts';
+import type { TokenCounter } from '../domain/tokens.ts';
+import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
+import { planTier3Archives } from './archive-planner.ts';
+import { AssertionViewBuilder } from './assertion-view-builder.ts';
 import {
   TIER_DOCUMENT_LIMIT, isProjectableInPlaintext,
   type AssertionView, type CompiledDocument,
-} from './assertion-view.js';
-import { DossierCompiler } from './dossier-compiler.js';
-import { renderFrontmatter } from './frontmatter.js';
-import { ProfileCompiler } from './profile-compiler.js';
-import { TokenLimitEnforcer } from './token-limit-enforcer.js';
-import type { ProjectionSummaryService } from './projection-summarizer.js';
+} from './assertion-view.ts';
+import { DossierCompiler } from './dossier-compiler.ts';
+import { renderFrontmatter } from './frontmatter.ts';
+import { ProfileCompiler } from './profile-compiler.ts';
+import { TokenLimitEnforcer } from './token-limit-enforcer.ts';
+import type { ProjectionSummaryService } from './projection-summarizer.ts';
 
 export interface CompileSummary {
   readonly written: number;
@@ -65,13 +65,24 @@ export class ProjectionCompiler {
   private readonly profiles: ProfileCompiler;
   private readonly dossiers: DossierCompiler;
 
+  private readonly graph: AssistantGraph;
+  private readonly tokens: TokenCounter;
+  private readonly summarizer: ProjectionSummaryService;
+  private readonly targetTokens: ProjectionTargetTokens;
+  private readonly tierLimits: TierDocumentLimits;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly tokens: TokenCounter,
-    private readonly summarizer: ProjectionSummaryService,
-    private readonly targetTokens: ProjectionTargetTokens,
-    private readonly tierLimits: TierDocumentLimits = TIER_DOCUMENT_LIMIT,
+    graph: AssistantGraph,
+    tokens: TokenCounter,
+    summarizer: ProjectionSummaryService,
+    targetTokens: ProjectionTargetTokens,
+    tierLimits: TierDocumentLimits = TIER_DOCUMENT_LIMIT,
   ) {
+    this.graph = graph;
+    this.tokens = tokens;
+    this.summarizer = summarizer;
+    this.targetTokens = targetTokens;
+    this.tierLimits = tierLimits;
     this.views = new AssertionViewBuilder(graph);
     const enforcer = new TokenLimitEnforcer(tokens);
     this.profiles = new ProfileCompiler(tokens, enforcer);

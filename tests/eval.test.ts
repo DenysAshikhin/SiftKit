@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runEvaluation } from '../src/status-server/eval.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
+import { runEvaluation } from '../src/status-server/eval.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
 
 test('runEvaluation runs a fixture manifest and produces scored results', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {

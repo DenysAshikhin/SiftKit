@@ -8,7 +8,7 @@ import {
   SETTINGS_SECTIONS,
   SETTINGS_TOOLTIP_LABELS,
   VISION_OFFLOAD_LABEL,
-} from '../dashboard/src/settings-sections.js';
+} from '../dashboard/src/settings-sections.ts';
 
 test('settings section order matches the integrated layout', () => {
   assert.deepEqual(

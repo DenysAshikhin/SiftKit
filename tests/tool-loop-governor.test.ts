@@ -10,7 +10,7 @@ import {
   evaluateFinishAttempt,
   fingerprintGitToolCall,
   fingerprintToolCall,
-} from '../src/tool-loop-governor.js';
+} from '../src/tool-loop-governor.ts';
 
 test('fingerprintGitToolCall canonicalizes typed Git arguments', () => {
   const first = fingerprintGitToolCall({ operation: 'log', limit: 5, path: 'src' });

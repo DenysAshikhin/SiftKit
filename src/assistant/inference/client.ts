@@ -4,14 +4,14 @@ import type { ImageDataUrl } from '@siftkit/contracts';
 import {
   getActiveInferenceBackend, getConfiguredModel,
   type ModelRuntimePreset, type SiftConfig,
-} from '../../config/index.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { buildUserContent } from '../../llm-protocol/image-attachments.js';
-import { InferenceClient, type InferenceChatOptions } from '../../llm-protocol/inference-client.js';
-import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
-import { buildInferenceJsonSchemaResponseFormat } from '../../providers/structured-output-schema.js';
-import type { InferenceContentPart, NormalizedInferenceChatResponse } from '../../llm-protocol/types.js';
-import type { AssistantInferenceRole } from './roles.js';
+} from '../../config/index.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { buildUserContent } from '../../llm-protocol/image-attachments.ts';
+import { InferenceClient, type InferenceChatOptions } from '../../llm-protocol/inference-client.ts';
+import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.ts';
+import { buildInferenceJsonSchemaResponseFormat } from '../../providers/structured-output-schema.ts';
+import type { InferenceContentPart, NormalizedInferenceChatResponse } from '../../llm-protocol/types.ts';
+import type { AssistantInferenceRole } from './roles.ts';
 
 interface AssistantInferenceRequestBase {
   readonly role: AssistantInferenceRole;
@@ -74,11 +74,19 @@ const ASSISTANT_IDLE_TIMEOUT_SECONDS = 120;
  * pass through the same admission the chat surface uses; nothing here re-implements those limits.
  */
 export class DefaultAssistantInferenceClient implements AssistantInferenceClient {
+  private readonly config: SiftConfig;
+  private readonly presets: ActiveModelPresetSource;
+  private readonly backend: AssistantChatBackend;
+
   constructor(
-    private readonly config: SiftConfig,
-    private readonly presets: ActiveModelPresetSource,
-    private readonly backend: AssistantChatBackend = new InferenceClient(),
-  ) {}
+    config: SiftConfig,
+    presets: ActiveModelPresetSource,
+    backend: AssistantChatBackend = new InferenceClient(),
+  ) {
+    this.config = config;
+    this.presets = presets;
+    this.backend = backend;
+  }
 
   async complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult> {
     if (request.abortSignal?.aborted === true) {

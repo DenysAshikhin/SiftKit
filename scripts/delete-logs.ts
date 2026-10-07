@@ -2,14 +2,14 @@
  * Delete old logs from the .siftkit/logs directory.
  *
  * Usage:
- *   tsx scripts/delete-logs.ts            # delete logs older than 7 days
- *   tsx scripts/delete-logs.ts --days 3   # delete logs older than N days
- *   tsx scripts/delete-logs.ts --all      # delete all logs regardless of age
+ *   node scripts/delete-logs.ts            # delete logs older than 7 days
+ *   node scripts/delete-logs.ts --days 3   # delete logs older than N days
+ *   node scripts/delete-logs.ts --all      # delete all logs regardless of age
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRuntimeRoot } from '../src/config/paths.js';
+import { getRuntimeRoot } from '../src/config/paths.ts';
 
 // ---------------------------------------------------------------------------
 // Recursive file walker

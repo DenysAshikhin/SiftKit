@@ -1,11 +1,11 @@
 import http from 'node:http';
 import path from 'node:path';
 
-import { z } from '../../src/lib/zod.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import type { JsonValue } from '../../src/lib/json-types.js';
-import { getRuntimeRootFromStatusPath } from './runtime-config.js';
-import { testHttpAgent } from './http-agent.js';
+import { z } from '../../src/lib/zod.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import type { JsonValue } from '../../src/lib/json-types.ts';
+import { getRuntimeRootFromStatusPath } from './runtime-config.ts';
+import { testHttpAgent } from './http-agent.ts';
 
 // The status-server posts these locator fields on every artifact write; a parsed
 // JSON body (JsonObject) is structurally assignable here without a cast.

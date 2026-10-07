@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { AssistantConfigSchema } from './config.js';
-import { JsonObjectSchema } from './primitives.js';
+import { AssistantConfigSchema } from './config.ts';
+import { JsonObjectSchema } from './primitives.ts';
 
 const SensitivitySchema = z.enum([
   'low', 'personal', 'sensitive', 'highly_sensitive', 'secret_prohibited',

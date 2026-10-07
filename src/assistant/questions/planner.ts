@@ -1,6 +1,6 @@
-import { z } from '../../lib/zod.js';
-import type { StructuredOutputRunner } from '../inference/structured-runner.js';
-import type { QuestionCandidate } from './candidates.js';
+import { z } from '../../lib/zod.ts';
+import type { StructuredOutputRunner } from '../inference/structured-runner.ts';
+import type { QuestionCandidate } from './candidates.ts';
 
 export const QuestionProposalSchema = z.object({
   questionText: z.string().trim().min(1).max(500),
@@ -17,7 +17,11 @@ const INSTRUCTIONS = [
 ].join('\n');
 
 export class QuestionPlanner implements QuestionPlanningService {
-  constructor(private readonly structuredOutput: StructuredOutputRunner) {}
+  private readonly structuredOutput: StructuredOutputRunner;
+
+  constructor(structuredOutput: StructuredOutputRunner) {
+    this.structuredOutput = structuredOutput;
+  }
 
   async plan(
     candidate: QuestionCandidate,

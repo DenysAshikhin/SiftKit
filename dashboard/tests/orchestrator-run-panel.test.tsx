@@ -1,9 +1,9 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { OrchestratorAttemptSchema, OrchestratorDriftReviewSchema, OrchestratorRunStateSchema, type OrchestratorDriftFinding, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
-import { fireEvent, render, screen } from './react-test-environment.js';
-import { OrchestratorRunPanel } from '../src/components/OrchestratorRunPanel';
+import { fireEvent, render, screen } from './react-test-environment.ts';
+import { OrchestratorRunPanel } from '../src/components/OrchestratorRunPanel.tsx';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const CHILD_ID = '00000000-0000-4000-8000-000000000002';

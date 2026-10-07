@@ -1,46 +1,46 @@
-import { toError } from '../lib/errors.js';
-import { getConfiguredEngineNumCtx } from '../config/getters.js';
-import { getAbortError } from '../lib/abort.js';
-import { ProgressWriter } from '../lib/progress-writer.js';
-import { classifyRepoAgentExecutionResult } from '../repo-agent/run-output.js';
-import type { RepoAgentDecideRequest } from '../repo-agent/api-schemas.js';
+import { toError } from '../lib/errors.ts';
+import { getConfiguredEngineNumCtx } from '../config/getters.ts';
+import { getAbortError } from '../lib/abort.ts';
+import { ProgressWriter } from '../lib/progress-writer.ts';
+import { classifyRepoAgentExecutionResult } from '../repo-agent/run-output.ts';
+import type { RepoAgentDecideRequest } from '../repo-agent/api-schemas.ts';
 import {
   isTerminalStatus,
   RepoAgentRunStateSchema,
   repoAgentStateToResult,
   type RepoAgentRunResult,
   type RepoAgentRunState,
-} from '../repo-agent/run-schemas.js';
-import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
+} from '../repo-agent/run-schemas.ts';
+import type { RepoAgentRunStore } from '../repo-agent/run-store.ts';
 import type { ApprovalMode, RepoAgentApproval } from '@siftkit/contracts';
-import type { ModelRequestContext } from './model-request-context.js';
+import type { ModelRequestContext } from './model-request-context.ts';
 import {
   ApprovalGate,
   CLIENT_ABORT_MESSAGE,
   type ApprovalDecision,
   type ApprovalGateObserver,
   type ApprovalParkLease,
-} from '../repo-search/engine/approval-gate.js';
-import { RepoSearchResponseSanityChecker } from '../repo-search/response-sanity.js';
+} from '../repo-search/engine/approval-gate.ts';
+import { RepoSearchResponseSanityChecker } from '../repo-search/response-sanity.ts';
 import type {
   ApprovalRequestProgressEvent,
   OperationProgressEvent,
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
-} from '../repo-search/types.js';
+} from '../repo-search/types.ts';
 import {
   buildRepoSearchProgressLogBody,
   isLiveTextProgressEvent,
   isServerLoggedProgressEvent,
-} from './dashboard-runs.js';
+} from './dashboard-runs.ts';
 import {
   markRepoSearchAdmissionFailed,
   type RepoSearchAdmissionRecord,
-} from './repo-search-admissions.js';
-import { serverLogger } from './server-logger.js';
-import { MODEL_QUEUE_TIMEOUT_MESSAGE } from './server-ops.js';
-import type { RepositoryAccess, RepositoryGate, RepositoryLease } from './orchestrator-runs.js';
+} from './repo-search-admissions.ts';
+import { serverLogger } from './server-logger.ts';
+import { MODEL_QUEUE_TIMEOUT_MESSAGE } from './server-ops.ts';
+import type { RepositoryAccess, RepositoryGate, RepositoryLease } from './orchestrator-runs.ts';
 
 const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
 
@@ -92,8 +92,11 @@ type BoundaryWaiter = {
 
 /** Routes engine progress into the session: approval parks become store state, the rest fans out. */
 class SessionProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  constructor(private readonly session: RepoAgentSession) {
+  private readonly session: RepoAgentSession;
+
+  constructor(session: RepoAgentSession) {
     super();
+    this.session = session;
   }
 
   get enabled(): boolean {

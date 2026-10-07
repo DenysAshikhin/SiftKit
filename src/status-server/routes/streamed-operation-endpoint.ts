@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { JsonObject, JsonSerializable } from '../../lib/json-types.js';
-import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
-import { recordServerError } from '../error-response.js';
-import { toError } from '../../lib/errors.js';
-import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
+import type { JsonObject, JsonSerializable } from '../../lib/json-types.ts';
+import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.ts';
+import { recordServerError } from '../error-response.ts';
+import { toError } from '../../lib/errors.ts';
+import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import { type RouteEndpoint, type RouteMatch } from '../route-table.ts';
 import {
   MODEL_QUEUE_TIMEOUT_MESSAGE,
   ModelRequestTargetError,
@@ -12,12 +12,12 @@ import {
   getModelRequestQueueDiagnostics,
   previewModelRequestTarget,
   releaseModelRequest,
-} from '../server-ops.js';
-import type { ModelRequestContext } from '../model-request-context.js';
-import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
-import type { ModelRequestLock, ServerContext } from '../server-types.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
+} from '../server-ops.ts';
+import type { ModelRequestContext } from '../model-request-context.ts';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.ts';
+import type { ModelRequestLock, ServerContext } from '../server-types.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.ts';
 
 const DEFAULT_LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
 
@@ -33,12 +33,20 @@ export type ParsedStreamedRequest<TParsed> =
   | { ok: false; error: string };
 
 export class StreamedOperationContext {
+  private readonly writer: SseResponseWriter;
+  public readonly abortSignal: AbortSignal;
+  /** The admitted snapshot: execution runs on exactly this operation preset, model, and config. */
+  public readonly model: ModelRequestContext;
+
   constructor(
-    private readonly writer: SseResponseWriter,
-    public readonly abortSignal: AbortSignal,
-    /** The admitted snapshot: execution runs on exactly this operation preset, model, and config. */
-    public readonly model: ModelRequestContext,
-  ) {}
+    writer: SseResponseWriter,
+    abortSignal: AbortSignal,
+    model: ModelRequestContext,
+  ) {
+    this.writer = writer;
+    this.abortSignal = abortSignal;
+    this.model = model;
+  }
 
   writeProgress(event: JsonSerializable): void {
     this.writer.writeEvent(OPERATION_STREAM_EVENTS.progress, event);

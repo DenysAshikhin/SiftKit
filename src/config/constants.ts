@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
-import { z } from '../lib/zod.js';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.ts';
+import { z } from '../lib/zod.ts';
 
 const PackageJsonSchema = z.object({ version: z.string() });
 

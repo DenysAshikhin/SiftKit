@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import type { ChatSessionOperationKind } from '@siftkit/contracts';
 
-import { ChatOperationBroadcast } from './chat-operation-broadcast.js';
-import type { ChatRunRecorder } from './chat-run-recorder.js';
-import type { QuestionGate } from '../repo-search/engine/question-gate.js';
+import { ChatOperationBroadcast } from './chat-operation-broadcast.ts';
+import type { ChatRunRecorder } from './chat-run-recorder.ts';
+import type { QuestionGate } from '../repo-search/engine/question-gate.ts';
 
 export type ChatSessionOperation = {
   token: string;
@@ -33,7 +33,10 @@ class ActiveChatSessionOperation {
   readonly broadcast = new ChatOperationBroadcast();
   private settleCompletion: ((completion: ChatSessionOperationCompletion) => void) | null = null;
 
-  constructor(readonly lease: ChatSessionOperation) {
+  readonly lease: ChatSessionOperation;
+
+  constructor(lease: ChatSessionOperation) {
+    this.lease = lease;
     this.completion = new Promise((resolve) => { this.settleCompletion = resolve; });
   }
 

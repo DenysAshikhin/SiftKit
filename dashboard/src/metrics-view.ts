@@ -1,5 +1,5 @@
-import type { OptionalJsonValue } from '../../src/lib/json-types.js';
-import type { TaskMetricDay, ToolStatsByTask } from './types.js';
+import type { OptionalJsonValue } from '../../src/lib/json-types.ts';
+import type { TaskMetricDay, ToolStatsByTask } from './types.ts';
 
 export type ToolMetricRow = {
   toolType: string;

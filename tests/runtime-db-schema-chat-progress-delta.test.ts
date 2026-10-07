@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
-import { type JsonValue } from '../src/lib/json-types.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { digestStableJson } from '../src/lib/json-digest.js';
-import { CHAT_JOURNAL_EVENT_VERSION } from '../src/state/chat-journal-schema.js';
-import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
-import type { RuntimeDatabase } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+import { z } from '../src/lib/zod.ts';
+import { type JsonValue } from '../src/lib/json-types.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { digestStableJson } from '../src/lib/json-digest.ts';
+import { CHAT_JOURNAL_EVENT_VERSION } from '../src/state/chat-journal-schema.ts';
+import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
+import type { RuntimeDatabase } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 const AT = '2026-09-17T13:35:02.574Z';
 const OPERATION_ID = '93713285-9e64-4beb-afcb-a24c6a3aedba';

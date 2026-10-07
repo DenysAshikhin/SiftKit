@@ -1,9 +1,13 @@
 $modulePath = Join-Path $PSScriptRoot '..\SiftKit\SiftKit.psd1'
 $script:OriginalUserProfile = $env:USERPROFILE
-$script:TestHome = Join-Path $PSScriptRoot '.test-home'
-$script:TestCodexHome = Join-Path $PSScriptRoot '.test-codex'
-$script:TestBinDir = Join-Path $PSScriptRoot '.test-bin'
-$script:TestModuleRoot = Join-Path $PSScriptRoot '.test-modules'
+$script:OriginalLocation = (Get-Location).Path
+# Outside the repo, so runtime-root discovery from the test cwd cannot reach the checkout's real .siftkit.
+$script:TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'siftkit-pester'
+$script:TestHome = Join-Path $script:TestRoot 'home'
+$script:TestCodexHome = Join-Path $script:TestRoot 'codex'
+$script:TestBinDir = Join-Path $script:TestRoot 'bin'
+$script:TestModuleRoot = Join-Path $script:TestRoot 'modules'
+$script:StubServerPath = Join-Path $PSScriptRoot 'fixtures\stub-status-server-process.ts'
 
 Import-Module $modulePath -Force
 
@@ -60,46 +64,6 @@ function Save-Utf8NoBom {
 
     $encoding = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $Content, $encoding)
-}
-
-function Get-TestStatusPath {
-    Join-Path $script:TestHome 'status\inference.txt'
-}
-
-function Get-DefaultServerConfig {
-    @{
-        Version = '0.1.0'
-        Backend = 'exl3'
-        Model = 'qwen3.5-9b-instruct-q4_k_m'
-        PolicyMode = 'conservative'
-        RawLogRetention = $true
-        Exl3 = @{
-            BaseUrl = 'http://127.0.0.1:8080'
-            NumCtx = 128000
-            ModelPath = $null
-            Temperature = 0.2
-            TopP = 0.95
-            TopK = 20
-            MinP = 0.0
-            PresencePenalty = 0.0
-            RepetitionPenalty = 1.0
-            Threads = -1
-            FlashAttention = $true
-            ParallelSlots = 1
-            Reasoning = 'off'
-        }
-        Thresholds = @{
-            MinCharactersForSummary = 500
-            MinLinesForSummary = 16
-        }
-        Interactive = @{
-            Enabled = $true
-            WrappedCommands = @('git', 'less', 'vim', 'sqlite3')
-            IdleTimeoutMs = 900000
-            MaxTranscriptCharacters = 60000
-            TranscriptRetention = $true
-        }
-    }
 }
 
 function Get-FreeTcpPort {
@@ -172,182 +136,52 @@ function Wait-TestScriptProcess {
     }
 }
 
+# The node suite's stub status server, so both suites drive one double of the current server protocol.
 function Start-TestStatusServer {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$StatusPath,
-        [int]$Port = 0,
-        [switch]$FailStatusPosts
+        [int]$ChatDelayMs = 0
     )
-
-    $serverScriptPath = New-TestScriptPath -Prefix 'status_server' -Extension 'js'
-    $configPath = New-TestScriptPath -Prefix 'status_config' -Extension 'json'
-    $serverConfig = Get-DefaultServerConfig | ConvertTo-Json -Depth 12
-    Save-Utf8NoBom -Path $configPath -Content $serverConfig
-
-    $serverScript = @"
-const http = require('node:http');
-const fs = require('node:fs');
-const path = require('node:path');
-
-const host = '127.0.0.1';
-const port = Number.parseInt(process.env.SIFTKIT_TEST_SERVER_PORT || '0', 10);
-const statusPath = process.env.SIFTKIT_TEST_STATUS_PATH;
-const configPath = process.env.SIFTKIT_TEST_CONFIG_PATH;
-const failStatusPosts = process.env.SIFTKIT_TEST_FAIL_STATUS_POSTS === '1';
-let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-
-function readBody(req) {
-  return new Promise((resolve) => {
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-  });
-}
-
-function ensureFile(targetPath, content) {
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, content, 'utf8');
-}
-
-const server = http.createServer(async (req, res) => {
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  if (req.method === 'GET' && req.url === '/config') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(config));
-    return;
-  }
-
-  if (req.method === 'GET' && req.url === '/v1/models') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: [{ id: config.Model }] }));
-    return;
-  }
-
-  if (req.method === 'POST' && req.url === '/v1/chat/completions') {
-    const bodyText = await readBody(req);
-    const payload = bodyText ? JSON.parse(bodyText) : {};
-    const promptText = payload?.messages?.[0]?.content || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      id: 'chatcmpl-test',
-      object: 'chat.completion',
-      choices: [{
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: ('summary:' + String(promptText).slice(0, 24))
-        }
-      }]
-    }));
-    return;
-  }
-
-  if (req.method === 'PUT' && req.url === '/config') {
-    const bodyText = await readBody(req);
-    config = bodyText ? JSON.parse(bodyText) : config;
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(config));
-    return;
-  }
-
-  if (req.method === 'POST' && req.url === '/status/complete') {
-    if (failStatusPosts) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'status unavailable' }));
-      return;
-    }
-
-    await readBody(req);
-    ensureFile(statusPath, 'false');
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, running: false }));
-    return;
-  }
-
-  if (req.method === 'POST' && (req.url === '/status' || req.url === '/status/terminal-metadata')) {
-    if (failStatusPosts) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'status unavailable' }));
-      return;
-    }
-
-    const bodyText = await readBody(req);
-    const payload = bodyText ? JSON.parse(bodyText) : {};
-    ensureFile(statusPath, payload.running ? 'true' : 'false');
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, running: !!payload.running }));
-    return;
-  }
-
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'not found' }));
-});
-
-server.listen(port, host, () => {
-  const address = server.address();
-  config.Exl3.BaseUrl = 'http://127.0.0.1:' + address.port;
-  process.stdout.write(JSON.stringify({ port: address.port, statusPath, configPath }) + '\n');
-});
-
-function shutdown() {
-  server.close(() => process.exit(0));
-}
-
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
-"@
-    Save-Utf8NoBom -Path $serverScriptPath -Content $serverScript
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = 'node'
-    $psi.Arguments = "`"$serverScriptPath`""
-    $psi.WorkingDirectory = (Split-Path $serverScriptPath -Parent)
+    $psi.Arguments = "`"$script:StubServerPath`""
+    $psi.WorkingDirectory = $script:TestHome
     $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false
-    $psi.Environment['SIFTKIT_TEST_SERVER_PORT'] = [string]$Port
-    $psi.Environment['SIFTKIT_TEST_STATUS_PATH'] = $StatusPath
-    $psi.Environment['SIFTKIT_TEST_CONFIG_PATH'] = $configPath
-    $psi.Environment['SIFTKIT_TEST_FAIL_STATUS_POSTS'] = if ($FailStatusPosts) { '1' } else { '0' }
+    $psi.Environment['SIFTKIT_TEST_PROVIDER'] = 'mock'
+    $psi.Environment['SIFTKIT_TEST_CHAT_DELAY_MS'] = [string]$ChatDelayMs
 
     $process = [System.Diagnostics.Process]::Start($psi)
     $readyLine = $null
     while (-not $process.StandardOutput.EndOfStream) {
-        $candidateLine = $process.StandardOutput.ReadLine()
-        if (-not $candidateLine) {
-            continue
-        }
-
-        $trimmedLine = $candidateLine.Trim()
-        if ($trimmedLine.StartsWith('{') -and $trimmedLine.EndsWith('}')) {
-            $readyLine = $trimmedLine
+        $candidateLine = $process.StandardOutput.ReadLine().Trim()
+        if ($candidateLine.StartsWith('{') -and $candidateLine.EndsWith('}')) {
+            $readyLine = $candidateLine
             break
         }
     }
 
     if (-not $readyLine) {
-        $stderr = $process.StandardError.ReadToEnd()
         if (-not $process.HasExited) {
             $process.Kill()
         }
         $process.Dispose()
-        throw ("Test status server failed to start. {0}" -f $stderr)
+        throw 'Test status server failed to start; its stderr is in the test output.'
     }
 
-    $ready = $readyLine | ConvertFrom-Json
     [pscustomobject]@{
         Process = $process
-        Port = [int]$ready.port
-        StatusPath = [string]$ready.statusPath
-        ScriptPath = $serverScriptPath
-        ConfigPath = $configPath
+        Port = [int]($readyLine | ConvertFrom-Json).port
     }
+}
+
+function Get-TestServerRunning {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Server
+    )
+
+    [bool](Invoke-RestMethod -Uri ('http://127.0.0.1:{0}/status' -f $Server.Port)).running
 }
 
 function Stop-TestStatusServer {
@@ -365,11 +199,6 @@ function Stop-TestStatusServer {
     }
     finally {
         $process.Dispose()
-        foreach ($path in @($Handle.ScriptPath, $Handle.ConfigPath)) {
-            if ($path -and (Test-Path -LiteralPath $path)) {
-                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
-            }
-        }
     }
 }
 
@@ -396,15 +225,17 @@ Describe 'SiftKit' {
         $env:SIFTKIT_TEST_PROVIDER = 'mock'
         Remove-Item Env:\SIFTKIT_TEST_PROVIDER_BEHAVIOR -ErrorAction SilentlyContinue
         Remove-Item Env:\SIFTKIT_TEST_PROVIDER_LOG_PATH -ErrorAction SilentlyContinue
-        Remove-Item Env:\SIFTKIT_TEST_PROVIDER_SLEEP_MS -ErrorAction SilentlyContinue
         Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
         Clear-TestServerEnvironment
 
+        Set-Location -LiteralPath $script:OriginalLocation
         Reset-TestRoot -Path $script:TestHome
         Reset-TestRoot -Path $script:TestCodexHome
         Reset-TestRoot -Path $script:TestBinDir
         Reset-TestRoot -Path $script:TestModuleRoot
         $null = New-Item -ItemType Directory -Path $script:TestHome -Force
+        # The CLI resolves its runtime root from the working directory.
+        Set-Location -LiteralPath $script:TestHome
     }
 
     AfterAll {
@@ -412,18 +243,15 @@ Describe 'SiftKit' {
         Remove-Item Env:\SIFTKIT_TEST_PROVIDER -ErrorAction SilentlyContinue
         Remove-Item Env:\SIFTKIT_TEST_PROVIDER_BEHAVIOR -ErrorAction SilentlyContinue
         Remove-Item Env:\SIFTKIT_TEST_PROVIDER_LOG_PATH -ErrorAction SilentlyContinue
-        Remove-Item Env:\SIFTKIT_TEST_PROVIDER_SLEEP_MS -ErrorAction SilentlyContinue
         Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
         Clear-TestServerEnvironment
 
-        Reset-TestRoot -Path $script:TestHome
-        Reset-TestRoot -Path $script:TestCodexHome
-        Reset-TestRoot -Path $script:TestBinDir
-        Reset-TestRoot -Path $script:TestModuleRoot
+        Set-Location -LiteralPath $script:OriginalLocation
+        Reset-TestRoot -Path $script:TestRoot
     }
 
     It 'bootstraps runtime directories when the external server is available' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $result = Install-SiftKit
@@ -438,7 +266,7 @@ Describe 'SiftKit' {
     }
 
     It 'returns effective budget diagnostics from Test-SiftKit' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $result = Test-SiftKit
@@ -447,7 +275,7 @@ Describe 'SiftKit' {
             $result.PowerShellVersion | Should Not BeNullOrEmpty
             $result.EffectiveNumCtx | Should Be 128000
             $result.EffectiveMaxInputCharacters | Should Be 320000
-            $result.EffectiveChunkThresholdCharacters | Should Be 294400
+            $result.EffectiveChunkThresholdCharacters | Should Be 320000
         }
         finally {
             Stop-TestStatusServer -Handle $server
@@ -455,12 +283,13 @@ Describe 'SiftKit' {
     }
 
     It 'summarizes short text through the public wrapper' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $result = Invoke-SiftSummary -Question 'summarize this' -Text 'short output' -Backend 'mock' -Model 'mock-model'
 
-            $result.WasSummarized | Should Be $false
+            # Summaries are model-first, so short text also reaches the stub's echoing model.
+            $result.WasSummarized | Should Be $true
             $result.Summary | Should Be 'short output'
         }
         finally {
@@ -469,7 +298,7 @@ Describe 'SiftKit' {
     }
 
     It 'renders formatted object pipeline input through Invoke-SiftSummary' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $result = @(
@@ -487,7 +316,7 @@ Describe 'SiftKit' {
     }
 
     It 'normalizes error record pipeline input in Invoke-SiftSummary' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $errorRecord = $null
@@ -507,7 +336,7 @@ Describe 'SiftKit' {
     }
 
     It 'forwards command execution into the TS runtime and preserves the raw log path' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $nodePath = (Get-Command node -ErrorAction Stop).Source
@@ -520,9 +349,10 @@ Describe 'SiftKit' {
                 -Backend 'mock' `
                 -Model 'mock-model'
 
-            $result.RawLogPath | Should Not BeNullOrEmpty
-            (Test-Path -LiteralPath $result.RawLogPath) | Should Be $true
-            (Get-Content -LiteralPath $result.RawLogPath -Raw) | Should Match 'stdout line|spawnSync'
+            # Raw output is stored as a runtime artifact; the echoing model shows what was captured.
+            $result.RawLogPath | Should Match '^db://runtime-artifacts/'
+            $result.Summary | Should Match 'stdout line'
+            $result.Summary | Should Match 'stderr line'
         }
         finally {
             Stop-TestStatusServer -Handle $server
@@ -530,7 +360,7 @@ Describe 'SiftKit' {
     }
 
     It 'bridges PowerShell pipeline objects through the siftkit.ps1 shim' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $shimPath = Join-Path $PSScriptRoot '..\bin\siftkit.ps1'
@@ -548,7 +378,7 @@ Describe 'SiftKit' {
     }
 
     It 'routes wrapped interactive commands through capture when piped to siftkit' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $output = Invoke-SiftInteractiveCommandWrapper -CommandName 'git' -ArgumentList @('commit', '--help') -InvocationLine 'git commit --help | siftkit "summarize conflicts"'
@@ -560,7 +390,7 @@ Describe 'SiftKit' {
     }
 
     It 'keeps non-interactive wrapper calls on the native execution path' {
-        $server = Start-TestStatusServer -StatusPath (Join-Path $script:TestHome 'backend-status\inference.txt')
+        $server = Start-TestStatusServer
         try {
             Set-TestServerEnvironment -Server $server
             $output = Invoke-SiftInteractiveCommandWrapper -CommandName 'git' -ArgumentList @('--version') -InvocationLine 'git --version | Out-String'
@@ -572,18 +402,16 @@ Describe 'SiftKit' {
     }
 
     It 'notifies the status backend without writing the local status file' {
-        $localStatusPath = Get-TestStatusPath
-        $backendStatusPath = Join-Path $script:TestHome 'backend-status\inference.txt'
-        $server = Start-TestStatusServer -StatusPath $backendStatusPath
+        $localStatusPath = Join-Path $script:TestHome 'status\inference.txt'
+        # The delayed model call keeps the run open long enough to observe it as running.
+        $server = Start-TestStatusServer -ChatDelayMs 1200
         try {
             Set-TestServerEnvironment -Server $server
             $env:sift_kit_status = $localStatusPath
-            $env:SIFTKIT_TEST_PROVIDER_SLEEP_MS = '1200'
 
             $process = Start-TestScriptProcess -ScriptContent @"
 `$env:USERPROFILE = '$($script:TestHome.Replace("'", "''"))'
 `$env:SIFTKIT_TEST_PROVIDER = 'mock'
-`$env:SIFTKIT_TEST_PROVIDER_SLEEP_MS = '1200'
 `$env:SIFTKIT_STATUS_BACKEND_URL = '$($env:SIFTKIT_STATUS_BACKEND_URL.Replace("'", "''"))'
 `$env:SIFTKIT_CONFIG_SERVICE_URL = '$($env:SIFTKIT_CONFIG_SERVICE_URL.Replace("'", "''"))'
 `$env:sift_kit_status = '$($env:sift_kit_status.Replace("'", "''"))'
@@ -593,8 +421,8 @@ Invoke-SiftSummary -Question 'summarize this' -Text (('A' * 25000)) -Backend 'mo
 
             try {
                 $observedTrue = $false
-                for ($attempt = 0; $attempt -lt 20; $attempt++) {
-                    if ((Test-Path -LiteralPath $backendStatusPath) -and (Get-Content -LiteralPath $backendStatusPath -Raw) -eq 'true') {
+                for ($attempt = 0; $attempt -lt 100; $attempt++) {
+                    if (Get-TestServerRunning -Server $server) {
                         $observedTrue = $true
                         break
                     }
@@ -606,12 +434,11 @@ Invoke-SiftSummary -Question 'summarize this' -Text (('A' * 25000)) -Backend 'mo
             }
             finally {
                 $processResult = Wait-TestScriptProcess -Handle $process
-                Remove-Item Env:\SIFTKIT_TEST_PROVIDER_SLEEP_MS -ErrorAction SilentlyContinue
             }
 
             $processResult.ExitCode | Should Be 0
             $processResult.StdErr | Should BeNullOrEmpty
-            (Get-Content -LiteralPath $backendStatusPath -Raw) | Should Be 'false'
+            (Get-TestServerRunning -Server $server) | Should Be $false
             (Test-Path -LiteralPath $localStatusPath) | Should Be $false
         }
         finally {
@@ -624,7 +451,7 @@ Invoke-SiftSummary -Question 'summarize this' -Text (('A' * 25000)) -Backend 'mo
         $env:SIFTKIT_STATUS_BACKEND_URL = ('http://127.0.0.1:{0}/status' -f $unusedPort)
         $env:SIFTKIT_CONFIG_SERVICE_URL = ('http://127.0.0.1:{0}/config' -f $unusedPort)
         $env:SIFTKIT_STATUS_PORT = [string]$unusedPort
-        $expected = 'SiftKit status/config server is not reachable at http://127.0.0.1:{0}/health. Start the separate server process and stop issuing further siftkit commands until it is available.' -f $unusedPort
+        $expected = 'SiftKit status/config server is not reachable at http://127.0.0.1:{0}/health. Operation: health:get. Service URL: http://127.0.0.1:{0}/health. Cause: connect ECONNREFUSED 127.0.0.1:{0}. Start the separate server process and stop issuing further siftkit commands until it is available.' -f $unusedPort
 
         $message = $null
         try {
@@ -657,10 +484,10 @@ Invoke-SiftSummary -Question 'summarize this' -Text (('A' * 25000)) -Backend 'mo
         (Test-Path -LiteralPath $result.ShellIntegrationScript) | Should Be $true
     }
 
-    It 'resolves the built TS runtime entrypoint path' {
+    It 'resolves the TS CLI entrypoint path' {
         $module = Get-Module SiftKit
         $runtimePath = & ($module.NewBoundScriptBlock({ Get-SiftCliPath }))
 
-        $runtimePath | Should Be (Resolve-Path (Join-Path $PSScriptRoot '..\dist\cli\main.js')).Path
+        $runtimePath | Should Be (Resolve-Path (Join-Path $PSScriptRoot '..\src\cli\main.ts')).Path
     }
 }

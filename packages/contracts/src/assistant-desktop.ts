@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { ImageDataUrlSchema } from './image.js';
+import { ImageDataUrlSchema } from './image.ts';
 
 /**
  * Wire contracts between the Tauri desktop shell (Rust) and the daemon's `/assistant/*` routes.

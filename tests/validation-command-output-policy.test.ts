@@ -5,8 +5,8 @@ import {
   RUN_FULL_DOWNGRADE_NOTICE,
   RunFullOutputGate,
   ValidationCommandOutputPolicy,
-} from '../src/repo-search/engine/validation-command-output-policy.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
+} from '../src/repo-search/engine/validation-command-output-policy.ts';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.ts';
 
 const policy = new ValidationCommandOutputPolicy(REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT);
 

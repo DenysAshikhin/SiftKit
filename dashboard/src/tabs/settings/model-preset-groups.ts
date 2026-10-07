@@ -1,5 +1,5 @@
-import { formatCompactTokenCount } from '../../lib/format';
-import type { DashboardModelRuntimePreset } from '../../types';
+import { formatCompactTokenCount } from '../../lib/format.ts';
+import type { DashboardModelRuntimePreset } from '../../types.ts';
 
 export type ModelPresetGroupId =
   | 'identity-launch'

@@ -1,12 +1,12 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { createLiveMessage } from '../src/lib/chat-live-messages';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { createLiveMessage } from '../src/lib/chat-live-messages.ts';
 import { DEFAULT_APPROVAL_MODE, type ChatProjectionTerminalRecord, type DurableChatApproval } from '@siftkit/contracts';
-import type { ChatSessionResponse } from '../src/types';
-import { buildUsageFrame } from './usage-frame';
-import { chatSnapshot } from './chat-snapshot-fixture.js';
-import { CONTEXT_USAGE } from './fixtures.js';
+import type { ChatSessionResponse } from '../src/types.ts';
+import { buildUsageFrame } from './usage-frame.ts';
+import { chatSnapshot } from './chat-snapshot-fixture.ts';
+import { CONTEXT_USAGE } from './fixtures.ts';
 
 const PROMPT_FRAME = { turn: 1, maxTurns: 20, promptTokens: 900, charsPerToken: 4 } as const;
 const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };

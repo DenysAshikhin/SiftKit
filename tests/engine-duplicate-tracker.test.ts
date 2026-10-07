@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DUPLICATE_FORCE_THRESHOLD, DuplicateTracker } from '../src/repo-search/engine/duplicate-tracker.js';
+import { DUPLICATE_FORCE_THRESHOLD, DuplicateTracker } from '../src/repo-search/engine/duplicate-tracker.ts';
 
 test('classify flags exact duplicates of an earlier successful normalized key', () => {
   const tracker = new DuplicateTracker();

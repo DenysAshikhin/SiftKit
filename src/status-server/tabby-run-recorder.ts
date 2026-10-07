@@ -1,5 +1,5 @@
-import type { InferenceRunStreamKind } from '../state/inference-runs.js';
-import { InferenceRunRecorder } from './inference-run-recorder.js';
+import type { InferenceRunStreamKind } from '../state/inference-runs.ts';
+import { InferenceRunRecorder } from './inference-run-recorder.ts';
 
 const MTP_DRAFTING_MARKER = 'Using main model MTP component for drafting';
 

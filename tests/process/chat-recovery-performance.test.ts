@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 import {
   ChatReplayMemoryConfigSchema, PERFORMANCE_TOOL_RESULTS, REPLAY_MEMORY_CHILD_ENV, runChatReplayMemoryProcess, spawnChatReplayMemoryProcess,
-} from '../helpers/chat-replay-memory-process.js';
+} from '../helpers/chat-replay-memory-process.ts';
 
 /** Peak RSS growth a clean process may show while replaying the ~28 MB incident fixture. */
 const REPLAY_RSS_BUDGET_BYTES = 192 * 1024 * 1024;

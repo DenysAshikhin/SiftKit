@@ -3,19 +3,19 @@ import {
   getConfiguredEngineBaseUrl,
   getConfiguredModel,
   loadConfig,
-} from '../../src/config/index.js';
-import { getErrorMessage } from '../../src/lib/errors.js';
+} from '../../src/config/index.ts';
+import { getErrorMessage } from '../../src/lib/errors.ts';
 import {
   AutoApprovalVerdictProbe,
   ConfiguredApprovalVerdictModelClient,
-} from '../../src/repo-search/approval-verdict-probe.js';
+} from '../../src/repo-search/approval-verdict-probe.ts';
 import {
   DEFAULT_TIMEOUT_MS,
   resolvePlannerThinkingFlags,
-} from '../../src/repo-search/engine/task-loop-support.js';
-import { RED_TEAM_CORPUS } from './corpus.js';
-import { buildRedTeamReplay } from './replay.js';
-import { scoreRun, type CaseVerdicts, type PlacementScore } from './score.js';
+} from '../../src/repo-search/engine/task-loop-support.ts';
+import { RED_TEAM_CORPUS } from './corpus.ts';
+import { buildRedTeamReplay } from './replay.ts';
+import { scoreRun, type CaseVerdicts, type PlacementScore } from './score.ts';
 
 const PLACEMENT = 'tool_call';
 const SAMPLES_PER_CASE = 3;

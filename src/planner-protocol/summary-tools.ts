@@ -1,7 +1,7 @@
-import type { AgentLoopFinishAction } from '../agent-loop/types.js';
-import { JsonObjectSchema, JsonValueSchema, type JsonObject } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
-import { buildPlannerJsonSchema, type PlannerToolDefinition } from './json-schema.js';
+import type { AgentLoopFinishAction } from '../agent-loop/types.ts';
+import { JsonObjectSchema, JsonValueSchema, type JsonObject } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
+import { buildPlannerJsonSchema, type PlannerToolDefinition } from './json-schema.ts';
 
 const NonBlankTextSchema = z.string().refine((value) => value.trim().length > 0, 'Expected non-blank text.');
 const PositiveIntegerSchema = z.number().int().positive();

@@ -1,18 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { BlobCipher } from '../crypto/blob-cipher.js';
-import type { EvidenceSourceType, EvidenceStatus, Sensitivity } from '../domain/enums.js';
-import { hashBytes, hashTextContent } from '../domain/keys.js';
-import type { IdGenerator } from '../ids.js';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { BlobCipher } from '../crypto/blob-cipher.ts';
+import type { EvidenceSourceType, EvidenceStatus, Sensitivity } from '../domain/enums.ts';
+import { hashBytes, hashTextContent } from '../domain/keys.ts';
+import type { IdGenerator } from '../ids.ts';
 import {
   BlobRowSchema, CountRowSchema, EvidenceRowSchema, type BlobRow, type EvidenceRow,
-} from './rows.js';
-import { fetchRowsByIds } from './sql-helpers.js';
-import { z } from '../../lib/zod.js';
+} from './rows.ts';
+import { fetchRowsByIds } from './sql-helpers.ts';
+import { z } from '../../lib/zod.ts';
 
 interface EvidenceCommonInput {
   readonly ownerId: string;
@@ -44,13 +44,25 @@ const CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/;
  * only; any other shape is rejected before a path is built (§5.6, §17.1 path traversal).
  */
 export class EvidenceStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+  private readonly cipher: BlobCipher;
+  private readonly evidenceRoot: string;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-    private readonly cipher: BlobCipher,
-    private readonly evidenceRoot: string,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+    cipher: BlobCipher,
+    evidenceRoot: string,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+    this.cipher = cipher;
+    this.evidenceRoot = evidenceRoot;
+  }
 
   recordTextEvidence(input: RecordTextEvidenceInput): EvidenceRow {
     const existing = this.findBySourceEventId(input.ownerId, input.sourceEventId);

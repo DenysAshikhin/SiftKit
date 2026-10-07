@@ -4,14 +4,14 @@ import test from 'node:test';
 
 import { ModelRuntimePresetSchema } from '@siftkit/contracts';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { normalizeConfigObject } from '../src/config/normalization.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { z } from '../src/lib/zod.js';
-import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { z } from '../src/lib/zod.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');

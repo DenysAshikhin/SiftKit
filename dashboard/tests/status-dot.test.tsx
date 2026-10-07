@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import React from 'react';
-import { StatusDot, statusTone } from '../src/components/StatusDot';
+import { StatusDot, statusTone } from '../src/components/StatusDot.tsx';
 
 test('statusTone maps statuses to dot tones', () => {
   assert.equal(statusTone('completed'), 'ok');

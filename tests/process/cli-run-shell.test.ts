@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../../src/cli/index.js';
-import { makeCaptureStream, withTestEnvAndServer } from '../_test-helpers.js';
+import { runCli } from '../../src/cli/index.ts';
+import { makeCaptureStream, withTestEnvAndServer } from '../_test-helpers.ts';
 
 test('siftkit run --shell auto executes a shell script and sends output to the server', async () => {
   await withTestEnvAndServer(async ({ stub }) => {

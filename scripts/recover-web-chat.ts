@@ -3,14 +3,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync 
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { randomUUID } from 'node:crypto';
-import { z } from '../src/lib/zod.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath, closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { readChatSessionFromDatabase } from '../src/state/chat-sessions.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
-import { RepoAgentRunRequestSchema, RepoAgentRunStateSchema } from '../src/repo-agent/run-schemas.js';
-import { readChatHistoryArchive, readChatHistoryArchiveSources } from '../src/status-server/chat-history-archive.js';
-import { prepareChatHistoryRepair, applyChatHistoryRepair } from '../src/status-server/chat-history-repair.js';
+import { z } from '../src/lib/zod.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath, closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { readChatSessionFromDatabase } from '../src/state/chat-sessions.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.ts';
+import { RepoAgentRunRequestSchema, RepoAgentRunStateSchema } from '../src/repo-agent/run-schemas.ts';
+import { readChatHistoryArchive, readChatHistoryArchiveSources } from '../src/status-server/chat-history-archive.ts';
+import { prepareChatHistoryRepair, applyChatHistoryRepair } from '../src/status-server/chat-history-repair.ts';
 
 const OptionsSchema = z.object({
   'session-id': z.string().min(1), 'request-id': z.string().min(1), 'repo-agent-state': z.string().min(1),

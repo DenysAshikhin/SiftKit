@@ -13,11 +13,11 @@ import type {
   DashboardBenchmarkQuestionPreset,
   DashboardBenchmarkAttempt,
 } from '@siftkit/contracts';
-import { runtimeDatabaseExists } from '../../state/runtime-db.js';
-import { z } from '../../lib/zod.js';
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import { toError } from '../../lib/errors.js';
-import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
+import { runtimeDatabaseExists } from '../../state/runtime-db.ts';
+import { z } from '../../lib/zod.ts';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import { toError } from '../../lib/errors.ts';
+import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
 import {
   queryDashboardRunsFromDb,
   queryDashboardRunDetailFromDb,
@@ -29,26 +29,26 @@ import {
   deleteDashboardRunLogs,
   type DashboardRunLogDeleteCriteria,
   type IdleSummarySnapshotRow,
-} from '../dashboard-runs.js';
-import { queryRecentSnapshots } from '../idle-summary.js';
-import { getIdleSummaryDatabase } from '../server-ops.js';
-import { getRuntimeRoot, getMetricsPath } from '../paths.js';
-import { DEFAULT_WEB_SEARCH_CONFIG, readConfig } from '../config-store.js';
-import { readWebSearchUsage } from '../web-search-usage.js';
-import { WebSearchQuotaCache } from '../web-search-quota.js';
+} from '../dashboard-runs.ts';
+import { queryRecentSnapshots } from '../idle-summary.ts';
+import { getIdleSummaryDatabase } from '../server-ops.ts';
+import { getRuntimeRoot, getMetricsPath } from '../paths.ts';
+import { DEFAULT_WEB_SEARCH_CONFIG, readConfig } from '../config-store.ts';
+import { readWebSearchUsage } from '../web-search-usage.ts';
+import { WebSearchQuotaCache } from '../web-search-quota.ts';
 import {
   deleteInferenceRun,
   listInferenceRuns,
   readInferenceRunLogTextByStream,
   readInferenceRun,
-} from '../../state/inference-runs.js';
+} from '../../state/inference-runs.ts';
 import {
   deleteBenchmarkMatrixSession,
   listBenchmarkMatrixRunsForSession,
   listBenchmarkMatrixSessions,
   readBenchmarkMatrixRunLogTextByStream,
   readBenchmarkMatrixSession,
-} from '../../state/benchmark-matrix.js';
+} from '../../state/benchmark-matrix.ts';
 import {
   deleteBenchmarkRun,
   deleteEvalResult,
@@ -56,12 +56,12 @@ import {
   listEvalResults,
   readBenchmarkRun,
   readEvalResult,
-} from '../../state/runtime-results.js';
+} from '../../state/runtime-results.ts';
 import {
   deleteRuntimeArtifact,
   listRuntimeArtifacts,
   readRuntimeArtifact,
-} from '../../state/runtime-artifacts.js';
+} from '../../state/runtime-artifacts.ts';
 import {
   createBenchmarkQuestionPreset,
   createBenchmarkSessionPlan,
@@ -76,21 +76,21 @@ import {
   updateBenchmarkQuestionPreset,
   type BenchmarkManagedPresetInput,
   type BenchmarkSpecOverrideInput,
-} from '../../state/dashboard-benchmark.js';
+} from '../../state/dashboard-benchmark.ts';
 import {
   cancelBenchmarkJob,
   hasActiveBenchmarkJob,
   startBenchmarkJob,
   subscribeBenchmarkJob,
-} from '../dashboard-benchmark-runner.js';
-import { pickManagedFilePath } from '../file-picker.js';
-import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
-import type { ServerContext } from '../server-types.js';
-import type { SiftConfig } from '../../config/index.js';
-import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import type { WebSearchConfig } from '../../web-search/types.js';
-import { parseDashboardRunLogDeleteRequest } from '../route-request-normalizers.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
+} from '../dashboard-benchmark-runner.ts';
+import { pickManagedFilePath } from '../file-picker.ts';
+import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.ts';
+import type { ServerContext } from '../server-types.ts';
+import type { SiftConfig } from '../../config/index.ts';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import type { WebSearchConfig } from '../../web-search/types.ts';
+import { parseDashboardRunLogDeleteRequest } from '../route-request-normalizers.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
 
 const webSearchQuotaCache = new WebSearchQuotaCache();
 

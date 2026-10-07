@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { startHarness } from './helpers/streamed-op-harness.js';
-import { requestJson, requestSse, asObject, asObjectArray } from './helpers/dashboard-http.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import type { ChatJournalEvent } from '../src/state/chat-journal-schema.js';
+import { startHarness } from './helpers/streamed-op-harness.ts';
+import { requestJson, requestSse, asObject, asObjectArray } from './helpers/dashboard-http.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import type { ChatJournalEvent } from '../src/state/chat-journal-schema.ts';
 
 /** Every event the session's runs committed; the message route journals under its own operation id. */
 function readEvents(sessionId: string): ChatJournalEvent[] {

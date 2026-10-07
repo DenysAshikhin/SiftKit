@@ -1,6 +1,6 @@
-import type { MutableJsonObject, OptionalJsonValue } from '../lib/json-types.js';
-import type { InferenceToolCall } from './types.js';
-import { INTERACTIVE_REPO_TOOL_NAMES, WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.js';
+import type { MutableJsonObject, OptionalJsonValue } from '../lib/json-types.ts';
+import type { InferenceToolCall } from './types.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES, WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
 
 const TOOL_CALL_OPEN_TAG = '<tool_call>';
 const TOOL_CALL_CLOSE_TAG = '</tool_call>';

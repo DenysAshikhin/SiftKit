@@ -1,50 +1,50 @@
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getActiveModelPreset, loadConfig, notifyStatusBackend } from '../config/index.js';
-import type { InferenceBackendId } from '../config/types.js';
-import type { TokenCountSource } from './prompt-budget.js';
-import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
+import { getActiveModelPreset, loadConfig, notifyStatusBackend } from '../config/index.ts';
+import type { InferenceBackendId } from '../config/types.ts';
+import type { TokenCountSource } from './prompt-budget.ts';
+import type { NotifyStatusBackendOptions } from '../config/status-backend.ts';
 import {
   createJsonLogger,
   ensureRepoSearchLogFolders,
   traceRepoSearch,
-} from './logging.js';
-import { getLiveRunSnapshotPath } from '../config/paths.js';
-import { attachLiveRunSnapshot, isLiveRunSnapshotEnabled } from './live-snapshot/writer.js';
-import { runRepoSearch } from './engine.js';
+} from './logging.ts';
+import { getLiveRunSnapshotPath } from '../config/paths.ts';
+import { attachLiveRunSnapshot, isLiveRunSnapshotEnabled } from './live-snapshot/writer.ts';
+import { runRepoSearch } from './engine.ts';
 
-import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
-import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
-import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
+import { getNumericTotal, getOutputCharacterCount } from './scorecard.ts';
+import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.ts';
+import { upsertRepoSearchRun } from '../status-server/dashboard-runs.ts';
 import {
   buildRunIdentity,
   operationOnlyRunIdentity,
   type RunIdentity,
-} from '../status-server/dashboard-runs/run-identity.js';
-import { serverLogger, type ServerLogBody } from '../status-server/server-logger.js';
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { formatInteger } from '../lib/text-format.js';
-import { formatElapsed } from '../lib/time.js';
-import { getErrorMessage, toError } from '../lib/errors.js';
-import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
-import { ProgressWriter, SilentProgressWriter } from '../lib/progress-writer.js';
+} from '../status-server/dashboard-runs/run-identity.ts';
+import { serverLogger, type ServerLogBody } from '../status-server/server-logger.ts';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { formatInteger } from '../lib/text-format.ts';
+import { formatElapsed } from '../lib/time.ts';
+import { getErrorMessage, toError } from '../lib/errors.ts';
+import { getProcessedPromptTokens } from '../lib/provider-helpers.ts';
+import { ProgressWriter, SilentProgressWriter } from '../lib/progress-writer.ts';
 import {
   createTemporaryTimingRecorderFromEnv,
   type TemporaryTimingRecorder,
-} from '../lib/temporary-timing-recorder.js';
+} from '../lib/temporary-timing-recorder.ts';
 import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
-} from './types.js';
-import { PresetSystemContextBuilder } from '../preset-system-context.js';
-import { resolveRunSystemPrompt, type RunSystemPromptRequest } from './run-system-prompt.js';
-import { contextWarningEvent } from '../lib/operation-stream.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
-import { normalizeRepoSearchTaskKind } from './task-kind.js';
-import { EXPOSED_REPO_TOOL_NAMES } from '../planner-protocol/repo-search.js';
+} from './types.ts';
+import { PresetSystemContextBuilder } from '../preset-system-context.ts';
+import { resolveRunSystemPrompt, type RunSystemPromptRequest } from './run-system-prompt.ts';
+import { contextWarningEvent } from '../lib/operation-stream.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.ts';
+import { normalizeRepoSearchTaskKind } from './task-kind.ts';
+import { EXPOSED_REPO_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -154,11 +154,16 @@ function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgres
 }
 
 class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  private readonly requestId: string;
+  private readonly target: ProgressWriter<RepoSearchProgressEvent>;
+
   constructor(
-    private readonly requestId: string,
-    private readonly target: ProgressWriter<RepoSearchProgressEvent>,
+    requestId: string,
+    target: ProgressWriter<RepoSearchProgressEvent>,
   ) {
     super();
+    this.requestId = requestId;
+    this.target = target;
   }
 
   get enabled(): boolean {

@@ -3,16 +3,16 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { EnvironmentStateDto } from '@siftkit/contracts';
-import { FixedClock } from '../src/assistant/clock.js';
-import { DesktopEnvironmentCache } from '../src/assistant/observation/environment-cache.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.js';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { DesktopEnvironmentCache } from '../src/assistant/observation/environment-cache.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+} from './helpers/dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
 const CAPTURED_AT = '2026-08-10T14:00:00.000Z';
 

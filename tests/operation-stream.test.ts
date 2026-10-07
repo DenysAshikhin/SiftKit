@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 import {
   OPERATION_STREAM_EVENTS,
   StatusServerOperationError,
   classifyOperationStreamFrame,
-} from '../src/lib/operation-stream.js';
-import { buildOperationStreamErrorPayload } from './helpers/sse-http.js';
+} from '../src/lib/operation-stream.ts';
+import { buildOperationStreamErrorPayload } from './helpers/sse-http.ts';
 
 const ResultSchema = z.object({ requestId: z.string(), value: z.number() });
 

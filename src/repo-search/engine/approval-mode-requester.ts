@@ -4,18 +4,26 @@ import type {
   ApprovalRequester,
   HumanApprovalRequester,
   LiveApprovalMode,
-} from './approval-gate.js';
+} from './approval-gate.ts';
 
 /**
  * Reads the live mode on every tool call so a run can switch between
  * off / interactive / auto while it is executing.
  */
 export class ModeSwitchedApprovalRequester implements ApprovalRequester {
+  private readonly liveMode: LiveApprovalMode;
+  private readonly humanGate: HumanApprovalRequester;
+  private readonly llmGate: ApprovalRequester;
+
   constructor(
-    private readonly liveMode: LiveApprovalMode,
-    private readonly humanGate: HumanApprovalRequester,
-    private readonly llmGate: ApprovalRequester,
-  ) {}
+    liveMode: LiveApprovalMode,
+    humanGate: HumanApprovalRequester,
+    llmGate: ApprovalRequester,
+  ) {
+    this.liveMode = liveMode;
+    this.humanGate = humanGate;
+    this.llmGate = llmGate;
+  }
 
   request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
     switch (this.liveMode.mode) {

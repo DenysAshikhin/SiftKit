@@ -1,14 +1,14 @@
-import { z } from '../lib/zod.js';
-import type { ShellName } from '../capture/process.js';
-import type { SiftConfig } from '../config/index.js';
+import { z } from '../lib/zod.ts';
+import type { ShellName } from '../capture/process.ts';
+import type { SiftConfig } from '../config/index.ts';
 import {
   type SummaryPolicyProfile,
   type SummaryProviderId,
   type SummarySourceKind,
-} from '../summary/types.js';
-import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.js';
-import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
-import type { ProgressWriter } from '../lib/progress-writer.js';
+} from '../summary/types.ts';
+import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.ts';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.ts';
+import type { ProgressWriter } from '../lib/progress-writer.ts';
 
 export type CommandOutputKind = 'command' | 'interactive';
 

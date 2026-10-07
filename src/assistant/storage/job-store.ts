@@ -1,10 +1,10 @@
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.js';
-import type { IdGenerator } from '../ids.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.ts';
+import type { IdGenerator } from '../ids.ts';
 import {
   AssistantJobTypeSchema, CandidateConsolidationPayloadSchema,
   ConversationIngestionPayloadSchema, ProjectionMaintenancePayloadSchema,
@@ -17,8 +17,8 @@ import {
   type QuestionAnswerIngestionPayload,
   type QuestionPlanningPayload, type ProjectionSummarizationPayload,
   type ImageExtractionPayload, type CaptureRetentionPayload,
-} from '../jobs/job-types.js';
-import { IdRowSchema, JobRowSchema, type JobRow } from './rows.js';
+} from '../jobs/job-types.ts';
+import { IdRowSchema, JobRowSchema, type JobRow } from './rows.ts';
 
 const MODEL_BACKED_JOB_TYPE_PLACEHOLDERS = MODEL_BACKED_JOB_TYPES.map(() => '?').join(', ');
 
@@ -46,11 +46,19 @@ const DEFAULT_MAX_ATTEMPTS = 3;
  * one job, and `attempts` is consumed at claim time so a crash loop terminates (§12.2).
  */
 export class JobStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   /** Returns `null` when an equivalent job is already live — a replayed enqueue is a no-op. */
   enqueue(input: EnqueueJobInput, priority: number): JobRow | null {

@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import {
   auditBenchmarkAttemptThroughput,
   auditBenchmarkSessionThroughput,
   buildBenchmarkAttemptMetrics,
-} from '../src/status-server/dashboard-benchmark-runner.js';
+} from '../src/status-server/dashboard-benchmark-runner.ts';
 import {
   appendBenchmarkLogChunk,
   createBenchmarkQuestionPreset,
@@ -22,11 +22,11 @@ import {
   updateBenchmarkQuestionPreset,
   updateBenchmarkAttempt,
   readBenchmarkAttempt,
-} from '../src/state/dashboard-benchmark.js';
-import type { RunRecord } from '../src/status-server/dashboard-runs.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
+} from '../src/state/dashboard-benchmark.ts';
+import type { RunRecord } from '../src/status-server/dashboard-runs.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.ts';
 
 const BENCHMARK_FOLD = readTabbyThroughput({ usage: {
   prompt_tokens: 210, prompt_tokens_details: { cached_tokens: 10 },

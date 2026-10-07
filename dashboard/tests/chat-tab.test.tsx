@@ -1,30 +1,30 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
-import test from 'node:test';
+import { onTestFinished, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ChatSessionResponseSchema, DurableChatApprovalSchema, OrchestratorRunStateSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
-import { fireEvent, notifyResize, render as renderComponent, screen, waitFor } from './react-test-environment.js';
-import { countRenders } from './render-tracker.js';
-import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';
-import { MessageImages } from '../src/components/MessageImages';
-import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
-import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
-import { groupMessagesIntoTurns } from '../src/lib/chatTurns';
-import { GatedChatBackend } from '../../tests/helpers/gated-chat-backend.js';
+import { fireEvent, notifyResize, render as renderComponent, screen, waitFor } from './react-test-environment.ts';
+import { countRenders } from './render-tracker.ts';
+import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
+import { MessageImages } from '../src/components/MessageImages.tsx';
+import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store.ts';
+import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions.ts';
+import { groupMessagesIntoTurns } from '../src/lib/chatTurns.ts';
+import { GatedChatBackend } from '../../tests/helpers/gated-chat-backend.ts';
 import { ChatMessageQueueResponseSchema } from '@siftkit/contracts';
-import { ChatTab } from '../src/tabs/ChatTab';
-import { MarkdownContent } from '../src/components/MarkdownContent';
-import { summarizeChatSession } from '../src/hooks/useChatSessions';
-import { consumeChatStream } from '../src/api';
-import type { ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
-import type { PendingImage } from '../src/lib/downscale-image';
-import { buildUsageFrame } from './usage-frame';
-import { chatSnapshot } from './chat-snapshot-fixture.js';
-import { applyLiveTranscript, liveTranscriptSnapshot, type LiveTranscriptStep } from './live-transcript-fixture.js';
-import { ORCHESTRATOR_RUN_ID, PRESET, REPO_AGENT_PRESET, SESSION_A, SESSION_B, buildDefaultStore, buildProps, msg, orchestratorProps, type ChatTabProps } from './chat-tab-fixture.js';
-import { createLiveMessage } from '../src/lib/chat-live-messages';
+import { ChatTab } from '../src/tabs/ChatTab.tsx';
+import { MarkdownContent } from '../src/components/MarkdownContent.tsx';
+import { summarizeChatSession } from '../src/hooks/useChatSessions.ts';
+import { consumeChatStream } from '../src/api.ts';
+import type { ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types.ts';
+import type { PendingImage } from '../src/lib/downscale-image.ts';
+import { buildUsageFrame } from './usage-frame.ts';
+import { chatSnapshot } from './chat-snapshot-fixture.ts';
+import { applyLiveTranscript, liveTranscriptSnapshot, type LiveTranscriptStep } from './live-transcript-fixture.ts';
+import { ORCHESTRATOR_RUN_ID, PRESET, REPO_AGENT_PRESET, SESSION_A, SESSION_B, buildDefaultStore, buildProps, msg, orchestratorProps, type ChatTabProps } from './chat-tab-fixture.ts';
+import { createLiveMessage } from '../src/lib/chat-live-messages.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
@@ -87,13 +87,13 @@ test('active token badges grow before usage and settle without losing late text 
   } finally { view.unmount(); }
 });
 
-import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.js';
-import { requestJson, requestSse } from '../../tests/helpers/dashboard-http.js';
-import { getDefaultConfig } from '../../src/status-server/config-store.js';
-import { getActiveModelPreset } from '../../src/config/getters.js';
-import { getRuntimeRoot } from '../../src/config/paths.js';
-import { saveChatSession } from '../../src/state/chat-sessions.js';
-import { CONTEXT_USAGE as BASE_CONTEXT_USAGE } from './fixtures.js';
+import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.ts';
+import { requestJson, requestSse } from '../../tests/helpers/dashboard-http.ts';
+import { getDefaultConfig } from '../../src/status-server/config-store.ts';
+import { getActiveModelPreset } from '../../src/config/getters.ts';
+import { getRuntimeRoot } from '../../src/config/paths.ts';
+import { saveChatSession } from '../../src/state/chat-sessions.ts';
+import { CONTEXT_USAGE as BASE_CONTEXT_USAGE } from './fixtures.ts';
 
 /** Every rendered token badge, in DOM order, so an assertion names the badges and not the markup. */
 function readTokenBadges(html: string): string[] {
@@ -142,22 +142,22 @@ async function readThrough(
   }
 }
 
-test('a rejected chat route fails promptly even when no provider request arrives', async (t) => {
+test('a rejected chat route fails promptly even when no provider request arrives', async ({ signal }) => {
   const backend = new GatedChatBackend();
-  t.after(() => backend.close());
+  onTestFinished(() => backend.close());
   const baseUrl = await backend.start();
   const hub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession('s', ''));
-  const stream = toRuntimeTransitions('s', { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${baseUrl}/missing-chat-route`, t.signal), true);
-  t.after(async () => { await stream.return(); });
+  const stream = toRuntimeTransitions('s', { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${baseUrl}/missing-chat-route`, signal), true);
+  onTestFinished(async () => { await stream.return(); });
   await assert.rejects(Promise.all([readThrough(stream, hub, 'prompt'), backend.nextRequest()]), /404/u);
 });
 
 for (const queued of [false, true]) {
-  test(`gated HTTP thinking grows before completion${queued ? ' across FIFO delivery and replay' : ''} and settles to persisted totals`, { timeout: 20000 }, async (t) => {
+  test(`gated HTTP thinking grows before completion${queued ? ' across FIFO delivery and replay' : ''} and settles to persisted totals`, { timeout: 20000 }, async ({ signal }) => {
     const backend = new GatedChatBackend();
-    t.after(() => backend.close());
+    onTestFinished(() => backend.close());
     const server = await DashboardTestServer.start('chat-token-e2e-', { baseUrl: await backend.start(), model: 'mock' });
-    t.after(() => server.close());
+    onTestFinished(() => server.close());
     const created = ChatSessionResponseSchema.parse((await requestJson(`${server.baseUrl}/dashboard/chat/sessions`, {
       method: 'POST', body: JSON.stringify({ title: 'tokens', thinkingEnabled: true }),
     })).body);
@@ -168,8 +168,8 @@ for (const queued of [false, true]) {
     let session = created.session;
     const props = (runtimeHub = hub) => buildProps({ selectedSessionId: sessionId, selectedSession: session, sessions: [summarizeChatSession(session)], runtimeHub });
     const view = renderComponent(<ChatTab {...props()} />);
-    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'inspect', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
-    t.after(async () => { await stream.return(); });
+    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, signal, { content: 'inspect', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
+    onTestFinished(async () => { await stream.return(); });
     try {
       const firstPrompt = readThrough(stream, hub, 'prompt');
       const [first] = await Promise.all([backend.nextRequest(), firstPrompt]);
@@ -203,8 +203,8 @@ for (const queued of [false, true]) {
         await readThrough(stream, hub, 'thinking');
         assert.equal(view.container.querySelectorAll('.msg.turn').length, 2);
         const beforeReplay = readTokenBadges(view.container.innerHTML);
-        const replay = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
-        t.after(async () => { await replay.return(); });
+        const replay = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, signal), true);
+        onTestFinished(async () => { await replay.return(); });
         // A second client's view of the same run: its own hub, rendered in place of this one.
         const replayHub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession(sessionId, ''));
         await readThrough(replay, replayHub, 'thinking', 2);
@@ -245,17 +245,17 @@ for (const queued of [false, true]) {
 }
 
 for (const force of [false, true]) {
-  test(`a ${force ? 'forced' : 'pending'} HTTP successor starts with its own token metadata`, { timeout: 20000 }, async (t) => {
+  test(`a ${force ? 'forced' : 'pending'} HTTP successor starts with its own token metadata`, { timeout: 20000 }, async ({ signal }) => {
     const backend = new GatedChatBackend();
-    t.after(() => backend.close());
+    onTestFinished(() => backend.close());
     const server = await DashboardTestServer.start('chat-token-successor-', { baseUrl: await backend.start(), model: 'mock' });
-    t.after(() => server.close());
+    onTestFinished(() => server.close());
     const created = ChatSessionResponseSchema.parse((await requestJson(`${server.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'successor' }) })).body);
     const sessionId = created.session.id;
     const url = `${server.baseUrl}/dashboard/chat/sessions/${sessionId}`;
     const hub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession(sessionId, ''));
-    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'original', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
-    t.after(async () => { await stream.return(); });
+    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, signal, { content: 'original', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
+    onTestFinished(async () => { await stream.return(); });
     const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: created.session, runtimeHub: hub })} />);
     try {
       const prompt = readThrough(stream, hub, 'prompt');
@@ -291,8 +291,8 @@ for (const force of [false, true]) {
         assert.equal(done.terminal.terminalCause, 'user_stop');
       }
       const successorProvider = await backend.nextRequest();
-      const successor = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
-      t.after(async () => { await successor.return(); });
+      const successor = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, signal), true);
+      onTestFinished(async () => { await successor.return(); });
       await readThrough(successor, hub, 'prompt');
       assert.equal(hub.getStore().getLive(sessionId).tokenTurns.size, 1);
       assert.equal(hub.getStore().getLive(sessionId).tokenTurns.get(1)?.usage, null);
@@ -1683,8 +1683,8 @@ function splitSegmentFrame(sessionId: string, steps: readonly LiveTranscriptStep
   ]);
 }
 
-test('a delivered queued message gives the two assistant segments independent React identities', async (t) => {
-  const consoleError = t.mock.method(console, 'error', () => {});
+test('a delivered queued message gives the two assistant segments independent React identities', async () => {
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   const hub = new ChatRuntimeHub(buildSplitSegmentStore(SESSION_B.id));
   const view = renderComponent(<ChatTab {...buildProps({
     selectedSessionId: SESSION_B.id,
@@ -1723,7 +1723,7 @@ test('a delivered queued message gives the two assistant segments independent Re
       'the streaming segment badge must grow in place',
     );
     const keyWarnings = consoleError.mock.calls
-      .map((call) => call.arguments.map((arg) => String(arg)).join(' '))
+      .map((call) => call.map((arg) => String(arg)).join(' '))
       .filter((line) => /same key/u.test(line));
     assert.deepEqual(keyWarnings, [], 'assistant segments must not share a React key');
   } finally {

@@ -1,14 +1,14 @@
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
-import { parseOptionalSummaryProvider } from '../summary/types.js';
-import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.ts';
+import { parseOptionalSummaryProvider } from '../summary/types.ts';
+import { parseImageDataUrls } from '../llm-protocol/image-attachments.ts';
 import type {
   SummaryPolicyProfile,
   SummaryProviderId,
   SummarySourceKind,
   SummaryTimingInput,
-} from '../summary/types.js';
-import type { DashboardRunLogType } from './dashboard-runs.js';
+} from '../summary/types.ts';
+import type { DashboardRunLogType } from './dashboard-runs.ts';
 
 export type RepoSearchRouteRequest = {
   prompt: string;

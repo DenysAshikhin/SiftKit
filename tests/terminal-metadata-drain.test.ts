@@ -1,36 +1,36 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { getConfigPath } from '../src/config/index.js';
-import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { getRuntimeRoot } from '../src/status-server/paths.js';
-import { clearIdleSummaryTimer } from '../src/status-server/server-ops.js';
-import { parseStatusMetadata } from '../src/status-server/status-file.js';
+import { getConfigPath } from '../src/config/index.ts';
+import { getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { getRuntimeRoot } from '../src/status-server/paths.ts';
+import { clearIdleSummaryTimer } from '../src/status-server/server-ops.ts';
+import { parseStatusMetadata } from '../src/status-server/status-file.ts';
 import {
   enqueueTerminalMetadata,
   flushTerminalMetadataForShutdown,
   scheduleDeferredTerminalMetadata,
   waitForTerminalMetadataIdle,
-} from '../src/status-server/terminal-metadata.js';
-import { bufferInferenceRunLogChunk, createInferenceRun, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
+} from '../src/status-server/terminal-metadata.ts';
+import { bufferInferenceRunLogChunk, createInferenceRun, readInferenceRunLogTextByStream } from '../src/state/inference-runs.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
 import {
   completionBody,
   createDeferredContext,
   waitForCondition,
-} from './helpers/deferred-shutdown-fixture.js';
+} from './helpers/deferred-shutdown-fixture.ts';
 import {
   countLogRows,
   countMetricsRows,
   countRunLogs,
   installRejectingTrigger,
   removeRejectingTrigger,
-} from './helpers/runtime-database-probe.js';
-import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
-import { readMetrics } from '../src/status-server/metrics.js';
+} from './helpers/runtime-database-probe.ts';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.ts';
+import { readMetrics } from '../src/status-server/metrics.ts';
 
 test('terminal metadata idle waits for direct deferred jobs before releasing their runtime', async t => {
   const runtime = new IsolatedRuntime();

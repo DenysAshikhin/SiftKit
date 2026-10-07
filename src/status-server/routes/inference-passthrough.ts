@@ -10,33 +10,33 @@ import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 
 import type { ThroughputAuditIdentity, InferenceThroughput } from '@siftkit/contracts';
-import type { ModelRuntimePreset, SiftConfig } from '../../config/types.js';
-import { getConfiguredModel } from '../../config/getters.js';
-import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-types.js';
-import { parseJsonValueText } from '../../lib/json.js';
-import { httpClient } from '../../lib/http-client.js';
-import { SseFrameParser } from '../../lib/sse-frame-parser.js';
+import type { ModelRuntimePreset, SiftConfig } from '../../config/types.ts';
+import { getConfiguredModel } from '../../config/getters.ts';
+import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-types.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
+import { httpClient } from '../../lib/http-client.ts';
+import { SseFrameParser } from '../../lib/sse-frame-parser.ts';
 import {
   emptyInferenceThroughput,
   observeTabbyThroughput,
   readTabbyThroughput,
   unmeasuredInferenceThroughput,
-} from '../../lib/inference-throughput.js';
-import { auditInferenceThroughput, UNPUBLISHED_RATES } from '../inference-throughput-audit.js';
-import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
-import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.js';
-import { estimateTokenCount } from '../../lib/token-estimate.js';
-import { INFERENCE_REQUEST_COMPATIBILITY } from '../../inference-presets/preset-compatibility.js';
-import { readConfig } from '../config-store.js';
-import { serverLogger } from '../server-logger.js';
-import { toError } from '../../lib/errors.js';
-import { readBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
+} from '../../lib/inference-throughput.ts';
+import { auditInferenceThroughput, UNPUBLISHED_RATES } from '../inference-throughput-audit.ts';
+import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.ts';
+import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.ts';
+import { estimateTokenCount } from '../../lib/token-estimate.ts';
+import { INFERENCE_REQUEST_COMPATIBILITY } from '../../inference-presets/preset-compatibility.ts';
+import { readConfig } from '../config-store.ts';
+import { serverLogger } from '../server-logger.ts';
+import { toError } from '../../lib/errors.ts';
+import { readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.ts';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
-} from '../server-ops.js';
-import type { ModelRequestLock, ServerContext } from '../server-types.js';
+} from '../server-ops.ts';
+import type { ModelRequestLock, ServerContext } from '../server-types.ts';
 
 const CHAT_PATH = '/v1/chat/completions';
 const MODELS_PATH = '/v1/models';
@@ -154,7 +154,11 @@ class PassthroughUsageObserver {
   private abandoned = false;
   private fold: InferenceThroughput | null = null;
 
-  constructor(private readonly kind: UsageObserverKind) {}
+  private readonly kind: UsageObserverKind;
+
+  constructor(kind: UsageObserverKind) {
+    this.kind = kind;
+  }
 
   push(chunk: Buffer): void {
     if (this.abandoned || this.kind === 'none') return;

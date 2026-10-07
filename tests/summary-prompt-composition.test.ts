@@ -3,23 +3,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getPromptLabel } from '../bench/benchmark/args.js';
-import { SummaryReproPromptBuilder } from '../bench/repro/summary-prompt-builder.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { getPromptLabel } from '../bench/benchmark/args.ts';
+import { SummaryReproPromptBuilder } from '../bench/repro/summary-prompt-builder.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import {
   buildCompactSummaryPrompt,
   buildSummaryInputSection,
   buildSummaryPrompt,
   buildSummarySystemInstructions,
-} from '../src/summary/prompt.js';
+} from '../src/summary/prompt.ts';
 import {
   buildPlannerInputSection,
   buildPlannerSystemPrompt,
-} from '../src/summary/planner/prompts.js';
-import type { PresetSystemContext } from '../src/preset-system-context.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
-import { longestCommonPrefixLength } from './helpers/common-prefix.js';
+} from '../src/summary/planner/prompts.ts';
+import type { PresetSystemContext } from '../src/preset-system-context.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.ts';
+import { longestCommonPrefixLength } from './helpers/common-prefix.ts';
 
 const PRESET = 'PRESET_INSTRUCTIONS';
 const ADDITIONAL = 'ADDITIONAL_INSTRUCTIONS';

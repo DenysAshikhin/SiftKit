@@ -9,13 +9,13 @@ import {
   mergeConfig,
   getRuntimeRootFromStatusPath,
   getPlannerLogsPath,
-} from './helpers/runtime-config.js';
+} from './helpers/runtime-config.ts';
 import {
   resolveArtifactLogPathFromStatusPost,
-} from './helpers/runtime-http.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { buildTabbyUsage } from './helpers/streaming-client.js';
+} from './helpers/runtime-http.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { buildTabbyUsage } from './helpers/streaming-client.ts';
 
 test('OutputCapture collects complete and partial lines and restores idempotently', () => {
   const stdout = OutputCapture.start(process.stdout);

@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { TempArchive } from '../../src/assistant/control/temp-archive.js';
-import { ZipFileReader } from '../../src/lib/zip-file-reader.js';
-import { createManagedTempDir } from './temp-dirs.js';
+import type { TempArchive } from '../../src/assistant/control/temp-archive.ts';
+import { ZipFileReader } from '../../src/lib/zip-file-reader.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
 
 /**
  * Backup and export stream to a temp file. Tests assert on bytes, so this is the one boundary

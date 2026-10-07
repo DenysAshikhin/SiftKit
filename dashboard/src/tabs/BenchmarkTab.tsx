@@ -1,5 +1,5 @@
 import React from 'react';
-import { StatusDot } from '../components/StatusDot';
+import { StatusDot } from '../components/StatusDot.tsx';
 import type {
   DashboardBenchmarkAttempt,
   DashboardBenchmarkQuestionPreset,
@@ -7,7 +7,7 @@ import type {
   DashboardBenchmarkSortKey,
   DashboardModelRuntimePreset,
   ThroughputRates,
-} from '../types';
+} from '../types.ts';
 
 export type BenchmarkTabProps = {
   questionPresets: DashboardBenchmarkQuestionPreset[];

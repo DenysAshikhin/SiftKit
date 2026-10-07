@@ -1,6 +1,6 @@
-import { parseJsonValueText } from '../../lib/json.js';
-import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import { JsonFilterBoundOpSchema, JsonFilterEntrySchema, type JsonFilterEntry } from '../../planner-protocol/summary-tools.js';
+import { parseJsonValueText } from '../../lib/json.ts';
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import { JsonFilterBoundOpSchema, JsonFilterEntrySchema, type JsonFilterEntry } from '../../planner-protocol/summary-tools.ts';
 
 export const MAX_JSON_FALLBACK_PREVIEW_CHARACTERS = 200;
 

@@ -1,4 +1,4 @@
-import { getActiveModelPreset } from '../src/config/getters.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -6,15 +6,15 @@ import {
   HttpResponseError,
   type FullJsonResponse,
   type SseStreamOptions,
-} from '../src/lib/http-client.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import type { SiftConfig } from '../src/config/types.js';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
-import type { LiveContentSnapshot } from '../src/llm-protocol/live-content-classifier.js';
-import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+} from '../src/lib/http-client.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import type { SiftConfig } from '../src/config/types.ts';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
+import type { LiveContentSnapshot } from '../src/llm-protocol/live-content-classifier.ts';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 
 class StreamingHttpClient {
   readonly requests: SseStreamOptions[] = [];

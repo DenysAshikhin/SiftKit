@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ModelJson } from '../src/lib/model-json.js';
-import { z } from '../src/lib/zod.js';
+import { ModelJson } from '../src/lib/model-json.ts';
+import { z } from '../src/lib/zod.ts';
 
 test('ModelJson parses valid summary decisions without repair', () => {
   const decision = ModelJson.parseSummaryDecision(JSON.stringify({

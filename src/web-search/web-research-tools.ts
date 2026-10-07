@@ -1,5 +1,5 @@
-import { httpClient, type HttpClient } from '../lib/http-client.js';
-import { estimateTokenCount } from '../state/chat-sessions.js';
+import { httpClient, type HttpClient } from '../lib/http-client.ts';
+import { estimateTokenCount } from '../state/chat-sessions.ts';
 import type {
   WebFetchToolArgs,
   WebSearchConfig,
@@ -7,11 +7,11 @@ import type {
   WebSearchToolArgs,
   WebToolArgs,
   WebToolExecutionResult,
-} from './types.js';
-import { WebFetchService } from './web-fetch-service.js';
-import { WebSearchService } from './web-search-service.js';
-import type { WebSearchProvider } from './web-search-provider.js';
-import { formatWebFetchCommand, formatWebSearchCommand } from './web-tool-command.js';
+} from './types.ts';
+import { WebFetchService } from './web-fetch-service.ts';
+import { WebSearchService } from './web-search-service.ts';
+import type { WebSearchProvider } from './web-search-provider.ts';
+import { formatWebFetchCommand, formatWebSearchCommand } from './web-tool-command.ts';
 
 function formatSearchResults(results: WebSearchResult[]): string {
   if (results.length === 0) {
@@ -29,11 +29,14 @@ export class WebResearchTools {
   private readonly searchService: WebSearchService;
   private readonly fetchService: WebFetchService;
 
+  private readonly config: WebSearchConfig;
+
   constructor(
-    private readonly config: WebSearchConfig,
+    config: WebSearchConfig,
     client: HttpClient = httpClient,
     providers?: WebSearchProvider[],
   ) {
+    this.config = config;
     this.searchService = new WebSearchService(config, client, providers);
     this.fetchService = new WebFetchService(config, client);
   }

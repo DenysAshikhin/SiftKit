@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { FixedClock, SystemClock } from '../src/assistant/clock.js';
-import { RandomIdGenerator, SequentialIdGenerator } from '../src/assistant/ids.js';
+import { FixedClock, SystemClock } from '../src/assistant/clock.ts';
+import { RandomIdGenerator, SequentialIdGenerator } from '../src/assistant/ids.ts';
 import {
   buildAssertionKey,
   buildCandidateFingerprint,
@@ -10,7 +10,7 @@ import {
   hashTextContent,
   normalizeAliasText,
   normalizeLiteralValue,
-} from '../src/assistant/domain/keys.js';
+} from '../src/assistant/domain/keys.ts';
 
 test('FixedClock returns the configured instant and advances only on request', () => {
   const clock = new FixedClock('2026-08-05T10:00:00.000Z');

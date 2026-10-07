@@ -4,9 +4,9 @@ import type {
   AssistantEvidenceDeletionPreview,
   AssistantProjectionDto,
   AssistantTopicForgetPreview,
-} from '../types.js';
-import type { AssistantMemorySelection } from '../components/AssistantMemoryDetail.js';
-import type { AssistantTabProps } from '../tabs/AssistantTab.js';
+} from '../types.ts';
+import type { AssistantMemorySelection } from '../components/AssistantMemoryDetail.tsx';
+import type { AssistantTabProps } from '../tabs/AssistantTab.tsx';
 import {
   answerAssistantQuestion,
   blockAssistantQuestionTopic,
@@ -35,7 +35,7 @@ import {
   setAssistantPolicyEnabled,
   skipAssistantQuestion,
   snoozeAssistantQuestion,
-} from '../assistant-api.js';
+} from '../assistant-api.ts';
 
 export function useAssistantController(): { tabProps: AssistantTabProps } {
   const [token, setToken] = React.useState<string | null>(null);

@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { ZipFileReader } from '../src/lib/zip-file-reader.js';
-import { ZipFileWriter } from '../src/lib/zip-file-writer.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { ZipFileReader } from '../src/lib/zip-file-reader.ts';
+import { ZipFileWriter } from '../src/lib/zip-file-writer.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 // Larger than one READ_CHUNK_BYTES (1 MiB), so a chunked walk spans several iterations and gives
 // the event loop several chances to run -- which is what the non-blocking test below measures.

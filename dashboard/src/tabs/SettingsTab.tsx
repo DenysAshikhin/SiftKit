@@ -1,23 +1,23 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
-import { formatDate, formatNumber, parseIntegerInput } from '../lib/format';
-import type { DirtyContinuation, SettingsPathPickerBusyTarget } from '../settings-flow';
+import { formatDate, formatNumber, parseIntegerInput } from '../lib/format.ts';
+import type { DirtyContinuation, SettingsPathPickerBusyTarget } from '../settings-flow.ts';
 import {
   POLICY_MODE_OPTIONS,
   SETTINGS_SECTION_ORDER,
   SETTINGS_SECTIONS,
   type SettingsSectionId,
-} from '../settings-sections';
-import { SettingsSectionField } from '../settings/SettingsFields';
-import { useInferenceRuntimeStatus } from '../hooks/useInferenceRuntimeStatus';
+} from '../settings-sections.ts';
+import { SettingsSectionField } from '../settings/SettingsFields.tsx';
+import { useInferenceRuntimeStatus } from '../hooks/useInferenceRuntimeStatus.ts';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
   DashboardPreset,
   ProviderQuota,
   WebSearchUsage,
-} from '../types';
+} from '../types.ts';
 import type {
   GeneralSettingsActions,
   AssistantSettingsActions,
@@ -26,12 +26,12 @@ import type {
   PresetSettingsActions,
   ToolPolicySettingsActions,
   WebSearchSettingsActions,
-} from '../settings-action-groups';
-import { PresetsSection } from './settings/PresetsSection';
-import { ModelPresetsSection } from './settings/ModelPresetsSection';
-import { ModelRuntimeResidencyPanel } from './settings/ModelRuntimeResidencyPanel';
-import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix';
-import { AssistantSettings } from './settings/AssistantSettings';
+} from '../settings-action-groups.ts';
+import { PresetsSection } from './settings/PresetsSection.tsx';
+import { ModelPresetsSection } from './settings/ModelPresetsSection.tsx';
+import { ModelRuntimeResidencyPanel } from './settings/ModelRuntimeResidencyPanel.tsx';
+import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix.tsx';
+import { AssistantSettings } from './settings/AssistantSettings.tsx';
 
 export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;

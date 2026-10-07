@@ -6,16 +6,9 @@ import path from 'node:path';
 const TESTS_DIR = path.resolve(process.cwd(), 'tests');
 
 function listTestSources(): string[] {
-  const out: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.ts') || entry.name.endsWith('.js')) out.push(full);
-    }
-  };
-  walk(TESTS_DIR);
-  return out;
+  return fs.readdirSync(TESTS_DIR, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.js')))
+    .map((entry) => path.join(entry.parentPath, entry.name));
 }
 
 function filesMatching(pattern: RegExp): string[] {
@@ -24,10 +17,6 @@ function filesMatching(pattern: RegExp): string[] {
 
 test('hygiene: there is at least one test source to scan', () => {
   assert.ok(listTestSources().length > 0);
-});
-
-test('hygiene: no test imports from ../dist', () => {
-  assert.deepEqual(filesMatching(/from ['"]\.\.\/dist/), []);
 });
 
 // The needle is built from fragments so this gate file does not match itself.

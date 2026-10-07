@@ -22,14 +22,14 @@ import {
   ChatRecoveryStatusSchema,
   ChatRunPresentationEventSchema,
 } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { JsonObjectSchema } from '../lib/json-types.js';
+import { z } from '../lib/zod.ts';
+import { JsonObjectSchema } from '../lib/json-types.ts';
 import {
   ChatContextInitSchema,
   ChatContextSpliceSchema,
   PlannerChatMessageSchema,
-} from '../repo-search/planner-chat-message.js';
-import { ApprovalVerdictSchema } from '../repo-search/approval-verdict.js';
+} from '../repo-search/planner-chat-message.ts';
+import { ApprovalVerdictSchema } from '../repo-search/approval-verdict.ts';
 
 /**
  * The only event format this build writes and the only one it accepts. A row stamped with a version

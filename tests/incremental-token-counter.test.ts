@@ -1,18 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { IncrementalTokenCounter } from '../src/repo-search/incremental-token-counter.js';
+import { IncrementalTokenCounter } from '../src/repo-search/incremental-token-counter.ts';
 import {
   EXACT_RECOUNT_MARGIN_TOKENS,
   preflightPlannerPromptBudget,
-} from '../src/repo-search/prompt-budget.js';
-import type { InferenceBackendId } from '../src/config/types.js';
-import type { SiftConfig } from '../src/config/index.js';
-import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { asRuntimeSiftConfig } from './helpers/mock-config.js';
+} from '../src/repo-search/prompt-budget.ts';
+import type { InferenceBackendId } from '../src/config/types.ts';
+import type { SiftConfig } from '../src/config/index.ts';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import type { InferenceToolDefinition } from '../src/llm-protocol/types.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { asRuntimeSiftConfig } from './helpers/mock-config.ts';
 
 function activateEngine(config: SiftConfig, engine: InferenceBackendId): SiftConfig {
   const preset = config.Server.ModelPresets.Presets[0];

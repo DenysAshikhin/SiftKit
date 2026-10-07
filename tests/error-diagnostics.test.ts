@@ -3,20 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { StatusServerUnavailableError } from '../src/config/index.js';
+import { StatusServerUnavailableError } from '../src/config/index.ts';
 import {
   serializeErrorDiagnostic,
   getPrimaryCauseDiagnostic,
-} from '../src/lib/error-diagnostics.js';
+} from '../src/lib/error-diagnostics.ts';
 import {
   insertRuntimeErrorEvent,
-} from '../src/state/runtime-error-events.js';
+} from '../src/state/runtime-error-events.ts';
 import {
   closeAllRuntimeDatabases,
   getRuntimeDatabase,
-} from '../src/state/runtime-db.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/state/runtime-db.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 test('StatusServerUnavailableError preserves diagnostic cause and service context', () => {
   const cause = new Error('Request timed out after 130000 ms.');

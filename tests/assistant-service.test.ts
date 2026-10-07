@@ -4,11 +4,11 @@ import assert from 'node:assert/strict';
 import type { EnvironmentStateDto } from '@siftkit/contracts';
 import type {
   AssistantInferenceClient, AssistantInferenceResult,
-} from '../src/assistant/inference/client.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { buildAssistantService } from './helpers/assistant-fixture.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+} from '../src/assistant/inference/client.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { buildAssistantService } from './helpers/assistant-fixture.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 
 /** Blocks every model call until the test releases it, so a drain can be caught in flight. */
 class GateInference implements AssistantInferenceClient {

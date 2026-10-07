@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { editDistanceWithin, isNearOwnerAlias } from '../src/assistant/domain/owner-identity.js';
+import { editDistanceWithin, isNearOwnerAlias } from '../src/assistant/domain/owner-identity.ts';
 
 test('editDistanceWithin matches the Levenshtein bound', () => {
   assert.equal(editDistanceWithin('denyz', 'denys', 2), true);

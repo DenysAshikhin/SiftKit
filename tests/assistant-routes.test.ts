@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
 import {
   closeHttpServer, getAddressInfo, requestJson,
-} from './helpers/dashboard-http.js';
+} from './helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+} from './helpers/dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
 test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serves Gate C routes', async () => {
   const tempRoot = createManagedTempDir('siftkit-assistant-routes-');

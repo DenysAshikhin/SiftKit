@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { ChatMessageQueueResponseSchema, ChatQueueForceRequestSchema, ChatQueueMessageResponseSchema } from '@siftkit/contracts';
-import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { requestJson } from './helpers/dashboard-http.js';
+import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
 
 test('queue HTTP validates, lists bounded previews, edits and removes durable entries', async () => {
   const harness = new DashboardModelQueueHarness('siftkit-chat-queue-http-', { parallelSlots: 1 });

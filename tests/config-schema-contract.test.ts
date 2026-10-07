@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import type { SiftConfig } from '../src/config/types.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import type { SiftConfig } from '../src/config/types.ts';
 import {
   getDefaultConfig,
   normalizeConfig,
   readConfig,
   writeConfig,
-} from '../src/status-server/config-store.js';
+} from '../src/status-server/config-store.ts';
 
 test('status-server config-store exposes the shared typed config contract', () => {
   const defaultConfig: SiftConfig = getDefaultConfig();

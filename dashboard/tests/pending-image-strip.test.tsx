@@ -1,14 +1,14 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 
-import { fireEvent, render, screen } from './react-test-environment.js';
-import { PendingImageStrip, removePendingImage } from '../src/components/PendingImageStrip.js';
-import type { PendingImage } from '../src/lib/downscale-image.js';
+import { fireEvent, render, screen } from './react-test-environment.ts';
+import { PendingImageStrip, removePendingImage } from '../src/components/PendingImageStrip.tsx';
+import type { PendingImage } from '../src/lib/downscale-image.ts';
 
 const PNG_A = 'data:image/png;base64,AA==';
 const PNG_B = 'data:image/png;base64,AQ==';

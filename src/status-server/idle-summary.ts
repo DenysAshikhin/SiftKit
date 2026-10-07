@@ -8,21 +8,21 @@ import {
   formatRatio,
   formatSeconds,
   formatTokensPerSecond,
-} from '../lib/text-format.js';
+} from '../lib/text-format.ts';
 
-import { z } from '../lib/zod.js';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import { parseJsonValueText } from '../lib/json.js';
-import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
+import { z } from '../lib/zod.ts';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.ts';
 import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
-import { calculateThroughputRate } from '../lib/inference-throughput.js';
-import { createEmptyToolTypeStats } from '../line-read-guidance.js';
+import { calculateThroughputRate } from '../lib/inference-throughput.ts';
+import { createEmptyToolTypeStats } from '../line-read-guidance.ts';
 import {
   TASK_KINDS,
   type MetricTotals,
   type TaskKind,
   type ToolTypeStats,
-} from './metrics.js';
+} from './metrics.ts';
 type DatabaseInstance = InstanceType<typeof Database>;
 
 export type SnapshotTaskTotals = Record<TaskKind, MetricTotals>;

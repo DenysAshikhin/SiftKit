@@ -1,14 +1,14 @@
 import path from 'node:path';
 
 import type { ActivityEventDto } from '@siftkit/contracts';
-import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
-import { SystemClock } from '../../src/assistant/clock.js';
-import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
-import { RandomIdGenerator } from '../../src/assistant/ids.js';
-import { assistantKeyFile } from '../../src/assistant/layout.js';
-import { ActivityLog } from '../../src/assistant/observation/activity-log.js';
-import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
-import { getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.js';
+import { AssistantGraph } from '../../src/assistant/assistant-graph.ts';
+import { SystemClock } from '../../src/assistant/clock.ts';
+import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.ts';
+import { RandomIdGenerator } from '../../src/assistant/ids.ts';
+import { assistantKeyFile } from '../../src/assistant/layout.ts';
+import { ActivityLog } from '../../src/assistant/observation/activity-log.ts';
+import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.ts';
+import { getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.ts';
 
 export const DEFAULT_BENCH_ROOT = '.bench-assistant';
 export const OWNER_ID = LOCAL_OWNER_ID;

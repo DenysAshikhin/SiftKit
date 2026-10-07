@@ -1,6 +1,6 @@
 import { PerceptualHashSchema } from '@siftkit/contracts';
 
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
 import {
   ActorTypeSchema, AliasTypeSchema, AssertionBasisSchema, AssertionStatusSchema,
@@ -10,10 +10,10 @@ import {
   ObjectKindSchema, ObservationTypeSchema, ObjectValueTypeSchema, PolicySourceSchema,
   PolicyTypeSchema, ProjectionStatusSchema, QuestionFeedbackTypeSchema, QuestionStatusSchema,
   QuestionTypeSchema, SensitivitySchema,
-} from '../domain/enums.js';
-import { NodeTypeSchema } from '../domain/node-types.js';
-import { RelationTypeSchema } from '../domain/relation-types.js';
-import { AssistantJobTypeSchema } from '../jobs/job-types.js';
+} from '../domain/enums.ts';
+import { NodeTypeSchema } from '../domain/node-types.ts';
+import { RelationTypeSchema } from '../domain/relation-types.ts';
+import { AssistantJobTypeSchema } from '../jobs/job-types.ts';
 
 const SqliteBooleanSchema = z.number().int().min(0).max(1).transform((value) => value === 1);
 

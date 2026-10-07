@@ -1,4 +1,4 @@
-import { resolveContextTokenBudget } from '../../lib/context-token-budget.js';
+import { resolveContextTokenBudget } from '../../lib/context-token-budget.ts';
 
 // Floor on the share of maxPromptTokens one turn's tool results may consume in
 // total. The share grows as a run progresses (later calls are better targeted

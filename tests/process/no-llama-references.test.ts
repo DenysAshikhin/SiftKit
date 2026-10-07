@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 import test from 'node:test';
 
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 const ROOTS = [
   'src',

@@ -11,45 +11,45 @@ ChatRepoAgentDecideResponseSchema,
 type RepoAgentApproval,
 type RepoAgentDecision,
 } from '@siftkit/contracts';
-import { toError } from '../../lib/errors.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { z } from '../../lib/zod.js';
+import { toError } from '../../lib/errors.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { z } from '../../lib/zod.ts';
 import {
 MockPlannerResponsesSchema,
-} from '../../planner-protocol/mock-response.js';
-import { RepoAgentDecisionSchema } from '../../repo-agent/api-schemas.js';
+} from '../../planner-protocol/mock-response.ts';
+import { RepoAgentDecisionSchema } from '../../repo-agent/api-schemas.ts';
 import {
 RepoSearchMockCommandResultSchema,
-} from '../../repo-search/types.js';
-import type { ChatSession } from '../../state/chat-sessions.js';
-import { readChatSessionFromPath } from '../../state/chat-sessions.js';
-import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
-import { ChatOperationPresetSelector, resolveChatRunAllowedTools } from '../chat-operation-preset.js';
-import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
-import type { ChatRepoAgentDecisionRecord, ChatRepoAgentRunBinding } from '../chat-repo-agent-types.js';
-import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.js';
-import type { QuestionGate } from '../../repo-search/engine/question-gate.js';
-import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
-import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
-import { auditCompletedChatSessionThroughput } from '../chat-turn-telemetry.js';
+} from '../../repo-search/types.ts';
+import type { ChatSession } from '../../state/chat-sessions.ts';
+import { readChatSessionFromPath } from '../../state/chat-sessions.ts';
+import type { ChatOperationBroadcast } from '../chat-operation-broadcast.ts';
+import { ChatOperationPresetSelector, resolveChatRunAllowedTools } from '../chat-operation-preset.ts';
+import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.ts';
+import type { ChatRepoAgentDecisionRecord, ChatRepoAgentRunBinding } from '../chat-repo-agent-types.ts';
+import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.ts';
+import type { QuestionGate } from '../../repo-search/engine/question-gate.ts';
+import type { ChatSessionOperation } from '../chat-session-operation-registry.ts';
+import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.ts';
+import { auditCompletedChatSessionThroughput } from '../chat-turn-telemetry.ts';
 import {
 buildRepoAgentResultMarkdown,
-} from '../chat.js';
-import { readConfig } from '../config-store.js';
-import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.js';
+} from '../chat.ts';
+import { readConfig } from '../config-store.ts';
+import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.ts';
 import {
 parseJsonBody,
 readBody,
 sendBodyReadError,
 sendJson,
-} from '../http-utils.js';
-import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
-import type { RepoAgentSession } from '../repo-agent-sessions.js';
-import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
-import type { RouteEndpoint,RouteMatch } from '../route-table.js';
-import type { ServerContext } from '../server-types.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-operation-endpoint.js';
+} from '../http-utils.ts';
+import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.ts';
+import type { RepoAgentSession } from '../repo-agent-sessions.ts';
+import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.ts';
+import type { RouteEndpoint,RouteMatch } from '../route-table.ts';
+import type { ServerContext } from '../server-types.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-operation-endpoint.ts';
 import {
 ChatRepoRootOperationEndpoint,
 parseChatRepoOperationRequest,
@@ -58,10 +58,10 @@ requireChatRunRecorder,
 requireQuestionGate,
 type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest,
-} from './chat-session-operation-endpoint.js';
-import { requireChatOperationBroadcast } from './chat.js';
-import { startRepoWorkerRun } from './repo-agent.js';
-import { WEB_UI_MODEL_QUEUE_TIMEOUT } from '../server-ops.js';
+} from './chat-session-operation-endpoint.ts';
+import { requireChatOperationBroadcast } from './chat.ts';
+import { startRepoWorkerRun } from './repo-agent.ts';
+import { WEB_UI_MODEL_QUEUE_TIMEOUT } from '../server-ops.ts';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
   approval: ApprovalModeSchema,

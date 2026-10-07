@@ -3,29 +3,29 @@ import { rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
 import type {
   AssistantInferenceClient, AssistantInferenceRequest, AssistantInferenceResult,
-} from '../src/assistant/inference/client.js';
-import { DEFAULT_ASSISTANT_CONFIG, getDefaultConfigObject } from '../src/config/defaults.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import type { ModelRuntimePreset } from '../src/config/types.js';
-import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-import { StatusServerResidencyGate } from '../src/status-server/assistant-residency-gate.js';
-import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
-import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
-import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
-import { ALWAYS_IDLE } from './helpers/assistant-gates.js';
-import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+} from '../src/assistant/inference/client.ts';
+import { DEFAULT_ASSISTANT_CONFIG, getDefaultConfigObject } from '../src/config/defaults.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import type { ModelRuntimePreset } from '../src/config/types.ts';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.ts';
+import { StatusServerResidencyGate } from '../src/status-server/assistant-residency-gate.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { ModelIdleController } from '../src/status-server/model-idle-controller.ts';
+import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
+import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
+import { ALWAYS_IDLE } from './helpers/assistant-gates.ts';
+import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 type FixtureOptions = {
   externalServerEnabled?: boolean;
@@ -59,11 +59,14 @@ class BlockingRecordingInferenceRuntime extends RecordingInferenceRuntime {
   readonly transitionStarted = createDeferred();
   private readonly releaseTransitionDeferred = createDeferred();
 
+  private blockedTransition: BlockedTransition | null;
+
   constructor(
     events: string[],
-    private blockedTransition: BlockedTransition | null,
+    blockedTransition: BlockedTransition | null,
   ) {
     super('exl3', events);
+    this.blockedTransition = blockedTransition;
   }
 
   releaseTransition(): void {

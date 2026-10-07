@@ -1,5 +1,5 @@
-import { loadConfig, setTopLevelConfigKey } from '../config/index.js';
-import { parseArguments, type ResolvedCliArgs } from './args.js';
+import { loadConfig, setTopLevelConfigKey } from '../config/index.ts';
+import { parseArguments, type ResolvedCliArgs } from './args.ts';
 
 export async function runConfigGet(stdout: NodeJS.WritableStream): Promise<number> {
   const config = await loadConfig({ ensure: true });

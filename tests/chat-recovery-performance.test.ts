@@ -1,22 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
-import { ChatJournalStore, CHAT_JOURNAL_READ_PAGE_SIZE } from '../src/state/chat-journal.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { readChatRunMessages, saveChatSession } from '../src/state/chat-sessions.js';
-import { rebuildChatRun } from '../src/status-server/chat-run-projection.js';
-import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.js';
-import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.js';
-import { createChatSnapshotRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.js';
-import { chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { z } from '../src/lib/zod.ts';
+import { ChatJournalStore, CHAT_JOURNAL_READ_PAGE_SIZE } from '../src/state/chat-journal.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { readChatRunMessages, saveChatSession } from '../src/state/chat-sessions.ts';
+import { rebuildChatRun } from '../src/status-server/chat-run-projection.ts';
+import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.ts';
+import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.ts';
+import { createChatSnapshotRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.ts';
+import { chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
 import {
   PERFORMANCE_AT, PERFORMANCE_MODEL_TURNS, PERFORMANCE_RESULT_BYTES, PERFORMANCE_SESSION_ID,
   PERFORMANCE_TEXT_DELTA, PERFORMANCE_TOOL_RESULTS, performanceDatabasePath,
   recordSyntheticRun,
-} from './helpers/chat-replay-memory-process.js';
+} from './helpers/chat-replay-memory-process.ts';
 
 test('incident-scale journal: appends stay per-delta, reads are paged, and replay reproduces every full result', { timeout: 300_000 }, t => {
   const runtimeRoot = createManagedTempDir('chat-recovery-performance-');

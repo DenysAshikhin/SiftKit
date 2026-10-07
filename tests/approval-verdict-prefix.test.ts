@@ -4,10 +4,10 @@ import {
   buildBatchToolCallId,
   buildPendingAssistantMessage,
   resolveToolActionIdentity,
-} from '../src/repo-search/engine/pending-tool-call-message.js';
-import { buildAssistantToolCallMessage } from '../src/tool-call-messages.js';
-import { buildApprovalVerdictPromptMessages } from '../src/repo-search/planner-protocol.js';
-import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
+} from '../src/repo-search/engine/pending-tool-call-message.ts';
+import { buildAssistantToolCallMessage } from '../src/tool-call-messages.ts';
+import { buildApprovalVerdictPromptMessages } from '../src/repo-search/planner-protocol.ts';
+import type { AgentLoopToolAction } from '../src/agent-loop/types.ts';
 
 test('tool-call ids depend only on turn and batch index', () => {
   assert.equal(buildBatchToolCallId(3, 0), 't3_c0');

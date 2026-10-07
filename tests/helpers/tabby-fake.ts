@@ -2,17 +2,21 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
 
-import { Exl3LoadRequestSchema } from '../../src/inference-presets/exl3-preset-adapter.js';
+import { Exl3LoadRequestSchema } from '../../src/inference-presets/exl3-preset-adapter.ts';
 import {
   Exl3ModelCapabilities,
   type Exl3PackageInspection,
   type Exl3PackageLocator,
-} from '../../src/inference-presets/exl3-model-capabilities.js';
-import type { ManagedEngineHost } from '../../src/status-server/engine-process.js';
-import { FakeTabbyLauncher, type FakeTabbyOptions } from './in-process-tabby.js';
+} from '../../src/inference-presets/exl3-model-capabilities.ts';
+import type { ManagedEngineHost } from '../../src/status-server/engine-process.ts';
+import { FakeTabbyLauncher, type FakeTabbyOptions } from './in-process-tabby.ts';
 
 class FixedExl3PackageLocator implements Exl3PackageLocator {
-  constructor(private readonly packageDirectory: string) {}
+  private readonly packageDirectory: string;
+
+  constructor(packageDirectory: string) {
+    this.packageDirectory = packageDirectory;
+  }
 
   inspectPackage(_pythonPath: string): Exl3PackageInspection {
     return fs.existsSync(this.packageDirectory)

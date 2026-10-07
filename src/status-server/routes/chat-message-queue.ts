@@ -1,16 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { ChatQueueEnqueueRequestSchema, ChatQueueEditRequestSchema, ChatQueuedMessageIdSchema, ChatMessageQueueResponseSchema, ChatQueueMessageResponseSchema, ChatQueueForceRequestSchema, ChatQueueForceResponseSchema } from '@siftkit/contracts';
-import { toError } from '../../lib/errors.js';
-import { getChatSessionPath, readChatSessionFromPath } from '../../state/chat-sessions.js';
-import { getRuntimeRoot } from '../paths.js';
-import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import type { ServerContext } from '../server-types.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import type { ChatQueueSubscriber } from '../chat-message-queue.js';
-import { validateQueuedChatImages } from './chat.js';
-import { z } from '../../lib/zod.js';
+import { toError } from '../../lib/errors.ts';
+import { getChatSessionPath, readChatSessionFromPath } from '../../state/chat-sessions.ts';
+import { getRuntimeRoot } from '../paths.ts';
+import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
+import type { ServerContext } from '../server-types.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import type { ChatQueueSubscriber } from '../chat-message-queue.ts';
+import { validateQueuedChatImages } from './chat.ts';
+import { z } from '../../lib/zod.ts';
 
 function readQueueSessionId(match: RouteMatch, res: ServerResponse): string | null {
   try {

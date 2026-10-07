@@ -19,7 +19,7 @@ SiftKit intercepts those flows and routes them through a local model first. The 
 
 ## Invoking on Windows
 
-`siftkit` works from PowerShell, cmd, and Git Bash. `npm run refresh-global` rebuilds the CLI, reinstalls it globally, and smoke-checks that Git Bash's sh shim runs (the build prepends `#!/usr/bin/env node` to `dist/cli/main.js`) and that embedded double quotes survive shell argument passing. Quote prompts per your shell — `'task "quoted"'` in PowerShell or Git Bash, `"task \"quoted\""` in cmd.
+`siftkit` works from PowerShell, cmd, and Git Bash. `npm run refresh-global` builds the dashboard, links this checkout as the global package, and smoke-checks that Git Bash's sh shim runs (`src/cli/main.ts` carries `#!/usr/bin/env node`) and that embedded double quotes survive shell argument passing. Quote prompts per your shell — `'task "quoted"'` in PowerShell or Git Bash, `"task \"quoted\""` in cmd.
 
 ## What SiftKit does
 
@@ -255,13 +255,15 @@ Local-only commands (`find-files`, `codex-policy`, `install-global`) do not requ
 
 ## Install and usage
 
-Build the client and dashboard:
+Requires Node.js 26 or newer: Node runs the TypeScript sources directly, so the CLI and server have no build step. `npm run build` only typechecks and builds the dashboard (Vite):
 
 ```powershell
 npm run build
 ```
 
-Start the status/config server (development, with nodemon on `dist/status-server`):
+`npm test` typechecks and runs node:test on `tests/**/*.test.ts`; `npm run test:dashboard` typechecks and runs the dashboard tests with Vitest.
+
+Start the status/config server (development, `node --watch` on `src/status-server/main.ts`):
 
 ```powershell
 npm start

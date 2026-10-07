@@ -4,14 +4,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { requestSse } from './helpers/sse-http.js';
-import { startHarness } from './helpers/streamed-op-harness.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
-import { asObject } from './helpers/dashboard-http.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.js';
-import { testHttpAgent } from './helpers/http-agent.js';
+import { requestSse } from './helpers/sse-http.ts';
+import { startHarness } from './helpers/streamed-op-harness.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { SseFrameParser } from '../src/lib/sse-frame-parser.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
 
 function postJson(url: string, body: JsonSerializable): Promise<{ statusCode: number; body: JsonObject }> {
   return new Promise((resolve, reject) => {

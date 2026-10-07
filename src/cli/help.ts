@@ -1,5 +1,5 @@
-import { REPO_SEARCH_SYNOPSIS } from './args.js';
-import { REPO_AGENT_CANONICAL_INVOCATION } from './repo-agent-help.js';
+import { REPO_SEARCH_SYNOPSIS } from './args.ts';
+import { REPO_AGENT_CANONICAL_INVOCATION } from './repo-agent-help.ts';
 
 export function showHelp(stdout: NodeJS.WritableStream): void {
   stdout.write([

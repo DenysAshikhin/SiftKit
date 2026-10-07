@@ -1,5 +1,5 @@
-import { z } from '../../lib/zod.js';
-import { SensitivitySchema, type Sensitivity } from '../domain/enums.js';
+import { z } from '../../lib/zod.ts';
+import { SensitivitySchema, type Sensitivity } from '../domain/enums.ts';
 
 export interface ProjectionFrontmatter {
   readonly projectionId: string;

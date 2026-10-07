@@ -1,7 +1,7 @@
-import { z } from '../../lib/zod.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { MODEL_MATCH_SCORE_THRESHOLD } from '../graph/entity-resolver.js';
-import type { StructuredOutputRunner } from '../inference/structured-runner.js';
+import { z } from '../../lib/zod.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { MODEL_MATCH_SCORE_THRESHOLD } from '../graph/entity-resolver.ts';
+import type { StructuredOutputRunner } from '../inference/structured-runner.ts';
 
 const ConsolidationSchema = z.object({
   duplicateGroups: z.array(z.object({
@@ -44,10 +44,16 @@ export interface ConsolidateResult {
  * never writes an assertion, and never touches policy.
  */
 export class CandidateConsolidator {
+  private readonly graph: AssistantGraph;
+  private readonly runner: StructuredOutputRunner;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly runner: StructuredOutputRunner,
-  ) {}
+    graph: AssistantGraph,
+    runner: StructuredOutputRunner,
+  ) {
+    this.graph = graph;
+    this.runner = runner;
+  }
 
   async consolidate(request: ConsolidateRequest): Promise<ConsolidateResult> {
     if (request.candidateIds.length === 0) {

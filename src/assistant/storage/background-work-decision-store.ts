@@ -4,11 +4,11 @@ import {
   type AssistantBackgroundWorkBlock,
   type AssistantBackgroundWorkDecisionDto,
 } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import { ASSISTANT_METADATA_PREFIX } from './schema.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import { ASSISTANT_METADATA_PREFIX } from './schema.ts';
 
 const HISTORY_LIMIT = 100;
 const METADATA_KEY = `${ASSISTANT_METADATA_PREFIX}background_work_decisions.v1`;
@@ -23,10 +23,16 @@ const CAPTURE_STATE_PLACEHOLDERS = PENDING_CAPTURE_LIST_STATES.map(
 ).join(', ');
 
 export class BackgroundWorkDecisionStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+  ) {
+    this.database = database;
+    this.clock = clock;
+  }
 
   record(ownerId: string, block: AssistantBackgroundWorkBlock): void {
     const queuedJobCount = this.countQueuedJobs(ownerId);

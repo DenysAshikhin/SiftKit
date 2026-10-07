@@ -1,4 +1,4 @@
-import { runCapturedCommand, type CapturedCommandResult } from './captured-command.js';
+import { runCapturedCommand, type CapturedCommandResult } from './captured-command.ts';
 
 export type DirectCommandResult = CapturedCommandResult;
 

@@ -9,7 +9,7 @@ import {
   buildOversizedTransitionsInput,
   withTempEnv,
   withStubServer,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 
 test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*{', async () => {

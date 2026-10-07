@@ -1,8 +1,8 @@
 import http from 'node:http';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
-import { asObject } from './dashboard-http.js';
-import { buildTabbyUsage } from './streaming-client.js';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import type { JsonObject } from '../../src/lib/json-types.ts';
+import { asObject } from './dashboard-http.ts';
+import { buildTabbyUsage } from './streaming-client.ts';
 
 export type FakeChatServer = {
   baseUrl: string;

@@ -3,13 +3,13 @@ import {
   getDeterministicExcerpt,
   getErrorSignalMetrics,
   isPassFailQuestion,
-} from './measure.js';
+} from './measure.ts';
 import type {
   ChunkPromptContext,
   StructuredModelDecision,
   SummaryPhase,
   SummarySourceKind,
-} from './types.js';
+} from './types.ts';
 
 export function ensureRawReviewSentence(
   decision: StructuredModelDecision,

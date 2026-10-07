@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { Exl3EngineConfig } from '../../src/config/types.js';
-import { buildTabbyUsage } from './streaming-client.js';
-import type { ManagedEngineHost } from '../../src/status-server/engine-process.js';
-import type { FakeTabbyLauncher, FakeTabbyOptions } from './in-process-tabby.js';
-import { writeFakeEngineHost, writeFakeExl3Venv } from './tabby-fake.js';
+import type { Exl3EngineConfig } from '../../src/config/types.ts';
+import { buildTabbyUsage } from './streaming-client.ts';
+import type { ManagedEngineHost } from '../../src/status-server/engine-process.ts';
+import type { FakeTabbyLauncher, FakeTabbyOptions } from './in-process-tabby.ts';
+import { writeFakeEngineHost, writeFakeExl3Venv } from './tabby-fake.ts';
 
 export interface ManagedEngineLauncherOptions {
   /** `GET /v1/model` answers "no model loaded" this many times before reporting the resident card. */

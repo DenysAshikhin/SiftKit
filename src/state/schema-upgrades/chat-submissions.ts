@@ -1,6 +1,6 @@
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../database-handle.js';
-import { CHAT_SUBMISSIONS_SCHEMA_SQL } from '../runtime-schema.js';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
+import { CHAT_SUBMISSIONS_SCHEMA_SQL } from '../runtime-schema.ts';
 
 const ExistingTableSchema = z.object({ name: z.string() }).nullable();
 

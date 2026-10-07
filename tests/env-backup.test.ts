@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EnvBackup } from './helpers/env-backup.js';
-import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { EnvBackup } from './helpers/env-backup.ts';
+import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL, DeadEndpointEnv } from './helpers/dead-endpoints.ts';
 
 // node --test runs every test file in its own process, so mutating process.env
 // here cannot leak into another file.

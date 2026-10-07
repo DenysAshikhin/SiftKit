@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import test from 'node:test';
-import { z } from '../src/lib/zod.js';
-import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+import { z } from '../src/lib/zod.ts';
+import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 
 const TableRowSchema = z.object({ sql: z.string() });
 

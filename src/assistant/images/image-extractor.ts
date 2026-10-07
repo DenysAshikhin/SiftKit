@@ -1,12 +1,12 @@
 import { ImageDataUrlSchema } from '@siftkit/contracts';
 
-import { z } from '../../lib/zod.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { buildProposedStatementSchema } from '../domain/proposal-schema.js';
-import type { StructuredOutputRunner } from '../inference/structured-runner.js';
-import type { EvidenceRow } from '../storage/rows.js';
-import type { CaptureQueueStore } from './capture-queue-store.js';
-import { isUsableCapability, type AssistantImageCapabilityProvider } from './image-capability.js';
+import { z } from '../../lib/zod.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { buildProposedStatementSchema } from '../domain/proposal-schema.ts';
+import type { StructuredOutputRunner } from '../inference/structured-runner.ts';
+import type { EvidenceRow } from '../storage/rows.ts';
+import type { CaptureQueueStore } from './capture-queue-store.ts';
+import { isUsableCapability, type AssistantImageCapabilityProvider } from './image-capability.ts';
 
 const ScreenshotStatementSchema = buildProposedStatementSchema({});
 

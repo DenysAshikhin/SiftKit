@@ -1,29 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.js';
+import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 
-import { z } from '../src/lib/zod.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { rebuildChatRun } from '../src/status-server/chat-run-projection.js';
+import { z } from '../src/lib/zod.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { rebuildChatRun } from '../src/status-server/chat-run-projection.ts';
 import type { ChatStreamTextDelta } from '@siftkit/contracts';
-import { parseJsonValueText } from '../src/lib/json.js';
-import type { OptionalJsonValue } from '../src/lib/json-types.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { getConfigPath } from '../src/config/index.js';
-import { readChatMeasuredContext, readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
-import { writeRuntimeLaunchSnapshot } from '../src/status-server/runtime-launch-snapshot.js';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import type { OptionalJsonValue } from '../src/lib/json-types.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { readChatMeasuredContext, readChatSessions, saveChatSession } from '../src/state/chat-sessions.ts';
+import { writeRuntimeLaunchSnapshot } from '../src/status-server/runtime-launch-snapshot.ts';
 import {
   LIVE_TEXT_FLUSH_MAX_LATENCY_MS,
   LIVE_TEXT_FLUSH_MAX_PENDING_CHARS,
-} from '../src/status-server/live-text-delta.js';
+} from '../src/status-server/live-text-delta.ts';
 import {
   asArray,
   asObject,
@@ -34,26 +34,26 @@ import {
   requestSse,
   type Dict,
   type SseResponse,
-} from './helpers/dashboard-http.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { acquireChildPortLease } from './helpers/test-endpoints.js';
-import { waitForAsyncExpectation } from './_runtime-helpers.js';
-import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
-import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { readStatusModelRequests } from './helpers/model-request-status.js';
-import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
-import { buildTabbyUsage } from './helpers/streaming-client.js';
-import { operationOnlyRunIdentity, UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
-import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
+} from './helpers/dashboard-http.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { acquireChildPortLease } from './helpers/test-endpoints.ts';
+import { waitForAsyncExpectation } from './_runtime-helpers.ts';
+import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.ts';
+import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
+import { readStatusModelRequests } from './helpers/model-request-status.ts';
+import { DashboardRunSeeder } from './helpers/dashboard-run-seed.ts';
+import { buildTabbyUsage } from './helpers/streaming-client.ts';
+import { operationOnlyRunIdentity, UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.ts';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.ts';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
   restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
-import type { RunEvent } from '../dashboard/src/types.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
+} from './helpers/dashboard-test-repo.ts';
+import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.ts';
+import type { RunEvent } from '../dashboard/src/types.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
+import { readImageDimensions } from '../src/llm-protocol/image-admission.ts';
 
 const CHAT_STREAM_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));

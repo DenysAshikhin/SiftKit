@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { createUniquePresetId } from '../dashboard/src/hooks/useSettingsController.js';
+import { createUniquePresetId } from '../src/hooks/useSettingsController.ts';
 
 test('disambiguates a colliding slug', () => {
   const existing = [{ id: 'my-preset' }];

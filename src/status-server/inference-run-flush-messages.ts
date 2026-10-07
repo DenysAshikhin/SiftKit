@@ -1,5 +1,5 @@
-import { z } from '../lib/zod.js';
-import { InferenceRunStreamKindSchema } from '../state/inference-runs.js';
+import { z } from '../lib/zod.ts';
+import { InferenceRunStreamKindSchema } from '../state/inference-runs.ts';
 
 /**
  * The inference-run flush protocol, declared once and parsed at both ends of the thread boundary.

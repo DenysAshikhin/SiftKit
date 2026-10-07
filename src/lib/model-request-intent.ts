@@ -1,4 +1,4 @@
-import { z } from './zod.js';
+import { z } from './zod.ts';
 
 /** The model an operation asks for; null fields inherit the operation preset or the applied model. */
 export const ModelRequestIntentSchema = z.object({

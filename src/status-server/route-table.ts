@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { ServerContext } from './server-types.js';
+import type { ServerContext } from './server-types.ts';
 
 export type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
 
@@ -48,7 +48,11 @@ function matchRoutePath(path: string | RegExp, pathname: string): RouteMatch | n
 }
 
 export class RouteTable {
-  constructor(private readonly routes: readonly RouteDefinition[]) {}
+  private readonly routes: readonly RouteDefinition[];
+
+  constructor(routes: readonly RouteDefinition[]) {
+    this.routes = routes;
+  }
 
   hasPath(pathname: string): boolean {
     return this.routes.some((route) => matchRoutePath(route.path, pathname) !== null);

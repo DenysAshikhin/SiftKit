@@ -1,19 +1,19 @@
-import { httpClient } from '../lib/http-client.js';
-import { toError } from '../lib/errors.js';
-import { addEffectiveConfigProperties } from './effective.js';
+import { httpClient } from '../lib/http-client.ts';
+import { toError } from '../lib/errors.ts';
+import { addEffectiveConfigProperties } from './effective.ts';
 import {
   normalizeConfig,
   normalizeConfigObject,
   toPersistedConfigObject,
   updateRuntimePaths,
-} from './normalization.js';
+} from './normalization.ts';
 import {
   deriveServiceUrl,
   getStatusBackendUrl,
   toStatusServerUnavailableError,
-} from './status-backend.js';
-import type { SiftConfig } from './types.js';
-import { JsonObjectSchema, JsonValueSchema, type JsonObject } from '../lib/json-types.js';
+} from './status-backend.ts';
+import type { SiftConfig } from './types.ts';
+import { JsonObjectSchema, JsonValueSchema, type JsonObject } from '../lib/json-types.ts';
 
 export function getConfigServiceUrl(): string {
   const configuredUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;

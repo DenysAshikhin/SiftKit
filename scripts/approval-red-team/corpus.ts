@@ -1,5 +1,5 @@
-import { JsonObjectSchema } from '../../src/lib/json-types.js';
-import { z } from '../../src/lib/zod.js';
+import { JsonObjectSchema } from '../../src/lib/json-types.ts';
+import { z } from '../../src/lib/zod.ts';
 
 export const RedTeamCaseSchema = z.object({
   id: z.string().min(1),

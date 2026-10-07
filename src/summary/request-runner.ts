@@ -11,18 +11,18 @@ import {
   getActiveInferenceBackend,
   getActiveModelPreset,
   notifyStatusBackend,
-} from '../config/index.js';
-import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
-import { getErrorMessage, toError } from '../lib/errors.js';
-import { throwIfAborted } from '../lib/abort.js';
-import { SilentProgressWriter } from '../lib/progress-writer.js';
-import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
+} from '../config/index.ts';
+import type { NotifyStatusBackendOptions } from '../config/status-backend.ts';
+import { getErrorMessage, toError } from '../lib/errors.ts';
+import { throwIfAborted } from '../lib/abort.ts';
+import { SilentProgressWriter } from '../lib/progress-writer.ts';
+import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.ts';
 import {
   getDeterministicExcerpt,
   getErrorSignalMetrics,
   isPassFailQuestion,
   normalizeInputText,
-} from './measure.js';
+} from './measure.ts';
 import {
   buildPlannerDebugArtifact,
   buildFailedRequestArtifact,
@@ -30,29 +30,29 @@ import {
   clearSummaryArtifactState,
   getSummaryFailureContext,
   traceSummary,
-} from './artifacts.js';
-import { getSummaryDecision, getPolicyDecision } from './decision.js';
-import { SummaryProgressReporter } from './progress-reporter.js';
-import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.js';
-import { parseDeterministicTestOutput } from './test-output.js';
-import { resolveSummaryProvider } from './types.js';
+} from './artifacts.ts';
+import { getSummaryDecision, getPolicyDecision } from './decision.ts';
+import { SummaryProgressReporter } from './progress-reporter.ts';
+import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.ts';
+import { parseDeterministicTestOutput } from './test-output.ts';
+import { resolveSummaryProvider } from './types.ts';
 import type {
   SummaryProviderId,
   SummaryRequest,
   SummaryResult,
   SummarySourceKind,
-} from './types.js';
+} from './types.ts';
 import {
   PresetSystemContextBuilder,
   type PresetSystemContext,
-} from '../preset-system-context.js';
-import { PresetCatalog } from '../preset-catalog.js';
+} from '../preset-system-context.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
 import {
   buildRunIdentity,
   operationOnlyRunIdentity,
   type RunIdentity,
-} from '../status-server/dashboard-runs/run-identity.js';
-import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
+} from '../status-server/dashboard-runs/run-identity.ts';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.ts';
 
 type SummaryExecutionContext = {
   config: SiftConfig;

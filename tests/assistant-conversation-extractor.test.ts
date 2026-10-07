@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
-import { ConversationExtractor } from '../src/assistant/ingestion/conversation-extractor.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+import type { AssistantGraph } from '../src/assistant/assistant-graph.ts';
+import { ConversationExtractor } from '../src/assistant/ingestion/conversation-extractor.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
 
 function recordChatEvidence(graph: AssistantGraph, ownerId: string, text: string): string {
   return graph.evidence.recordTextEvidence({

@@ -1,8 +1,8 @@
 import {
   getStatusBackendUrl,
   getStatusServerUnavailableMessage,
-} from '../config/index.js';
-import { normalizeConfigObject } from '../config/normalization.js';
+} from '../config/index.ts';
+import { normalizeConfigObject } from '../config/normalization.ts';
 import {
   OrchestratorProgressSchema,
   OrchestratorRunStateSchema,
@@ -16,28 +16,28 @@ import {
   logHttpClientBoundary,
   type HttpClient,
   type LoggedHttpClientTask,
-} from '../lib/http-client.js';
-import { JsonObjectSchema, type JsonSerializable } from '../lib/json-types.js';
-import { AGENT_RUN_ID_HEADER, readNestedAgentRunId } from '../lib/agent-run-marker.js';
-import { parseJsonText } from '../lib/json.js';
+} from '../lib/http-client.ts';
+import { JsonObjectSchema, type JsonSerializable } from '../lib/json-types.ts';
+import { AGENT_RUN_ID_HEADER, readNestedAgentRunId } from '../lib/agent-run-marker.ts';
+import { parseJsonText } from '../lib/json.ts';
 import {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   StatusServerOperationError,
   streamOperationResult,
-} from '../lib/operation-stream.js';
-import { toError } from '../lib/errors.js';
-import type { SiftConfig } from '../config/index.js';
+} from '../lib/operation-stream.ts';
+import { toError } from '../lib/errors.ts';
+import type { SiftConfig } from '../config/index.ts';
 import {
   ApprovalRequestProgressEventSchema,
   RepoSearchExecutionResultSchema,
   type ApprovalRequestProgressEvent,
   type RepoSearchExecutionResult,
-} from '../repo-search/types.js';
+} from '../repo-search/types.ts';
 import {
   SummaryResultSchema,
   type SummaryApiRequest,
   type SummaryResult,
-} from '../summary/types.js';
+} from '../summary/types.ts';
 import {
   CommandOutputAnalyzeResultSchema,
   PresetListResultSchema,
@@ -47,28 +47,28 @@ import {
   type PresetListResult,
   type PresetRunRequest,
   type PresetRunResult,
-} from '../command-output/types.js';
-import { EvaluationResultSchema, type EvalApiRequest, type EvaluationResult } from '../eval-types.js';
-import { z } from '../lib/zod.js';
-import type { JsonObject } from '../lib/json-types.js';
+} from '../command-output/types.ts';
+import { EvaluationResultSchema, type EvalApiRequest, type EvaluationResult } from '../eval-types.ts';
+import { z } from '../lib/zod.ts';
+import type { JsonObject } from '../lib/json-types.ts';
 import {
   RepoSearchApprovalResultSchema,
   type ApprovalDecision,
   type RepoSearchApprovalRequest,
-} from '../repo-search/engine/approval-gate.js';
-import type { CliProgressRenderer } from './progress-renderer.js';
-import type { ApprovalPrompter } from './approval-prompter.js';
+} from '../repo-search/engine/approval-gate.ts';
+import type { CliProgressRenderer } from './progress-renderer.ts';
+import type { ApprovalPrompter } from './approval-prompter.ts';
 import {
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
   RepoAgentRunIdSchema,
   type RepoAgentRunResult,
   type RepoAgentRunState,
-} from '../repo-agent/run-schemas.js';
+} from '../repo-agent/run-schemas.ts';
 import type {
   RepoAgentDecideRequest,
   RepoAgentStartRequest,
-} from '../repo-agent/api-schemas.js';
+} from '../repo-agent/api-schemas.ts';
 import {
   AssistantAssertionExplanationSchema,
   AssistantConfigPatchRequestSchema,

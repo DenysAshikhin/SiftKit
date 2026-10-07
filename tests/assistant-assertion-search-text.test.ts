@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   renderAssertionLiteral, searchTextForAssertion,
-} from '../src/assistant/storage/assertion-search-text.js';
-import { AssertionViewBuilder } from '../src/assistant/projections/assertion-view-builder.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+} from '../src/assistant/storage/assertion-search-text.ts';
+import { AssertionViewBuilder } from '../src/assistant/projections/assertion-view-builder.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 test('searchTextForAssertion renders node objects and scopes from display names', () => {
   withAssistantContext(({ graph, ownerId }) => {

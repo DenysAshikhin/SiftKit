@@ -46,7 +46,7 @@ import {
   removeAssistantValidationCandidate,
   resolveAssistantCandidateIdentity,
   saveAssistantValidationNotes,
-} from './api.js';
+} from './api.ts';
 
 export {
   bootstrapAssistantToken,

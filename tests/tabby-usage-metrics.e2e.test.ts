@@ -1,18 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { executeRepoSearchRequest } from '../src/repo-search/index.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+import { executeRepoSearchRequest } from '../src/repo-search/index.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
 import {
   summarizeRequest,
   buildStructuredStubDecision,
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
-} from './_runtime-helpers.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { buildTabbyUsage } from './helpers/streaming-client.js';
-import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
+} from './_runtime-helpers.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { buildTabbyUsage } from './helpers/streaming-client.ts';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.ts';
 import { InferenceThroughputSchema } from '@siftkit/contracts';
 
 // TabbyAPI reports second-based timings and draft-token counters inside `usage`

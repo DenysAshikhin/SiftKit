@@ -3,9 +3,9 @@ import test from 'node:test';
 import { Worker } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 
-import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.js';
-import { createInferenceRun, readInferenceRunLogTextByStream } from '../../src/state/inference-runs.js';
-import { openSessionDatabase, beginRecorder, readAll, AT } from '../helpers/chat-run-recorder-fixtures.js';
+import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.ts';
+import { createInferenceRun, readInferenceRunLogTextByStream } from '../../src/state/inference-runs.ts';
+import { openSessionDatabase, beginRecorder, readAll, AT } from '../helpers/chat-run-recorder-fixtures.ts';
 
 /** The flush worker's write as a second connection: its own handle, its own short busy wait. */
 function openLogWriter(databasePath: string): { write(runId: string, text: string): void; close(): void } {

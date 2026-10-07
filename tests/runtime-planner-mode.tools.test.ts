@@ -1,4 +1,4 @@
-import { getActiveModelPreset } from '../src/config/getters.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -8,11 +8,11 @@ import {
   getChunkThresholdCharacters,
   getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
-} from '../src/config/index.js';
-import { summarizeRequest } from '../src/summary.js';
-import { generateInferenceResponse } from '../src/providers/inference.js';
-import { executePlannerTool } from '../src/summary/planner/tools.js';
-import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
+} from '../src/config/index.ts';
+import { summarizeRequest } from '../src/summary.ts';
+import { generateInferenceResponse } from '../src/providers/inference.ts';
+import { executePlannerTool } from '../src/summary/planner/tools.ts';
+import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.ts';
 import {
   buildSummaryPlannerToolDefinitions,
   SUMMARY_TOOL_ARGUMENT_SCHEMAS,
@@ -20,12 +20,12 @@ import {
   SummaryNativeToolCallSchema,
   SummaryPlannerToolNameSchema,
   type SummaryPlannerToolName as PlannerToolName,
-} from '../src/planner-protocol/summary-tools.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { buildTabbyUsage } from './helpers/streaming-client.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { z } from '../src/lib/zod.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+} from '../src/planner-protocol/summary-tools.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { buildTabbyUsage } from './helpers/streaming-client.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { z } from '../src/lib/zod.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 
 const TOOL_STEP_ARGUMENTS = {
   filters: [
@@ -60,7 +60,7 @@ import {
   buildOversizedTransitionsInput,
   withTempEnv,
   withStubServer,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 test('json_filter auto-selects sole top-level array when collectionPath is omitted', () => {
   const inputText = JSON.stringify({

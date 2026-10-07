@@ -8,17 +8,17 @@ import {
   getAssistantStatus,
   getCurrentAssistantQuestion,
   searchAssistantMemory,
-} from '../dashboard/src/assistant-api.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.js';
+} from '../dashboard/src/assistant-api.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
   restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+} from './helpers/dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
 test('dashboard assistant API authenticates once and reads the live Gate C surface', { concurrency: false }, async () => {
   const tempRoot = createManagedTempDir('siftkit-assistant-dashboard-');

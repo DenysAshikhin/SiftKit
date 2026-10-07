@@ -6,50 +6,50 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 
 import type { KeyCustody } from '@siftkit/contracts';
-import { z } from '../../src/lib/zod.js';
-import { ZipFileWriter } from '../../src/lib/zip-file-writer.js';
-import { AssistantService } from '../../src/assistant/assistant-service.js';
-import { FixedClock } from '../../src/assistant/clock.js';
-import { BackupService } from '../../src/assistant/control/backup-service.js';
-import { DeletionPreviewService } from '../../src/assistant/control/deletion-preview.js';
-import { ExportService } from '../../src/assistant/control/export-service.js';
-import { FactoryResetService } from '../../src/assistant/control/factory-reset-service.js';
+import { z } from '../../src/lib/zod.ts';
+import { ZipFileWriter } from '../../src/lib/zip-file-writer.ts';
+import { AssistantService } from '../../src/assistant/assistant-service.ts';
+import { FixedClock } from '../../src/assistant/clock.ts';
+import { BackupService } from '../../src/assistant/control/backup-service.ts';
+import { DeletionPreviewService } from '../../src/assistant/control/deletion-preview.ts';
+import { ExportService } from '../../src/assistant/control/export-service.ts';
+import { FactoryResetService } from '../../src/assistant/control/factory-reset-service.ts';
 import {
   MAX_PENDING_RESTORE_UPLOADS, RestoreService,
-} from '../../src/assistant/control/restore-service.js';
-import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.js';
-import { AssistantConflictError, AssistantNotFoundError } from '../../src/assistant/errors.js';
-import { SequentialIdGenerator } from '../../src/assistant/ids.js';
-import { ProjectionCompiler } from '../../src/assistant/projections/projection-compiler.js';
+} from '../../src/assistant/control/restore-service.ts';
+import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../../src/assistant/errors.ts';
+import { SequentialIdGenerator } from '../../src/assistant/ids.ts';
+import { ProjectionCompiler } from '../../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService,
   SummarizeProjectionResult,
-} from '../../src/assistant/projections/projection-summarizer.js';
-import { InMemoryDataProtector } from '../helpers/in-memory-data-protector.js';
+} from '../../src/assistant/projections/projection-summarizer.ts';
+import { InMemoryDataProtector } from '../helpers/in-memory-data-protector.ts';
 import {
   KeyCustodyService, type AssistantCustodyConfigPort,
-} from '../../src/assistant/crypto/key-custody.js';
-import { ImportedKeyProvider } from '../../src/assistant/crypto/imported-key-provider.js';
-import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
-import { assistantKeyFile, assistantRestoreUploadsDir } from '../../src/assistant/layout.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
+} from '../../src/assistant/crypto/key-custody.ts';
+import { ImportedKeyProvider } from '../../src/assistant/crypto/imported-key-provider.ts';
+import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.ts';
+import { assistantKeyFile, assistantRestoreUploadsDir } from '../../src/assistant/layout.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
 import {
   closeAllRuntimeDatabases, getRuntimeDatabase, CURRENT_SCHEMA_VERSION, type RuntimeDatabase,
-} from '../../src/state/runtime-db.js';
+} from '../../src/state/runtime-db.ts';
 import {
   FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContextAsync,
   type AssistantTestContext,
-} from '../helpers/assistant-fixture.js';
-import { FakeAssistantInference } from '../helpers/assistant-inference-fake.js';
-import { archiveBytes, archiveEntries, archiveUploadPath, readArchiveEntries } from '../helpers/archive-bytes.js';
-import { createTestChatSession } from '../helpers/chat-sessions.js';
-import { createTestChatRunRecorder } from '../helpers/chat-run-recorder.js';
-import { getDefaultConfigObject } from '../../src/config/defaults.js';
-import { ChatJournalStore } from '../../src/state/chat-journal.js';
-import { seedOwnerAssertion } from '../helpers/gate-e-seed.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from '../helpers/assistant-gates.js';
+} from '../helpers/assistant-fixture.ts';
+import { FakeAssistantInference } from '../helpers/assistant-inference-fake.ts';
+import { archiveBytes, archiveEntries, archiveUploadPath, readArchiveEntries } from '../helpers/archive-bytes.ts';
+import { createTestChatSession } from '../helpers/chat-sessions.ts';
+import { createTestChatRunRecorder } from '../helpers/chat-run-recorder.ts';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import { ChatJournalStore } from '../../src/state/chat-journal.ts';
+import { seedOwnerAssertion } from '../helpers/gate-e-seed.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from '../helpers/assistant-gates.ts';
 
 // One protector for the whole file: a backup made by one service must unseal in a later one.
 const dataProtector = new InMemoryDataProtector();
@@ -61,7 +61,11 @@ class PassthroughSummarizer implements ProjectionSummaryService {
 }
 
 class MemoryCustodyConfigPort implements AssistantCustodyConfigPort {
-  constructor(private custody: KeyCustody = 'file') {}
+  private custody: KeyCustody;
+
+  constructor(custody: KeyCustody = 'file') {
+    this.custody = custody;
+  }
 
   readCustody(): KeyCustody {
     return this.custody;

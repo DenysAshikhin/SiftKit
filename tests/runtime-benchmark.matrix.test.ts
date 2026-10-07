@@ -10,7 +10,7 @@ import {
   buildBenchmarkArgs,
   pruneOldLauncherLogs,
   withTempEnv,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 test('benchmark matrix respects per-run launcher overrides and script-owned reasoning', async () => {
   await withTempEnv(async (tempRoot) => {

@@ -1,16 +1,16 @@
 import path from 'node:path';
 
 import type { CaptureSubmissionDto } from '@siftkit/contracts';
-import type { AssistantConfig } from '../../src/config/types.js';
-import { getConfigPath } from '../../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
-import { startStatusServer } from '../../src/status-server/index.js';
-import { z } from '../../src/lib/zod.js';
-import { closeHttpServer, getAddressInfo, requestJson } from './dashboard-http.js';
+import type { AssistantConfig } from '../../src/config/types.ts';
+import { getConfigPath } from '../../src/config/index.ts';
+import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.ts';
+import { startStatusServer } from '../../src/status-server/index.ts';
+import { z } from '../../src/lib/zod.ts';
+import { closeHttpServer, getAddressInfo, requestJson } from './dashboard-http.ts';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from './dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
+} from './dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.ts';
 
 const BootstrapResponseSchema = z.object({ token: z.string().min(1) });
 

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { PresetsSection } from '../dashboard/src/tabs/settings/PresetsSection.js';
-import type { PresetSettingsActions } from '../dashboard/src/settings-action-groups.js';
-import type { SettingsPathPickerBusyTarget } from '../dashboard/src/settings-flow.js';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import { PresetsSection } from '../src/tabs/settings/PresetsSection.tsx';
+import type { PresetSettingsActions } from '../src/settings-action-groups.ts';
+import type { SettingsPathPickerBusyTarget } from '../src/settings-flow.ts';
 
 const PRESET_ACTIONS: PresetSettingsActions = {
   selectPreset() {},

@@ -1,14 +1,14 @@
 import React from 'react';
 
 import { isOrchestratorTerminalPhase, type ApprovalMode, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
-import { toError } from '../../../src/lib/errors.js';
+import { toError } from '../../../src/lib/errors.ts';
 import {
   abortOrchestrator,
   decideOrchestrator,
   followOrchestrator,
   listOrchestratorRuns,
   startOrchestrator,
-} from '../orchestrator-api.js';
+} from '../orchestrator-api.ts';
 
 export type OrchestratorStartInput = { presetId: string; approval: ApprovalMode; task: string | null; planPath: string | null };
 

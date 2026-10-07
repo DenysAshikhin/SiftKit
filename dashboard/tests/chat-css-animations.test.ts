@@ -1,11 +1,9 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const sourceRoot = path.join(repoRoot, 'dashboard', 'src');
+const sourceRoot = path.join(process.cwd(), 'dashboard', 'src');
 const ANIMATION_DECLARATION = /animation(?:-iteration-count)?\s*:\s*([^;}]+)/gu;
 
 test('no dashboard CSS animation runs forever', () => {

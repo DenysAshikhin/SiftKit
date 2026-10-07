@@ -1,12 +1,12 @@
 import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 
 const since = process.argv.includes('--since')
   ? process.argv[process.argv.indexOf('--since') + 1] ?? ''
   : '';
 if (!since) {
-  console.error('usage: npx tsx scripts/report-invalid-action-rate.ts --since YYYY-MM-DD');
+  console.error('usage: node scripts/report-invalid-action-rate.ts --since YYYY-MM-DD');
   process.exit(2);
 }
 

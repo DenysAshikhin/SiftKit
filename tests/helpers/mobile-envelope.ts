@@ -1,8 +1,8 @@
 import { generateKeyPairSync, sign as cryptoSign, type KeyObject } from 'node:crypto';
 
 import type { MobileEnvelope } from '@siftkit/contracts';
-import { signingPayload } from '../../src/assistant/mobile/envelope-verifier.js';
-import type { DeviceStore } from '../../src/assistant/storage/device-store.js';
+import { signingPayload } from '../../src/assistant/mobile/envelope-verifier.ts';
+import type { DeviceStore } from '../../src/assistant/storage/device-store.ts';
 
 export type UnsignedEnvelope = Omit<MobileEnvelope, 'signature'>;
 

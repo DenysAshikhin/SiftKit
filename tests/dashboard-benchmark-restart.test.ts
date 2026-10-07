@@ -3,14 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { restartManagedEngine } from '../src/status-server/dashboard-benchmark-runner.js';
-import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { restartManagedEngine } from '../src/status-server/dashboard-benchmark-runner.ts';
+import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function createConfigPath(externalServerEnabled: boolean): string {
   const root = createManagedTempDir('siftkit-benchmark-restart-');

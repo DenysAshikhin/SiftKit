@@ -1,13 +1,15 @@
-import { ProgressWriter } from '../../src/lib/progress-writer.js';
+import { ProgressWriter } from '../../src/lib/progress-writer.ts';
 
 export class CollectingProgressWriter<TEvent extends { kind: string }> extends ProgressWriter<TEvent> {
   public readonly events: TEvent[];
   /** Provider frames observed, counted apart from events so headless activity stays visible. */
   public activity = 0;
+  private readonly liveText: boolean;
 
-  constructor(events: TEvent[] = [], private readonly liveText = true) {
+  constructor(events: TEvent[] = [], liveText = true) {
     super();
     this.events = events;
+    this.liveText = liveText;
   }
 
   get enabled(): boolean {

@@ -1,13 +1,13 @@
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import { InferenceBackendIdSchema } from '../../config/types.js';
-import type { InferenceBackendId } from '../../config/types.js';
-import { parseJsonValueText } from '../../lib/json.js';
-import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
-import type { JsonlEvent } from '../../state/jsonl-transcript.js';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import { InferenceBackendIdSchema } from '../../config/types.ts';
+import type { InferenceBackendId } from '../../config/types.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.ts';
+import type { JsonlEvent } from '../../state/jsonl-transcript.ts';
 import { InferenceThroughputSchema, RunOperationTypeSchema, type InferenceThroughput, type RunOperationType } from '@siftkit/contracts';
-import { getErrorMessage } from '../../lib/errors.js';
-import type { RunLogDbRow, RunRecord } from './types.js';
+import { getErrorMessage } from '../../lib/errors.ts';
+import type { RunLogDbRow, RunRecord } from './types.ts';
 
 function optionalStringField(value: OptionalJsonValue): string | null {
   return typeof value === 'string' && value ? value : null;

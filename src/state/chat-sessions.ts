@@ -17,21 +17,21 @@ import {
   InferenceThroughputSchema,
 } from '@siftkit/contracts';
 import type { ChatSessionOperationKind, ChatTurnTokenRecord, ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import type { ModelRuntimePreset } from '../config/types.js';
-import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
+import { z } from '../lib/zod.ts';
+import type { ModelRuntimePreset } from '../config/types.ts';
+import { normalizeModelRuntimePresetRecord } from '../config/normalization.ts';
 import {
   toNullableNonNegativeInteger,
   toNullableNonNegativeNumber,
-} from '../lib/telemetry-metrics.js';
-import { getRuntimeDatabase } from './runtime-db.js';
-import type { RuntimeDatabase } from './database-handle.js';
-import { ChatJournalStore } from './chat-journal.js';
-import { chatMetadataKey } from './chat-metadata-keys.js';
-import { CHAT_MESSAGES_COLUMNS } from './runtime-schema.js';
-import { recordChatHistoryRevision, removeChatImageEvidence, resolveOriginalChatImageIndex } from './chat-history-revisions.js';
-import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
-import { parseJsonValueText } from '../lib/json.js';
+} from '../lib/telemetry-metrics.ts';
+import { getRuntimeDatabase } from './runtime-db.ts';
+import type { RuntimeDatabase } from './database-handle.ts';
+import { ChatJournalStore } from './chat-journal.ts';
+import { chatMetadataKey } from './chat-metadata-keys.ts';
+import { CHAT_MESSAGES_COLUMNS } from './runtime-schema.ts';
+import { recordChatHistoryRevision, removeChatImageEvidence, resolveOriginalChatImageIndex } from './chat-history-revisions.ts';
+import { parseImageDataUrls } from '../llm-protocol/image-attachments.ts';
+import { parseJsonValueText } from '../lib/json.ts';
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
 export type ChatMessageRole = PersistedChatTranscriptMessage['role'];

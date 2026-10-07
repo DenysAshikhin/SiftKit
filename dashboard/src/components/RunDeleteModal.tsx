@@ -1,6 +1,6 @@
 import React from 'react';
-import { RUN_LOG_TYPE_PRESETS } from '../run-log-admin';
-import type { RunDeleteController } from '../hooks/useRunsController';
+import { RUN_LOG_TYPE_PRESETS } from '../run-log-admin.ts';
+import type { RunDeleteController } from '../hooks/useRunsController.ts';
 
 export function RunDeleteModal({ runDelete }: { runDelete: RunDeleteController }) {
   return (

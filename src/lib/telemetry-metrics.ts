@@ -1,4 +1,4 @@
-import type { OptionalJsonValue } from './json-types.js';
+import type { OptionalJsonValue } from './json-types.ts';
 
 export function toNullableNonNegativeNumber(value: OptionalJsonValue): number | null {
   if (value === null || value === undefined || value === '') {

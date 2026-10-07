@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { NeighborhoodReader } from '../src/assistant/graph/neighborhood.js';
-import { AssertionStore } from '../src/assistant/storage/assertion-store.js';
-import { NodeStore } from '../src/assistant/storage/node-store.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { NeighborhoodReader } from '../src/assistant/graph/neighborhood.ts';
+import { AssertionStore } from '../src/assistant/storage/assertion-store.ts';
+import { NodeStore } from '../src/assistant/storage/node-store.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 interface TraversalHarness {
   readonly reader: NeighborhoodReader;

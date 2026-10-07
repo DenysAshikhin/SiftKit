@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getErrorMessage } from '../../src/lib/errors.js';
+import { getErrorMessage } from '../../src/lib/errors.ts';
 
-import { missingBranchKeys } from './coverage-attribution-core.js';
-import { runOneTestInIsolation } from './coverage-isolation-runner.js';
+import { missingBranchKeys } from './coverage-attribution-core.ts';
+import { runOneTestInIsolation } from './coverage-isolation-runner.ts';
 
 interface TestRef {
   file: string;

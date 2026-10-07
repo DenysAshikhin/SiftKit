@@ -24,16 +24,9 @@ const INPUT_FILES = [
 ] as const;
 
 function listFilesRecursively(directory: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const entryPath = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listFilesRecursively(entryPath));
-    } else {
-      files.push(entryPath);
-    }
-  }
-  return files;
+  return readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath, entry.name));
 }
 
 export function computeDashboardStamp(repoRoot: string): string {

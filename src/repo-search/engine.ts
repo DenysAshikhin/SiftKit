@@ -6,21 +6,21 @@ import {
   getConfiguredModel,
   loadConfig,
   type SiftConfig,
-} from '../config/index.js';
-import { mergeToolTypeStats } from '../line-read-guidance.js';
-import { z } from '../lib/zod.js';
-import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
-import { listInferenceModels } from '../providers/inference.js';
-import { ToolTypeStatsSchema, type ToolTypeStats } from '../status-server/metrics.js';
-import { throwIfAborted } from '../lib/abort.js';
-import { SilentProgressWriter, type ProgressWriter } from '../lib/progress-writer.js';
+} from '../config/index.ts';
+import { mergeToolTypeStats } from '../line-read-guidance.ts';
+import { z } from '../lib/zod.ts';
+import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.ts';
+import { listInferenceModels } from '../providers/inference.ts';
+import { ToolTypeStatsSchema, type ToolTypeStats } from '../status-server/metrics.ts';
+import { throwIfAborted } from '../lib/abort.ts';
+import { SilentProgressWriter, type ProgressWriter } from '../lib/progress-writer.ts';
 import {
   mergeReadOverlapSummaries,
   ReadOverlapSummarySchema,
-} from './engine/read-overlap.js';
-import { TaskResultSchema, taskPassed } from './engine/task-loop-support.js';
-import type { TurnTokenRecord } from './engine/turn-token-record.js';
-import type { ApprovalGate } from './engine/approval-gate.js';
+} from './engine/read-overlap.ts';
+import { TaskResultSchema, taskPassed } from './engine/task-loop-support.ts';
+import type { TurnTokenRecord } from './engine/turn-token-record.ts';
+import type { ApprovalGate } from './engine/approval-gate.ts';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_MAX_TURNS,
@@ -29,27 +29,27 @@ import {
   TaskLoop,
   type TaskDefinition,
   type TaskResult,
-} from './engine/task-loop.js';
-import type { ChatMessage } from './planner-chat-message.js';
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
-import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
+} from './engine/task-loop.ts';
+import type { ChatMessage } from './planner-chat-message.ts';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
 import type {
   JsonLogger,
   RetainedWebToolCall,
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
-} from './types.js';
-import type { PresetSystemContext } from '../preset-system-context.js';
-import type { RepoSearchTaskKind } from './task-kind.js';
-import { RepoSearchRuntimeProfile } from './engine/runtime-profile.js';
-import { IDENTIFIED_TOOL_RESULT_FORMAT } from './live-snapshot/schemas.js';
+} from './types.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
+import type { RepoSearchTaskKind } from './task-kind.ts';
+import { RepoSearchRuntimeProfile } from './engine/runtime-profile.ts';
+import { IDENTIFIED_TOOL_RESULT_FORMAT } from './live-snapshot/schemas.ts';
 import { InferenceThroughputSchema, RunOperationTypeSchema, type ThroughputAuditOperation } from '@siftkit/contracts';
-import { mergeInferenceThroughput } from '../lib/inference-throughput.js';
-import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
-import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.js';
-import type { QuestionGate } from './engine/question-gate.js';
+import { mergeInferenceThroughput } from '../lib/inference-throughput.ts';
+import type { ChatMessageQueueDelivery } from './engine/queue-delivery.ts';
+import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.ts';
+import type { QuestionGate } from './engine/question-gate.ts';
 
-export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
+export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.ts';
 
 // ---------------------------------------------------------------------------
 // Main task loop

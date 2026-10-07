@@ -5,34 +5,14 @@ import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import type { ClientRequestArgs } from 'node:http';
 
-/**
- * Node preload for the test suite. Tests sandbox the filesystem by chdir-ing into a temp
- * repo, but an unstubbed status notification or engine probe still resolves to the
- * production defaults and lands on the developer's running SiftKit — POST /status/complete
- * and /status/terminal-metadata mutate its runtime database. Any request that reaches a
- * default port therefore fails the test file that made it. Isolation is each file's job:
- * boot a stub, or declare a dead backend with the fixtures in tests/helpers/dead-endpoints.ts.
- *
- * This module must statically import nothing but node: builtins (hermetic test files alone load
- * the hermetic-fs bundle, whose URL arrives as env). It is preloaded through NODE_OPTIONS,
- * so it runs inside every process the suite touches — including the production CLIs and
- * servers the tests spawn. Anything it imports is injected into those processes' module
- * graphs, which both slows them down and stops them from exercising the artifact they ship.
- * The ports therefore arrive as env from src/test-runner/run-tests.ts, which reads them from
- * src/config/constants.ts, and tests/process/live-instance-guard.test.ts asserts the hand-off lands
- * on SIFT_DEFAULT_STATUS_PORT and SIFT_DEFAULT_ENGINE_PORT so the two cannot drift apart.
- *
- * It lives under src/test-runner/ so the main TypeScript build first emits a transient staging
- * copy, then sync flattens it to dist/test-runner alongside the runner. Preloading the compiled
- * .js is what keeps the tsx loader out of NODE_OPTIONS: tsx
- * would otherwise reach every spawned CLI and transpile the ESM dist/** tree into CommonJS.
- */
+// Test preload: any request to a live SiftKit default port fails the test file that made it.
+// It imports only builtins because it also runs inside every CLI the tests spawn; settings arrive as env.
 function readGuardEnv(envName: string, purpose: string): string {
   const value = process.env[envName]?.trim();
   if (!value) {
     throw new Error(
       `${envName} is not set, so the live-instance guard cannot ${purpose}. `
-      + 'Run the suite through src/test-runner/run-tests.ts, which supplies it.',
+      + 'Run tests through npm test or npm run test:dashboard, which supply it.',
     );
   }
   return value;
@@ -45,11 +25,7 @@ const GUARDED_PORTS = new Map<string, string>([
 
 const violations: string[] = [];
 
-/**
- * Throwing alone is not enough: the callers that leak to a default port do so from
- * fire-and-forget notifications that swallow errors, so the run would still report green.
- * Violations are recorded and turned into a non-zero exit for the test file that caused them.
- */
+// Leaks come from fire-and-forget calls that swallow the throw, so violations are also recorded.
 function failOnGuardedPort(port: string, target: string): void {
   const owner = GUARDED_PORTS.get(port);
   if (!owner) {
@@ -145,7 +121,14 @@ function forbidSpawn<T extends object>(target: T, name: string): T {
   });
 }
 
-if (process.env.NODE_TEST_CONTEXT && process.env[SPAWN_ALLOWED_ENV] !== '1') {
+/** Returns and clears every recorded violation; Vitest's suite setup fails the file when any remain. */
+export function drainGuardViolations(): string[] {
+  return [...violations.splice(0), ...spawnViolations.splice(0)];
+}
+
+// node:test marks its per-file children with NODE_TEST_CONTEXT; Vitest marks its workers with VITEST.
+const isTestFileProcess = process.env.NODE_TEST_CONTEXT !== undefined || process.env.VITEST !== undefined;
+if (isTestFileProcess && process.env[SPAWN_ALLOWED_ENV] !== '1') {
   if (isSpawnSuiteFile(process.argv[1])) {
     process.env[SPAWN_ALLOWED_ENV] = '1';
   } else {

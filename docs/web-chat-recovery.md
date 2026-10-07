@@ -55,9 +55,9 @@ Deleting a session cascades through `chat_sessions → chat_runs → chat_run_ev
 Runs recorded before the journal existed are imported once as a **baseline** (`importChatSessionBaseline`) from the saved session rows. A damaged repo-agent chat is repaired from its archived run log:
 
 ```
-node --import tsx scripts/recover-web-chat.ts --database <runtime.sqlite> --session-id <chat id> \
+node scripts/recover-web-chat.ts --database <runtime.sqlite> --session-id <chat id> \
   --request-id <request id> --repo-agent-state <state.json> [--max-turns N]            # dry run: prints the report
-node --import tsx scripts/recover-web-chat.ts ... --apply --expected-digest <report.expectedDigest> --backup <new file>
+node scripts/recover-web-chat.ts ... --apply --expected-digest <report.expectedDigest> --backup <new file>
 ```
 
 - The dry run reports source digests, reconstructable counts, known gaps and the exact rows an apply would insert.

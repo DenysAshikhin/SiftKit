@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { getConfigPath } from '../src/config/index.js';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { getConfigPath } from '../src/config/index.ts';
 import {
   withTempEnv,
   withRealStatusServer,
   requestJson,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 test('the status server exposes no execution-lease routes', async () => {
   await withTempEnv(async (tempRoot) => {

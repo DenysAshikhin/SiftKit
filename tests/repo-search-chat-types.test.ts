@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RepoSearchProgressEventSchema, type RepoSearchProgressEvent, type RepoSearchExecutionRequest } from '../src/repo-search/types.js';
-import type { RepoSearchProgressEvent as RouteProgressEvent } from '../src/status-server/dashboard-runs.js';
+import { RepoSearchProgressEventSchema, type RepoSearchProgressEvent, type RepoSearchExecutionRequest } from '../src/repo-search/types.ts';
+import type { RepoSearchProgressEvent as RouteProgressEvent } from '../src/status-server/dashboard-runs.ts';
 import {
   normalizeRepoSearchResult,
   getRepoSearchTasks,
   getRepoSearchTotals,
-} from '../src/status-server/repo-search-scorecard-types.js';
+} from '../src/status-server/repo-search-scorecard-types.ts';
 
 test('loop RepoSearchProgressEvent carries answerText', () => {
   const event: RepoSearchProgressEvent = { kind: 'answer', answerText: 'hello', turn: 1, maxTurns: 45 };

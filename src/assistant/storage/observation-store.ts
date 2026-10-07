@@ -1,11 +1,11 @@
-import { z } from '../../lib/zod.js';
-import { parseJsonObjectText } from '../../lib/json.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { ObservationType, Sensitivity } from '../domain/enums.js';
-import type { IdGenerator } from '../ids.js';
-import { ObservationRowSchema, type ObservationRow } from './rows.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonObjectText } from '../../lib/json.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { ObservationType, Sensitivity } from '../domain/enums.ts';
+import type { IdGenerator } from '../ids.ts';
+import { ObservationRowSchema, type ObservationRow } from './rows.ts';
 
 export interface RecordObservationInput {
   readonly ownerId: string;
@@ -20,11 +20,19 @@ export interface RecordObservationInput {
 
 /** Owns `observations` — what an extractor saw, before any graph interpretation. */
 export class ObservationStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   record(input: RecordObservationInput): ObservationRow {
     const id = this.ids.next('obs');

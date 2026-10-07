@@ -1,5 +1,5 @@
-import type { OptionalJsonValue } from '../../src/lib/json-types.js';
-import type { ChatSession, DashboardConfig, DashboardPreset, DashboardPresetKind, DashboardPresetSurface } from './types.js';
+import type { OptionalJsonValue } from '../../src/lib/json-types.ts';
+import type { ChatSession, DashboardConfig, DashboardPreset, DashboardPresetKind, DashboardPresetSurface } from './types.ts';
 
 function normalizePresetId(value: OptionalJsonValue): string {
   return String(value || '')

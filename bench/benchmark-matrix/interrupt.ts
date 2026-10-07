@@ -1,4 +1,4 @@
-import { MatrixInterruptedError } from './types.js';
+import { MatrixInterruptedError } from './types.ts';
 
 export function createMatrixInterruptSignal(
   onInterrupt: (error: MatrixInterruptedError) => void,

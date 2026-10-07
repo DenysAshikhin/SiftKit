@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeMetrics } from '../src/status-server/metrics.js';
-import { getRepoSearchPromptBaselinePerToolAllowanceTokens } from '../src/line-read-guidance.js';
-import { DEFAULT_MAX_TURNS, TurnBudget } from '../src/repo-search/engine/turn-budget.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
+import { normalizeMetrics } from '../src/status-server/metrics.ts';
+import { getRepoSearchPromptBaselinePerToolAllowanceTokens } from '../src/line-read-guidance.ts';
+import { DEFAULT_MAX_TURNS, TurnBudget } from '../src/repo-search/engine/turn-budget.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
 
 test('normalizeMetrics backfills missing line-read fields to zero', () => {
   const metrics = normalizeMetrics({

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RunRecordSchema, RunsResponseSchema } from '@siftkit/contracts';
-import { normalizeRunRecord } from '../src/status-server/dashboard-runs/run-records.js';
+import { normalizeRunRecord } from '../src/status-server/dashboard-runs/run-records.ts';
 
 test('RunsResponseSchema rejects a missing total', () => {
   assert.throws(() => RunsResponseSchema.parse({ runs: [] }));

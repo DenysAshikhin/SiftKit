@@ -1,4 +1,4 @@
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.ts';
 import {
   WebSearchProvider,
   asRecord,
@@ -7,8 +7,8 @@ import {
   getText,
   toWebSearchResult,
   type WebSearchProviderOptions,
-} from './web-search-provider-base.js';
-import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.js';
+} from './web-search-provider-base.ts';
+import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.ts';
 
 const FIRECRAWL_SEARCH_ENDPOINT = 'https://api.firecrawl.dev/v2/search';
 const FIRECRAWL_CREDIT_ENDPOINT = 'https://api.firecrawl.dev/v2/team/credit-usage';
@@ -23,8 +23,11 @@ const TBS_BY_TIME_FILTER: Record<NonNullable<WebSearchToolArgs['timeFilter']>, s
 export class FirecrawlSearchProvider extends WebSearchProvider {
   readonly id = 'firecrawl' as const;
 
-  constructor(private readonly apiKey: string) {
+  private readonly apiKey: string;
+
+  constructor(apiKey: string) {
     super();
+    this.apiKey = apiKey;
   }
 
   private authHeaders(): Record<string, string> {

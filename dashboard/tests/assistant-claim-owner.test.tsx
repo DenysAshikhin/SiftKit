@@ -1,12 +1,12 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import type { AssistantNodeDetail } from '@siftkit/contracts';
 import {
   AssistantMemoryDetail,
   type AssistantMemorySelection,
-} from '../src/components/AssistantMemoryDetail.js';
-import { fireEvent, render, screen } from './react-test-environment.js';
+} from '../src/components/AssistantMemoryDetail.tsx';
+import { fireEvent, render, screen } from './react-test-environment.ts';
 
 function nodeSelection(overrides: Partial<AssistantNodeDetail> = {}): AssistantMemorySelection {
   return {
@@ -58,7 +58,7 @@ function stubConfirm(answer: boolean): void {
   Object.defineProperty(window, 'confirm', { configurable: true, value: () => answer });
 }
 
-test('a duplicate person node offers "This is me"', { concurrency: false }, async () => {
+test('a duplicate person node offers "This is me"', async () => {
   const claimed: Array<{ id: string; reason: string }> = [];
   stubConfirm(true);
   render(<AssistantMemoryDetail {...detailProps({
@@ -74,7 +74,7 @@ test('a duplicate person node offers "This is me"', { concurrency: false }, asyn
   assert.ok((claimed[0]?.reason ?? '').length > 0);
 });
 
-test('declining the confirmation merges nothing', { concurrency: false }, async () => {
+test('declining the confirmation merges nothing', async () => {
   let calls = 0;
   stubConfirm(false);
   render(<AssistantMemoryDetail {...detailProps({
@@ -88,7 +88,7 @@ test('declining the confirmation merges nothing', { concurrency: false }, async 
   assert.equal(calls, 0);
 });
 
-test('the owner node does not offer to be claimed', { concurrency: false }, () => {
+test('the owner node does not offer to be claimed', () => {
   stubConfirm(true);
   render(<AssistantMemoryDetail {...detailProps({
     selected: nodeSelection({ isOwner: true, canonicalKey: 'person:owner', displayName: 'the user' }),
@@ -97,7 +97,7 @@ test('the owner node does not offer to be claimed', { concurrency: false }, () =
   assert.equal(screen.queryByRole('button', { name: /This is me/u }), null);
 });
 
-test('a node that is not a person does not offer to be claimed', { concurrency: false }, () => {
+test('a node that is not a person does not offer to be claimed', () => {
   stubConfirm(true);
   render(<AssistantMemoryDetail {...detailProps({
     selected: nodeSelection({ type: 'software', displayName: 'Tauri' }),
@@ -106,7 +106,7 @@ test('a node that is not a person does not offer to be claimed', { concurrency: 
   assert.equal(screen.queryByRole('button', { name: /This is me/u }), null);
 });
 
-test('an already merged node does not offer to be claimed again', { concurrency: false }, () => {
+test('an already merged node does not offer to be claimed again', () => {
   stubConfirm(true);
   render(<AssistantMemoryDetail {...detailProps({
     selected: nodeSelection({ status: 'merged' }),

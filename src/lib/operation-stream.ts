@@ -1,10 +1,10 @@
-import { z } from './zod.js';
-import { ServerErrorPayloadSchema, type ErrorDiagnostic } from './error-diagnostics.js';
-import { parseJsonObjectText, parseJsonText } from './json.js';
-import { ModelRequestIntentSchema } from './model-request-intent.js';
-import type { JsonObject } from './json-types.js';
-import type { SseFrame } from './sse-frame-parser.js';
-import type { HttpClient, SseStreamOptions } from './http-client.js';
+import { z } from './zod.ts';
+import { ServerErrorPayloadSchema, type ErrorDiagnostic } from './error-diagnostics.ts';
+import { parseJsonObjectText, parseJsonText } from './json.ts';
+import { ModelRequestIntentSchema } from './model-request-intent.ts';
+import type { JsonObject } from './json-types.ts';
+import type { SseFrame } from './sse-frame-parser.ts';
+import type { HttpClient, SseStreamOptions } from './http-client.ts';
 
 export const OPERATION_STREAM_EVENTS = {
   progress: 'progress',

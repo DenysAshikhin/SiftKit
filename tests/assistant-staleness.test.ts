@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RELATION_DEFINITIONS, RELATION_TYPES } from '../src/assistant/domain/relation-types.js';
+import { RELATION_DEFINITIONS, RELATION_TYPES } from '../src/assistant/domain/relation-types.ts';
 import {
   STALENESS_HALF_LIFE_DAYS, stalenessFactor,
-} from '../src/assistant/domain/staleness.js';
+} from '../src/assistant/domain/staleness.ts';
 
 test('every registered predicate declares a staleness class', () => {
   for (const predicate of RELATION_TYPES) {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 test('IsolatedRuntime.close reports removal failure and retains ownership for retry', async (t) => {
   const runtime = new IsolatedRuntime();

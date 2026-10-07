@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import type { JsonObject } from '../src/lib/json-types.js';
-import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
-import { runValidation, ValidationConfigSchema, type ValidationConfig } from '../scripts/verify-inference-throughput.js';
-import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.js';
-import { buildTabbyUsage } from './helpers/streaming-client.js';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.ts';
+import { runValidation, ValidationConfigSchema, type ValidationConfig } from '../scripts/verify-inference-throughput.ts';
+import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.ts';
+import { buildTabbyUsage } from './helpers/streaming-client.ts';
 
 const SECRET_PROMPT = 'super-secret-prompt-text';
 

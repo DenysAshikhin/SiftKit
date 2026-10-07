@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runCli } from '../src/cli/index.js';
-import { makeCaptureStream } from './_test-helpers.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { withBoundaryServer } from './helpers/cli-boundary-server.js';
+import { runCli } from '../src/cli/index.ts';
+import { makeCaptureStream } from './_test-helpers.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { withBoundaryServer } from './helpers/cli-boundary-server.ts';
 
 test('summary pass/fail command output is delegated to the server', async () => {
   await withBoundaryServer(async (server) => {

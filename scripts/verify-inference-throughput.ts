@@ -1,16 +1,16 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 import {
   InferenceThroughputSchema,
   ThroughputComparisonSchema,
   type InferenceThroughput,
   type ThroughputComparison,
 } from '@siftkit/contracts';
-import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
+import { SseFrameParser } from '../src/lib/sse-frame-parser.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
 import {
   calculateTabbyReferenceRate,
   calculateThroughputRate,
@@ -18,7 +18,7 @@ import {
   compareThroughputRate,
   emptyInferenceThroughput,
   observeTabbyThroughput,
-} from '../src/lib/inference-throughput.js';
+} from '../src/lib/inference-throughput.ts';
 
 /**
  * Validation harness: drives SiftKit routes and Tabby directly with benign workloads, records the
@@ -136,8 +136,11 @@ type Observation = {
 };
 
 class RunFailure extends Error {
-  constructor(readonly reason: string, message: string) {
+  readonly reason: string;
+
+  constructor(reason: string, message: string) {
     super(message);
+    this.reason = reason;
   }
 }
 
@@ -425,7 +428,7 @@ async function main(): Promise<void> {
   const flagIndex = process.argv.indexOf('--config');
   const configPath = flagIndex >= 0 ? process.argv[flagIndex + 1] : undefined;
   if (!configPath) {
-    console.error('usage: npx tsx scripts/verify-inference-throughput.ts --config <config.json>');
+    console.error('usage: node scripts/verify-inference-throughput.ts --config <config.json>');
     process.exit(2);
   }
   const config = ValidationConfigSchema.parse(JSON.parse(readFileSync(resolve(configPath), 'utf8')));

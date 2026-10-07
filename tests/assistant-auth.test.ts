@@ -5,8 +5,8 @@ import {
   AssistantRouteGuard,
   AssistantTokenStore,
   type AssistantAuthRequest,
-} from '../src/status-server/assistant-auth.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+} from '../src/status-server/assistant-auth.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 function request(overrides: Partial<AssistantAuthRequest> = {}): AssistantAuthRequest {
   return {

@@ -1,10 +1,10 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
-import type { AssistantConfig } from '../../src/config/types.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
-import { AssistantSettings } from '../src/tabs/settings/AssistantSettings.js';
-import { fireEvent, render, screen } from './react-test-environment.js';
+import type { AssistantConfig } from '../../src/config/types.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
+import { AssistantSettings } from '../src/tabs/settings/AssistantSettings.tsx';
+import { fireEvent, render, screen } from './react-test-environment.ts';
 
 function json(value: object): Response {
   return new Response(JSON.stringify(value), {
@@ -27,7 +27,7 @@ function desktopStateBody(capable: boolean, queueDepth: number): object {
   };
 }
 
-test('loads pending proof and memory history and saves notes with its in-memory token', { concurrency: false }, async () => {
+test('loads pending proof and memory history and saves notes with its in-memory token', async () => {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
@@ -77,7 +77,7 @@ test('loads pending proof and memory history and saves notes with its in-memory 
   assert.equal(window.localStorage.length, 0);
 });
 
-test('observation settings render consent, capture controls, deny lists, and the capability warning', { concurrency: false }, async () => {
+test('observation settings render consent, capture controls, deny lists, and the capability warning', async () => {
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: async (input: string) => {
@@ -137,7 +137,7 @@ test('observation settings render consent, capture controls, deny lists, and the
   await screen.findByText('No background-work blocks have been recorded.');
 });
 
-test('deny-list fields resync when the config changes from outside', { concurrency: false }, async () => {
+test('deny-list fields resync when the config changes from outside', async () => {
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: async (input: string) => {
@@ -178,7 +178,7 @@ test('deny-list fields resync when the config changes from outside', { concurren
   assert.equal(processes.value, 'obs64.exe\nkeepass.exe');
 });
 
-test('pending validation lists captures with object-URL previews and a lightbox', { concurrency: false }, async () => {
+test('pending validation lists captures with object-URL previews and a lightbox', async () => {
   const created: string[] = [];
   Object.defineProperty(window.URL, 'createObjectURL', {
     configurable: true,
@@ -232,7 +232,7 @@ test('pending validation lists captures with object-URL previews and a lightbox'
   assert.equal(screen.getAllByRole('img').length, 2, 'the lightbox shows the same preview');
 });
 
-test('configuration shows persisted background-work decisions newest-first', { concurrency: false }, async () => {
+test('configuration shows persisted background-work decisions newest-first', async () => {
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: async (input: string) => {
@@ -273,7 +273,7 @@ test('configuration shows persisted background-work decisions newest-first', { c
   screen.getByText(/requiredIdleSeconds: 180/u);
 });
 
-test('an identity hold offers both answers and posts the chosen one', { concurrency: false }, async () => {
+test('an identity hold offers both answers and posts the chosen one', async () => {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
@@ -309,7 +309,7 @@ test('an identity hold offers both answers and posts the chosen one', { concurre
   assert.equal(screen.queryByRole('button', { name: 'Yes, that is me' }), null);
 });
 
-test('a plain candidate shows no identity question', { concurrency: false }, async () => {
+test('a plain candidate shows no identity question', async () => {
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: async (input: string) => {
@@ -335,7 +335,7 @@ test('a plain candidate shows no identity question', { concurrency: false }, asy
   assert.equal(screen.queryByRole('button', { name: 'Yes, that is me' }), null);
 });
 
-test('an identity answer that does not promote keeps the card and says why', { concurrency: false }, async () => {
+test('an identity answer that does not promote keeps the card and says why', async () => {
   const held = {
     id: 'candidate-4', status: 'needs_confirmation', proposedStatement: 'denyz USES Tauri',
     rationale: 'A screenshot showed denyz in Tauri', confidence: 0.7, sensitivity: 'personal',

@@ -5,10 +5,10 @@ import {
   MobileEnvelopeSchema,
   SuppressionAuditDtoSchema,
 } from '@siftkit/contracts';
-import { sendJson } from '../../http-utils.js';
+import { sendJson } from '../../http-utils.ts';
 import {
   assistantRoute, body, CAPTURE_BODY_LIMIT, desktopBody, OBSERVATION_BODY_LIMIT, sendError,
-} from './helpers.js';
+} from './helpers.ts';
 
 export const mobileEndpoint = assistantRoute(async ({ service, req, res }) => {
   // §7.6: while the flag is off the mobile route is indistinguishable from absent, which is

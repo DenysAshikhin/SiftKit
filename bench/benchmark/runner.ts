@@ -1,36 +1,36 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfiguredModel, loadConfig } from '../../src/config/index.js';
-import { JsonObjectSchema } from '../../src/lib/json-types.js';
-import { toError } from '../../src/lib/errors.js';
-import { StatusServerApiClient } from '../../src/cli/status-server-api-client.js';
-import { SilentProgressRenderer } from '../../src/cli/progress-renderer.js';
-import { formatElapsed } from '../../src/lib/time.js';
-import { resolveSummaryProvider } from '../../src/summary/types.js';
+import { getConfiguredModel, loadConfig } from '../../src/config/index.ts';
+import { JsonObjectSchema } from '../../src/lib/json-types.ts';
+import { toError } from '../../src/lib/errors.ts';
+import { StatusServerApiClient } from '../../src/cli/status-server-api-client.ts';
+import { SilentProgressRenderer } from '../../src/cli/progress-renderer.ts';
+import { formatElapsed } from '../../src/lib/time.ts';
+import { resolveSummaryProvider } from '../../src/summary/types.ts';
 import {
   getDefaultOutputPath,
   getPromptLabel,
   getValidatedRequestTimeoutSeconds,
   parseArguments,
   resolvePromptPrefix,
-} from './args.js';
-import { getRepoRoot } from '../common/paths.js';
-import { getFixtureManifest } from './fixtures.js';
+} from './args.ts';
+import { getRepoRoot } from '../common/paths.ts';
+import { getFixtureManifest } from './fixtures.ts';
 import {
   createFixtureHeartbeat,
   createInterruptSignal,
   isTimeoutError,
   runWithFixtureDeadline,
-} from './interrupt.js';
-import { buildBenchmarkArtifact, roundDuration } from './report.js';
+} from './interrupt.ts';
+import { buildBenchmarkArtifact, roundDuration } from './report.ts';
 import {
   FatalBenchmarkError,
   type BenchmarkCaseResult,
   type BenchmarkRunResult,
   type BenchmarkRunnerOptions,
-} from './types.js';
-import { upsertRuntimeJsonArtifact } from '../../src/state/runtime-artifacts.js';
-import { persistBenchmarkRun } from '../../src/state/runtime-results.js';
+} from './types.ts';
+import { upsertRuntimeJsonArtifact } from '../../src/state/runtime-artifacts.ts';
+import { persistBenchmarkRun } from '../../src/state/runtime-results.ts';
 
 export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): Promise<BenchmarkRunResult> {
   const fixtureRoot = path.resolve(options.fixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures'));

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ImageLightbox } from './ImageLightbox';
-import type { PendingImage } from '../lib/downscale-image';
+import { ImageLightbox } from './ImageLightbox.tsx';
+import type { PendingImage } from '../lib/downscale-image.ts';
 
 export function removePendingImage(images: PendingImage[], index: number): PendingImage[] {
   return images.filter((_, position) => position !== index);

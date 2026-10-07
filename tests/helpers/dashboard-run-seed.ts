@@ -1,16 +1,16 @@
-import { getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.js';
+import { getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.ts';
 
 import {
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
-} from '../../src/status-server/dashboard-runs.js';
-import type { StatusArtifactType } from '../../src/state/status-artifacts.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
+} from '../../src/status-server/dashboard-runs.ts';
+import type { StatusArtifactType } from '../../src/state/status-artifacts.ts';
+import type { JsonObject } from '../../src/lib/json-types.ts';
 import {
   operationOnlyRunIdentity,
   UNRECORDED_RUN_IDENTITY,
   type RunIdentity,
-} from '../../src/status-server/dashboard-runs/run-identity.js';
+} from '../../src/status-server/dashboard-runs/run-identity.ts';
 
 type DatabaseInstance = RuntimeDatabase;
 

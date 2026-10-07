@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { z } from '../lib/zod.js';
-import { InferenceBackendIdSchema, type InferenceBackendId } from '../config/types.js';
-import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
-import { formatTimestamp } from '../lib/text-format.js';
+import { z } from '../lib/zod.ts';
+import { InferenceBackendIdSchema, type InferenceBackendId } from '../config/types.ts';
+import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.ts';
+import { formatTimestamp } from '../lib/text-format.ts';
 
 const InferenceRunStatusSchema = z.enum(['running', 'ready', 'failed', 'stopped', 'sync_completed']);
 export type InferenceRunStatus = z.infer<typeof InferenceRunStatusSchema>;

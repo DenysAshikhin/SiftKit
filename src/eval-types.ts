@@ -1,7 +1,7 @@
-import { z } from './lib/zod.js';
-import { SummaryProviderIdSchema } from './summary/types.js';
-import { SummaryClassificationSchema } from './planner-protocol/summary-tools.js';
-import type { SummaryProviderId } from './summary/types.js';
+import { z } from './lib/zod.ts';
+import { SummaryProviderIdSchema } from './summary/types.ts';
+import { SummaryClassificationSchema } from './planner-protocol/summary-tools.ts';
+import type { SummaryProviderId } from './summary/types.ts';
 
 export type EvalRequest = {
   FixtureRoot?: string;

@@ -4,34 +4,34 @@ import path from 'node:path';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
-import { reconcileChatRun } from '../src/status-server/chat-run-projection.js';
-import { readChatRunMessages } from '../src/state/chat-sessions.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { buildChatAnswerCompletion, ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
-import { makeProcessor } from './helpers/tool-action-processor.js';
-import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
-import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.ts';
+import { reconcileChatRun } from '../src/status-server/chat-run-projection.ts';
+import { readChatRunMessages } from '../src/state/chat-sessions.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
+import { buildChatAnswerCompletion, ChatRunRecorder } from '../src/status-server/chat-run-recorder.ts';
+import { makeProcessor } from './helpers/tool-action-processor.ts';
+import type { AgentLoopToolAction } from '../src/agent-loop/types.ts';
+import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.ts';
 import type {
   ChatRunEvidenceRecorder,
   ChatToolResultEvidence,
   ChatToolProposedEvidence,
-} from '../src/repo-search/engine/chat-run-evidence.js';
-import type { ChatContextInit, ChatContextSplice } from '../src/repo-search/planner-chat-message.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
-import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/engine/chat-run-evidence.ts';
+import type { ChatContextInit, ChatContextSplice } from '../src/repo-search/planner-chat-message.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
+import { ChatMessageQueueStore } from '../src/state/chat-message-queue.ts';
+import { TaskLoop } from '../src/repo-search/engine/task-loop.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 import type { InferenceThroughput } from '@siftkit/contracts';
-import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { buildChatSessionThroughput } from '../src/status-server/chat-turn-telemetry.js';
-import { openSessionDatabase, beginRecorder, readAll, AT, SESSION_ID, OWNER_EPOCH, SETTINGS } from './helpers/chat-run-recorder-fixtures.js';
+import type { RepoSearchExecutionResult } from '../src/repo-search/types.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { buildChatSessionThroughput } from '../src/status-server/chat-turn-telemetry.ts';
+import { openSessionDatabase, beginRecorder, readAll, AT, SESSION_ID, OWNER_EPOCH, SETTINGS } from './helpers/chat-run-recorder-fixtures.ts';
 
 function measuredThroughput(tabbyDecodeTokens = 28_036): InferenceThroughput {
   return {
@@ -384,8 +384,13 @@ class OrderSpy implements ChatRunEvidenceRecorder {
   recordApprovalResolved(): void { this.note('approval_resolved'); }
   readonly steps: string[] = [];
   readonly results: ChatToolResultEvidence[] = [];
+  private readonly sideEffectPath: string;
+  private readonly failAt: string | null;
 
-  constructor(private readonly sideEffectPath: string, private readonly failAt: string | null = null) {}
+  constructor(sideEffectPath: string, failAt: string | null = null) {
+    this.sideEffectPath = sideEffectPath;
+    this.failAt = failAt;
+  }
 
   private note(step: string): void {
     this.steps.push(`${step}:${fs.existsSync(this.sideEffectPath) ? 'after' : 'before'}`);

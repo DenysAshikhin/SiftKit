@@ -1,11 +1,11 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RepoSearchActionAdapter, type RepoSearchLoopController } from '../src/repo-search/agent-loop-adapter.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import type { AgentLoopResponseContext } from '../src/agent-loop/types.js';
-import { CLEAN_STREAM_STOP, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.js';
+import { RepoSearchActionAdapter, type RepoSearchLoopController } from '../src/repo-search/agent-loop-adapter.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import type { AgentLoopResponseContext } from '../src/agent-loop/types.ts';
+import { CLEAN_STREAM_STOP, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.ts';
 
 const usage = {
   promptTokens: 1,

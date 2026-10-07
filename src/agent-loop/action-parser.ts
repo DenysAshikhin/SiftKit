@@ -1,7 +1,7 @@
-import type { NormalizedInferenceChatResponse } from '../llm-protocol/types.js';
-import { parseNativePlannerActions } from '../planner-protocol/native-actions.js';
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
-import type { AgentLoopAction } from './types.js';
+import type { NormalizedInferenceChatResponse } from '../llm-protocol/types.ts';
+import { parseNativePlannerActions } from '../planner-protocol/native-actions.ts';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
+import type { AgentLoopAction } from './types.ts';
 
 type SummaryPlannerParseOptions = {
   toolDefinitions: readonly PlannerToolDefinition[];

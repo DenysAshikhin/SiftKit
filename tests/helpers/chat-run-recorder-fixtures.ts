@@ -1,14 +1,14 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { ChatJournalStore } from '../../src/state/chat-journal.js';
-import type { ChatJournalEnvelope } from '../../src/state/chat-journal-schema.js';
-import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { saveChatSession } from '../../src/state/chat-sessions.js';
-import { ChatRunRecorder } from '../../src/status-server/chat-run-recorder.js';
-import type { RuntimeDatabase } from '../../src/state/database-handle.js';
-import { createManagedTempDir } from './temp-dirs.js';
-import { mockModelPreset } from './mock-config.js';
+import { ChatJournalStore } from '../../src/state/chat-journal.ts';
+import type { ChatJournalEnvelope } from '../../src/state/chat-journal-schema.ts';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { saveChatSession } from '../../src/state/chat-sessions.ts';
+import { ChatRunRecorder } from '../../src/status-server/chat-run-recorder.ts';
+import type { RuntimeDatabase } from '../../src/state/database-handle.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
+import { mockModelPreset } from './mock-config.ts';
 
 export const SESSION_ID = 'recorder-session';
 

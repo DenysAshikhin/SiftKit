@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { REMOVED_BACKEND_REQUEST_OVERRIDES_KEY } from './helpers/legacy-backend-fixtures.js';
+import { REMOVED_BACKEND_REQUEST_OVERRIDES_KEY } from './helpers/legacy-backend-fixtures.ts';
 
 // Every inference request derives its sampling and reasoning from the
 // single active ModelRuntimePreset. These patterns are the shapes that previously

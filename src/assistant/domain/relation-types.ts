@@ -1,8 +1,8 @@
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
-import type { Sensitivity } from './enums.js';
-import { NODE_TYPES, type NodeType } from './node-types.js';
-import type { StalenessClass } from './staleness.js';
+import type { Sensitivity } from './enums.ts';
+import { NODE_TYPES, type NodeType } from './node-types.ts';
+import type { StalenessClass } from './staleness.ts';
 
 export const RELATION_TYPES = [
   'OWNS', 'USES', 'PREFERS', 'DISLIKES', 'AVOIDS', 'WORKS_ON', 'CREATED',

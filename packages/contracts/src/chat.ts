@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { ModelRuntimePresetSchema } from './config.js';
-import { ImageDataUrlSchema, ImageMetadataSchema, sumImageTokens } from './image.js';
-import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.js';
+import { ModelRuntimePresetSchema } from './config.ts';
+import { ImageDataUrlSchema, ImageMetadataSchema, sumImageTokens } from './image.ts';
+import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.ts';
 
 /** How a run ended. These stay distinct: a stop is not a failure and a restart is not a completion. */
 export const ChatRunTerminalCauseSchema = z.enum([

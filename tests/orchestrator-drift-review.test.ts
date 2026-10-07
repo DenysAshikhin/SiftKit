@@ -4,10 +4,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { OrchestratorDriftFinding, OrchestratorDriftReview } from '@siftkit/contracts';
-import { buildDriftCorrectionWork, validateDriftReview } from '../src/orchestrator/drift-review.js';
-import { buildDriftCorrectionPrompt } from '../src/orchestrator/prompts.js';
-import { makeOrchestratorTask } from './helpers/orchestrator-plan.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { buildDriftCorrectionWork, validateDriftReview } from '../src/orchestrator/drift-review.ts';
+import { buildDriftCorrectionPrompt } from '../src/orchestrator/prompts.ts';
+import { makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const CHECK = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
 

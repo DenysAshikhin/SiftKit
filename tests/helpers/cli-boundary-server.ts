@@ -1,11 +1,11 @@
 import http from 'node:http';
 
-import { getDefaultConfig } from '../../src/status-server/config-store.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
-import { buildMockScorecard } from '../_test-helpers.js';
-import { asObject, getAddressInfo } from './dashboard-http.js';
-import { writeSseResult } from './sse-http.js';
+import { getDefaultConfig } from '../../src/status-server/config-store.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import type { JsonObject } from '../../src/lib/json-types.ts';
+import { buildMockScorecard } from '../_test-helpers.ts';
+import { asObject, getAddressInfo } from './dashboard-http.ts';
+import { writeSseResult } from './sse-http.ts';
 
 type CapturedRequest = {
   route: string;

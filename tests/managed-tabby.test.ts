@@ -4,15 +4,15 @@ import path from 'node:path';
 import test from 'node:test';
 import { z } from 'zod';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
+import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
 
-import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { FakeTabbyModelState, writeFakeEngineHost } from './helpers/tabby-fake.js';
-import { launchEngineVariables, NEVER_LAUNCHING_ENGINE_HOST, type FakeTabbyOptions } from './helpers/in-process-tabby.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { FakeTabbyModelState, writeFakeEngineHost } from './helpers/tabby-fake.ts';
+import { launchEngineVariables, NEVER_LAUNCHING_ENGINE_HOST, type FakeTabbyOptions } from './helpers/in-process-tabby.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
 const FIXTURE_ENTRYPOINT = 'tabby-main.py';
 

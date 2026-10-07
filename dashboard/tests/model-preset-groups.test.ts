@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   summarizeIdentity,
@@ -9,9 +9,9 @@ import {
   summarizeLifecycle,
   summarizeModelPresetGroup,
   MODEL_PRESET_GROUPS,
-} from '../src/tabs/settings/model-preset-groups';
-import { MANAGED_PRESET } from './fixtures';
-import type { DashboardModelRuntimePreset } from '../src/types';
+} from '../src/tabs/settings/model-preset-groups.ts';
+import { MANAGED_PRESET } from './fixtures.ts';
+import type { DashboardModelRuntimePreset } from '../src/types.ts';
 
 function preset(overrides: Partial<DashboardModelRuntimePreset>): DashboardModelRuntimePreset {
   return {

@@ -5,14 +5,14 @@ import path from 'node:path';
 
 import {
   closeAllRuntimeDatabases,
-} from '../src/state/runtime-db.js';
+} from '../src/state/runtime-db.ts';
 import {
   persistBenchmarkRun,
   persistEvalResult,
   readBenchmarkRun,
   readEvalResult,
-} from '../src/state/runtime-results.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/state/runtime-results.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = createManagedTempDir('siftkit-runtime-results-');

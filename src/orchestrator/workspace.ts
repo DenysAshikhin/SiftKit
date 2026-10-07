@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-import { spawnDirectCommand, type DirectCommandResult } from '../lib/command-spawn.js';
-import { toError } from '../lib/errors.js';
-import { SAFE_GIT_BASE_ARGS, scrubGitEnvironment } from '../repo-search/engine/read-only-git-tool.js';
+import { spawnDirectCommand, type DirectCommandResult } from '../lib/command-spawn.ts';
+import { toError } from '../lib/errors.ts';
+import { SAFE_GIT_BASE_ARGS, scrubGitEnvironment } from '../repo-search/engine/read-only-git-tool.ts';
 
 const ORCHESTRATOR_ARTIFACT_ROOT = '.siftkit/orchestrator/';
 

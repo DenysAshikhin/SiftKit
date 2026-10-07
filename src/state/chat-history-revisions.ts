@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { buildChatMessageId, buildChatRunMessageIdPrefix, type ChatTranscriptMessage } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import type { RuntimeDatabase } from './database-handle.js';
-import { ChatJournalIntegrityError, ChatJournalStore, digestChatJournalEvent } from './chat-journal.js';
-import { CHAT_JOURNAL_EVENT_VERSION, ChatHistoryRevisionSchema, ChatJournalEventSchema, type ChatHistoryRevision, type ChatJournalEvent } from './chat-journal-schema.js';
-import type { ChatMessage } from '../repo-search/planner-chat-message.js';
+import { z } from '../lib/zod.ts';
+import type { RuntimeDatabase } from './database-handle.ts';
+import { ChatJournalIntegrityError, ChatJournalStore, digestChatJournalEvent } from './chat-journal.ts';
+import { CHAT_JOURNAL_EVENT_VERSION, ChatHistoryRevisionSchema, ChatJournalEventSchema, type ChatHistoryRevision, type ChatJournalEvent } from './chat-journal-schema.ts';
+import type { ChatMessage } from '../repo-search/planner-chat-message.ts';
 
 export function readChatCompactionRevisions(database: RuntimeDatabase, sessionId: string) {
   const rows = z.array(z.object({ operation_id: z.string(), event_id: z.string().min(1), sequence: z.number().int().positive(), run_order: z.number().int().positive() })).parse(database.prepare(`

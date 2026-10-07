@@ -1,27 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import type { AssistantConfig } from '../src/config/types.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import type { AssistantConfig } from '../src/config/types.ts';
 import type {
   QuestionCandidate,
   QuestionCandidateSource,
-} from '../src/assistant/questions/candidates.js';
+} from '../src/assistant/questions/candidates.ts';
 import type {
   QuestionEnvironmentState,
   QuestionEnvironmentStateProvider,
-} from '../src/assistant/questions/environment-state.js';
+} from '../src/assistant/questions/environment-state.ts';
 import {
   QuestionPolicyEngine,
   type QuestionPolicyContext,
   type QuestionPolicyHistory,
-} from '../src/assistant/questions/policy-engine.js';
+} from '../src/assistant/questions/policy-engine.ts';
 import type {
   QuestionPlanningService,
   QuestionProposal,
-} from '../src/assistant/questions/planner.js';
-import { QuestionScheduler } from '../src/assistant/questions/scheduler.js';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+} from '../src/assistant/questions/planner.ts';
+import { QuestionScheduler } from '../src/assistant/questions/scheduler.ts';
+import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
 
 const baseCandidate: QuestionCandidate = {
   id: 'qc_1', ownerId: 'owner_local', topicKey: 'alpha',
@@ -33,12 +33,20 @@ const baseCandidate: QuestionCandidate = {
 };
 
 class FixedCandidates implements QuestionCandidateSource {
-  constructor(private readonly candidates: readonly QuestionCandidate[]) {}
+  private readonly candidates: readonly QuestionCandidate[];
+
+  constructor(candidates: readonly QuestionCandidate[]) {
+    this.candidates = candidates;
+  }
   list(): QuestionCandidate[] { return [...this.candidates]; }
 }
 
 class FixedEnvironment implements QuestionEnvironmentStateProvider {
-  constructor(private readonly state: QuestionEnvironmentState) {}
+  private readonly state: QuestionEnvironmentState;
+
+  constructor(state: QuestionEnvironmentState) {
+    this.state = state;
+  }
   read(): QuestionEnvironmentState { return this.state; }
 }
 

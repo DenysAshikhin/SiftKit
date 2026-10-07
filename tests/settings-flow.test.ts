@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import {
   getDirtyActionRequirement,
   isBackendRestartSupported,
   isModelPresetPickerBusy,
   isPresetAutoloadPickerBusy,
   type DirtyContinuation,
-} from '../dashboard/src/settings-flow.js';
+} from '../dashboard/src/settings-flow.ts';
 
 function getDefaultModelPreset() {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];

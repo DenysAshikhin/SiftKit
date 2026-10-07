@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getErrorMessage } from '../../src/lib/errors.js';
+import { getErrorMessage } from '../../src/lib/errors.ts';
 
 import {
   buildCandidates,
   extractTestNames,
-} from './coverage-attribution-core.js';
-import { attributeFile } from './coverage-isolation-runner.js';
+} from './coverage-attribution-core.ts';
+import { attributeFile } from './coverage-isolation-runner.ts';
 
 function readNumberFlag(argv: string[], flag: string, fallback: number): number {
   const index = argv.indexOf(flag);

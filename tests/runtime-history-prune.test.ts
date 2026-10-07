@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getRuntimeHistoryRetentionDays } from '../src/state/runtime-retention.js';
+import { getRuntimeHistoryRetentionDays } from '../src/state/runtime-retention.ts';
 
 // ---------------------------------------------------------------------------
 // Shared retention configuration tests
@@ -77,7 +77,7 @@ test('getRuntimeHistoryRetentionDays ignores non-numeric', () => {
 });
 
 test('DEFAULT_RUNTIME_HISTORY_RETENTION_DAYS is exported as 7', async () => {
-  const mod = await import('../src/state/runtime-retention.js');
+  const mod = await import('../src/state/runtime-retention.ts');
   assert.equal(mod.DEFAULT_RUNTIME_HISTORY_RETENTION_DAYS, 7);
 });
 

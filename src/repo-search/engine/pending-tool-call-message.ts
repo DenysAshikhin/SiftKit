@@ -1,11 +1,11 @@
-import type { JsonObject } from '../../lib/json-types.js';
-import { buildAssistantToolCallMessage } from '../../tool-call-messages.js';
-import type { ChatMessage } from '../planner-chat-message.js';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { buildAssistantToolCallMessage } from '../../tool-call-messages.ts';
+import type { ChatMessage } from '../planner-chat-message.ts';
 import {
   isRepoSearchNativeToolName,
   normalizeToolName,
-} from '../planner-protocol.js';
-import type { AgentLoopToolAction } from '../../agent-loop/types.js';
+} from '../planner-protocol.ts';
+import type { AgentLoopToolAction } from '../../agent-loop/types.ts';
 
 /** Stable transcript identity derived before approval decisions are made. */
 export function buildBatchToolCallId(turn: number, batchIndex: number): string {

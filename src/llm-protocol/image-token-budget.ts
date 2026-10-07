@@ -14,11 +14,11 @@ import {
   SIFT_FALLBACK_VISION_HIDDEN_SIZE,
   SIFT_FALLBACK_VISION_INTERMEDIATE_SIZE,
   SIFT_IMAGE_TOKEN_ESTIMATE,
-} from '../config/constants.js';
-import type { ModelRuntimePreset } from '../config/types.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { z } from '../lib/zod.js';
-import { serverLogger } from '../status-server/server-logger.js';
+} from '../config/constants.ts';
+import type { ModelRuntimePreset } from '../config/types.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { z } from '../lib/zod.ts';
+import { serverLogger } from '../status-server/server-logger.ts';
 
 /**
  * Two vintages of the same file. Older Qwen processors carry a flat `max_pixels`; the

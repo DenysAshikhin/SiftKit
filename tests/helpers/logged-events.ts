@@ -1,5 +1,5 @@
-import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../../src/lib/json-types.js';
-import { z } from '../../src/lib/zod.js';
+import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../../src/lib/json-types.ts';
+import { z } from '../../src/lib/zod.ts';
 
 // Logged events may carry undefined-valued fields; the real JSONL logger drops
 // them via JSON.stringify, so normalize the same way before schema-validating.

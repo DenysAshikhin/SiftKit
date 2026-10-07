@@ -4,14 +4,14 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { buildIgnorePolicy } from '../../src/repo-search/command-safety.js';
+import { buildIgnorePolicy } from '../../src/repo-search/command-safety.ts';
 import {
   buildReadOnlyGitInvocation,
   ReadOnlyGitTool,
-} from '../../src/repo-search/engine/read-only-git-tool.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
-import type { RepoToolExecution } from '../../src/repo-search/engine/repo-tools.js';
-import type { GitToolArgs } from '../../src/repo-search/repo-tool-arguments.js';
+} from '../../src/repo-search/engine/read-only-git-tool.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
+import type { RepoToolExecution } from '../../src/repo-search/engine/repo-tools.ts';
+import type { GitToolArgs } from '../../src/repo-search/repo-tool-arguments.ts';
 
 const BASE_ARGS = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=', '--no-optional-locks'];
 

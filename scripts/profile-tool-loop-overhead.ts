@@ -13,7 +13,7 @@
  *   - stdout + stderr captured to a file (tee or shell redirection)
  *
  * Usage:
- *   tsx scripts/profile-tool-loop-overhead.ts \
+ *   node scripts/profile-tool-loop-overhead.ts \
  *     --log <path>                          # log file the dev server writes to
  *     --input <file>                        # text fed to summary --inputText
  *     --question "<text>"                   # prompt for both endpoints
@@ -32,7 +32,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { getErrorMessage } from '../src/lib/errors.js';
+import { getErrorMessage } from '../src/lib/errors.ts';
 
 // ---------------------------------------------------------------------------
 // CLI parsing

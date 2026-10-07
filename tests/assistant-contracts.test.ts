@@ -27,7 +27,7 @@ import {
   PENDING_CAPTURE_LIST_STATES,
   PENDING_CAPTURE_STATES,
 } from '@siftkit/contracts';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 
 test('assistant public contracts round-trip representative valid DTOs', () => {
   const examples = [

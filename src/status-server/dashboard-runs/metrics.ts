@@ -1,11 +1,11 @@
 import Database from 'better-sqlite3';
 
-import type { SiftConfig } from '../../config/index.js';
+import type { SiftConfig } from '../../config/index.ts';
 import {
   getAcceptanceRate as getSharedAcceptanceRate,
   getPromptCacheHitRate as getSharedPromptCacheHitRate,
-} from '../../lib/telemetry-metrics.js';
-import type { OptionalJsonValue } from '../../lib/json-types.js';
+} from '../../lib/telemetry-metrics.ts';
+import type { OptionalJsonValue } from '../../lib/json-types.ts';
 import {
   TASK_KINDS,
   type Metrics,
@@ -13,13 +13,13 @@ import {
   type TaskKind,
   type ToolStatsByTask,
   normalizeMetrics,
-} from '../metrics.js';
+} from '../metrics.ts';
 import {
   aggregateGlobalToolStats,
   buildLineReadGuidance,
   getPlannerPromptBaselinePerToolAllowanceTokens,
   getRepoSearchPromptBaselinePerToolAllowanceTokens,
-} from '../../line-read-guidance.js';
+} from '../../line-read-guidance.ts';
 import {
   type SnapshotTotals,
   parseSnapshotTaskTotalsJson,
@@ -27,12 +27,12 @@ import {
   queryRecentSnapshots,
   querySnapshotTotalsBeforeDate,
   querySnapshotTimeseries,
-} from '../idle-summary.js';
-import type { RunRecord } from '../dashboard-runs.js';
+} from '../idle-summary.ts';
+import type { RunRecord } from '../dashboard-runs.ts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
-export { type SnapshotTotals } from '../idle-summary.js';
+export { type SnapshotTotals } from '../idle-summary.ts';
 
 export function getPromptCacheHitRate(promptCacheTokens: OptionalJsonValue, promptEvalTokens: OptionalJsonValue): number | null {
   return getSharedPromptCacheHitRate(promptCacheTokens, promptEvalTokens);

@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { FilterChips } from '../src/components/FilterChips';
+import { FilterChips } from '../src/components/FilterChips.tsx';
 
 const ITEMS = [
   { value: 'all', label: 'All', active: true },

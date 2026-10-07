@@ -2,32 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { runTaskLoop } from '../src/repo-search/engine.js';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
 import {
   CLIENT_ABORT_MESSAGE,
   type ApprovalDecision,
   type ApprovalGate,
-} from '../src/repo-search/engine/approval-gate.js';
-import { ProgressWriter } from '../src/lib/progress-writer.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/engine/approval-gate.ts';
+import { ProgressWriter } from '../src/lib/progress-writer.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { ApprovalGateHarness } from './helpers/approval-gate-harness.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
 class AutoRespondingWriter extends ProgressWriter<RepoSearchProgressEvent> {
   public readonly approvalEvents: ApprovalRequestProgressEvent[] = [];
   public gate: ApprovalGate | null = null;
-  constructor(private readonly decide: (event: ApprovalRequestProgressEvent) => ApprovalDecision) {
+  private readonly decide: (event: ApprovalRequestProgressEvent) => ApprovalDecision;
+
+  constructor(decide: (event: ApprovalRequestProgressEvent) => ApprovalDecision) {
     super();
+    this.decide = decide;
   }
   get enabled(): boolean { return true; }
   write(event: RepoSearchProgressEvent): void {

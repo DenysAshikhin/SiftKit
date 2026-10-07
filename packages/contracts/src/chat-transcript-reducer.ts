@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
+import { ImageDataUrlSchema, ImageMetadataSchema } from './image.ts';
 import {
   ChatAnswerCompletionSchema,
   ChatRunTerminalCauseSchema,
@@ -15,7 +15,7 @@ import {
   type ChatStreamTextDelta,
   type ChatTranscriptMessage,
   type PersistedChatTranscriptMessage,
-} from './chat.js';
+} from './chat.ts';
 
 /**
  * What the journal knows about a call's outcome, as opposed to the preview a live frame carries.

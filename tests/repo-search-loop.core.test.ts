@@ -1,5 +1,5 @@
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
@@ -9,30 +9,30 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { parseJsonValueText } from '../src/lib/json.js';
-import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
-import { asObject, asArray, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.ts';
+import { asObject, asArray, asObjectArray, getAddressInfo } from './helpers/dashboard-http.ts';
 
 import {
   runTaskLoop,
   buildScorecard,
   assertConfiguredModelPresent,
   runRepoSearch,
-} from '../src/repo-search/engine.js';
-import { resolveFinalGenerationTokenLimit, resolveGenerationTokenLimit } from '../src/lib/context-token-budget.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { buildTabbyUsage, DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { createJsonLogger } from '../src/repo-search/logging.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/engine.ts';
+import { resolveFinalGenerationTokenLimit, resolveGenerationTokenLimit } from '../src/lib/context-token-budget.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import { buildTabbyUsage, DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { createJsonLogger } from '../src/repo-search/logging.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 

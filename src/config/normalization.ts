@@ -1,5 +1,5 @@
-import { getRuntimePaths } from './paths.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
+import { getRuntimePaths } from './paths.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.ts';
 import {
   CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelKvCacheQuantizationSchema,
   ModelPresetFieldSchema, ModelPresetSettingsSchema, ReasoningEffortSchema, SiftConfigSchema as CanonicalSiftConfigSchema,
@@ -16,15 +16,15 @@ import {
   SIFT_DEFAULT_ENGINE_UBATCH_SIZE,
   SIFT_DEFAULT_VISION_IMAGE_RETENTION,
   SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS,
-} from './constants.js';
-import { DEFAULT_ASSISTANT_CONFIG, getDefaultConfigObject } from './defaults.js';
+} from './constants.ts';
+import { DEFAULT_ASSISTANT_CONFIG, getDefaultConfigObject } from './defaults.ts';
 import {
   getDefaultOperationModeAllowedTools,
   normalizeOperationModeAllowedTools,
   type OperationModeAllowedTools,
-} from '../presets.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { InferenceBackendIdSchema } from './types.js';
+} from '../presets.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { InferenceBackendIdSchema } from './types.ts';
 import type {
   Exl3EngineConfig,
   AssistantConfig,
@@ -38,9 +38,9 @@ import type {
   WebSearchConfig,
   WebSearchProviderId,
   WebSearchProviderSettings,
-} from './types.js';
-import { JsonValueSchema, isJsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
+} from './types.ts';
+import { JsonValueSchema, isJsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
 const MAX_ENGINE_STARTUP_TIMEOUT_MS = 600_000;

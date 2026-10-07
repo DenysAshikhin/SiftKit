@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { JsonObjectSchema } from './primitives.js';
-import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.js';
+import { JsonObjectSchema } from './primitives.ts';
+import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.ts';
 
 export const DashboardBenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 export type DashboardBenchmarkTaskKind = z.infer<typeof DashboardBenchmarkTaskKindSchema>;

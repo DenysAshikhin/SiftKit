@@ -1,6 +1,6 @@
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { OptionalJsonValue } from '../lib/json-types.js';
-import type { RepoSearchMockCommandResult } from '../repo-search/types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import type { OptionalJsonValue } from '../lib/json-types.ts';
+import type { RepoSearchMockCommandResult } from '../repo-search/types.ts';
 
 function normalizeOptionalNumber(value: OptionalJsonValue): number | undefined {
   return Number.isFinite(Number(value)) ? Number(value) : undefined;

@@ -11,10 +11,10 @@ import {
   type ImageMetadata,
   type ImageTokenBudget,
 } from '@siftkit/contracts';
-import { parseImageDataUrls, ImageAttachmentReader, buildUserContent, assertPresetAcceptsImages, isImagePath, imageMimeForPath, getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { gifBufferWithSize, INSTALLED_ENCODER, rasterBuffer } from './helpers/image-fixtures.js';
-import { makeTestPreset } from './helpers/model-presets.js';
+import { parseImageDataUrls, ImageAttachmentReader, buildUserContent, assertPresetAcceptsImages, isImagePath, imageMimeForPath, getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { gifBufferWithSize, INSTALLED_ENCODER, rasterBuffer } from './helpers/image-fixtures.ts';
+import { makeTestPreset } from './helpers/model-presets.ts';
 
 const VALID_PNG_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const VALID_JPEG_URI = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QCMRXhpZgAATU0AKgAAAAgAAQESAAMAAAABAAEAAAAAAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgAA+/eHxYM';

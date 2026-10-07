@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
-import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.js';
-import { ConversationExtractor } from '../src/assistant/ingestion/conversation-extractor.js';
-import { QuestionAnswerIngestor } from '../src/assistant/questions/answer-ingestor.js';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
+import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.ts';
+import { ConversationExtractor } from '../src/assistant/ingestion/conversation-extractor.ts';
+import { QuestionAnswerIngestor } from '../src/assistant/questions/answer-ingestor.ts';
 import {
   QuestionFeedbackService,
   type AssistantQuestionConfigWriter,
-} from '../src/assistant/questions/feedback-service.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { withAssistantContext, withAssistantContextAsync } from './helpers/assistant-fixture.js';
+} from '../src/assistant/questions/feedback-service.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { withAssistantContext, withAssistantContextAsync } from './helpers/assistant-fixture.ts';
 
 class RecordingConfigWriter implements AssistantQuestionConfigWriter {
   schedule: readonly [string, string] | null = null;

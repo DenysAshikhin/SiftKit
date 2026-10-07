@@ -4,17 +4,17 @@ import path from 'node:path';
 import { Writable } from 'node:stream';
 import test from 'node:test';
 
-import { parseAssistantArgs } from '../src/cli/assistant-args.js';
-import { runAssistantCli } from '../src/cli/run-assistant.js';
-import { StatusServerApiClient } from '../src/cli/status-server-api-client.js';
+import { parseAssistantArgs } from '../src/cli/assistant-args.ts';
+import { runAssistantCli } from '../src/cli/run-assistant.ts';
+import { StatusServerApiClient } from '../src/cli/status-server-api-client.ts';
 import {
   HttpClient,
   type RequestBytesOptions,
   type RequestJsonOptions,
-} from '../src/lib/http-client.js';
-import type { JsonValue } from '../src/lib/json-types.js';
-import type { z } from '../src/lib/zod.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/lib/http-client.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
+import type { z } from '../src/lib/zod.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01, 0x02, 0x03]);
 

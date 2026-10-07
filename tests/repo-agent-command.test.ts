@@ -6,23 +6,23 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test, { after, before } from 'node:test';
 
-import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
+import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.ts';
 import {
   RepoAgentCommand,
   type RepoAgentApi,
   type RepoAgentCommandStreams,
-} from '../src/cli/repo-agent-command.js';
-import type { RepoAgentDecideRequest } from '../src/repo-agent/api-schemas.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
+} from '../src/cli/repo-agent-command.ts';
+import type { RepoAgentDecideRequest } from '../src/repo-agent/api-schemas.ts';
+import type { JsonSerializable } from '../src/lib/json-types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
 import {
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
   type RepoAgentRunResult,
   type RepoAgentRunState,
-} from '../src/repo-agent/run-schemas.js';
-import { makeCaptureStream, type CaptureStream } from './_test-helpers.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
+} from '../src/repo-agent/run-schemas.ts';
+import { makeCaptureStream, type CaptureStream } from './_test-helpers.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
 
 const RUN_ID = '550e8400-e29b-41d4-a716-446655440000';
 const TEMP_ROOT = join(tmpdir(), `siftkit-repo-agent-command-tests-${process.pid}`);
@@ -53,17 +53,25 @@ class FakeApi implements RepoAgentApi {
   readonly decideCalls: RepoAgentDecideRequest[] = [];
   readonly statusCalls: string[] = [];
 
+  private readonly result: RepoAgentRunResult;
+  private readonly state: RepoAgentRunState;
+  private readonly statusFailure: Error | undefined;
+
   constructor(
-    private readonly result: RepoAgentRunResult,
-    private readonly state: RepoAgentRunState = {
+    result: RepoAgentRunResult,
+    state: RepoAgentRunState = {
       runId: RUN_ID,
       revision: 0,
       updatedAtUtc: '2026-08-08T12:00:00.000Z',
       status: 'starting',
       pid: process.pid,
     },
-    private readonly statusFailure: Error | undefined = undefined,
-  ) {}
+    statusFailure: Error | undefined = undefined,
+  ) {
+    this.result = result;
+    this.state = state;
+    this.statusFailure = statusFailure;
+  }
 
   requestRepoAgent(request: Record<string, JsonSerializable>): Promise<RepoAgentRunResult> {
     this.startCalls.push(request);

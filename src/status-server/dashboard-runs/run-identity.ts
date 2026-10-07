@@ -6,7 +6,7 @@ import {
   type RunOperationType,
   type SiftPreset,
 } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
 /**
  * Canonical identity persisted beside the legacy `run_kind` projection. Null in any field means

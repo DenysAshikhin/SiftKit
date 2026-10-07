@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { z } from '../../src/lib/zod.js';
-import { JsonObjectSchema } from '../../src/lib/json-types.js';
+import { z } from '../../src/lib/zod.ts';
+import { JsonObjectSchema } from '../../src/lib/json-types.ts';
 
 export const IstanbulFileCoverageSchema = z.object({
   path: z.string(),

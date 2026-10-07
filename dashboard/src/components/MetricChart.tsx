@@ -6,7 +6,7 @@ import {
   sanitizeHiddenSeriesState,
   writeHiddenSeriesState,
   type KeyValueStore,
-} from '../metric-graph-persistence';
+} from '../metric-graph-persistence.ts';
 
 export type MetricSeriesPoint = {
   label: string;

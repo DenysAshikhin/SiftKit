@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ToolStatsRecorder } from '../src/repo-search/engine/tool-stats.js';
+import { ToolStatsRecorder } from '../src/repo-search/engine/tool-stats.ts';
 
 test('recordFinishRejection increments loop.finishRejections from empty stats', () => {
   const recorder = new ToolStatsRecorder();

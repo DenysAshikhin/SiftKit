@@ -1,13 +1,13 @@
 import {
   readObservedBudgetState,
-} from '../state/observed-budget.js';
-import { SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN } from './constants.js';
+} from '../state/observed-budget.ts';
+import { SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN } from './constants.ts';
 import {
   getConfiguredEngineNumCtx,
   getDefaultNumCtx,
   getMissingRuntimeFields,
-} from './getters.js';
-import type { SiftConfig } from './types.js';
+} from './getters.ts';
+import type { SiftConfig } from './types.ts';
 
 export function getDerivedMaxInputCharacters(
   numCtx: number,

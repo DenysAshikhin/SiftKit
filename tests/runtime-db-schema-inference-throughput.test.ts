@@ -3,30 +3,30 @@ import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 import {
   CURRENT_SCHEMA_VERSION,
   closeAllRuntimeDatabases,
   getRuntimeDatabase,
   getSchemaVersion,
-} from '../src/state/runtime-db.js';
-import { emptyInferenceThroughput, readTabbyThroughput } from '../src/lib/inference-throughput.js';
-import { getDefaultMetrics, readMetrics, writeMetrics } from '../src/status-server/metrics.js';
+} from '../src/state/runtime-db.ts';
+import { emptyInferenceThroughput, readTabbyThroughput } from '../src/lib/inference-throughput.ts';
+import { getDefaultMetrics, readMetrics, writeMetrics } from '../src/status-server/metrics.ts';
 import {
   buildIdleSummarySnapshot,
   persistIdleSummarySnapshot,
   queryRecentSnapshots,
-} from '../src/status-server/idle-summary.js';
+} from '../src/status-server/idle-summary.ts';
 import {
   normalizeIdleSummarySnapshotRow,
   queryDashboardRunDetailFromDb,
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
-} from '../src/status-server/dashboard-runs.js';
-import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+} from '../src/status-server/dashboard-runs.ts';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 const THROUGHPUT_TABLES = [
   'run_logs',

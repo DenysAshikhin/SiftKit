@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TopBar } from '../src/components/TopBar';
+import { TopBar } from '../src/components/TopBar.tsx';
 
 test('top bar renders breadcrumb and action slot', () => {
   const markup = renderToStaticMarkup(

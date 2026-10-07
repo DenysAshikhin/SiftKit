@@ -1,5 +1,5 @@
-import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
-import type { InferenceBackendId } from '../config/types.js';
+import { InferenceRunFlushQueue } from './inference-run-flush-queue.ts';
+import type { InferenceBackendId } from '../config/types.ts';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
@@ -7,7 +7,7 @@ import {
   updateInferenceRun,
   type InferenceRunStatus,
   type InferenceRunStreamKind,
-} from '../state/inference-runs.js';
+} from '../state/inference-runs.ts';
 
 export type InferenceRunRecorderOptions = {
   backend: InferenceBackendId;

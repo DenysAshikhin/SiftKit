@@ -1,4 +1,4 @@
-import { AgentLoopActionParser } from '../agent-loop/action-parser.js';
+import { AgentLoopActionParser } from '../agent-loop/action-parser.ts';
 import type {
   AgentLoopAction,
   AgentLoopActionAdapter,
@@ -12,9 +12,9 @@ import type {
   AgentLoopToolAdapter,
   AgentLoopToolAction,
   AgentLoopToolExecution,
-} from '../agent-loop/types.js';
-import type { AgentLoopModelClient } from '../agent-loop/agent-loop.js';
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
+} from '../agent-loop/types.ts';
+import type { AgentLoopModelClient } from '../agent-loop/agent-loop.ts';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
 
 export interface RepoSearchLoopController {
   prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn>;
@@ -33,7 +33,11 @@ export interface RepoSearchResultSource<TResult> {
 export class RepoSearchPromptAdapter implements AgentLoopPromptAdapter {
   readonly kind = 'repo-search' as const;
 
-  constructor(private readonly controller: RepoSearchLoopController) {}
+  private readonly controller: RepoSearchLoopController;
+
+  constructor(controller: RepoSearchLoopController) {
+    this.controller = controller;
+  }
 
   async prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn> {
     return this.controller.prepareTurn(turnNumber);
@@ -43,10 +47,16 @@ export class RepoSearchPromptAdapter implements AgentLoopPromptAdapter {
 export class RepoSearchActionAdapter implements AgentLoopActionAdapter {
   private readonly parser = new AgentLoopActionParser();
 
+  private readonly toolDefinitions: readonly PlannerToolDefinition[];
+  private readonly controller: RepoSearchLoopController;
+
   constructor(
-    private readonly toolDefinitions: readonly PlannerToolDefinition[],
-    private readonly controller: RepoSearchLoopController,
-  ) {}
+    toolDefinitions: readonly PlannerToolDefinition[],
+    controller: RepoSearchLoopController,
+  ) {
+    this.toolDefinitions = toolDefinitions;
+    this.controller = controller;
+  }
 
   parseActions(context: AgentLoopResponseContext): AgentLoopAction[] {
     return this.controller.validateActions(
@@ -70,7 +80,11 @@ export class RepoSearchActionAdapter implements AgentLoopActionAdapter {
 }
 
 export class RepoSearchToolAdapter implements AgentLoopToolAdapter {
-  constructor(private readonly controller: RepoSearchLoopController) {}
+  private readonly controller: RepoSearchLoopController;
+
+  constructor(controller: RepoSearchLoopController) {
+    this.controller = controller;
+  }
 
   async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
     return this.controller.executeTools(actions, context);
@@ -78,7 +92,11 @@ export class RepoSearchToolAdapter implements AgentLoopToolAdapter {
 }
 
 export class RepoSearchResultAssembler<TResult> {
-  constructor(private readonly source: RepoSearchResultSource<TResult>) {}
+  private readonly source: RepoSearchResultSource<TResult>;
+
+  constructor(source: RepoSearchResultSource<TResult>) {
+    this.source = source;
+  }
 
   async assemble(): Promise<TResult> {
     return this.source.buildAgentLoopResult();
@@ -86,7 +104,11 @@ export class RepoSearchResultAssembler<TResult> {
 }
 
 export class RepoSearchPlannerModelClient implements AgentLoopModelClient {
-  constructor(private readonly controller: RepoSearchLoopController) {}
+  private readonly controller: RepoSearchLoopController;
+
+  constructor(controller: RepoSearchLoopController) {
+    this.controller = controller;
+  }
 
   async chat(options: Parameters<AgentLoopModelClient['chat']>[0]): Promise<AgentLoopModelResponse> {
     return this.controller.requestModelResponse(options.preparedTurn);

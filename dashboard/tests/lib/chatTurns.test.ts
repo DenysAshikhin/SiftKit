@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { chunkAtTurnStarts, groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../../src/lib/chatTurns';
-import { ChatMessageSchema, type ChatMessage } from '../../src/types';
+import { chunkAtTurnStarts, groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../../src/lib/chatTurns.ts';
+import { ChatMessageSchema, type ChatMessage } from '../../src/types.ts';
 
 function message(overrides: Partial<ChatMessage>): ChatMessage {
   const candidate = {

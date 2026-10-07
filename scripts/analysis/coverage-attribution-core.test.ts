@@ -9,7 +9,7 @@ import {
   missingBranchKeys,
   type CoverageFinal,
   type TestBranchSet,
-} from './coverage-attribution-core.js';
+} from './coverage-attribution-core.ts';
 
 test('collectCoveredBranchKeys keeps only taken edges of src files, normalized to posix relpaths', () => {
   const repoRoot = process.cwd();

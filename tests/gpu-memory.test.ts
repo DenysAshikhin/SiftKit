@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseNvidiaSmiMemory } from '../src/status-server/gpu-memory.js';
+import { parseNvidiaSmiMemory } from '../src/status-server/gpu-memory.ts';
 
 test('parseNvidiaSmiMemory reads the csv,noheader,nounits form', () => {
   assert.deepEqual(parseNvidiaSmiMemory('24564, 23308, 831\n'), {

@@ -11,27 +11,27 @@ import {
   readChatSessionFromPath,
   saveChatSession,
   getChatSessionPath,
-} from '../src/state/chat-sessions.js';
-import { createTestChatSession } from './helpers/chat-sessions.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { z } from '../src/lib/zod.js';
-import { getAddressInfo, requestJson, requestSse, asObject } from './helpers/dashboard-http.js';
-import { configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo } from './helpers/dashboard-test-repo.js';
+} from '../src/state/chat-sessions.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { z } from '../src/lib/zod.ts';
+import { getAddressInfo, requestJson, requestSse, asObject } from './helpers/dashboard-http.ts';
+import { configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo } from './helpers/dashboard-test-repo.ts';
 import path from 'node:path';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
-import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import { ScorecardSchema } from '../src/repo-search/engine.js';
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
-import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
+import { StatusEngineService } from '../src/status-server/engine-service.ts';
+import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.ts';
+import { ScorecardSchema } from '../src/repo-search/engine.ts';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
+import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
 
 function imageMetadata(width = 1, height = 1, caption: string | null = null) {
   return ImageMetadataSchema.parse({
@@ -214,9 +214,11 @@ class InjectedCaptionEngineService extends StatusEngineService {
 
 class CountingCaptionEngineService extends StatusEngineService {
   requestCount = 0;
+  private readonly delayMs: number;
 
-  constructor(private readonly delayMs = 0) {
+  constructor(delayMs = 0) {
     super();
+    this.delayMs = delayMs;
   }
 
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
@@ -229,11 +231,16 @@ class CountingCaptionEngineService extends StatusEngineService {
 }
 
 class StaticCaptionEngineService extends StatusEngineService {
+  private readonly finalOutput: string;
+  private readonly compactionSummary: string;
+
   constructor(
-    private readonly finalOutput: string,
-    private readonly compactionSummary = '',
+    finalOutput: string,
+    compactionSummary = '',
   ) {
     super();
+    this.finalOutput = finalOutput;
+    this.compactionSummary = compactionSummary;
   }
 
   override executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {

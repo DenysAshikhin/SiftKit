@@ -6,16 +6,16 @@ import {
   restartBackend,
   testInferenceBaseUrl as testInferenceBaseUrlRequest,
   updateDashboardConfig,
-} from '../api';
-import { createPresetIdFromLabel } from '../dashboard-presets';
+} from '../api.ts';
+import { createPresetIdFromLabel } from '../dashboard-presets.ts';
 import {
   getFallbackPresetId,
   getNextPresetIdAfterDelete,
-} from '../preset-editor';
+} from '../preset-editor.ts';
 import {
   DashboardSettingsDraftEditor,
   type DashboardSettingsDraftAction,
-} from '../settings-draft-editor';
+} from '../settings-draft-editor.ts';
 import type {
   AssistantSettingsActions,
   GeneralSettingsActions,
@@ -24,24 +24,24 @@ import type {
   PresetSettingsActions,
   ToolPolicySettingsActions,
   WebSearchSettingsActions,
-} from '../settings-action-groups';
+} from '../settings-action-groups.ts';
 import {
   getDirtyActionRequirement,
   isBackendRestartSupported,
   type DirtyContinuation,
   type SettingsPathPickerBusyTarget,
-} from '../settings-flow';
-import { type SettingsSectionId } from '../settings-sections';
-import { cloneDashboardConfig, getDashboardConfigSignature } from '../lib/format';
+} from '../settings-flow.ts';
+import { type SettingsSectionId } from '../settings-sections.ts';
+import { cloneDashboardConfig, getDashboardConfigSignature } from '../lib/format.ts';
 import type { ManagedFilePickerTarget } from '@siftkit/contracts';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
   ProviderQuota,
   WebSearchUsage,
-} from '../types';
-import type { SettingsTabProps } from '../tabs/SettingsTab';
-import type { ToastLevel } from './useToasts';
+} from '../types.ts';
+import type { SettingsTabProps } from '../tabs/SettingsTab.tsx';
+import type { ToastLevel } from './useToasts.ts';
 
 type DashboardTabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'assistant' | 'settings';
 

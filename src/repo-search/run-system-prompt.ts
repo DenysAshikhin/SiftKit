@@ -1,16 +1,16 @@
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
-import { WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.js';
-import type { PresetSystemContext } from '../preset-system-context.js';
-import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
-import { applyWebToolPolicy, resolveWebToolPolicy } from '../web-search/tool-policy.js';
-import type { WebSearchConfig } from '../web-search/types.js';
-import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
+import { WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
+import { PresetSystemPromptComposer } from '../preset-system-prompt.ts';
+import { applyWebToolPolicy, resolveWebToolPolicy } from '../web-search/tool-policy.ts';
+import type { WebSearchConfig } from '../web-search/types.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.ts';
 import {
   buildAgentSystemPrompt,
   buildOrchestratorSystemPrompt,
   buildTaskSystemPrompt,
   buildWebChatToolInstructions,
-} from './prompts.js';
+} from './prompts.ts';
 
 type RunSystemPromptBase = {
   promptPrefix: string;

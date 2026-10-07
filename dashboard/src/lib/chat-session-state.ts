@@ -1,5 +1,5 @@
-import type { ChatSessionSummary } from '../types';
-import type { ChatSessionRuntime, SessionIndicator } from './chat-session-runtime-store';
+import type { ChatSessionSummary } from '../types.ts';
+import type { ChatSessionRuntime, SessionIndicator } from './chat-session-runtime-store.ts';
 
 export function deriveSessionIndicator(session: ChatSessionSummary, runtime: ChatSessionRuntime | null): SessionIndicator {
   if (runtime?.indicator) {

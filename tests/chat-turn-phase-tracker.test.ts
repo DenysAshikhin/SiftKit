@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ChatTurnPhaseTracker } from '../src/status-server/chat-turn-phase-tracker.js';
+import { ChatTurnPhaseTracker } from '../src/status-server/chat-turn-phase-tracker.ts';
 
 const REQUEST_STARTED_AT_UTC = '2026-07-29T00:00:00.000Z';
 

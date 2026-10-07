@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { splitMarkdownBlocks, streamTailStart } from '../../src/lib/markdown-blocks';
+import { splitMarkdownBlocks, streamTailStart } from '../../src/lib/markdown-blocks.ts';
 
 test('splits at blank lines before unindented non-list lines and preserves every character', () => {
   const markdown = '# Title\n\nFirst paragraph\nstill first.\n\n- a\n- b\n\nLast';

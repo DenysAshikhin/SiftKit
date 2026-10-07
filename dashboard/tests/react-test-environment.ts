@@ -1,5 +1,5 @@
-import './render-tracker.js';
-import { afterEach } from 'node:test';
+import './render-tracker.ts';
+import { afterEach } from 'vitest';
 import { JSDOM } from 'jsdom';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });

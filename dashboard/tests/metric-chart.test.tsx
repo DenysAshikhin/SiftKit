@@ -1,9 +1,9 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MetricChart } from '../src/components/MetricChart';
-import { getMetricGraphStorageKey } from '../src/metric-graph-persistence';
+import { MetricChart } from '../src/components/MetricChart.tsx';
+import { getMetricGraphStorageKey } from '../src/metric-graph-persistence.ts';
 
 const SERIES = [
   { key: 'runs', title: 'Runs', unit: '', color: '#17997e', points: [{ label: 'd1', value: 3 }, { label: 'd2', value: 5 }] },

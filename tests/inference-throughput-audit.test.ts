@@ -13,15 +13,15 @@ import {
   mergeInferenceThroughput,
   unmeasuredInferenceThroughput,
   emptyInferenceThroughput,
-} from '../src/lib/inference-throughput.js';
+} from '../src/lib/inference-throughput.ts';
 import {
   auditInferenceThroughput,
   UNPUBLISHED_RATES,
-} from '../src/status-server/inference-throughput-audit.js';
-import { ServerLogger } from '../src/status-server/server-logger.js';
-import { InferenceClient, type InferenceChatOptions } from '../src/llm-protocol/inference-client.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+} from '../src/status-server/inference-throughput-audit.ts';
+import { ServerLogger } from '../src/status-server/server-logger.ts';
+import { InferenceClient, type InferenceChatOptions } from '../src/llm-protocol/inference-client.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 
 function collect(): { lines: string[]; write: (text: string) => void } {
   const lines: string[] = [];

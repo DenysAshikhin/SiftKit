@@ -1,8 +1,8 @@
-import { sendJson } from '../../http-utils.js';
+import { sendJson } from '../../http-utils.ts';
 import {
   AnswerSchema, assistantRoute, body, id, QUESTION_ANSWER_BODY_LIMIT, QuestionIdSchema,
   SnoozeSchema, success,
-} from './helpers.js';
+} from './helpers.ts';
 
 export const markShownEndpoint = assistantRoute(async ({ service, req, res }) => {
   const request = await body(req, QuestionIdSchema, QUESTION_ANSWER_BODY_LIMIT);

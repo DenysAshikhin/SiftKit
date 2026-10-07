@@ -1,14 +1,14 @@
-import { IsolatedRuntime } from '../helpers/isolated-runtime.js';
+import { IsolatedRuntime } from '../helpers/isolated-runtime.ts';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { executeRepoSearchRequest } from '../../src/repo-search/execute.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.js';
-import { mockSiftConfig } from '../helpers/mock-config.js';
-import { DEAD_BASE_URL, DeadEndpointEnv } from '../helpers/dead-endpoints.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
-import { repoAgentFinishResponses } from '../helpers/repo-agent-mock-responses.js';
+import { executeRepoSearchRequest } from '../../src/repo-search/execute.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.ts';
+import { mockSiftConfig } from '../helpers/mock-config.ts';
+import { DEAD_BASE_URL, DeadEndpointEnv } from '../helpers/dead-endpoints.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
+import { repoAgentFinishResponses } from '../helpers/repo-agent-mock-responses.ts';
 
 // Execution posts run status; these tests assert on progress events only.
 const isolatedRuntime = new IsolatedRuntime();

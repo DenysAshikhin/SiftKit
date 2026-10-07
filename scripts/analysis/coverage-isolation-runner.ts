@@ -3,14 +3,14 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { z } from '../../src/lib/zod.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
+import { z } from '../../src/lib/zod.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
 import {
   collectCoveredBranchKeys,
   escapeForNamePattern,
   CoverageFinalSchema,
   type TestBranchSet,
-} from './coverage-attribution-core.js';
+} from './coverage-attribution-core.ts';
 
 const PackageVersionSchema = z.object({ version: z.string() });
 const IsolationResultSchema = z.object({
@@ -22,14 +22,12 @@ const IsolationResultSchema = z.object({
 });
 
 const repoRoot = process.cwd();
-const tsxCli = path.resolve(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const c8Cli = path.resolve(repoRoot, 'node_modules', 'c8', 'bin', 'c8.js');
 const cacheDir = path.join(repoRoot, '.coverage-attr', 'cache');
 
 function readToolVersions(): string {
   const c8Pkg = PackageVersionSchema.parse(parseJsonValueText(fs.readFileSync(path.resolve(repoRoot, 'node_modules', 'c8', 'package.json'), 'utf8')));
-  const tsxPkg = PackageVersionSchema.parse(parseJsonValueText(fs.readFileSync(path.resolve(repoRoot, 'node_modules', 'tsx', 'package.json'), 'utf8')));
-  return `c8@${c8Pkg.version}|tsx@${tsxPkg.version}|node@${process.version}`;
+  return `c8@${c8Pkg.version}|node@${process.version}`;
 }
 
 const toolVersions = readToolVersions();
@@ -90,7 +88,6 @@ export function runOneTestInIsolation(
     '--exclude=node_modules/**',
     '--exclude=tests/**',
     process.execPath,
-    tsxCli,
     '--test',
     '--test-reporter=tap',
     `--test-name-pattern=${escapeForNamePattern(name)}`,

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runMockProvider } from '../src/summary/providers/mock-provider.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { asObject } from './helpers/dashboard-http.js';
+import { runMockProvider } from '../src/summary/providers/mock-provider.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { asObject } from './helpers/dashboard-http.ts';
 
 function baseOptions(overrides: Partial<Parameters<typeof runMockProvider>[0]> = {}) {
   return {

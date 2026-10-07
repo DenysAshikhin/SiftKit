@@ -2,16 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import type { ChatContextRecorder } from '../src/repo-search/engine/chat-run-evidence.js';
-import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
-import { renderTaskTranscript } from '../src/repo-search/planner-protocol.js';
-import { countContentImages, extractContentText } from '../src/llm-protocol/image-attachments.js';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
+import type { ChatContextRecorder } from '../src/repo-search/engine/chat-run-evidence.ts';
+import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.ts';
+import { renderTaskTranscript } from '../src/repo-search/planner-protocol.ts';
+import { countContentImages, extractContentText } from '../src/llm-protocol/image-attachments.ts';
 import type {
   ChatContextInit,
   ChatContextSplice,
   ChatMessage,
-} from '../src/repo-search/planner-chat-message.js';
+} from '../src/repo-search/planner-chat-message.ts';
 
 function makeTranscript(): TranscriptManager {
   return new TranscriptManager({
@@ -246,7 +246,11 @@ class SpyRecorder implements ChatContextRecorder {
   readHistoryRevisions() { return []; }
   readonly initialized: ChatContextInit[] = [];
   readonly splices: ChatContextSplice[] = [];
-  constructor(private readonly refuseSplices = false) {}
+  private readonly refuseSplices: boolean;
+
+  constructor(refuseSplices = false) {
+    this.refuseSplices = refuseSplices;
+  }
 
   recordContextInitialized(init: ChatContextInit): ChatContextInit {
     this.initialized.push(init);

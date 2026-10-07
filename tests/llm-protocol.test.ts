@@ -1,4 +1,4 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -9,17 +9,17 @@ import type {
   InferenceChatRequest,
   InferenceToolDefinition,
   NormalizedInferenceChatResponse,
-} from '../src/llm-protocol/types.js';
-import { CLEAN_STREAM_STOP, INFERENCE_PROTOCOL_FORMAT } from '../src/llm-protocol/types.js';
-import { buildReplayToolCall, InferenceToolCallParser } from '../src/llm-protocol/tool-call-parser.js';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
-import { HttpResponseError, type FullJsonResponse, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.js';
-import type { JsonValue } from '../src/lib/json-types.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import type { SiftConfig } from '../src/config/types.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { getActiveModelPreset } from '../src/config/index.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+} from '../src/llm-protocol/types.ts';
+import { CLEAN_STREAM_STOP, INFERENCE_PROTOCOL_FORMAT } from '../src/llm-protocol/types.ts';
+import { buildReplayToolCall, InferenceToolCallParser } from '../src/llm-protocol/tool-call-parser.ts';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
+import { HttpResponseError, type FullJsonResponse, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import type { SiftConfig } from '../src/config/types.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { getActiveModelPreset } from '../src/config/index.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 
 test('llm protocol types model text, reasoning, and tool-call responses', () => {
   assert.equal(INFERENCE_PROTOCOL_FORMAT, 'openai-compatible');

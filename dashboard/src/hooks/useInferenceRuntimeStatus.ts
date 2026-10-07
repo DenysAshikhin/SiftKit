@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { getInferenceRuntimeStatus } from '../api';
+import { getInferenceRuntimeStatus } from '../api.ts';
 import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 
 const POLL_DELAY_MS = 2000;

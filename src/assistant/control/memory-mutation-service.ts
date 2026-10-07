@@ -3,16 +3,16 @@ import type {
   AssistantEvidenceDeletionPreview,
   AssistantTopicForgetPreview,
 } from '@siftkit/contracts';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { AssistantNotFoundError } from '../errors.js';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { AssistantNotFoundError } from '../errors.ts';
 import type {
   AssertionWriteOutcome,
-} from '../graph/assertion-service.js';
-import type { AssertionObjectRef } from '../domain/keys.js';
-import type { ProjectionCompiler } from '../projections/projection-compiler.js';
-import type { AssertionRow } from '../storage/rows.js';
-import { topicAssertionIds, type DeletionPreviewService } from './deletion-preview.js';
+} from '../graph/assertion-service.ts';
+import type { AssertionObjectRef } from '../domain/keys.ts';
+import type { ProjectionCompiler } from '../projections/projection-compiler.ts';
+import type { AssertionRow } from '../storage/rows.ts';
+import { topicAssertionIds, type DeletionPreviewService } from './deletion-preview.ts';
 
 interface MemoryMutationServiceOptions {
   readonly graph: AssistantGraph;

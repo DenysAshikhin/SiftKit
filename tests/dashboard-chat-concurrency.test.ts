@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
-import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { asObject, asObjectArray, fireAndAbortJsonRequest, requestJson, type SseResponse } from './helpers/dashboard-http.js';
-import { readChatStream, readSettledChatSession } from './helpers/chat-stream-views.js';
+import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
+import { asObject, asObjectArray, fireAndAbortJsonRequest, requestJson, type SseResponse } from './helpers/dashboard-http.ts';
+import { readChatStream, readSettledChatSession } from './helpers/chat-stream-views.ts';
 
 /** The stream's views name the session it belongs to; the settled transcript is read back over REST. */
 function readStreamSessionId(response: SseResponse, sessionId: string): string {

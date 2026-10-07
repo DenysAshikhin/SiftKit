@@ -11,8 +11,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
-import { parseJsonValueText } from './json.js';
-import { z } from './zod.js';
+import { parseJsonValueText } from './json.ts';
+import { z } from './zod.ts';
 
 const ProcessErrorSchema = z.object({ code: z.string() });
 

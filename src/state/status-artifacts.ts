@@ -1,7 +1,7 @@
-import { z } from '../lib/zod.js';
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { RunIdentitySchema } from '../status-server/dashboard-runs/run-identity.js';
-import { getRuntimeArtifactUri } from './runtime-artifacts.js';
+import { z } from '../lib/zod.ts';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { RunIdentitySchema } from '../status-server/dashboard-runs/run-identity.ts';
+import { getRuntimeArtifactUri } from './runtime-artifacts.ts';
 
 /**
  * Artifact payloads a summary run defers to the status server at terminal time.

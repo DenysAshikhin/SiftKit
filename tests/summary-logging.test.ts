@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { summarizeRequest } from '../src/summary.js';
-import type { SummaryProgressEvent } from '../src/summary/progress-reporter.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { summarizeRequest } from '../src/summary.ts';
+import type { SummaryProgressEvent } from '../src/summary/progress-reporter.ts';
+import { SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
 import {
   withStubServer,
   withTempEnv,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 test('summary emits preflight tokenization progress', async () => {
   await withTempEnv(async () => {

@@ -1,22 +1,22 @@
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ModelRuntimePresetSchema, SiftPresetSchema } from '@siftkit/contracts';
-import { awaitRepoSearchRunPersistence, executeRepoSearchRequest } from '../src/repo-search/execute.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
-import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
-import { loadDashboardRuns } from '../src/status-server/dashboard-runs/queries.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
-import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
+import { awaitRepoSearchRunPersistence, executeRepoSearchRequest } from '../src/repo-search/execute.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.ts';
+import { loadDashboardRuns } from '../src/status-server/dashboard-runs/queries.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
+import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
 
 // Execution posts run status; these tests assert on progress events only.
 const isolatedRuntime = new IsolatedRuntime();

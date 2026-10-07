@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { z } from '../src/lib/zod.js';
-import { parseJsonValueText } from '../src/lib/json.js';
+import { z } from '../src/lib/zod.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
 
 export type StartupPortCheck = {
   service: 'status' | 'dashboard';

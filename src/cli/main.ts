@@ -1,5 +1,6 @@
-import { runCli } from './dispatch.js';
-import { commandReadsStdin, readStdinToEnd } from './stdin-input.js';
+#!/usr/bin/env node
+import { runCli } from './dispatch.ts';
+import { commandReadsStdin, readStdinToEnd } from './stdin-input.ts';
 
 async function readStdin(argv: string[]) {
   if (process.stdin.isTTY || !commandReadsStdin(argv)) {

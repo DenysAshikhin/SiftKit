@@ -7,12 +7,12 @@ import {
   deleteModelPreset,
   getActiveModelPreset,
   type DashboardModelRuntimePreset,
-} from '../dashboard/src/model-runtime-presets.js';
-import type { DashboardConfig } from '../dashboard/src/types.js';
-import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { normalizeConfigObject } from '../src/config/normalization.js';
-import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
+} from '../dashboard/src/model-runtime-presets.ts';
+import type { DashboardConfig } from '../dashboard/src/types.ts';
+import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.ts';
 
 function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): DashboardModelRuntimePreset {
   const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];

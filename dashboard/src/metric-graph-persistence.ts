@@ -1,4 +1,4 @@
-import type { JsonValue, JsonObject, OptionalJsonValue } from '../../src/lib/json-types.js';
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../src/lib/json-types.ts';
 
 export type KeyValueStore = {
   getItem(key: string): string | null;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GatedChatBackend } from './helpers/gated-chat-backend.js';
+import { GatedChatBackend } from './helpers/gated-chat-backend.ts';
 
 test('gated backend rejects unknown routes and wrong methods', async (t) => {
   const backend = new GatedChatBackend();

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AssertionValidator } from '../src/assistant/graph/validation.js';
-import { NodeStore } from '../src/assistant/storage/node-store.js';
-import { PolicyStore } from '../src/assistant/storage/policy-store.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { AssertionValidator } from '../src/assistant/graph/validation.ts';
+import { NodeStore } from '../src/assistant/storage/node-store.ts';
+import { PolicyStore } from '../src/assistant/storage/policy-store.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 interface ValidationHarness {
   readonly validator: AssertionValidator;

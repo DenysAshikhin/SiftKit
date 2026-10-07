@@ -6,7 +6,7 @@
 
 import { spawnSync, type StdioOptions, type SpawnSyncReturns } from 'node:child_process';
 
-import { runCapturedCommand, toStringRecord, type CapturedCommandResult } from './captured-command.js';
+import { runCapturedCommand, toStringRecord, type CapturedCommandResult } from './captured-command.ts';
 
 export const POWERSHELL_EXECUTABLE = 'powershell.exe';
 export const POWERSHELL_BASE_ARGS = ['-NoProfile', '-ExecutionPolicy', 'Bypass'] as const;

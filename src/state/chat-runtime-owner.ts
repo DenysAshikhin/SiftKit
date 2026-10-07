@@ -1,5 +1,5 @@
-import { z } from '../lib/zod.js';
-import type { RuntimeDatabase } from './database-handle.js';
+import { z } from '../lib/zod.ts';
+import type { RuntimeDatabase } from './database-handle.ts';
 
 export const CHAT_OWNER_LEASE_MS = 30_000;
 export const CHAT_OWNER_HEARTBEAT_MS = 5_000;
@@ -11,7 +11,15 @@ export const ChatRuntimeOwnerSchema = z.object({
 
 /** The SQLite lease still fences separate processes; the handle is this process's stable connection. */
 export class ChatRuntimeOwner {
-  constructor(readonly database: RuntimeDatabase, readonly ownerId: string, readonly epoch: number) {}
+  readonly database: RuntimeDatabase;
+  readonly ownerId: string;
+  readonly epoch: number;
+
+  constructor(database: RuntimeDatabase, ownerId: string, epoch: number) {
+    this.database = database;
+    this.ownerId = ownerId;
+    this.epoch = epoch;
+  }
   get ownerEpoch(): string { return `${this.ownerId}:${this.epoch}`; }
   static acquire(database: RuntimeDatabase, ownerId: string, nowMs = Date.now()): ChatRuntimeOwner {
     return database.transaction(() => {

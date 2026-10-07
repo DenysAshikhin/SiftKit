@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import {
   LiveContentClassifier,
-} from '../src/llm-protocol/live-content-classifier.js';
+} from '../src/llm-protocol/live-content-classifier.ts';
 
 test('streams ordinary prose while buffering a possible tool-control prefix', () => {
   const classifier = new LiveContentClassifier();

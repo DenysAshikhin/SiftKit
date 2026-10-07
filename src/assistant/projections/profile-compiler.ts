@@ -1,10 +1,10 @@
-import type { TokenCounter } from '../domain/tokens.js';
-import { renderAssertionSentence } from './assertion-sentence.js';
+import type { TokenCounter } from '../domain/tokens.ts';
+import { renderAssertionSentence } from './assertion-sentence.ts';
 import {
   TIER_TOKEN_LIMIT, compareViewsByValue, isProjectableInPlaintext,
   type AssertionView, type CompiledDocument,
-} from './assertion-view.js';
-import { TokenLimitEnforcer } from './token-limit-enforcer.js';
+} from './assertion-view.ts';
+import { TokenLimitEnforcer } from './token-limit-enforcer.ts';
 
 export interface ProfileCompileRequest {
   readonly views: readonly AssertionView[];
@@ -26,10 +26,16 @@ const SECTIONS: readonly ProfileSection[] = [
 
 /** Tier 1: the single `profile` document (§10.3). */
 export class ProfileCompiler {
+  private readonly tokens: TokenCounter;
+  private readonly enforcer: TokenLimitEnforcer;
+
   constructor(
-    private readonly tokens: TokenCounter,
-    private readonly enforcer: TokenLimitEnforcer,
-  ) {}
+    tokens: TokenCounter,
+    enforcer: TokenLimitEnforcer,
+  ) {
+    this.tokens = tokens;
+    this.enforcer = enforcer;
+  }
 
   async compile(request: ProfileCompileRequest): Promise<CompiledDocument> {
     const eligible = request.views.filter(isProjectableInPlaintext).sort(compareViewsByValue);

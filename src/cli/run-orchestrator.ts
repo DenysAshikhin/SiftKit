@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import type { OrchestratorRunState } from '@siftkit/contracts';
 
-import type { OrchestratorInvocation } from './orchestrator-args.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
+import type { OrchestratorInvocation } from './orchestrator-args.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
 
 /** The typed summary printed on stdout; the exit code follows the parent phase, never a child's exit. */
 function renderResult(state: OrchestratorRunState): string {

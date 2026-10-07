@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
-import { formatElapsed, formatInteger, formatPromptTokensField } from '../lib/text-format.js';
-import { type Metrics } from './metrics.js';
+import { formatElapsed, formatInteger, formatPromptTokensField } from '../lib/text-format.ts';
+import { type Metrics } from './metrics.ts';
 import {
   buildIdleSummarySnapshotMessage,
   type IdleSummarySnapshotRow,
@@ -8,31 +8,31 @@ import {
   parseSnapshotTaskTotalsJson,
   parseSnapshotToolStatsJson,
   snapshotDecodeRate,
-} from './idle-summary.js';
-import { type ServerLogBody } from './server-logger.js';
+} from './idle-summary.ts';
+import { type ServerLogBody } from './server-logger.ts';
 import {
   buildDashboardDailyMetrics as buildDashboardDailyMetricsFromRunsAndSnapshots,
   type DailyMetrics,
-} from './dashboard-runs/metrics.js';
-import { queryDashboardRunsFromDb } from './dashboard-runs/queries.js';
+} from './dashboard-runs/metrics.ts';
+import { queryDashboardRunsFromDb } from './dashboard-runs/queries.ts';
 
 export {
   updateRunLogSpeculativeMetricsByRequestId,
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
   upsertRunLog,
-} from './dashboard-runs/artifact-upserts.js';
+} from './dashboard-runs/artifact-upserts.ts';
 export {
   deleteDashboardRunLogs,
   previewDashboardRunLogDeletion,
   removeDashboardRunCommandFromLogs,
-} from './dashboard-runs/deletion.js';
+} from './dashboard-runs/deletion.ts';
 export {
   buildDashboardRunDetail,
   loadDashboardRuns,
   queryDashboardRunDetailFromDb,
   queryDashboardRunsFromDb,
-} from './dashboard-runs/queries.js';
+} from './dashboard-runs/queries.ts';
 export {
   getTranscriptDurationMsFromText,
   normalizeRunRecord,
@@ -41,8 +41,8 @@ export {
   parseJsonlEventsFromText,
   parseJsonObjectText,
   parseOptionalIsoDate,
-} from './dashboard-runs/run-records.js';
-export type { IdleSummarySnapshotDbRow, IdleSummarySnapshotRow } from './idle-summary.js';
+} from './dashboard-runs/run-records.ts';
+export type { IdleSummarySnapshotDbRow, IdleSummarySnapshotRow } from './idle-summary.ts';
 export type {
   DashboardRunLogDeleteCriteria,
   DashboardRunLogType,
@@ -54,7 +54,7 @@ export type {
   RunLogTerminalState,
   RunLogUpsertRow,
   RunRecord,
-} from './dashboard-runs/types.js';
+} from './dashboard-runs/types.ts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -176,7 +176,7 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
   return { event: 'done', fields: parts.join(' '), severity: 'ok' };
 }
 
-import type { RepoSearchProgressEvent } from '../repo-search/types.js';
+import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
 export type { RepoSearchProgressEvent };
 
 function normalizeRepoSearchCommandForLog(command: string): string {
@@ -294,9 +294,9 @@ export {
   type DailyMetrics,
   type SnapshotTotals,
   type TaskDailyMetrics,
-} from './dashboard-runs/metrics.js';
+} from './dashboard-runs/metrics.ts';
 import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
-import { parseJsonValueText } from '../lib/json.js';
+import { parseJsonValueText } from '../lib/json.ts';
 
 export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatabase: DatabaseInstance | null, currentMetrics: Metrics): DailyMetrics[] {
   void runtimeRoot;

@@ -1,5 +1,5 @@
-import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
-import { parseJsonValueText } from '../../../src/lib/json.js';
+import type { JsonValue, JsonObject } from '../../../src/lib/json-types.ts';
+import { parseJsonValueText } from '../../../src/lib/json.ts';
 import {
   CHAT_PROJECTION_MAX_FRAME_BYTES,
   ChatMessageQueueStateSchema,
@@ -65,10 +65,16 @@ export class ChatStreamReader {
   private buffer = '';
   private readonly decoder = new TextDecoder('utf-8', { fatal: true });
 
+  private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
+  private readonly maxPacketBytes: number | null;
+
   constructor(
-    private readonly reader: ReadableStreamDefaultReader<Uint8Array>,
-    private readonly maxPacketBytes: number | null = CHAT_PROJECTION_MAX_FRAME_BYTES,
-  ) {}
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    maxPacketBytes: number | null = CHAT_PROJECTION_MAX_FRAME_BYTES,
+  ) {
+    this.reader = reader;
+    this.maxPacketBytes = maxPacketBytes;
+  }
 
   async *events(): AsyncGenerator<ChatStreamEvent> {
     try {

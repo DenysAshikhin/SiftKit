@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 
 import { ModelPresetFieldSchema } from '@siftkit/contracts';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { getConfiguredCompactionReserveTokens } from '../src/config/index.js';
-import { normalizeConfigObject } from '../src/config/normalization.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
-import { getPlannerPromptBudget } from '../src/summary/chunking.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { getConfiguredCompactionReserveTokens } from '../src/config/index.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
+import { getPlannerPromptBudget } from '../src/summary/chunking.ts';
 
 function buildConfigWithReserve(numCtx: number, compactionReserveTokens: number) {
   const config = getDefaultConfigObject();

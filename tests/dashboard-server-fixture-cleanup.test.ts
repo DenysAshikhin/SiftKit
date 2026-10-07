@@ -7,14 +7,14 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { ChatSessionsResponseSchema } from '@siftkit/contracts';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { requestJson } from './helpers/dashboard-http.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { waitForTerminalMetadataIdle } from '../src/status-server/terminal-metadata.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { testHttpAgent } from './helpers/http-agent.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { waitForTerminalMetadataIdle } from '../src/status-server/terminal-metadata.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
 test('terminal metadata idle wait observes scheduled work completing', async () => {
   const tempRoot = createManagedTempDir('siftkit-terminal-metadata-idle-');

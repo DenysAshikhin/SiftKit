@@ -12,7 +12,7 @@
  */
 import { spawn } from 'node:child_process';
 
-import { terminateProcessTree } from './process-tree.js';
+import { terminateProcessTree } from './process-tree.ts';
 
 export type CapturedCommandResult = {
   exitCode: number;

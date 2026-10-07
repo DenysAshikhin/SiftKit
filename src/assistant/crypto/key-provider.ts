@@ -2,8 +2,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { parseJsonText } from '../../lib/json.js';
-import { z } from '../../lib/zod.js';
+import { parseJsonText } from '../../lib/json.ts';
+import { z } from '../../lib/zod.ts';
 
 export interface AssistantEncryptionKey {
   readonly keyId: string;
@@ -38,7 +38,11 @@ export type KeyFile = z.infer<typeof KeyFileSchema>;
  * Gate D adds the OS-keychain provider as a second implementation of `AssistantKeyProvider`.
  */
 export class FileKeyProvider implements AssistantKeyProvider {
-  constructor(private readonly keyFilePath: string) {}
+  private readonly keyFilePath: string;
+
+  constructor(keyFilePath: string) {
+    this.keyFilePath = keyFilePath;
+  }
 
   getActiveKey(): AssistantEncryptionKey {
     const file = this.ensureKeyFile();

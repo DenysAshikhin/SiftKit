@@ -8,8 +8,8 @@ import { pathToFileURL } from 'node:url';
 
 import { z } from 'zod';
 
-import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 // The guard's only job is to fail loudly, so its own failure mode is silence: if the
 // --import wiring or the port env in src/test-runner/run-tests.ts regresses, an unguarded run is
@@ -17,9 +17,8 @@ import { createManagedTempDir } from '../helpers/temp-dirs.js';
 // port and assert the guard turns that into a non-zero exit even when the caller swallowed
 // the throw, exactly as the fire-and-forget status notifications do.
 const repoRoot = process.cwd();
-// The compiled guard, not the source: this is the artifact src/test-runner/run-tests.ts preloads,
-// and preloading plain JS is what lets NODE_OPTIONS stay free of the tsx loader.
-const guardPath = path.resolve(repoRoot, 'dist', 'test-runner', 'live-instance-guard.js');
+// The same guard source src/test-runner/run-tests.ts preloads through NODE_OPTIONS.
+const guardPath = path.resolve(repoRoot, 'src', 'test-runner', 'live-instance-guard.ts');
 const guardUrl = pathToFileURL(guardPath).href;
 const CHILD_TIMEOUT_MS = 20_000;
 
@@ -81,7 +80,7 @@ async function getAvailablePort(): Promise<number> {
 }
 
 function runGuardedChild(childSource: string, options: ChildEnvOptions = {}): ChildResult {
-  assert.ok(fs.existsSync(guardPath), `${guardPath} is missing; run "npm run build:test" before this suite.`);
+  assert.ok(fs.existsSync(guardPath), `${guardPath} is missing.`);
   const tempRoot = createManagedTempDir('siftkit-guard-probe-');
   const probeDirectory = options.suiteDirectory ? path.join(tempRoot, 'tests', options.suiteDirectory) : tempRoot;
   fs.mkdirSync(probeDirectory, { recursive: true });
@@ -134,7 +133,7 @@ test('guard fails a process that contacts the default status port despite a swal
 });
 
 test('runtime database guard blocks a swallowed default-path open before creating a file', () => {
-  const databaseUrl = pathToFileURL(path.join(repoRoot, 'dist', 'state', 'runtime-db.js')).href;
+  const databaseUrl = pathToFileURL(path.join(repoRoot, 'src', 'state', 'runtime-db.ts')).href;
   const result = runGuardedChild([
     `import { getRuntimeDatabase, closeAllRuntimeDatabases } from ${JSON.stringify(databaseUrl)};`,
     "import { resolve } from 'node:path';",
@@ -367,16 +366,6 @@ test('spawn guard leaves processes outside the test runner alone', () => {
   assertChildFinished(result);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, '');
-});
-
-// tsx must not travel in NODE_OPTIONS. Every descendant inherits it, including the
-// production CLIs these tests spawn, and there tsx's CJS hook transpiles the ESM dist/**
-// tree into CommonJS — which turns `import '@siftkit/contracts'` into a require() that the
-// package's exports map (types + import, no require condition) cannot resolve. The per-file
-// test children get tsx as an execArgv flag on the `node --test` process instead, which
-// reaches them and stops there.
-test('the suite does not force spawned production processes through the tsx loader', () => {
-  assert.doesNotMatch(process.env.NODE_OPTIONS ?? '', /tsx/u);
 });
 
 // src/test-runner/run-tests.ts passes the guarded ports as env because the preload cannot import

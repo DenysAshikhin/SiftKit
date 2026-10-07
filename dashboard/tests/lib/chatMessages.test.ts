@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { estimatePromptTokens } from '../../src/lib/chatMessages';
+import { estimatePromptTokens } from '../../src/lib/chatMessages.ts';
 
 test('estimatePromptTokens returns at least one token and rounds up by four characters', () => {
   assert.equal(estimatePromptTokens(''), 1);

@@ -63,4 +63,4 @@ export function buildApprovalReviewRequest(input: {
     `command: ${input.command}`,
   ].join('\n');
 }
-import { APPROVAL_VERDICT_RESPONSE_INSTRUCTION } from './approval-verdict.js';
+import { APPROVAL_VERDICT_RESPONSE_INSTRUCTION } from './approval-verdict.ts';

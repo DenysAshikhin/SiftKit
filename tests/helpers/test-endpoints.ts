@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.js';
+import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.ts';
 
 const GUARDED_PORTS = new Set([SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT]);
 const PORT_LEASE_ROOT = path.join(fs.realpathSync(os.tmpdir()), 'siftkit-test-port-leases');
@@ -26,10 +26,16 @@ export interface ChildPortLease {
 class OwnedChildPortLease implements ChildPortLease {
   private released = false;
 
+  readonly port: number;
+  private readonly directory: string;
+
   constructor(
-    readonly port: number,
-    private readonly directory: string,
-  ) {}
+    port: number,
+    directory: string,
+  ) {
+    this.port = port;
+    this.directory = directory;
+  }
 
   async release(): Promise<void> {
     if (this.released) return;

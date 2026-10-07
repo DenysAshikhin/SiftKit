@@ -1,4 +1,4 @@
-import { ChatMessageSchema, type ChatMessage } from '../types';
+import { ChatMessageSchema, type ChatMessage } from '../types.ts';
 
 type LiveMessageKind = Exclude<ChatMessage['kind'], 'assistant_tool_call'>;
 

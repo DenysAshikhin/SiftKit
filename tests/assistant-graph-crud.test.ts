@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AuditStore } from '../src/assistant/storage/audit-store.js';
-import { IdentityStore } from '../src/assistant/storage/identity-store.js';
-import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.js';
-import { NodeStore } from '../src/assistant/storage/node-store.js';
+import { AuditStore } from '../src/assistant/storage/audit-store.ts';
+import { IdentityStore } from '../src/assistant/storage/identity-store.ts';
+import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.ts';
+import { NodeStore } from '../src/assistant/storage/node-store.ts';
 import {
   supportWeights, withAssistantContext, type AssistantTestContext,
-} from './helpers/assistant-fixture.js';
+} from './helpers/assistant-fixture.ts';
 
 function newNodeStore(context: AssistantTestContext): NodeStore {
   return new NodeStore(context.database, context.clock, context.ids);
@@ -260,8 +260,8 @@ test('deleting a node drops it from the FTS index', () => {
 
 // ── Task 10: Assertion store ────────────────────────────────────────────────
 
-import { AssertionStore } from '../src/assistant/storage/assertion-store.js';
-import { buildAssertionKey } from '../src/assistant/domain/keys.js';
+import { AssertionStore } from '../src/assistant/storage/assertion-store.ts';
+import { buildAssertionKey } from '../src/assistant/domain/keys.ts';
 
 interface SeededAssertion {
   readonly assertions: AssertionStore;

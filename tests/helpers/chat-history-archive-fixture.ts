@@ -1,7 +1,7 @@
-import type { JsonObject } from '../../src/lib/json-types.js';
-import type { ChatHistoryRepairInputSchema } from '../../src/status-server/chat-history-repair.js';
-import type { getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import type { z } from '../../src/lib/zod.js';
+import type { JsonObject } from '../../src/lib/json-types.ts';
+import type { ChatHistoryRepairInputSchema } from '../../src/status-server/chat-history-repair.ts';
+import type { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import type { z } from '../../src/lib/zod.ts';
 
 const SEEDED_AT = '2026-09-10T11:00:00.000Z';
 

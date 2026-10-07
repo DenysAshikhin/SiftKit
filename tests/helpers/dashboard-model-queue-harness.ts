@@ -4,17 +4,17 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { SiftPreset } from '@siftkit/contracts';
 
-import { getDefaultConfigObject } from '../../src/config/defaults.js';
-import { getActiveModelPreset } from '../../src/config/getters.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import { z } from '../../src/lib/zod.js';
-import { startStatusServer } from '../../src/status-server/index.js';
-import type { StatusEngineService } from '../../src/status-server/engine-service.js';
-import { readConfig, writeConfig } from '../../src/status-server/config-store.js';
-import { getConfigPath } from '../../src/status-server/paths.js';
-import { FakeTabbyModelState } from './tabby-fake.js';
-import { readStatusModelRequests } from './model-request-status.js';
-import type { ModelRequestQueueDiagnostics } from '../../src/lib/operation-stream.js';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import { getActiveModelPreset } from '../../src/config/getters.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import { z } from '../../src/lib/zod.ts';
+import { startStatusServer } from '../../src/status-server/index.ts';
+import type { StatusEngineService } from '../../src/status-server/engine-service.ts';
+import { readConfig, writeConfig } from '../../src/status-server/config-store.ts';
+import { getConfigPath } from '../../src/status-server/paths.ts';
+import { FakeTabbyModelState } from './tabby-fake.ts';
+import { readStatusModelRequests } from './model-request-status.ts';
+import type { ModelRequestQueueDiagnostics } from '../../src/lib/operation-stream.ts';
 import {
   asObject,
   getAddressInfo,
@@ -22,15 +22,15 @@ import {
   requestJson,
   requestSse,
   type SseResponse,
-} from './dashboard-http.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
+} from './dashboard-http.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.ts';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
   restoreDashboardTestEnv,
   restoreDashboardTestRepo,
-} from './dashboard-test-repo.js';
-import { buildTabbyUsage } from './streaming-client.js';
+} from './dashboard-test-repo.ts';
+import { buildTabbyUsage } from './streaming-client.ts';
 
 interface PendingChatRequest {
   sessionId: string;

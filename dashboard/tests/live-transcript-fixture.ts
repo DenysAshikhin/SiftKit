@@ -2,8 +2,8 @@ import {
   buildChatMessageId, buildChatRunMessageIdPrefix, reduceChatTranscript,
   type ChatOperationSnapshot, type ChatSnapshotTokenTurn, type ChatStreamPromptEvent, type ChatTranscriptEvent, type ChatTranscriptMessage,
 } from '@siftkit/contracts';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { chatSnapshot, FIXTURE_OPERATION_ID } from './chat-snapshot-fixture.js';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { chatSnapshot, FIXTURE_OPERATION_ID } from './chat-snapshot-fixture.ts';
 
 /** A prompt measurement folded into the view exactly as the server's snapshot reader does. */
 export type LiveTranscriptStep = ChatTranscriptEvent | { kind: 'prompt'; prompt: ChatStreamPromptEvent };

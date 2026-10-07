@@ -1,24 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { asObjectArray, getAddressInfo } from './helpers/dashboard-http.ts';
 
-import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import { TerminalSynthesizer } from '../src/repo-search/engine/terminal-synthesizer.js';
-import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import type { JsonLogger, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
+import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.ts';
+import { TerminalSynthesizer } from '../src/repo-search/engine/terminal-synthesizer.ts';
+import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.ts';
+import type { JsonLogger, RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
 import {
   captureExecutingPlannerRequest,
   serializeProtocolMessages,
-} from '../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
+} from '../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
 
 function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   return new TerminalSynthesizer({

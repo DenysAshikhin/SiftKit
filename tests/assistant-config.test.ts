@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { AssistantConfigSchema } from '@siftkit/contracts';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { normalizeAssistantConfig } from '../src/config/normalization.js';
-import { getDefaultConfig, readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { path, withTempEnv } from './_runtime-helpers.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import { normalizeAssistantConfig } from '../src/config/normalization.ts';
+import { getDefaultConfig, readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { path, withTempEnv } from './_runtime-helpers.ts';
 
 test('AssistantConfigSchema is strict and the documented defaults are complete', () => {
   assert.deepEqual(DEFAULT_ASSISTANT_CONFIG, {

@@ -1,8 +1,8 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
 import {
   applyHostEngineRuntimeSettings,
@@ -13,11 +13,11 @@ import {
   resetHostEngineSettingsCacheForTests,
   type ModelRuntimePreset,
   type SiftConfig,
-} from '../src/config/index.js';
-import { getPlannerPromptBudget } from '../src/summary.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
-import { mockConfig } from './_runtime-helpers.js';
-import type { JsonValue } from '../src/lib/json-types.js';
+} from '../src/config/index.ts';
+import { getPlannerPromptBudget } from '../src/summary.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
+import { mockConfig } from './_runtime-helpers.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
 
 function makeClientConfig(options: {
   externalServer: boolean;

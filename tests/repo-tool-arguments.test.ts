@@ -1,20 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { z } from '../src/lib/zod.js';
+import { MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { z } from '../src/lib/zod.ts';
 import {
   GitToolArgsSchema,
   REPO_TOOL_ARGUMENT_SCHEMAS,
   RepoNativeToolCallSchema,
   RUN_OUTPUT_MODES,
   RunOutputModeSchema,
-} from '../src/repo-search/repo-tool-arguments.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import { asObject } from './helpers/dashboard-http.js';
+} from '../src/repo-search/repo-tool-arguments.ts';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import { asObject } from './helpers/dashboard-http.ts';
 
 test('git schema accepts all supported typed read-only operations', () => {
   const cases = [

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { firstSegment, planTier3Archives } from '../src/assistant/projections/archive-planner.js';
+import { firstSegment, planTier3Archives } from '../src/assistant/projections/archive-planner.ts';
 
 const bundle = (topicKey: string): { readonly topicKey: string } => ({ topicKey });
 

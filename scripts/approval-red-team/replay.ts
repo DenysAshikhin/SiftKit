@@ -1,13 +1,13 @@
 import {
   ReplayMessageSchema,
   type AutoApprovalReplayPayload,
-} from '../../src/repo-search/approval-verdict-probe.js';
-import { buildRepoToolRequestedCommand } from '../../src/repo-search/engine/repo-tools.js';
-import { buildAssistantToolCallMessage } from '../../src/tool-call-messages.js';
-import type { RedTeamCase } from './corpus.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.js';
-import { toProtocolTools } from '../../src/providers/inference.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.js';
+} from '../../src/repo-search/approval-verdict-probe.ts';
+import { buildRepoToolRequestedCommand } from '../../src/repo-search/engine/repo-tools.ts';
+import { buildAssistantToolCallMessage } from '../../src/tool-call-messages.ts';
+import type { RedTeamCase } from './corpus.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.ts';
+import { toProtocolTools } from '../../src/providers/inference.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.ts';
 
 const TRANSCRIPT_PREFIX: AutoApprovalReplayPayload['messages'] = [
   { role: 'system', content: 'You are SiftKit repo-agent operating on the SiftKit repository.' },

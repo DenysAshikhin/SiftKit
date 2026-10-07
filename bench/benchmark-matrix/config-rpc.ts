@@ -1,8 +1,8 @@
-import { httpClient } from '../../src/lib/http-client.js';
-import { isJsonObject, type OptionalJsonValue } from '../../src/lib/json-types.js';
-import { sleep } from '../../src/lib/time.js';
-import { InferenceClient } from '../../src/llm-protocol/inference-client.js';
-import { ConfigRecordSchema, type ConfigRecord } from './types.js';
+import { httpClient } from '../../src/lib/http-client.ts';
+import { isJsonObject, type OptionalJsonValue } from '../../src/lib/json-types.ts';
+import { sleep } from '../../src/lib/time.ts';
+import { InferenceClient } from '../../src/llm-protocol/inference-client.ts';
+import { ConfigRecordSchema, type ConfigRecord } from './types.ts';
 
 const inferenceClient = new InferenceClient();
 

@@ -1,4 +1,4 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import assert from 'node:assert/strict';
 import { existsSync, rmSync } from 'node:fs';
 import http from 'node:http';
@@ -9,20 +9,20 @@ import {
   AutoApprovalVerdictProbe,
   ConfiguredApprovalVerdictModelClient,
   type ApprovalVerdictModelClient,
-} from '../src/repo-search/approval-verdict-probe.js';
+} from '../src/repo-search/approval-verdict-probe.ts';
 import {
   APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_REQUEST_MARKER,
-} from '../src/repo-search/approval-review-policy.js';
-import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
-import type { PlannerActionResponse } from '../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { CLEAN_STREAM_STOP, type InferenceToolDefinition } from '../src/llm-protocol/types.js';
+} from '../src/repo-search/approval-review-policy.ts';
+import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.ts';
+import type { PlannerActionResponse } from '../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { CLEAN_STREAM_STOP, type InferenceToolDefinition } from '../src/llm-protocol/types.ts';
 
 const messages: ChatMessage[] = [
   { role: 'system', content: 'Work only inside C:\\repo.' },
@@ -80,7 +80,11 @@ const replayTools = [{
 class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
   readonly requests: ChatMessage[][] = [];
 
-  constructor(private readonly responseText: string) {}
+  private readonly responseText: string;
+
+  constructor(responseText: string) {
+    this.responseText = responseText;
+  }
 
   request(
     requestMessages: ChatMessage[],

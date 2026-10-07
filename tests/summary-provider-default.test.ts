@@ -5,10 +5,10 @@ import {
   DEFAULT_SUMMARY_PROVIDER,
   SummaryProviderIdSchema,
   resolveSummaryProvider,
-} from '../src/summary/types.js';
-import { shouldRetryWithSmallerChunks } from '../src/summary/chunking.js';
-import { isOversizedMockInput } from '../src/summary/request-runner.js';
-import { REMOVED_BACKEND_ID, REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
+} from '../src/summary/types.ts';
+import { shouldRetryWithSmallerChunks } from '../src/summary/chunking.ts';
+import { isOversizedMockInput } from '../src/summary/request-runner.ts';
+import { REMOVED_BACKEND_ID, REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.ts';
 
 test('the default summary provider is the real provider', () => {
   assert.equal(DEFAULT_SUMMARY_PROVIDER, 'real');

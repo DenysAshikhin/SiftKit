@@ -1,4 +1,4 @@
-import type { JsonObject } from '../lib/json-types.js';
+import type { JsonObject } from '../lib/json-types.ts';
 
 type JsonSchema = JsonObject;
 

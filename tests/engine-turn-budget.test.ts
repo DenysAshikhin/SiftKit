@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import {
   MIN_TURN_TOOL_RESULT_RATIO,
   TurnBudget,
-} from '../src/repo-search/engine/turn-budget.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
+} from '../src/repo-search/engine/turn-budget.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
 
 test('TurnBudget exposes the shared compaction reserve and prompt limit', () => {
   const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 155_000, maxTurns: 45 });

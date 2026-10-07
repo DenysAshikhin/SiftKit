@@ -5,9 +5,9 @@ import {
   ASSISTANT_MEMORY_SCHEMA_SQL,
   ASSISTANT_MOBILE_SCHEMA_SQL,
   ASSISTANT_PROACTIVE_SCHEMA_SQL,
-} from '../assistant/storage/schema.js';
-import { getDefaultOperationModeAllowedTools } from '../presets.js';
-import type { RuntimeDatabase } from './database-handle.js';
+} from '../assistant/storage/schema.ts';
+import { getDefaultOperationModeAllowedTools } from '../presets.ts';
+import type { RuntimeDatabase } from './database-handle.ts';
 
 /**
  * Durable chat queue entries. Shared by the fresh bootstrap and the 66 -> 67 upgrade so the two

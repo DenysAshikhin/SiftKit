@@ -1,9 +1,9 @@
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { IdGenerator } from '../ids.js';
-import { RetrievalUsageRowSchema, type RetrievalUsageRow } from './rows.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { IdGenerator } from '../ids.ts';
+import { RetrievalUsageRowSchema, type RetrievalUsageRow } from './rows.ts';
 
 const IdListSchema = z.array(z.string());
 
@@ -17,11 +17,19 @@ export interface RecordRetrievalUsageInput {
 }
 
 export class RetrievalUsageStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   record(input: RecordRetrievalUsageInput): RetrievalUsageRow {
     if (!Number.isInteger(input.renderedTokenCount) || input.renderedTokenCount < 0) {

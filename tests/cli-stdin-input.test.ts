@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
-import { commandReadsStdin, readStdinToEnd } from '../src/cli/stdin-input.js';
+import { commandReadsStdin, readStdinToEnd } from '../src/cli/stdin-input.ts';
 
 test('bin entrypoint passes the real stdin stream to TTY-aware commands', () => {
   const source = readFileSync(
-    join(process.cwd(), 'dist', 'cli', 'main.js'),
+    join(process.cwd(), 'src', 'cli', 'main.ts'),
     'utf8',
   );
   assert.match(source, /stdin:\s*process\.stdin/u);

@@ -1,9 +1,9 @@
-import { DEAD_BASE_URL } from './dead-endpoints.js';
-import { createEmptyPresetSystemContext } from './empty-preset-system-context.js';
-import { mockOfflineSiftConfig } from './mock-config.js';
-import { createManagedTempDir } from './temp-dirs.js';
-import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-profile.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.js';
+import { DEAD_BASE_URL } from './dead-endpoints.ts';
+import { createEmptyPresetSystemContext } from './empty-preset-system-context.ts';
+import { mockOfflineSiftConfig } from './mock-config.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
+import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-profile.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.ts';
 
 /**
  * The required RunTaskLoopOptions fields for a mock-mode loop, which never reaches a

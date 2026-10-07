@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ChatQuestionAnswerRequestSchema, ChatQuestionAnswerResponseSchema } from '@siftkit/contracts';
-import { toError } from '../../lib/errors.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import type { ServerContext } from '../server-types.js';
+import { toError } from '../../lib/errors.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
+import type { ServerContext } from '../server-types.ts';
 
 /** Delivers the user's answer to the question the session's active run is waiting on. */
 export class ChatQuestionAnswerEndpoint implements RouteEndpoint {

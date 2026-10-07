@@ -1,10 +1,10 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection';
-import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures';
-import type { DashboardModelRuntimePreset } from '../src/types';
+import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
+import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
+import type { DashboardModelRuntimePreset } from '../src/types.ts';
 import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 
 type ModelPresetsSectionProps = React.ComponentProps<typeof ModelPresetsSection>;

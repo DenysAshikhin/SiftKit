@@ -4,14 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { getRuntimeDatabase, isRuntimeDatabaseOpen } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, isRuntimeDatabaseOpen } from '../src/state/runtime-db.ts';
 import {
   TEMP_DIR_LEAK_HEADER,
   TempDirRegistry,
   createManagedTempDir,
   formatTempDirLeakReport,
   sweepManagedTempDirs,
-} from './helpers/temp-dirs.js';
+} from './helpers/temp-dirs.ts';
 
 test('TempDirRegistry creates a directory under the OS temp dir', () => {
   const registry = new TempDirRegistry();

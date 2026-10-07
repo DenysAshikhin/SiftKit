@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.js';
-import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, ORCHESTRATOR_PRESET, PRESET, SECOND_MODEL_PRESET, TWO_MODEL_DASHBOARD_CONFIG } from '../dashboard/tests/fixtures.js';
+import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.ts';
+import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, ORCHESTRATOR_PRESET, PRESET, SECOND_MODEL_PRESET, TWO_MODEL_DASHBOARD_CONFIG } from '../dashboard/tests/fixtures.ts';
 
 test('settings draft editor replaces the assistant config as one validated value', () => {
   const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);

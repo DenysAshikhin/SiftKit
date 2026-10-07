@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
-import { AssistantMaintenance } from '../src/tabs/settings/AssistantMaintenance.js';
-import { fireEvent, render, screen } from './react-test-environment.js';
+import { AssistantMaintenance } from '../src/tabs/settings/AssistantMaintenance.tsx';
+import { fireEvent, render, screen } from './react-test-environment.ts';
 
 const TOKEN = 'session-secret';
 const ARCHIVE = Uint8Array.from([0x50, 0x4b, 0x03, 0x04]);
@@ -57,7 +57,7 @@ async function settle(action: () => void): Promise<void> {
   });
 }
 
-test('export and backup download their archives and revoke every object URL', { concurrency: false }, async () => {
+test('export and backup download their archives and revoke every object URL', async () => {
   const urls = trackObjectUrls();
   const calls = stubFetch((input) => {
     if (input === '/assistant/export' || input === '/assistant/backup') return zip();
@@ -81,7 +81,7 @@ test('export and backup download their archives and revoke every object URL', { 
   assert.deepEqual(urls.revoked, ['blob:archive-1', 'blob:archive-2']);
 });
 
-test('restore previews the uploaded archive and never hides unreadable blobs', { concurrency: false }, async () => {
+test('restore previews the uploaded archive and never hides unreadable blobs', async () => {
   trackObjectUrls();
   const calls = stubFetch((input) => {
     if (input === '/assistant/restore-preview') {
@@ -119,7 +119,7 @@ test('restore previews the uploaded archive and never hides unreadable blobs', {
   await screen.findByText('Blobs were sealed on another machine.');
 });
 
-test('factory reset stays disabled until the exact phrase is typed over a live preview', { concurrency: false }, async () => {
+test('factory reset stays disabled until the exact phrase is typed over a live preview', async () => {
   trackObjectUrls();
   const calls = stubFetch((input) => {
     if (input === '/assistant/factory-reset/preview') {

@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { buildCompactionSegments, markEarlierRunsCompacted, splitAfterLastSummary } from '../../src/lib/compaction-segments';
-import { ChatMessageSchema, type ChatMessage } from '../../src/types';
+import { buildCompactionSegments, markEarlierRunsCompacted, splitAfterLastSummary } from '../../src/lib/compaction-segments.ts';
+import { ChatMessageSchema, type ChatMessage } from '../../src/types.ts';
 
 function msg(overrides: Partial<ChatMessage> & Pick<ChatMessage, 'id'>): ChatMessage {
   return ChatMessageSchema.parse({ role: 'assistant', kind: 'assistant_answer', content: '', inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,

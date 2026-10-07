@@ -1,17 +1,17 @@
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
 after(() => isolatedRuntime.close());
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { generateInferenceChatResponse } from '../src/providers/inference.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { mockConfig } from './_runtime-helpers.js';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+import { generateInferenceChatResponse } from '../src/providers/inference.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { mockConfig } from './_runtime-helpers.ts';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 
 const CONTENT = 'x'.repeat(400);
 const REASONING = 'y'.repeat(200);

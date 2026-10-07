@@ -6,9 +6,9 @@ import {
   ModelLifecycleActionSchema,
   ModelIdleActionSchema,
   WebSearchProviderIdSchema,
-} from './config.js';
-import { ImageTokenBudgetSchema } from './image.js';
-import { TaskMetricKindSchema } from './metrics.js';
+} from './config.ts';
+import { ImageTokenBudgetSchema } from './image.ts';
+import { TaskMetricKindSchema } from './metrics.ts';
 
 export const DashboardHealthSchema = z.object({
   ok: z.boolean(), disableManagedEngineStartup: z.boolean(), statusPath: z.string(), configPath: z.string(),

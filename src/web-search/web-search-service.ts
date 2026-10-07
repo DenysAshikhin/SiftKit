@@ -1,15 +1,20 @@
-import { httpClient, type HttpClient } from '../lib/http-client.js';
-import type { WebSearchConfig, WebSearchResult, WebSearchToolArgs } from './types.js';
-import { createWebSearchProviders, type WebSearchProvider } from './web-search-provider.js';
+import { httpClient, type HttpClient } from '../lib/http-client.ts';
+import type { WebSearchConfig, WebSearchResult, WebSearchToolArgs } from './types.ts';
+import { createWebSearchProviders, type WebSearchProvider } from './web-search-provider.ts';
 
 export class WebSearchService {
   private readonly providers: WebSearchProvider[];
 
+  private readonly config: WebSearchConfig;
+  private readonly client: HttpClient;
+
   constructor(
-    private readonly config: WebSearchConfig,
-    private readonly client: HttpClient = httpClient,
+    config: WebSearchConfig,
+    client: HttpClient = httpClient,
     providers?: WebSearchProvider[],
   ) {
+    this.config = config;
+    this.client = client;
     this.providers = providers ?? createWebSearchProviders(config);
   }
 

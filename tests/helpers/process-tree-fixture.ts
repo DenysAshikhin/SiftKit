@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
-import { isProcessAlive } from '../../src/lib/process-tree.js';
-import { createManagedTempDir } from './temp-dirs.js';
+import { isProcessAlive } from '../../src/lib/process-tree.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
 
 export { isProcessAlive };
 

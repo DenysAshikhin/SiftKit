@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, rmSync, copyFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getActiveInferenceBackend, getConfigPath, getConfiguredEngineBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
-import { ensureDirectory, saveContentAtomically } from './lib/fs.js';
-import { findNearestSiftKitRepoRoot, moduleDirname } from './lib/paths.js';
-import { getInferenceProviderStatus, listInferenceModels } from './providers/inference.js';
+import { getActiveInferenceBackend, getConfigPath, getConfiguredEngineBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.ts';
+import { ensureDirectory, saveContentAtomically } from './lib/fs.ts';
+import { findNearestSiftKitRepoRoot, moduleDirname } from './lib/paths.ts';
+import { getInferenceProviderStatus, listInferenceModels } from './providers/inference.ts';
 
 const CODEX_POLICY_START = '<!-- SiftKit Policy:Start -->';
 const CODEX_POLICY_END = '<!-- SiftKit Policy:End -->';
@@ -28,18 +28,17 @@ function getShellIntegrationScript(): string {
   ].join('\n');
 }
 
-function copyDirectoryContents(source: string, destination: string): void {
-  ensureDirectory(destination);
-  for (const entry of readdirSync(source, { withFileTypes: true })) {
-    const sourcePath = join(source, entry.name);
-    const destinationPath = join(destination, entry.name);
-    if (entry.isDirectory()) {
-      copyDirectoryContents(sourcePath, destinationPath);
-      continue;
-    }
+const MODULE_MANIFEST = 'SiftKit.psd1';
+const ROOT_MODULE_LINE = "RootModule = 'SiftKit.psm1'";
 
-    copyFileSync(sourcePath, destinationPath);
+// The installed manifest loads this checkout's module by absolute path, so the module resolves this repo.
+function getInstalledModuleManifest(): string {
+  const manifest = readFileSync(join(getModuleRoot(), MODULE_MANIFEST), 'utf8');
+  if (!manifest.includes(ROOT_MODULE_LINE)) {
+    throw new Error(`${MODULE_MANIFEST} no longer declares ${ROOT_MODULE_LINE}.`);
   }
+  const rootModulePath = join(getModuleRoot(), 'SiftKit.psm1').replace(/'/gu, "''");
+  return manifest.replace(ROOT_MODULE_LINE, `RootModule = '${rootModulePath}'`);
 }
 
 function getCodexPolicyBlock(): string {
@@ -161,11 +160,8 @@ export async function installShellIntegration(options?: {
 }): Promise<InstallShellIntegrationResult> {
   const binDir = options?.BinDir || join(process.env.USERPROFILE || '', 'bin');
   const moduleInstallRoot = options?.ModuleInstallRoot || join(process.env.USERPROFILE || '', 'Documents', 'WindowsPowerShell', 'Modules');
-  const moduleSource = getModuleRoot();
   const repoRoot = getRepoRoot();
   const moduleTarget = join(moduleInstallRoot, 'SiftKit');
-  const distSource = join(repoRoot, 'dist');
-  const distTarget = join(moduleTarget, 'dist');
   const binSource = join(repoRoot, 'bin');
 
   ensureDirectory(moduleInstallRoot);
@@ -176,10 +172,7 @@ export async function installShellIntegration(options?: {
   }
 
   ensureDirectory(moduleTarget);
-  copyDirectoryContents(moduleSource, moduleTarget);
-  if (existsSync(distSource)) {
-    copyDirectoryContents(distSource, distTarget);
-  }
+  saveContentAtomically(join(moduleTarget, MODULE_MANIFEST), getInstalledModuleManifest());
   copyFileSync(join(binSource, 'siftkit.ps1'), join(binDir, 'siftkit.ps1'));
   copyFileSync(join(binSource, 'siftkit.cmd'), join(binDir, 'siftkit.cmd'));
   const shellIntegrationPath = join(binDir, 'siftkit-shell.ps1');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { getInferenceRuntimeStatus, postModelResidencyAction } from '../src/api.js';
+import { getInferenceRuntimeStatus, postModelResidencyAction } from '../src/api.ts';
 
 const STATUS = {
   activePresetId: 'active-id',

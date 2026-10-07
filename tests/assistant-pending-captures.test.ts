@@ -6,11 +6,11 @@ import test from 'node:test';
 import {
   PENDING_CAPTURE_LIST_STATES, PendingCaptureDtoSchema, PendingCapturesResponseSchema,
 } from '@siftkit/contracts';
-import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { requestJson } from './helpers/dashboard-http.js';
+import { getDefaultConfig } from '../src/status-server/config-store.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
 import {
   CAPTURE_PNG_BYTES, captureSubmissionDto, withAssistantServer,
-} from './helpers/assistant-server-harness.js';
+} from './helpers/assistant-server-harness.ts';
 
 test('pending captures route lists queued captures whose pixels the evidence route serves', async () => {
   const initial = getDefaultConfig();

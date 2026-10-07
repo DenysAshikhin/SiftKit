@@ -1,18 +1,18 @@
 
-import { z } from '../../src/lib/zod.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.js';
-import { openStoredRuntimeDatabase, rewriteStoredRuntimeDatabase } from './stored-runtime-database.js';
+import { z } from '../../src/lib/zod.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { openStoredRuntimeDatabase, rewriteStoredRuntimeDatabase } from './stored-runtime-database.ts';
 import {
   CHAT_MESSAGES_COLUMNS,
   CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY,
   CHAT_MESSAGES_SCHEMA_SQL,
-} from '../../src/state/runtime-schema.js';
+} from '../../src/state/runtime-schema.ts';
 
 /** What marker 67 actually had: the canonical layout minus everything the upgrade introduces. */
 const LEGACY_CHAT_MESSAGES_COLUMNS = CHAT_MESSAGES_COLUMNS.filter(
   (column) => !CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY.some((added) => added === column),
 );
-import { mockModelPreset } from './mock-config.js';
+import { mockModelPreset } from './mock-config.ts';
 
 /**
  * The `tool_call_status` CHECK that shipped with schema marker 67 and that the live database still

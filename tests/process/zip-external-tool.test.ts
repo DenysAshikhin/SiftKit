@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { POWERSHELL_EXECUTABLE } from '../../src/lib/powershell.js';
-import { ZipFileWriter } from '../../src/lib/zip-file-writer.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { POWERSHELL_EXECUTABLE } from '../../src/lib/powershell.ts';
+import { ZipFileWriter } from '../../src/lib/zip-file-writer.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 const PAYLOAD = Buffer.alloc(300_000, 42);
 const UNICODE_ENTRY = 'topics/café-münchen.md';

@@ -5,9 +5,9 @@ import {
   captureExecutingPlannerRequest,
   resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
-} from '../src/repo-search/planner-protocol.js';
-import { buildAssistantToolCallMessage } from '../src/tool-call-messages.js';
-import { toProtocolTools } from '../src/providers/inference.js';
+} from '../src/repo-search/planner-protocol.ts';
+import { buildAssistantToolCallMessage } from '../src/tool-call-messages.ts';
+import { toProtocolTools } from '../src/providers/inference.ts';
 
 test('the verdict prompt shares P + A with the next planner request', () => {
   const transcript = [

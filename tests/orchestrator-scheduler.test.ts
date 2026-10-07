@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { OrchestratorTaskState, OrchestratorTaskStatus } from '@siftkit/contracts';
-import { selectTasksToStart } from '../src/orchestrator/scheduler.js';
-import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.js';
+import { selectTasksToStart } from '../src/orchestrator/scheduler.ts';
+import { getDefaultConfig } from '../src/status-server/config-store.ts';
+import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
 const CONFIG = getDefaultConfig();
 const READ_A = makeOrchestratorTask({ id: 'read-a' });

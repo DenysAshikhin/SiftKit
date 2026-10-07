@@ -1,10 +1,10 @@
-import './react-test-environment.js';
-import test from 'node:test';
+import './react-test-environment.ts';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { ChatMessageQueueStateSchema } from '@siftkit/contracts';
-import { ChatPendingQueue, type ChatPendingQueueActions } from '../src/components/ChatPendingQueue';
-import { render, screen, fireEvent } from './react-test-environment.js';
+import { ChatPendingQueue, type ChatPendingQueueActions } from '../src/components/ChatPendingQueue.tsx';
+import { render, screen, fireEvent } from './react-test-environment.ts';
 
 const ID = '4f9c1f9a-0000-4000-8000-000000000001';
 const queue = ChatMessageQueueStateSchema.parse({

@@ -16,16 +16,16 @@ import {
   type OrchestratorRunState,
   type OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
-import { runCli } from '../../src/cli/dispatch.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import { z } from '../../src/lib/zod.js';
-import type { RepoSearchExecutionRequest } from '../../src/repo-search/types.js';
-import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from '../helpers/dashboard-model-queue-harness.js';
-import { requestJson } from '../helpers/dashboard-http.js';
-import { makeOrchestratorPlan, makeOrchestratorTask } from '../helpers/orchestrator-plan.js';
-import { ESCALATING_VERDICTS, ScriptedEngineService, finalAnswer } from '../helpers/scripted-engine-service.js';
-import { requestSse } from '../helpers/sse-http.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { runCli } from '../../src/cli/dispatch.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import { z } from '../../src/lib/zod.ts';
+import type { RepoSearchExecutionRequest } from '../../src/repo-search/types.ts';
+import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from '../helpers/dashboard-model-queue-harness.ts';
+import { requestJson } from '../helpers/dashboard-http.ts';
+import { makeOrchestratorPlan, makeOrchestratorTask } from '../helpers/orchestrator-plan.ts';
+import { ESCALATING_VERDICTS, ScriptedEngineService, finalAnswer } from '../helpers/scripted-engine-service.ts';
+import { requestSse } from '../helpers/sse-http.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 const MODEL_A = 'exl3-main';
 const RUN_TIMEOUT_MS = 120_000;

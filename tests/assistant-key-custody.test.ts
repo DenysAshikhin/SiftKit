@@ -3,18 +3,22 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 import type { KeyCustody } from '@siftkit/contracts';
-import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
-import { ImportedKeyProvider } from '../src/assistant/crypto/imported-key-provider.js';
+import { FileKeyProvider } from '../src/assistant/crypto/key-provider.ts';
+import { ImportedKeyProvider } from '../src/assistant/crypto/imported-key-provider.ts';
 import {
   CustodyDelegatingKeyProvider,
   KeyCustodyService,
   type AssistantCustodyConfigPort,
-} from '../src/assistant/crypto/key-custody.js';
-import { assistantKeyFile } from '../src/assistant/layout.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+} from '../src/assistant/crypto/key-custody.ts';
+import { assistantKeyFile } from '../src/assistant/layout.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 class MemoryCustodyConfigPort implements AssistantCustodyConfigPort {
-  constructor(private custody: KeyCustody = 'file') {}
+  private custody: KeyCustody;
+
+  constructor(custody: KeyCustody = 'file') {
+    this.custody = custody;
+  }
 
   readCustody(): KeyCustody {
     return this.custody;

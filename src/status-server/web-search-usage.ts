@@ -1,5 +1,5 @@
-import { z } from '../lib/zod.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { z } from '../lib/zod.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
 import type { WebSearchUsage } from '@siftkit/contracts';
 
 export type { WebSearchUsage } from '@siftkit/contracts';

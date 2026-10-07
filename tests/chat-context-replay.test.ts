@@ -3,29 +3,29 @@ import path from 'node:path';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 
-import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
 import {
   ChatJournalEnvelopeSchema,
   CHAT_JOURNAL_EVENT_VERSION,
   type ChatJournalEnvelope,
   type ChatJournalEvent,
-} from '../src/state/chat-journal-schema.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { saveChatSession } from '../src/state/chat-sessions.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import type { ChatContextRecorder } from '../src/repo-search/engine/chat-run-evidence.js';
-import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
-import type { ChatContextInit, ChatContextSplice } from '../src/repo-search/planner-chat-message.js';
-import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
-import { buildAssistantToolCallMessage, buildToolResultMessage } from '../src/tool-call-messages.js';
+} from '../src/state/chat-journal-schema.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { saveChatSession } from '../src/state/chat-sessions.ts';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
+import type { ChatContextRecorder } from '../src/repo-search/engine/chat-run-evidence.ts';
+import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.ts';
+import type { ChatContextInit, ChatContextSplice } from '../src/repo-search/planner-chat-message.ts';
+import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.ts';
+import { buildAssistantToolCallMessage, buildToolResultMessage } from '../src/tool-call-messages.ts';
 import {
   buildRecoveredChatHistory,
   ChatContextReplay,
   replayChatContext,
-} from '../src/status-server/chat-context-replay.js';
+} from '../src/status-server/chat-context-replay.ts';
 import { buildChatMessageId, buildChatRunMessageIdPrefix } from '@siftkit/contracts';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
 
 const OPERATION_ID = randomUUID();
 const RECORDED_AT = '2026-09-10T11:04:54.755Z';

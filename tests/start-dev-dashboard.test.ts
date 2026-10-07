@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { resolveDashboardLaunch } from '../scripts/start-dev-dashboard.js';
-import { readPackageJson } from './helpers/package-json.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { resolveDashboardLaunch } from '../scripts/start-dev-dashboard.ts';
+import { readPackageJson } from './helpers/package-json.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 test('dev mode launches the hot-reloading dashboard', () => {
   assert.deepEqual(resolveDashboardLaunch(false, createManagedTempDir('siftkit-dash-dev-')), { kind: 'script', script: 'start:dashboard' });

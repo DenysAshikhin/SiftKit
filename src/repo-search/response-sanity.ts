@@ -1,6 +1,6 @@
-import type { RepoSearchExecutionResult } from './types.js';
-import type { Scorecard } from './engine.js';
-import { RepoSearchOutputFormatter } from './output-format.js';
+import type { RepoSearchExecutionResult } from './types.ts';
+import type { Scorecard } from './engine.ts';
+import { RepoSearchOutputFormatter } from './output-format.ts';
 
 type RepoSearchFinalOutput = {
   taskId: string;

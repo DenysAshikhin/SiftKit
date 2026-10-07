@@ -1,4 +1,4 @@
-import { EnvBackup } from './env-backup.js';
+import { EnvBackup } from './env-backup.ts';
 
 /**
  * Sandboxed tests must never fall back to the production status/engine ports, so the env

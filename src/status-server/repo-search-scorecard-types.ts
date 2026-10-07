@@ -1,5 +1,5 @@
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { OptionalJsonValue } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import type { OptionalJsonValue } from '../lib/json-types.ts';
 import {
   ImageDataUrlSchema,
   ImageMetadataSchema,
@@ -8,8 +8,8 @@ import {
   ToolActivitySubjectSchema,
   type InferenceThroughput,
 } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { ChatGroundingStatusSchema, type ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
+import { z } from '../lib/zod.ts';
+import { ChatGroundingStatusSchema, type ChatGroundingStatus } from '../repo-search/chat-grounding-policy.ts';
 
 export const RepoSearchCommandResultSchema = z.strictObject({
   /**

@@ -1,14 +1,14 @@
-import type { ServerContext } from './server-types.js';
+import type { ServerContext } from './server-types.ts';
 import { InferenceBackendIdSchema, type InferenceThroughput, type ThroughputRates } from '@siftkit/contracts';
-import { normalizeConfig, writeConfig } from './config-store.js';
-import { flushDeferredArtifacts } from './server-ops.js';
-import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
-import type { JsonObject } from '../lib/json-types.js';
-import { parseJsonValueText } from '../lib/json.js';
-import type { SiftConfig } from '../config/types.js';
-import { calculateThroughputRates } from '../lib/inference-throughput.js';
-import { auditInferenceThroughput } from './inference-throughput-audit.js';
-import { getAcceptanceRate } from '../lib/telemetry-metrics.js';
+import { normalizeConfig, writeConfig } from './config-store.ts';
+import { flushDeferredArtifacts } from './server-ops.ts';
+import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import type { SiftConfig } from '../config/types.ts';
+import { calculateThroughputRates } from '../lib/inference-throughput.ts';
+import { auditInferenceThroughput } from './inference-throughput-audit.ts';
+import { getAcceptanceRate } from '../lib/telemetry-metrics.ts';
 import {
   appendBenchmarkLogChunk,
   readBenchmarkSessionDetail,
@@ -17,12 +17,12 @@ import {
   type BenchmarkAttemptRecord,
   type BenchmarkSessionDetail,
   type BenchmarkTaskKind,
-} from '../state/dashboard-benchmark.js';
-import { httpClient } from '../lib/http-client.js';
-import { z } from '../lib/zod.js';
-import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, readOperationResult } from '../lib/operation-stream.js';
-import { RepoSearchExecutionResultSchema } from '../repo-search/types.js';
-import { SummaryResultSchema } from '../summary/types.js';
+} from '../state/dashboard-benchmark.ts';
+import { httpClient } from '../lib/http-client.ts';
+import { z } from '../lib/zod.ts';
+import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, readOperationResult } from '../lib/operation-stream.ts';
+import { RepoSearchExecutionResultSchema } from '../repo-search/types.ts';
+import { SummaryResultSchema } from '../summary/types.ts';
 
 export type BenchmarkSseEvent = {
   event: 'log' | 'attempt' | 'session' | 'done' | 'error';

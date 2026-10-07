@@ -1,6 +1,6 @@
 import type { ImageMetadata } from '@siftkit/contracts';
-import type { ChatQueuedMessage } from '../../state/chat-message-queue.js';
-import type { TranscriptManager } from './transcript-manager.js';
+import type { ChatQueuedMessage } from '../../state/chat-message-queue.ts';
+import type { TranscriptManager } from './transcript-manager.ts';
 
 /** A claimed queue entry after admission: its images are the accepted payloads with their metadata. */
 export type ChatDeliveredMessage = ChatQueuedMessage & { imageMeta: ImageMetadata[] };

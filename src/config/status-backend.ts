@@ -1,15 +1,15 @@
 import { ActiveStatusRunSchema, type InferenceThroughput } from '@siftkit/contracts';
-import { httpClient, HttpTimeoutError } from '../lib/http-client.js';
-import { sleep } from '../lib/time.js';
-import { getStatusServerConnectHost } from '../lib/status-host.js';
-import { getErrorMessage, toError } from '../lib/errors.js';
-import { getInferenceStatusPath } from './paths.js';
-import { SIFT_DEFAULT_STATUS_PORT } from './constants.js';
-import { StatusServerUnavailableError } from './errors.js';
-import { parseJsonObjectText } from '../lib/json.js';
-import { z } from '../lib/zod.js';
-import { type JsonObject, type MutableJsonObject } from '../lib/json-types.js';
-import type { DeferredArtifact, DeferredArtifactType } from '../state/status-artifacts.js';
+import { httpClient, HttpTimeoutError } from '../lib/http-client.ts';
+import { sleep } from '../lib/time.ts';
+import { getStatusServerConnectHost } from '../lib/status-host.ts';
+import { getErrorMessage, toError } from '../lib/errors.ts';
+import { getInferenceStatusPath } from './paths.ts';
+import { SIFT_DEFAULT_STATUS_PORT } from './constants.ts';
+import { StatusServerUnavailableError } from './errors.ts';
+import { parseJsonObjectText } from '../lib/json.ts';
+import { z } from '../lib/zod.ts';
+import { type JsonObject, type MutableJsonObject } from '../lib/json-types.ts';
+import type { DeferredArtifact, DeferredArtifactType } from '../state/status-artifacts.ts';
 
 const StatusMetricsSnapshotSchema = z.object({
   inputCharactersTotal: z.number().optional(),

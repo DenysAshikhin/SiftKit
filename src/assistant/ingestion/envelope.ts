@@ -1,6 +1,6 @@
-import { z } from '../../lib/zod.js';
-import { JsonObjectSchema, JsonValueSchema } from '../../lib/json-types.js';
-import { EvidenceSourceTypeSchema, SensitivitySchema } from '../domain/enums.js';
+import { z } from '../../lib/zod.ts';
+import { JsonObjectSchema, JsonValueSchema } from '../../lib/json-types.ts';
+import { EvidenceSourceTypeSchema, SensitivitySchema } from '../domain/enums.ts';
 
 /**
  * §7.1. Gate B carries text and json payloads; the blob payload arrives with Gate D capture,

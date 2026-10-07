@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import { getErrorMessage, toError } from '../../src/lib/errors.js';
-import { resolvePathFromBase } from '../../src/lib/paths.js';
+import { getErrorMessage, toError } from '../../src/lib/errors.ts';
+import { resolvePathFromBase } from '../../src/lib/paths.ts';
 import {
   createBenchmarkMatrixRun,
   createBenchmarkMatrixSession,
@@ -8,18 +8,18 @@ import {
   getBenchmarkMatrixSessionUri,
   updateBenchmarkMatrixRun,
   updateBenchmarkMatrixSession,
-} from '../../src/state/benchmark-matrix.js';
-import { parseArguments } from './args.js';
-import { invokeBenchmarkProcess } from './benchmark-runner.js';
-import { createMatrixInterruptSignal, withMatrixInterrupt } from './interrupt.js';
-import { buildLaunchSignature, restartEngineForTarget } from './launcher.js';
-import { readMatrixManifest } from './manifest.js';
+} from '../../src/state/benchmark-matrix.ts';
+import { parseArguments } from './args.ts';
+import { invokeBenchmarkProcess } from './benchmark-runner.ts';
+import { createMatrixInterruptSignal, withMatrixInterrupt } from './interrupt.ts';
+import { buildLaunchSignature, restartEngineForTarget } from './launcher.ts';
+import { readMatrixManifest } from './manifest.ts';
 import {
   repoRoot,
   type MatrixCliOptions,
   type MatrixIndex,
   type RunEntry,
-} from './types.js';
+} from './types.ts';
 
 function toRunEntry(params: {
   recordId: string;

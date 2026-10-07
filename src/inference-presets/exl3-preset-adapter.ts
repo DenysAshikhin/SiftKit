@@ -6,8 +6,8 @@ import {
   getExl3CacheModes,
   type Exl3CacheModes,
   type PresetRequestDefaults,
-} from './preset-compatibility.js';
-import { Exl3ModelCapabilities } from './exl3-model-capabilities.js';
+} from './preset-compatibility.ts';
+import { Exl3ModelCapabilities } from './exl3-model-capabilities.ts';
 
 /** A profile with no ModelPath declares no loading identity, e.g. a model already served externally. */
 export class MissingModelPathError extends Error {
@@ -78,7 +78,11 @@ function envFlag(value: boolean): 'true' | 'false' {
 export class Exl3PresetAdapter {
   private readonly capabilities = new Exl3ModelCapabilities();
 
-  constructor(private readonly modelRoot: string) {}
+  private readonly modelRoot: string;
+
+  constructor(modelRoot: string) {
+    this.modelRoot = modelRoot;
+  }
 
   validatePreset(preset: ModelRuntimePreset): void {
     if (preset.Backend !== 'exl3') {

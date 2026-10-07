@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
-import { loadConfig, getConfigPath } from '../src/config/index.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { readStatusText } from '../src/status-server/status-file.js';
+import { loadConfig, getConfigPath } from '../src/config/index.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { readStatusText } from '../src/status-server/status-file.ts';
 
 import {
   applyManagedScriptConfig,
@@ -23,10 +23,10 @@ import {
   postCompletedStatus,
   type RuntimeStatusResponse,
   type InferenceModelsResponse,
-} from './_runtime-helpers.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
-import { runtimeDatabaseExists } from '../src/state/runtime-db.js';
+} from './_runtime-helpers.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
+import { runtimeDatabaseExists } from '../src/state/runtime-db.ts';
 
 test('real status server prints one idle metrics line only after the full idle delay', async () => {
   await withTempEnv(async (tempRoot) => {

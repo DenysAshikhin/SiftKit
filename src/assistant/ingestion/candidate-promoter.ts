@@ -1,15 +1,15 @@
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { AssertionObjectRef, CandidateObjectRef, UnresolvedNodeRef } from '../domain/keys.js';
-import { normalizeAliasText, normalizeLiteralValue } from '../domain/keys.js';
-import { isNearOwnerAlias, OWNER_PRONOUN_ALIASES } from '../domain/owner-identity.js';
-import type { RelationType } from '../domain/relation-types.js';
-import type { AssertionWriteOutcome } from '../graph/assertion-service.js';
-import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
-import type { CandidateRow } from '../storage/rows.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
-import type { AssistantTransactionScope } from '../transactions/assistant-transaction-manager.js';
-import type { CandidateGate } from './candidate-gate.js';
-import type { CandidateHold } from './candidate-hold.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { AssertionObjectRef, CandidateObjectRef, UnresolvedNodeRef } from '../domain/keys.ts';
+import { normalizeAliasText, normalizeLiteralValue } from '../domain/keys.ts';
+import { isNearOwnerAlias, OWNER_PRONOUN_ALIASES } from '../domain/owner-identity.ts';
+import type { RelationType } from '../domain/relation-types.ts';
+import type { AssertionWriteOutcome } from '../graph/assertion-service.ts';
+import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.ts';
+import type { CandidateRow } from '../storage/rows.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
+import type { AssistantTransactionScope } from '../transactions/assistant-transaction-manager.ts';
+import type { CandidateGate } from './candidate-gate.ts';
+import type { CandidateHold } from './candidate-hold.ts';
 
 export type PromotionOutcome =
   | { readonly kind: 'promoted'; readonly assertionId: string }
@@ -26,10 +26,16 @@ export interface PromoteRequest {
  * Gate A services, so provenance, precedence, and the audit trail are the same as a manual edit.
  */
 export class CandidatePromoter {
+  private readonly graph: AssistantGraph;
+  private readonly gate: CandidateGate;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly gate: CandidateGate,
-  ) {}
+    graph: AssistantGraph,
+    gate: CandidateGate,
+  ) {
+    this.graph = graph;
+    this.gate = gate;
+  }
 
   promote(request: PromoteRequest): PromotionOutcome {
     const candidate = this.graph.candidates.requireCandidate(request.candidateId);

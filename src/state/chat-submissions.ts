@@ -1,8 +1,8 @@
 import { ChatOperationIdSchema, ChatSessionOperationKindSchema, ChatSubmissionIdSchema } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { digestStableJson } from '../lib/json-digest.js';
-import type { JsonObject } from '../lib/json-types.js';
-import type { RuntimeDatabase } from './database-handle.js';
+import { z } from '../lib/zod.ts';
+import { digestStableJson } from '../lib/json-digest.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import type { RuntimeDatabase } from './database-handle.ts';
 
 export const ChatSubmissionReceiptSchema = z.strictObject({
   sessionId: z.string().min(1),
@@ -21,7 +21,11 @@ const ChatSubmissionReceiptRowSchema = z.strictObject({
 const RunOwnerRowSchema = z.object({ session_id: z.string().min(1) });
 
 export class ChatSubmissionStore {
-  constructor(private readonly database: RuntimeDatabase) {}
+  private readonly database: RuntimeDatabase;
+
+  constructor(database: RuntimeDatabase) {
+    this.database = database;
+  }
 
   read(sessionId: string, submissionId: string): ChatSubmissionReceipt | null {
     const row = this.database.prepare(`

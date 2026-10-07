@@ -1,11 +1,11 @@
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
-import { SIFT_DEFAULT_NUM_CTX } from './constants.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.ts';
+import { SIFT_DEFAULT_NUM_CTX } from './constants.ts';
 import type {
   InferenceBackendId,
   ModelRuntimePreset,
   RuntimeEngineConfig,
   SiftConfig,
-} from './types.js';
+} from './types.ts';
 
 const EMPTY_RUNTIME_ENGINE_CONFIG: RuntimeEngineConfig = {};
 

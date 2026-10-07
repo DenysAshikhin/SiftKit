@@ -6,13 +6,13 @@ import type {
   AssistantProjectionDto,
   AssistantQuestionDto,
   AssistantTopicForgetPreview,
-} from '../types.js';
-import type { AssistantSearchResult } from '../assistant-api.js';
+} from '../types.ts';
+import type { AssistantSearchResult } from '../assistant-api.ts';
 import {
   AssistantMemoryDetail,
   type AssistantMemorySelection,
-} from '../components/AssistantMemoryDetail.js';
-import { AssistantQuestionCard } from '../components/AssistantQuestionCard.js';
+} from '../components/AssistantMemoryDetail.tsx';
+import { AssistantQuestionCard } from '../components/AssistantQuestionCard.tsx';
 
 export type AssistantTabProps = {
   available: boolean;

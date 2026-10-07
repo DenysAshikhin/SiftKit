@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { recordServerError } from '../src/status-server/error-response.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { withTempEnv } from './_runtime-helpers.js';
-import { testHttpAgent } from './helpers/http-agent.js';
+import { recordServerError } from '../src/status-server/error-response.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { withTempEnv } from './_runtime-helpers.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
 
 test('recordServerError returns the persisted diagnostic payload without sending a response', async () => {
   await withTempEnv(async () => {

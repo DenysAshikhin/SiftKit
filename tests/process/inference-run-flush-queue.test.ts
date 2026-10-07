@@ -4,19 +4,19 @@ import Database from 'better-sqlite3';
 
 import {
   InferenceRunFlushQueue,
-} from '../../src/status-server/inference-run-flush-queue.js';
+} from '../../src/status-server/inference-run-flush-queue.ts';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
   getInferenceRunPendingLogChunkStats,
   readInferenceRunLogTextByStream,
-} from '../../src/state/inference-runs.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
-import { withTestEnvAndServer } from '../_test-helpers.js';
-import { waitForCondition } from '../helpers/deferred-shutdown-fixture.js';
-import { lateAckFlushWorker } from '../helpers/flush-worker-fixture.js';
-import { OutputCapture } from '../helpers/stdout-capture.js';
-import { failReportingOn, committedRows } from '../helpers/inference-run-flush-queue-fixtures.js';
+} from '../../src/state/inference-runs.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.ts';
+import { withTestEnvAndServer } from '../_test-helpers.ts';
+import { waitForCondition } from '../helpers/deferred-shutdown-fixture.ts';
+import { lateAckFlushWorker } from '../helpers/flush-worker-fixture.ts';
+import { OutputCapture } from '../helpers/stdout-capture.ts';
+import { failReportingOn, committedRows } from '../helpers/inference-run-flush-queue-fixtures.ts';
 
 test('inference run flush queue coalesces duplicate run flushes and drains asynchronously', async () => {
   await withTestEnvAndServer(async () => {

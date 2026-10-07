@@ -1,23 +1,27 @@
-import { toError } from '../lib/errors.js';
+import { toError } from '../lib/errors.ts';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { DEFAULT_APPROVAL_MODE, type ChatMessageQueueForceState } from '@siftkit/contracts';
-import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.js';
-import { RepoSearchMockCommandResultSchema } from '../repo-search/types.js';
-import { z } from '../lib/zod.js';
-import { getChatSessionPath, readChatSessionFromPath } from '../state/chat-sessions.js';
-import type { ChatQueuedMessage } from '../state/chat-message-queue.js';
-import { getRuntimeRoot } from './paths.js';
-import type { ServerContext } from './server-types.js';
-import type { ChatSessionOperation } from './chat-session-operation-registry.js';
-import { StreamChatMessageEndpoint, StreamChatRepoOperationEndpoint, validateQueuedChatImages } from './routes/chat.js';
-import { StreamChatRepoAgentEndpoint } from './routes/chat-repo-agent.js';
-import { awaitRepoSearchRunPersistence } from '../repo-search/execute.js';
+import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.ts';
+import { RepoSearchMockCommandResultSchema } from '../repo-search/types.ts';
+import { z } from '../lib/zod.ts';
+import { getChatSessionPath, readChatSessionFromPath } from '../state/chat-sessions.ts';
+import type { ChatQueuedMessage } from '../state/chat-message-queue.ts';
+import { getRuntimeRoot } from './paths.ts';
+import type { ServerContext } from './server-types.ts';
+import type { ChatSessionOperation } from './chat-session-operation-registry.ts';
+import { StreamChatMessageEndpoint, StreamChatRepoOperationEndpoint, validateQueuedChatImages } from './routes/chat.ts';
+import { StreamChatRepoAgentEndpoint } from './routes/chat-repo-agent.ts';
+import { awaitRepoSearchRunPersistence } from '../repo-search/execute.ts';
 
 /** Owns continuation leases; each mode reuses its existing complete execution path. */
 export class ChatQueueSuccessorRunner {
-  constructor(private readonly ctx: ServerContext) {}
+  private readonly ctx: ServerContext;
+
+  constructor(ctx: ServerContext) {
+    this.ctx = ctx;
+  }
 
   async startPending(sessionId: string): Promise<void> {
     const state = this.ctx.chatMessageQueue.store.state(sessionId);

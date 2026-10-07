@@ -1,12 +1,12 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 
-import { fireEvent, render, screen, cleanup } from './react-test-environment.js';
-import { VisionPresetControls } from '../src/tabs/settings/VisionPresetControls.js';
-import { VISION_OFFLOAD_LABEL } from '../src/settings-sections.js';
-import { MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.js';
-import type { DashboardModelRuntimePreset } from '../src/types.js';
+import { fireEvent, render, screen, cleanup } from './react-test-environment.ts';
+import { VisionPresetControls } from '../src/tabs/settings/VisionPresetControls.tsx';
+import { VISION_OFFLOAD_LABEL } from '../src/settings-sections.ts';
+import { MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
+import type { DashboardModelRuntimePreset } from '../src/types.ts';
 
 const ModelPresetsSection = VisionPresetControls;
 type VisionPresetControlsProps = React.ComponentProps<typeof VisionPresetControls>;

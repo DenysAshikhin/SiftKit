@@ -13,8 +13,8 @@ import {
   orchestratorScratchDir,
   removeOwnedTemporaryPath,
   renderWorkspaceDiff,
-} from '../../src/orchestrator/workspace.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+} from '../../src/orchestrator/workspace.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const SCRATCH = orchestratorScratchDir(RUN_ID);

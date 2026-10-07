@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
+import { SseFrameParser } from '../src/lib/sse-frame-parser.ts';
 
 test('parses a single complete frame with event name', () => {
   const parser = new SseFrameParser();

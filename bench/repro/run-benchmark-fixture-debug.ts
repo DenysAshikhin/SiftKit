@@ -1,11 +1,11 @@
 // @ts-nocheck
 import fs from 'node:fs';
 import path from 'node:path';
-import { getErrorMessage } from '../../src/lib/errors.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
-import { StatusServerApiClient } from '../../src/cli/status-server-api-client.js';
-import { getRepoRoot } from '../common/paths.js';
+import { getErrorMessage } from '../../src/lib/errors.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import type { JsonObject } from '../../src/lib/json-types.ts';
+import { StatusServerApiClient } from '../../src/cli/status-server-api-client.ts';
+import { getRepoRoot } from '../common/paths.ts';
 
 export function parseArgs(argv: string[]): {
   fixtureIndex: number;

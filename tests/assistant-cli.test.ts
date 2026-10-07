@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseAssistantArgs } from '../src/cli/assistant-args.js';
+import { parseAssistantArgs } from '../src/cli/assistant-args.ts';
 
 test('assistant CLI parses every Gate C command exactly', () => {
   assert.deepEqual(parseAssistantArgs(['status']), { kind: 'status' });

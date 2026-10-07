@@ -6,8 +6,8 @@ import type {
   OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
 
-import { stableStringify } from '../lib/json.js';
-import { findEvidenceProblem } from './verification.js';
+import { stableStringify } from '../lib/json.ts';
+import { findEvidenceProblem } from './verification.ts';
 
 /**
  * Problems that make a drift report unusable: wrong step or digest, host-only statuses, unanchored

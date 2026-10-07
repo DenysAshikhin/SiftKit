@@ -5,7 +5,7 @@ import {
   formatWebFetchCommand,
   formatWebSearchCommand,
   parseWebToolCommand,
-} from '../src/web-search/web-tool-command.js';
+} from '../src/web-search/web-tool-command.ts';
 
 test('web tool command parser round-trips JSON-escaped values', () => {
   const searchCommand = formatWebSearchCommand('foo "bar" OSRS');

@@ -8,12 +8,12 @@ import {
   resolveEffectiveImagePixelCeiling,
   type ImageTokenBudget,
 } from '@siftkit/contracts';
-import { parseFloatInput, parseIntegerInput } from '../../lib/format';
-import { getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
-import { SettingsSectionField } from '../../settings/SettingsFields';
-import { VISION_OFFLOAD_LABEL } from '../../settings-sections';
-import type { DashboardModelRuntimePreset, ModelPresetField } from '../../types';
-import type { ModelPresetSettingsActions } from '../../settings-action-groups';
+import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
+import { getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.ts';
+import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
+import { VISION_OFFLOAD_LABEL } from '../../settings-sections.ts';
+import type { DashboardModelRuntimePreset, ModelPresetField } from '../../types.ts';
+import type { ModelPresetSettingsActions } from '../../settings-action-groups.ts';
 
 const IMAGE_SIZE_REFERENCE = [
   { label: '512×512', pixels: 512 * 512 },

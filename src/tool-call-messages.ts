@@ -1,5 +1,5 @@
-import type { JsonObject } from './lib/json-types.js';
-import type { ChatMessage } from './repo-search/planner-chat-message.js';
+import type { JsonObject } from './lib/json-types.ts';
+import type { ChatMessage } from './repo-search/planner-chat-message.ts';
 
 export type ToolTranscriptAction = {
   toolName: string;

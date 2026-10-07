@@ -1,6 +1,6 @@
-import { z } from '../lib/zod.js';
+import { z } from '../lib/zod.ts';
 import { DEFAULT_APPROVAL_MODE, REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
-import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
+import type { RepoAgentRunResult } from '../repo-agent/run-schemas.ts';
 
 export const REPO_AGENT_CANONICAL_INVOCATION =
   'siftkit repo-agent "task" [options]' as const;

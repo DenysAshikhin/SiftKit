@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   MAX_TIER_UTILITY, routeTier, tierUtility,
-} from '../src/assistant/domain/tier-utility.js';
+} from '../src/assistant/domain/tier-utility.ts';
 
 const neutral = {
   explicitness: 0, crossDomainUsefulness: 0, retrievalFrequency: 0, recency: 0,

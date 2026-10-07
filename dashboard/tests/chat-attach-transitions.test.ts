@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { ChatOperationIdleError } from '../src/api';
-import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
-import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
-import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
+import { ChatOperationIdleError } from '../src/api.ts';
+import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions.ts';
+import type { ChatStreamEvent } from '../src/lib/chat-stream-parser.ts';
+import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store.ts';
 import {
   FIXTURE_OPERATION_ID, chatProjectionCapture, chatQueueState, chatSnapshotFrames, errorRecord, projectionEvents, singleRecordFrames, terminalRecord,
-} from './chat-snapshot-fixture.js';
+} from './chat-snapshot-fixture.ts';
 
 const CAPTURE = chatProjectionCapture({ operationId: FIXTURE_OPERATION_ID, terminalCause: 'completed' }, 0, chatQueueState({ revision: 2 }));
 const ATTACHED: ChatStreamEvent[] = projectionEvents(chatSnapshotFrames(CAPTURE));

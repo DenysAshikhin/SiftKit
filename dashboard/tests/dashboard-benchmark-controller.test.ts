@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { buildBenchmarkStartRequest } from '../dashboard/src/hooks/useBenchmarkController.js';
+import { buildBenchmarkStartRequest } from '../src/hooks/useBenchmarkController.ts';
 
 test('builds a start request from selection', () => {
   assert.deepEqual(

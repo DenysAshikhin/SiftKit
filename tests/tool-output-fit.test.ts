@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ToolOutputFitter } from '../src/tool-output-fit.js';
+import { ToolOutputFitter } from '../src/tool-output-fit.ts';
 
 class CharsTokenCounter {
   async countToolOutputTokens(text: string): Promise<number> {

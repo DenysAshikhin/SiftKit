@@ -4,13 +4,13 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { KeyCustodyStatusDtoSchema, KeyMaterialDtoSchema } from '@siftkit/contracts';
-import { getConfigPath } from '../src/config/index.js';
-import { assistantKeyFile } from '../src/assistant/layout.js';
-import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { z } from '../src/lib/zod.js';
-import { requestJson } from './helpers/dashboard-http.js';
-import { withAssistantServer } from './helpers/assistant-server-harness.js';
+import { getConfigPath } from '../src/config/index.ts';
+import { assistantKeyFile } from '../src/assistant/layout.ts';
+import { getDefaultConfig, readConfig } from '../src/status-server/config-store.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { z } from '../src/lib/zod.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
+import { withAssistantServer } from './helpers/assistant-server-harness.ts';
 
 const AuditRowSchema = z.object({ event_type: z.string(), details_json: z.string() });
 

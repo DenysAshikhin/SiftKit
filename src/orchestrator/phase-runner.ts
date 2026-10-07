@@ -9,26 +9,26 @@ import {
   type OrchestratorTaskReview,
 } from '@siftkit/contracts';
 
-import type { SiftConfig } from '../config/types.js';
-import { ModelJson } from '../lib/model-json.js';
-import { ProgressWriter } from '../lib/progress-writer.js';
-import type { z } from '../lib/zod.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { taskPassed } from '../repo-search/engine/task-loop-support.js';
-import type { RepoSearchProgressEvent } from '../repo-search/types.js';
+import type { SiftConfig } from '../config/types.ts';
+import { ModelJson } from '../lib/model-json.ts';
+import { ProgressWriter } from '../lib/progress-writer.ts';
+import type { z } from '../lib/zod.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { taskPassed } from '../repo-search/engine/task-loop-support.ts';
+import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
 import {
   UncancelledModelWaitError,
   acquireModelRequestWithWait,
   releaseModelRequest,
   renewModelRequestActivity,
-} from '../status-server/server-ops.js';
-import type { ServerContext } from '../status-server/server-types.js';
+} from '../status-server/server-ops.ts';
+import type { ServerContext } from '../status-server/server-types.ts';
 import {
   buildAttemptReviewPrompt,
   buildDriftReviewPrompt,
   buildFinalVerificationPrompt,
   buildPlanPreparationPrompt,
-} from './prompts.js';
+} from './prompts.ts';
 
 /** One finite parent inference: its own durable ID owns the model lease and engine request. */
 export type OrchestratorPhaseRequest = {
@@ -41,8 +41,13 @@ export type OrchestratorPhaseRequest = {
 
 /** Keeps the phase's model lease alive while the engine reports activity. */
 class PhaseLeaseWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  constructor(private readonly ctx: ServerContext, private readonly token: string) {
+  private readonly ctx: ServerContext;
+  private readonly token: string;
+
+  constructor(ctx: ServerContext, token: string) {
     super();
+    this.ctx = ctx;
+    this.token = token;
   }
 
   get enabled(): boolean {
@@ -67,8 +72,14 @@ class PhaseLeaseWriter extends ProgressWriter<RepoSearchProgressEvent> {
  * read-only engine request, releases the lease, and only then parses the typed answer.
  */
 export class OrchestratorPhaseRunner {
+  private readonly ctx: ServerContext;
+  private readonly config: SiftConfig;
+
   /** `config` is the run's pinned snapshot; the model lease supplies the admitted engine config. */
-  constructor(private readonly ctx: ServerContext, private readonly config: SiftConfig) {}
+  constructor(ctx: ServerContext, config: SiftConfig) {
+    this.ctx = ctx;
+    this.config = config;
+  }
 
   preparePlan(request: OrchestratorPhaseRequest, input: Parameters<typeof buildPlanPreparationPrompt>[0]): Promise<OrchestratorPlanPreparation> {
     return this.run(request, buildPlanPreparationPrompt(input), OrchestratorPlanPreparationSchema, 'plan preparation');

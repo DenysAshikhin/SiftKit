@@ -1,4 +1,4 @@
-import type { JsonValue } from '../../../src/lib/json-types.js';
+import type { JsonValue } from '../../../src/lib/json-types.ts';
 
 type MixedPayload = string | JsonValue;
 

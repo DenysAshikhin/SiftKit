@@ -5,15 +5,15 @@ import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 
 import type { OrchestratorRunState } from '@siftkit/contracts';
-import { OrchestratorRunStore } from '../src/orchestrator/run-store.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import {
   OrchestratorRunRegistry,
   RepositoryGate,
   type OrchestratorLiveRun,
   type RepositoryLease,
-} from '../src/status-server/orchestrator-runs.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/status-server/orchestrator-runs.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function openStore(t: TestContext): OrchestratorRunStore {
   const dbPath = path.join(createManagedTempDir('siftkit-orchestrator-runs-'), 'runtime.sqlite');
@@ -35,7 +35,13 @@ class FakeLiveRun implements OrchestratorLiveRun {
   abortReason: string | null = null;
   private finish: () => void = () => {};
   readonly settled = new Promise<void>((resolve) => { this.finish = resolve; });
-  constructor(readonly runId: string, private readonly onAbort: () => void = () => {}) {}
+  readonly runId: string;
+  private readonly onAbort: () => void;
+
+  constructor(runId: string, onAbort: () => void = () => {}) {
+    this.runId = runId;
+    this.onAbort = onAbort;
+  }
   abort(reason: string): void {
     this.abortReason = reason;
     this.onAbort();

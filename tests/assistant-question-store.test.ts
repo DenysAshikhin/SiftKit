@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 const NOW = '2026-08-05T09:00:00.000Z';
 

@@ -1,13 +1,13 @@
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 
 import { ModelRuntimePresetSchema } from '@siftkit/contracts';
-import { SummaryRequestRunner } from '../src/summary/request-runner.js';
-import { DEFAULT_SUMMARY_PROVIDER } from '../src/summary/types.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
-import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+import { SummaryRequestRunner } from '../src/summary/request-runner.ts';
+import { DEFAULT_SUMMARY_PROVIDER } from '../src/summary/types.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
+import { DeadEndpointEnv } from './helpers/dead-endpoints.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
 
 // The deterministic path still posts terminal status; nothing here asserts on it.
 const isolatedRuntime = new IsolatedRuntime();

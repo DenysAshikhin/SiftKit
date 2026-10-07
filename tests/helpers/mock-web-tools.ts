@@ -1,4 +1,4 @@
-import { WebResearchTools } from '../../src/web-search/web-research-tools.js';
+import { WebResearchTools } from '../../src/web-search/web-research-tools.ts';
 
 /** Web tools with every provider disabled, for tests that never reach the network. */
 export function makeMockWebTools(): WebResearchTools {

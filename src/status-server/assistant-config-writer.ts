@@ -1,7 +1,7 @@
 import type { KeyCustody } from '@siftkit/contracts';
-import type { AssistantConfigWriter } from '../assistant/assistant-service.js';
-import type { AssistantConfig } from '../config/types.js';
-import { readConfig, writeConfig } from './config-store.js';
+import type { AssistantConfigWriter } from '../assistant/assistant-service.ts';
+import type { AssistantConfig } from '../config/types.ts';
+import { readConfig, writeConfig } from './config-store.ts';
 
 /**
  * Persists an assistant custody flip through the same store the config route uses, so a flip the
@@ -9,7 +9,11 @@ import { readConfig, writeConfig } from './config-store.js';
  * from the store, not from the caller, so concurrent config saves are never overwritten.
  */
 export class StatusServerAssistantConfigWriter implements AssistantConfigWriter {
-  constructor(private readonly configPath: string) {}
+  private readonly configPath: string;
+
+  constructor(configPath: string) {
+    this.configPath = configPath;
+  }
 
   writeKeyCustody(custody: KeyCustody): AssistantConfig {
     const config = readConfig(this.configPath);

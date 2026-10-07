@@ -1,11 +1,11 @@
 import { ChatStreamTextDeltaSchema, type ChatTextDeltaKind } from '@siftkit/contracts';
-import { ProgressWriter } from '../lib/progress-writer.js';
-import type { RepoSearchProgressEvent } from '../repo-search/types.js';
-import { LiveTextDeltaTracker, LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from './live-text-delta.js';
-import { toChatStreamToolEvent, toChatStreamUsageEvent, toChatStreamPromptEvent } from './chat-stream-frames.js';
-import type { ChatOperationBroadcast } from './chat-operation-broadcast.js';
-import type { ChatTurnPhaseTracker } from './chat-turn-phase-tracker.js';
-import type { ChatRunRecorder } from './chat-run-recorder.js';
+import { ProgressWriter } from '../lib/progress-writer.ts';
+import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
+import { LiveTextDeltaTracker, LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from './live-text-delta.ts';
+import { toChatStreamToolEvent, toChatStreamUsageEvent, toChatStreamPromptEvent } from './chat-stream-frames.ts';
+import type { ChatOperationBroadcast } from './chat-operation-broadcast.ts';
+import type { ChatTurnPhaseTracker } from './chat-turn-phase-tracker.ts';
+import type { ChatRunRecorder } from './chat-run-recorder.ts';
 
 /** Coalesces live text; the recorder owns the transcript and commits each emitted delta before readers wake. */
 export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
@@ -16,12 +16,21 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
   private flushTimer: NodeJS.Timeout | null = null;
   private flushFailure: Error | null = null;
 
+  private readonly broadcast: Pick<ChatOperationBroadcast, 'publish'>;
+  private readonly phaseTracker: ChatTurnPhaseTracker | null;
+  private readonly streamAnswer: boolean;
+  private readonly recorder: ChatRunRecorder;
+
   constructor(
-    private readonly broadcast: Pick<ChatOperationBroadcast, 'publish'>,
-    private readonly phaseTracker: ChatTurnPhaseTracker | null,
-    private readonly streamAnswer: boolean,
-    private readonly recorder: ChatRunRecorder,
-  ) { super(); recorder.attachProgress(this); }
+    broadcast: Pick<ChatOperationBroadcast, 'publish'>,
+    phaseTracker: ChatTurnPhaseTracker | null,
+    streamAnswer: boolean,
+    recorder: ChatRunRecorder,
+  ) { super();
+    this.broadcast = broadcast;
+    this.phaseTracker = phaseTracker;
+    this.streamAnswer = streamAnswer;
+    this.recorder = recorder; recorder.attachProgress(this); }
 
   get enabled(): boolean { return true; }
 

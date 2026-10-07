@@ -1,43 +1,43 @@
-import { buildChatAnswerCompletion,type ChatRunRecorder } from './chat-run-recorder.js';
-import type { QuestionGate } from '../repo-search/engine/question-gate.js';
+import { buildChatAnswerCompletion,type ChatRunRecorder } from './chat-run-recorder.ts';
+import type { QuestionGate } from '../repo-search/engine/question-gate.ts';
 
 import {
 getActiveModelPreset,
 type SiftConfig,
-} from '../config/index.js';
-import { ProgressWriter } from '../lib/progress-writer.js';
-import { throwIfAborted } from '../lib/abort.js';
-import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
-import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
-import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
+} from '../config/index.ts';
+import { ProgressWriter } from '../lib/progress-writer.ts';
+import { throwIfAborted } from '../lib/abort.ts';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.ts';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
+import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.ts';
 import type {
 RepoSearchExecutionResult,
 RepoSearchMockCommandResult,
 RepoSearchProgressEvent,
-} from '../repo-search/types.js';
+} from '../repo-search/types.ts';
 import {
 type ChatSession, saveChatSessionMetadata
-} from '../state/chat-sessions.js';
+} from '../state/chat-sessions.ts';
 import {
 resolveChatRunAllowedTools,
 ChatOperationPresetSelector,
-} from './chat-operation-preset.js';
+} from './chat-operation-preset.ts';
 import {
 ChatTurnPhaseTracker,
 type ChatTurnPhaseTimestamps,
-} from './chat-turn-phase-tracker.js';
-import { auditCompletedChatSessionThroughput } from './chat-turn-telemetry.js';
+} from './chat-turn-phase-tracker.ts';
+import { auditCompletedChatSessionThroughput } from './chat-turn-telemetry.ts';
 import {
 buildPlanMarkdownFromRepoSearch,
 buildPlanRequestPrompt,
 buildRepoSearchMarkdown,
 getChatRunFailure,
-} from './chat.js';
-import type { StatusEngineService } from './engine-service.js';
+} from './chat.ts';
+import type { StatusEngineService } from './engine-service.ts';
 import {
 normalizeRepoSearchScorecard,
 type RepoSearchScorecard,
-} from './repo-search-scorecard-types.js';
+} from './repo-search-scorecard-types.ts';
 
 type ChatRepoOperation = 'plan' | 'repo-search';
 
@@ -76,8 +76,11 @@ export type ChatRepoOperationResult = {
 class ChatRepoOperationProgressTracker extends ProgressWriter<RepoSearchProgressEvent> {
   private readonly phaseTracker = new ChatTurnPhaseTracker();
 
-  constructor(private readonly writer: ProgressWriter<RepoSearchProgressEvent>) {
+  private readonly writer: ProgressWriter<RepoSearchProgressEvent>;
+
+  constructor(writer: ProgressWriter<RepoSearchProgressEvent>) {
     super();
+    this.writer = writer;
   }
 
   get enabled(): boolean {

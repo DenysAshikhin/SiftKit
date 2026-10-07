@@ -2,16 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 
-import { InferenceRunRecorder } from '../src/status-server/inference-run-recorder.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { TabbyRunRecorder } from '../src/status-server/tabby-run-recorder.js';
+import { InferenceRunRecorder } from '../src/status-server/inference-run-recorder.ts';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
+import { TabbyRunRecorder } from '../src/status-server/tabby-run-recorder.ts';
 import {
   consumeInferenceRunPendingLogChunks,
   readInferenceRun,
   readInferenceRunLogTextByStream,
-} from '../src/state/inference-runs.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { withTempEnv } from './_runtime-helpers.js';
+} from '../src/state/inference-runs.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { withTempEnv } from './_runtime-helpers.ts';
 
 /**
  * `withTempEnv` chdirs into a temp root, which is what actually isolates the runtime database:

@@ -15,11 +15,11 @@
     "types": ["vite/client"]
     ,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
     "incremental": true,
-    "tsBuildInfoFile": "./.tscache/dashboard.tsbuildinfo",
-    "paths": {
-      "@siftkit/contracts": ["../packages/contracts/src/index.ts"]
-    }
+    "tsBuildInfoFile": "./.tscache/dashboard.tsbuildinfo"
   },
   "include": [
     "src",

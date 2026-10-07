@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
-import { assertPublicHttpUrl } from '../src/web-search/url-safety.js';
-import { clampQuota } from '../src/web-search/web-search-provider-base.js';
-import { WebSearchService } from '../src/web-search/web-search-service.js';
-import { WebFetchService } from '../src/web-search/web-fetch-service.js';
-import { WebResearchTools } from '../src/web-search/web-research-tools.js';
-import { TavilySearchProvider } from '../src/web-search/tavily-search-provider.js';
-import { FirecrawlSearchProvider } from '../src/web-search/firecrawl-search-provider.js';
-import { createWebSearchProviders, WebSearchProvider, type WebSearchProviderOptions } from '../src/web-search/web-search-provider.js';
-import type { ProviderQuota, WebSearchConfig, WebSearchResult } from '../src/web-search/types.js';
-import type { HttpClient } from '../src/lib/http-client.js';
+import { z } from '../src/lib/zod.ts';
+import type { JsonSerializable } from '../src/lib/json-types.ts';
+import { assertPublicHttpUrl } from '../src/web-search/url-safety.ts';
+import { clampQuota } from '../src/web-search/web-search-provider-base.ts';
+import { WebSearchService } from '../src/web-search/web-search-service.ts';
+import { WebFetchService } from '../src/web-search/web-fetch-service.ts';
+import { WebResearchTools } from '../src/web-search/web-research-tools.ts';
+import { TavilySearchProvider } from '../src/web-search/tavily-search-provider.ts';
+import { FirecrawlSearchProvider } from '../src/web-search/firecrawl-search-provider.ts';
+import { createWebSearchProviders, WebSearchProvider, type WebSearchProviderOptions } from '../src/web-search/web-search-provider.ts';
+import type { ProviderQuota, WebSearchConfig, WebSearchResult } from '../src/web-search/types.ts';
+import type { HttpClient } from '../src/lib/http-client.ts';
 
 const webConfig: WebSearchConfig = {
   EnabledDefault: false,
@@ -30,7 +30,11 @@ const webConfig: WebSearchConfig = {
 class StubHttpClient implements Pick<HttpClient, 'fetch'> {
   readonly calls: Array<{ url: string; init?: RequestInit }> = [];
 
-  constructor(private readonly handler: (url: string | URL, init?: RequestInit) => Promise<Response>) {}
+  private readonly handler: (url: string | URL, init?: RequestInit) => Promise<Response>;
+
+  constructor(handler: (url: string | URL, init?: RequestInit) => Promise<Response>) {
+    this.handler = handler;
+  }
 
   fetch(url: string | URL, init?: RequestInit): Promise<Response> {
     this.calls.push({ url: String(url), init });
@@ -170,11 +174,16 @@ test('FirecrawlSearchProvider throws on success:false; getQuota reads camelCase 
 });
 
 class FakeProvider extends WebSearchProvider {
+  readonly id: 'tavily' | 'firecrawl';
+  private readonly result: WebSearchResult[] | Error;
+
   constructor(
-    readonly id: 'tavily' | 'firecrawl',
-    private readonly result: WebSearchResult[] | Error,
+    id: 'tavily' | 'firecrawl',
+    result: WebSearchResult[] | Error,
   ) {
     super();
+    this.id = id;
+    this.result = result;
   }
 
   async search(): Promise<WebSearchResult[]> {

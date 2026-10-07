@@ -1,11 +1,11 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 
-import { ImageLightbox } from '../src/components/ImageLightbox';
-import { fireEvent, render, screen } from './react-test-environment.js';
+import { ImageLightbox } from '../src/components/ImageLightbox.tsx';
+import { fireEvent, render, screen } from './react-test-environment.ts';
 
 const PNG = 'data:image/png;base64,AA==';
 

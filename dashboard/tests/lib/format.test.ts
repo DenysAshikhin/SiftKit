@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { getLastTurnTelemetry } from '../../src/lib/format';
-import type { ChatMessage, ChatSession } from '../../src/types';
+import { getLastTurnTelemetry } from '../../src/lib/format.ts';
+import type { ChatMessage, ChatSession } from '../../src/types.ts';
 
 const BASE_MESSAGE: ChatMessage = {
   id: 'm1',

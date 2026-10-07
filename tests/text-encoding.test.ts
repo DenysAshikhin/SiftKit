@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { applyEolStyle, detectEolStyle } from '../src/lib/text-encoding.js';
+import { applyEolStyle, detectEolStyle } from '../src/lib/text-encoding.ts';
 
 test('detectEolStyle reports crlf only for uniformly CRLF text', () => {
   assert.equal(detectEolStyle('a\r\nb\r\n'), 'crlf');

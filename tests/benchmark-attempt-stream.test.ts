@@ -2,15 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { parseJsonObjectText } from '../src/lib/json.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import { parseRepoSearchRequest, parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
-import { requestBenchmarkAttemptResult } from '../src/status-server/dashboard-benchmark-runner.js';
-import { buildMockScorecard } from './_test-helpers.js';
-import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.js';
-import { OPERATION_STREAM_EVENTS } from '../src/lib/operation-stream.js';
-import { SseResponseWriter } from '../src/status-server/sse-response-writer.js';
-import { buildOperationStreamErrorPayload } from './helpers/sse-http.js';
+import { parseJsonObjectText } from '../src/lib/json.ts';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import { parseRepoSearchRequest, parseSummaryRequest } from '../src/status-server/route-request-normalizers.ts';
+import { requestBenchmarkAttemptResult } from '../src/status-server/dashboard-benchmark-runner.ts';
+import { buildMockScorecard } from './_test-helpers.ts';
+import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.ts';
+import { OPERATION_STREAM_EVENTS } from '../src/lib/operation-stream.ts';
+import { SseResponseWriter } from '../src/status-server/sse-response-writer.ts';
+import { buildOperationStreamErrorPayload } from './helpers/sse-http.ts';
 
 type FakeOperationServer = {
   baseUrl: string;

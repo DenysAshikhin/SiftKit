@@ -1,24 +1,24 @@
-import type { SiftConfig } from '../../config/index.js';
-import { resolveFinalGenerationTokenLimit } from '../../lib/context-token-budget.js';
+import type { SiftConfig } from '../../config/index.ts';
+import { resolveFinalGenerationTokenLimit } from '../../lib/context-token-budget.ts';
 import {
   appendPlannerInstruction,
   requestTerminalSynthesis,
   type ExecutingPlannerRequest,
-} from '../planner-protocol.js';
-import type { ChatMessage } from '../planner-chat-message.js';
-import { countPlannerPromptTokens } from '../prompt-budget.js';
-import { renderWirePrompt } from '../wire-prompt.js';
-import { buildTerminalSynthesisInstruction } from '../prompts.js';
-import type { JsonLogger } from '../types.js';
-import { ProgressReporter } from './progress-reporter.js';
-import { TokenUsageTracker } from './token-usage.js';
-import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
+} from '../planner-protocol.ts';
+import type { ChatMessage } from '../planner-chat-message.ts';
+import { countPlannerPromptTokens } from '../prompt-budget.ts';
+import { renderWirePrompt } from '../wire-prompt.ts';
+import { buildTerminalSynthesisInstruction } from '../prompts.ts';
+import type { JsonLogger } from '../types.ts';
+import { ProgressReporter } from './progress-reporter.ts';
+import { TokenUsageTracker } from './token-usage.ts';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.ts';
 import type { ThroughputAuditOperation } from '@siftkit/contracts';
 
 const MAX_SYNTHESIS_ATTEMPTS = 3;
 
 export class TerminalSynthesizer {
-  constructor(private readonly options: {
+  private readonly options: {
     baseUrl: string;
     model: string;
     timeoutMs: number;
@@ -30,7 +30,23 @@ export class TerminalSynthesizer {
     progress: ProgressReporter;
     tokenUsage: TokenUsageTracker;
     throughputAudit: ThroughputAuditOperation;
-  }) {}
+  };
+
+  constructor(options: {
+    baseUrl: string;
+    model: string;
+    timeoutMs: number;
+    config: SiftConfig;
+    useEstimatedTokensOnly: boolean;
+    totalContextTokens: number;
+    streamFinishAsAnswer: boolean;
+    logger: JsonLogger | null;
+    progress: ProgressReporter;
+    tokenUsage: TokenUsageTracker;
+    throughputAudit: ThroughputAuditOperation;
+  }) {
+    this.options = options;
+  }
 
   async synthesize(input: {
     taskId: string;

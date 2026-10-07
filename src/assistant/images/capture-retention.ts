@@ -1,9 +1,9 @@
-import type { AssistantConfig } from '../../config/types.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { Clock } from '../clock.js';
-import type { CaptureRetentionPayload } from '../jobs/job-types.js';
-import type { CaptureQueueRow } from '../storage/rows.js';
-import type { CaptureQueueStore } from './capture-queue-store.js';
+import type { AssistantConfig } from '../../config/types.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { Clock } from '../clock.ts';
+import type { CaptureRetentionPayload } from '../jobs/job-types.ts';
+import type { CaptureQueueRow } from '../storage/rows.ts';
+import type { CaptureQueueStore } from './capture-queue-store.ts';
 
 const BYTES_PER_GB = 1024 ** 3;
 

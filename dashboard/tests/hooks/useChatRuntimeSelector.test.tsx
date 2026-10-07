@@ -1,11 +1,11 @@
-import { countRenders } from '../render-tracker.js';
-import { render } from '../react-test-environment.js';
-import test from 'node:test';
+import { countRenders } from '../render-tracker.ts';
+import { render } from '../react-test-environment.ts';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
-import { ChatRuntimeHub } from '../../src/lib/chat-runtime-hub';
-import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
-import { useChatRuntimeSelector } from '../../src/hooks/useChatRuntimeSelector';
+import { ChatRuntimeHub } from '../../src/lib/chat-runtime-hub.ts';
+import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store.ts';
+import { useChatRuntimeSelector } from '../../src/hooks/useChatRuntimeSelector.ts';
 
 function DraftProbe({ hub }: { hub: ChatRuntimeHub }) {
   const draft = useChatRuntimeSelector(hub, (store) => store.get('s1').draft);

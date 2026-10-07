@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 function baseInput(ownerId: string) {
   return {

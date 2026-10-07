@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { ModelRuntimePreset } from '../src/config/types.js';
-import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
-import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { createPresetRoutingConfig } from './helpers/preset-routing-config.js';
-import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.js';
+import type { ModelRuntimePreset } from '../src/config/types.ts';
+import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.ts';
+import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
+import { createPresetRoutingConfig } from './helpers/preset-routing-config.ts';
+import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.ts';
 
 class TestRuntime extends ManagedInferenceRuntime {
   constructor() {

@@ -1,20 +1,20 @@
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
-import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
-import type { RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
-import { mockSiftConfig, usableWebSearchConfig } from './helpers/mock-config.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { z } from '../src/lib/zod.js';
-import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/schemas.js';
-import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
+import { executeRepoSearchRequest } from '../src/repo-search/execute.ts';
+import type { RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import { mockSiftConfig, usableWebSearchConfig } from './helpers/mock-config.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { z } from '../src/lib/zod.ts';
+import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/schemas.ts';
+import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
 
 // Execution posts run status; these tests assert on scorecard and progress events only.
 const isolatedRuntime = new IsolatedRuntime();

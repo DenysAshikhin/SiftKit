@@ -1,12 +1,12 @@
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 import {
   CHAT_JOURNAL_SCHEMA_SQL,
   CHAT_MESSAGES_COLUMNS,
   CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY,
   CHAT_MESSAGES_COLUMNS_ADDED_BY_INFERENCE_THROUGHPUT,
   CHAT_MESSAGES_SCHEMA_SQL,
-} from '../runtime-schema.js';
-import type { RuntimeDatabase } from '../database-handle.js';
+} from '../runtime-schema.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
 
 const ColumnNameRowsSchema = z.array(z.object({ name: z.string() }));
 const ForeignKeyViolationRowsSchema = z.array(z.object({

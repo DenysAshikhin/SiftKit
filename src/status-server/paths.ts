@@ -8,8 +8,8 @@ import {
   getConfigPath as getConfigPathShared,
   getCompressionMetricsPath,
   getIdleSummarySnapshotsPath as getIdleSummarySnapshotsPathShared,
-} from '../config/paths.js';
-import { findNearestSiftKitRepoRoot as findNearestSiftKitRepoRootShared } from '../lib/paths.js';
+} from '../config/paths.ts';
+import { findNearestSiftKitRepoRoot as findNearestSiftKitRepoRootShared } from '../lib/paths.ts';
 
 export function findNearestSiftKitRepoRoot(startPath: string = process.cwd()): string | null {
   return findNearestSiftKitRepoRootShared(startPath);

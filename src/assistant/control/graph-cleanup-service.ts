@@ -1,13 +1,13 @@
 import type { AssistantGraphCleanupPreview } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { DeletionPreviewService, GraphCleanupCounts } from './deletion-preview.js';
-import { isSensitivityAtLeast } from '../domain/enums.js';
-import { RELATION_DEFINITIONS } from '../domain/relation-types.js';
-import type { CaptureQueueStore } from '../images/capture-queue-store.js';
-import type { ImageExtractor } from '../images/image-extractor.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { DeletionPreviewService, GraphCleanupCounts } from './deletion-preview.ts';
+import { isSensitivityAtLeast } from '../domain/enums.ts';
+import { RELATION_DEFINITIONS } from '../domain/relation-types.ts';
+import type { CaptureQueueStore } from '../images/capture-queue-store.ts';
+import type { ImageExtractor } from '../images/image-extractor.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
 
 const IdRowSchema = z.object({ id: z.string() });
 

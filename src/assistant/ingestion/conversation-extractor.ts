@@ -1,8 +1,8 @@
-import { z } from '../../lib/zod.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { AssertionBasis, ObservationType } from '../domain/enums.js';
-import { buildProposedStatementSchema } from '../domain/proposal-schema.js';
-import type { StructuredOutputRunner } from '../inference/structured-runner.js';
+import { z } from '../../lib/zod.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { AssertionBasis, ObservationType } from '../domain/enums.ts';
+import { buildProposedStatementSchema } from '../domain/proposal-schema.ts';
+import type { StructuredOutputRunner } from '../inference/structured-runner.ts';
 
 const StatementKindSchema = z.enum([
   'direct_fact', 'correction', 'hypothetical', 'quotation', 'request', 'third_party_fact',
@@ -62,10 +62,16 @@ export interface ExtractResult {
  * classifies; deterministic code decides what may become a candidate.
  */
 export class ConversationExtractor {
+  private readonly graph: AssistantGraph;
+  private readonly runner: StructuredOutputRunner;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly runner: StructuredOutputRunner,
-  ) {}
+    graph: AssistantGraph,
+    runner: StructuredOutputRunner,
+  ) {
+    this.graph = graph;
+    this.runner = runner;
+  }
 
   async extract(request: ExtractRequest): Promise<ExtractResult> {
     return this.extractWithBasis(request, 'explicit_user_statement');

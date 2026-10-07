@@ -6,17 +6,17 @@ import test from 'node:test';
 import { InferenceRuntimeStatusSchema, type InferenceRuntimeStatus } from '@siftkit/contracts';
 import { z } from 'zod';
 
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { parseJsonObjectText, parseJsonValueText } from '../src/lib/json.js';
-import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { readBody } from '../src/status-server/http-utils.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { FakeTabbyModelState } from './helpers/tabby-fake.js';
-import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
-import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { parseJsonObjectText, parseJsonValueText } from '../src/lib/json.ts';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { readBody } from '../src/status-server/http-utils.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { FakeTabbyModelState } from './helpers/tabby-fake.ts';
+import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
 
 async function readInferenceRuntimeStatus(baseUrl: string): Promise<InferenceRuntimeStatus> {
   return InferenceRuntimeStatusSchema.parse(await (await fetch(`${baseUrl}/runtime/inference`)).json());

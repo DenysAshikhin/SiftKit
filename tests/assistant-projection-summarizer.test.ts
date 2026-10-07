@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { ProjectionSummarizer } from '../src/assistant/projections/projection-summarizer.js';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { ProjectionSummarizer } from '../src/assistant/projections/projection-summarizer.ts';
+import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
 
 const ORIGINAL = '# Tools\n- Uses PowerShell daily. [M:ast_1]\n- Prefers Windows Terminal. [M:ast_2]';
 const ASSERTIONS = [

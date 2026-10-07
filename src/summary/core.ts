@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { decodeTextBuffer } from '../lib/text-encoding.js';
-import { normalizeInputText } from './measure.js';
-import { SummaryRequestRunner } from './request-runner.js';
+import { decodeTextBuffer } from '../lib/text-encoding.ts';
+import { normalizeInputText } from './measure.ts';
+import { SummaryRequestRunner } from './request-runner.ts';
 import type {
   SummaryRequest,
   SummaryResult,
-} from './types.js';
+} from './types.ts';
 
 export async function summarizeRequest(request: SummaryRequest): Promise<SummaryResult> {
   return new SummaryRequestRunner(request).run();

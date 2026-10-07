@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ChatOperationClosure } from '../src/status-server/chat-operation-broadcast.js';
+import type { ChatOperationClosure } from '../src/status-server/chat-operation-broadcast.ts';
 
 import {
   ChatSessionOperationRegistry,
   type ChatSessionOperation,
   type ChatSessionOperationAcquireResult,
-} from '../src/status-server/chat-session-operation-registry.js';
+} from '../src/status-server/chat-session-operation-registry.ts';
 
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
 const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';

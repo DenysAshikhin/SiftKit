@@ -1,8 +1,8 @@
 // Benchmark module public API barrel.
 
-export { main, runBenchmarkSuite } from './runner.js';
+export { main, runBenchmarkSuite } from './runner.ts';
 export type {
   BenchmarkCaseResult,
   BenchmarkRunResult,
   BenchmarkRunnerOptions,
-} from './types.js';
+} from './types.ts';

@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { ZipFileReader } from '../src/lib/zip-file-reader.js';
-import { ZipFileWriter } from '../src/lib/zip-file-writer.js';
-import { readArchiveEntries } from './helpers/archive-bytes.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { ZipFileReader } from '../src/lib/zip-file-reader.ts';
+import { ZipFileWriter } from '../src/lib/zip-file-writer.ts';
+import { readArchiveEntries } from './helpers/archive-bytes.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function build(entries: readonly (readonly [string, Buffer])[], prefix: string): string {
   const archivePath = path.join(createManagedTempDir(prefix), 'a.zip');

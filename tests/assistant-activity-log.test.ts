@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ActivityEventDto } from '@siftkit/contracts';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import type { AssistantConfig } from '../src/config/types.js';
-import { ActivityLog } from '../src/assistant/observation/activity-log.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import type { AssistantConfig } from '../src/config/types.ts';
+import { ActivityLog } from '../src/assistant/observation/activity-log.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 function activityDto(overrides: {
   capturedAtUtc: string;

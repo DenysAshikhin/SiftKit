@@ -4,9 +4,9 @@ import {
   serializeProtocolMessages,
   type ExecutingPlannerRequest,
   type PlannerThinkingFlags,
-} from '../../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../../src/repo-search/planner-chat-message.js';
-import { toProtocolTools } from '../../src/providers/inference.js';
+} from '../../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../../src/repo-search/planner-chat-message.ts';
+import { toProtocolTools } from '../../src/providers/inference.ts';
 
 export const THINKING_ON_FLAGS = {
   thinkingEnabled: true,

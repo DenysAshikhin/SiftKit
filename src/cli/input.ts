@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { decodeTextBuffer } from '../lib/text-encoding.js';
+import { decodeTextBuffer } from '../lib/text-encoding.ts';
 
 function normalizeCliInputText(text: string | null | undefined): string | null {
   if (text === null || text === undefined) {

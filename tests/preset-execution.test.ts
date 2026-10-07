@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolvePresetAllowedTools } from '../src/presets.js';
-import { executePlannerTool } from '../src/summary/planner/tools.js';
-import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
-import { runRepoSearch } from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { resolvePresetAllowedTools } from '../src/presets.ts';
+import { executePlannerTool } from '../src/summary/planner/tools.ts';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.ts';
+import { runRepoSearch } from '../src/repo-search/engine.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { getDefaultConfig } from '../src/status-server/config-store.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 test('summary planner tool definitions respect the preset allowlist', () => {
   const definitions = buildSummaryPlannerToolDefinitions(['find_text']);

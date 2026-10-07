@@ -1,18 +1,14 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true,
-    // Mandatory override: this config extends dashboard/tsconfig.json and would otherwise
-    // share — and corrupt — that project's buildinfo file.
-    "incremental": true,
+    // Own buildinfo, or this project would share and corrupt dashboard/tsconfig.json's.
     "tsBuildInfoFile": "./.tscache/dashboard-test.tsbuildinfo",
     "types": ["vite/client", "node"],
     "paths": {
       "react": ["./node_modules/@types/react"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
       "react-dom": ["./node_modules/@types/react-dom"],
-      "react-dom/server": ["./node_modules/@types/react-dom/server"],
-      "@siftkit/contracts": ["../packages/contracts/src/index.ts"]
+      "react-dom/server": ["./node_modules/@types/react-dom/server"]
     }
   },
   "include": [
@@ -22,16 +18,10 @@
     "../src/types/better-sqlite3.d.ts",
     "../src/web-search/types.ts",
     "../src/presets.ts",
-    "../tests/dashboard-app-refresh.test.ts",
     "../tests/dashboard-api.test.ts",
-    "../tests/dashboard-toasts.test.ts",
-    "../tests/dashboard-benchmark-controller.test.ts",
-    "../tests/dashboard-settings-controller.test.ts",
-    "../tests/dashboard-model-presets-section.test.ts",
-    "../tests/dashboard-presets-section.test.ts",
-    "../tests/dashboard-runs-controller-e2e.test.ts"
+    "../tests/dashboard-toasts.test.ts"
   ],
-  "//exclude": "Pre-existing debt, NOT a design: dashboard/tests was covered by no tsc project until now, so these 17 files accumulated 694 type errors (about 450 of them in repo-root src/ dragged in through chat-tab.test.tsx, which this project checks under noUncheckedIndexedAccess + exactOptionalPropertyTypes that root src/ is not written for). Every other dashboard test, and every new one, is checked. Shrink this list; never add to it.",
+  "//exclude": "Pre-existing type debt from before dashboard/tests was typechecked; shrink this list, never add to it.",
   "exclude": [
     "tests/assistant-tab.test.tsx",
     "tests/chat-composer-inputs.test.ts",

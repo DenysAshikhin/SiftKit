@@ -5,7 +5,7 @@ import {
   type ChatStreamToolEvent,
   type ChatStreamUsageEvent,
 } from '@siftkit/contracts';
-import type { RepoSearchProgressEvent } from '../repo-search/types.js';
+import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
 
 export function toChatStreamUsageEvent(
   event: Extract<RepoSearchProgressEvent, { kind: 'usage' }>,

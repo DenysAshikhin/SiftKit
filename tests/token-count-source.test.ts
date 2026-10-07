@@ -4,12 +4,12 @@ import assert from 'node:assert/strict';
 import {
   countTokensWithFallbackDetailed,
   preflightPlannerPromptBudget,
-} from '../src/repo-search/prompt-budget.js';
-import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
-import type { InferenceBackendId } from '../src/config/types.js';
-import type { SiftConfig } from '../src/config/index.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { asRuntimeSiftConfig } from './helpers/mock-config.js';
+} from '../src/repo-search/prompt-budget.ts';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.ts';
+import type { InferenceBackendId } from '../src/config/types.ts';
+import type { SiftConfig } from '../src/config/index.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { asRuntimeSiftConfig } from './helpers/mock-config.ts';
 
 const PROMPT = 'count the planner prompt tokens';
 const STUB_TOKEN_COUNT = 4242;

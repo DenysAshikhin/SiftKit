@@ -3,24 +3,24 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import test from 'node:test';
 
-import { stableStringify } from '../src/lib/json.js';
-import { digestStableJson } from '../src/lib/json-digest.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
+import { stableStringify } from '../src/lib/json.ts';
+import { digestStableJson } from '../src/lib/json-digest.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
 import {
   closeAllRuntimeDatabases,
   CURRENT_SCHEMA_VERSION,
   getRuntimeDatabase,
   getSchemaVersion,
   readRuntimeDatabaseImage,
-} from '../src/state/runtime-db.js';
-import { CHAT_MESSAGES_COLUMNS } from '../src/state/runtime-schema.js';
-import { z } from '../src/lib/zod.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { openStoredRuntimeDatabase, rewriteStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+} from '../src/state/runtime-db.ts';
+import { CHAT_MESSAGES_COLUMNS } from '../src/state/runtime-schema.ts';
+import { z } from '../src/lib/zod.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { openStoredRuntimeDatabase, rewriteStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 import {
   REMOVED_BACKEND_COLUMN_PREFIX, REMOVED_BACKEND_ID, REMOVED_BACKEND_RUNS_TABLE,
   REMOVED_BACKEND_LOG_CHUNKS_TABLE, REMOVED_BACKEND_STREAM_KIND,
-} from './helpers/legacy-backend-fixtures.js';
+} from './helpers/legacy-backend-fixtures.ts';
 import {
   CANONICAL_TOOL_CALL_STATUS_VALUES,
   LEGACY_FIXTURE_MARKER_VERSION,
@@ -30,8 +30,8 @@ import {
   readTableColumns,
   readTableDefinition,
   seedLegacyChatDatabase,
-} from './helpers/legacy-chat-schema-fixture.js';
-import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.js';
+} from './helpers/legacy-chat-schema-fixture.ts';
+import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.ts';
 import { ImageMetadataSchema } from '@siftkit/contracts';
 
 const TableNameRowsSchema = z.array(z.object({ name: z.string() }));

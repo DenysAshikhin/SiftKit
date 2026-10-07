@@ -4,33 +4,33 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { requestSse } from './helpers/sse-http.js';
-import { startHarness, waitForActiveModelRequestOwner } from './helpers/streamed-op-harness.js';
-import { readStatusModelRequests } from './helpers/model-request-status.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { AGENT_RUN_ID_HEADER } from '../src/lib/agent-run-marker.js';
+import { requestSse } from './helpers/sse-http.ts';
+import { startHarness, waitForActiveModelRequestOwner } from './helpers/streamed-op-harness.ts';
+import { readStatusModelRequests } from './helpers/model-request-status.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { AGENT_RUN_ID_HEADER } from '../src/lib/agent-run-marker.ts';
 import {
   RepoAgentRunRequestSchema,
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
-} from '../src/repo-agent/run-schemas.js';
-import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
-import { ActivitySummaryProgressEventSchema } from '../src/repo-search/engine/activity-summary-collector.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { ModelRequestQueueDiagnosticsSchema } from '../src/lib/operation-stream.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import { testHttpAgent } from './helpers/http-agent.js';
-import { requestJson } from './helpers/dashboard-http.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
+} from '../src/repo-agent/run-schemas.ts';
+import { RepoAgentRunStore } from '../src/repo-agent/run-store.ts';
+import { ActivitySummaryProgressEventSchema } from '../src/repo-search/engine/activity-summary-collector.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { ModelRequestQueueDiagnosticsSchema } from '../src/lib/operation-stream.ts';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
 import {
   RepoSearchProgressEventSchema,
   type RepoSearchExecutionRequest,
   type RepoSearchExecutionResult,
   type RepoSearchProgressEvent,
-} from '../src/repo-search/types.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
-import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
+} from '../src/repo-search/types.ts';
+import { StatusEngineService } from '../src/status-server/engine-service.ts';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
 
 const NON_VERDICT_RESPONSE = "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}}";
 type TurnProgressEvent = Extract<RepoSearchProgressEvent, { maxTurns: number }>;

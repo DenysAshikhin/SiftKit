@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 
-import { JsonValueSchema, type JsonValue } from '../src/lib/json-types.js';
-import { TabbyModelClient } from '../src/status-server/tabby-model-client.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { FakeTabbyModelState } from './helpers/tabby-fake.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { JsonValueSchema, type JsonValue } from '../src/lib/json-types.ts';
+import { TabbyModelClient } from '../src/status-server/tabby-model-client.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { FakeTabbyModelState } from './helpers/tabby-fake.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
 test('Tabby model client loads and unloads through validated lifecycle packets', async () => {
   const model = new FakeTabbyModelState();

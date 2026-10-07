@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import {
@@ -6,9 +6,9 @@ import {
   getLiveMessageTokenDisplay,
   getSessionTelemetryStats,
   getTurnTokenDisplay,
-} from '../src/lib/format';
-import type { ChatTurn } from '../src/lib/chatTurns';
-import type { ChatMessage, ChatSession } from '../src/types';
+} from '../src/lib/format.ts';
+import type { ChatTurn } from '../src/lib/chatTurns.ts';
+import type { ChatMessage, ChatSession } from '../src/types.ts';
 
 function tokenMessage(overrides: Partial<ChatMessage>): ChatMessage {
   return {

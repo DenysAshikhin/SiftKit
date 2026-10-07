@@ -1,14 +1,14 @@
 import React from 'react';
-import { MetricChart, type MetricSeries } from '../components/MetricChart';
-import { CHART_COLORS } from '../lib/metric-chart-colors';
+import { MetricChart, type MetricSeries } from '../components/MetricChart.tsx';
+import { CHART_COLORS } from '../lib/metric-chart-colors.ts';
 import {
   formatDate,
   formatNumber,
   formatSecondsFromMs,
   formatShortTime,
-} from '../lib/format';
-import { describeToolType, type ToolMetricRow } from '../metrics-view';
-import type { IdleSummarySnapshot, MetricDay, ProviderQuota, WebSearchUsage } from '../types';
+} from '../lib/format.ts';
+import { describeToolType, type ToolMetricRow } from '../metrics-view.ts';
+import type { IdleSummarySnapshot, MetricDay, ProviderQuota, WebSearchUsage } from '../types.ts';
 
 export type MetricsTabProps = {
   metrics: MetricDay[];

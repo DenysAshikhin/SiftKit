@@ -4,10 +4,10 @@ import path from 'node:path';
 import test, { mock } from 'node:test';
 import Database from 'better-sqlite3';
 
-import { SystemClock } from '../../src/assistant/clock.js';
-import { z } from '../../src/lib/zod.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { SystemClock } from '../../src/assistant/clock.ts';
+import { z } from '../../src/lib/zod.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 // File storage: what a failed open leaves behind in the runtime database file itself.
 const TableNameRowsSchema = z.array(z.object({ name: z.string() }));

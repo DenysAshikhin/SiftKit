@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
-import { summarizeRequest } from '../src/summary.js';
-import { runBenchmarkSuite } from '../bench/benchmark/index.js';
-import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
+import { summarizeRequest } from '../src/summary.ts';
+import { runBenchmarkSuite } from '../bench/benchmark/index.ts';
+import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.ts';
 
 import {
   loadConfig,
@@ -14,7 +14,7 @@ import {
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 const SIFTKIT_REPO_ROOT = process.cwd();
 

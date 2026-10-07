@@ -10,7 +10,10 @@ export interface TokenCounter {
 
 /** Character-based fallback. Pure, deterministic, and always available. */
 export class EstimateTokenCounter implements TokenCounter {
-  constructor(private readonly charactersPerToken: number) {
+  private readonly charactersPerToken: number;
+
+  constructor(charactersPerToken: number) {
+    this.charactersPerToken = charactersPerToken;
     if (!Number.isFinite(charactersPerToken) || charactersPerToken <= 0) {
       throw new Error(`Characters per token must be positive: ${charactersPerToken}`);
     }

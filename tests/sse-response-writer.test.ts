@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { SseResponseWriter } from '../src/status-server/sse-response-writer.js';
-import { SseFrameParser, type SseFrame } from '../src/lib/sse-frame-parser.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { testHttpAgent } from './helpers/http-agent.js';
+import { SseResponseWriter } from '../src/status-server/sse-response-writer.ts';
+import { SseFrameParser, type SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
 
 test('large snapshot frames drain in bounded chunks without heartbeats corrupting their data', async () => {
   const data = JSON.stringify({ text: '🧭'.repeat(3 * 1024 * 1024) });

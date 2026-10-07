@@ -5,13 +5,13 @@ import {
   type KeyCustody, type KeyCustodyState, type KeyCustodyStatusDto, type KeyMaterialDto,
 } from '@siftkit/contracts';
 
-import { hashBytes } from '../domain/keys.js';
-import { AssistantConflictError } from '../errors.js';
-import type { EvidenceStore } from '../storage/evidence-store.js';
-import { BlobCipher } from './blob-cipher.js';
-import { ImportedKeyProvider } from './imported-key-provider.js';
-import type { AssistantEncryptionKey, AssistantKeyProvider } from './key-provider.js';
-import type { FileKeyProvider } from './key-provider.js';
+import { hashBytes } from '../domain/keys.ts';
+import { AssistantConflictError } from '../errors.ts';
+import type { EvidenceStore } from '../storage/evidence-store.ts';
+import { BlobCipher } from './blob-cipher.ts';
+import { ImportedKeyProvider } from './imported-key-provider.ts';
+import type { AssistantEncryptionKey, AssistantKeyProvider } from './key-provider.ts';
+import type { FileKeyProvider } from './key-provider.ts';
 
 /** Durable home of `Assistant.KeyCustody`. Writes must persist before the key file is deleted. */
 export interface AssistantCustodyConfigPort {
@@ -32,11 +32,19 @@ export interface KeyCustodyServiceOptions {
  * `BlobCipher`, the evidence store — depends only on this, so a custody flip needs no rewiring.
  */
 export class CustodyDelegatingKeyProvider implements AssistantKeyProvider {
+  private readonly config: AssistantCustodyConfigPort;
+  private readonly fileKeys: FileKeyProvider;
+  private readonly imported: ImportedKeyProvider;
+
   constructor(
-    private readonly config: AssistantCustodyConfigPort,
-    private readonly fileKeys: FileKeyProvider,
-    private readonly imported: ImportedKeyProvider,
-  ) {}
+    config: AssistantCustodyConfigPort,
+    fileKeys: FileKeyProvider,
+    imported: ImportedKeyProvider,
+  ) {
+    this.config = config;
+    this.fileKeys = fileKeys;
+    this.imported = imported;
+  }
 
   getActiveKey(): AssistantEncryptionKey {
     return this.active().getActiveKey();

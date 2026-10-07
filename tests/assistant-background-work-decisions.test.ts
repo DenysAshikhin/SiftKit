@@ -3,16 +3,16 @@ import path from 'node:path';
 import test, { afterEach } from 'node:test';
 
 import { AssistantBackgroundDecisionHistoryResponseSchema } from '@siftkit/contracts';
-import { FixedClock } from '../src/assistant/clock.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { BackgroundWorkDecisionStore } from '../src/assistant/storage/background-work-decision-store.js';
-import { JobStore } from '../src/assistant/storage/job-store.js';
-import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.js';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { BackgroundWorkDecisionStore } from '../src/assistant/storage/background-work-decision-store.ts';
+import { JobStore } from '../src/assistant/storage/job-store.ts';
+import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.ts';
 import {
   closeAllRuntimeDatabases,
   getRuntimeDatabase,
-} from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const START = '2026-08-31T12:00:00.000Z';
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { AssistantRateLimiter } from '../src/status-server/assistant-rate-limiter.js';
+import { AssistantRateLimiter } from '../src/status-server/assistant-rate-limiter.ts';
 
 test('assistant rate limits use independent fixed windows per bearer and operation class', () => {
   const limiter = new AssistantRateLimiter();

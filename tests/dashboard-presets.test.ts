@@ -6,10 +6,10 @@ import {
   getPresetById,
   getPresetFamily,
   hasSamePresetExecutionContext,
-} from '../dashboard/src/dashboard-presets.js';
-import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
-import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+} from '../dashboard/src/dashboard-presets.ts';
+import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.ts';
+import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {

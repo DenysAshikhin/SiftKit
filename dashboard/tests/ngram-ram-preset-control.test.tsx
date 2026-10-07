@@ -1,12 +1,12 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 
-import { fireEvent, render, screen, cleanup } from './react-test-environment.js';
-import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.js';
-import { NGRAM_RAM_LABEL } from '../src/settings-sections.js';
-import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.js';
-import type { DashboardModelRuntimePreset } from '../src/types.js';
+import { fireEvent, render, screen, cleanup } from './react-test-environment.ts';
+import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
+import { NGRAM_RAM_LABEL } from '../src/settings-sections.ts';
+import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
+import type { DashboardModelRuntimePreset } from '../src/types.ts';
 
 type ModelPresetsSectionProps = React.ComponentProps<typeof ModelPresetsSection>;
 

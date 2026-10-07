@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 test('RetrievalUsageStore records parsed IDs and bounded usefulness feedback', () => {
   withAssistantContext(({ graph, ownerId, clock }) => {

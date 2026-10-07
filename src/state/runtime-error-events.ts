@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
-import { toError } from '../lib/errors.js';
+import { toError } from '../lib/errors.ts';
 import {
   getPrimaryCauseDiagnostic,
   serializeErrorDiagnostic,
   type ErrorDiagnostic,
-} from '../lib/error-diagnostics.js';
+} from '../lib/error-diagnostics.ts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 

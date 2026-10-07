@@ -1,6 +1,6 @@
-import { startStatusServer } from './index.js';
-import { getErrorMessage } from '../lib/errors.js';
-import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from './shutdown-budget.js';
+import { startStatusServer } from './index.ts';
+import { getErrorMessage } from '../lib/errors.ts';
+import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from './shutdown-budget.ts';
 
 const server = startStatusServer({
   disableManagedEngineStartup: process.argv.includes('--disable-managed-engine-startup'),

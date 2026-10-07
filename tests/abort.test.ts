@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getAbortError, throwIfAborted } from '../src/lib/abort.js';
+import { getAbortError, throwIfAborted } from '../src/lib/abort.ts';
 
 test('getAbortError prefers the abort reason when it is an Error', () => {
   const controller = new AbortController();

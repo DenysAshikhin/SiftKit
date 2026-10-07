@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { TokenCounter, TokenCount } from '../src/assistant/domain/tokens.js';
-import { TokenLimitEnforcer } from '../src/assistant/projections/token-limit-enforcer.js';
+import type { TokenCounter, TokenCount } from '../src/assistant/domain/tokens.ts';
+import { TokenLimitEnforcer } from '../src/assistant/projections/token-limit-enforcer.ts';
 
 class LengthTokenCounter implements TokenCounter {
   async count(text: string): Promise<TokenCount> {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MemoryQueryService } from '../src/assistant/control/memory-query-service.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { MemoryQueryService } from '../src/assistant/control/memory-query-service.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 test('MemoryQueryService provides bounded, owner-isolated graph and explanation DTOs', () => {
   withAssistantContext(({ graph, ownerId }) => {

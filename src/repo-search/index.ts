@@ -2,7 +2,7 @@
 
 export {
   executeRepoSearchRequest,
-} from './execute.js';
+} from './execute.ts';
 export {
   assertConfiguredModelPresent,
   buildScorecard,
@@ -11,21 +11,21 @@ export {
   type Scorecard,
   type TaskDefinition,
   type TaskResult,
-} from './engine.js';
+} from './engine.ts';
 export {
   buildIgnorePolicy,
   type IgnorePolicy,
-} from './command-safety.js';
-export type { ChatMessage } from './planner-chat-message.js';
-export { estimateTokenCount } from '../lib/token-estimate.js';
+} from './command-safety.ts';
+export type { ChatMessage } from './planner-chat-message.ts';
+export { estimateTokenCount } from '../lib/token-estimate.ts';
 export {
   countTokensWithFallback,
   preflightPlannerPromptBudget,
-} from './prompt-budget.js';
+} from './prompt-budget.ts';
 export type {
   JsonLogger,
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
-} from './types.js';
+} from './types.ts';

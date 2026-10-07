@@ -1,22 +1,29 @@
-import { ProgressWriter } from '../../src/lib/progress-writer.js';
+import { ProgressWriter } from '../../src/lib/progress-writer.ts';
 import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
-} from '../../src/repo-search/types.js';
-import { StatusEngineService } from '../../src/status-server/engine-service.js';
+} from '../../src/repo-search/types.ts';
+import { StatusEngineService } from '../../src/status-server/engine-service.ts';
 
 /**
  * Forwards every progress event to the real writer and reports the first tool start whose command
  * matches, so a test can stop a run at an exact point instead of racing a timer.
  */
 class ObservingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  private readonly inner: ProgressWriter<RepoSearchProgressEvent>;
+  private readonly holdCommand: string;
+  private readonly held: Deferred;
+
   constructor(
-    private readonly inner: ProgressWriter<RepoSearchProgressEvent>,
-    private readonly holdCommand: string,
-    private readonly held: Deferred,
+    inner: ProgressWriter<RepoSearchProgressEvent>,
+    holdCommand: string,
+    held: Deferred,
   ) {
     super();
+    this.inner = inner;
+    this.holdCommand = holdCommand;
+    this.held = held;
   }
 
   get enabled(): boolean {
@@ -58,11 +65,16 @@ export class HoldingCaptureEngineService extends StatusEngineService {
   private readonly unwound = new Deferred();
   private readonly released = new Deferred();
 
+  private readonly holdCommand: string;
+  private readonly pauseAfterAbort: boolean;
+
   constructor(
-    private readonly holdCommand: string,
-    private readonly pauseAfterAbort = false,
+    holdCommand: string,
+    pauseAfterAbort = false,
   ) {
     super();
+    this.holdCommand = holdCommand;
+    this.pauseAfterAbort = pauseAfterAbort;
   }
 
   waitUntilHoldingTool(): Promise<void> {

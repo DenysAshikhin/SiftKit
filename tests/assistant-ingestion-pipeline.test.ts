@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { IngestionPipeline } from '../src/assistant/ingestion/pipeline.js';
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { IngestionPipeline } from '../src/assistant/ingestion/pipeline.ts';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 function textEnvelope(ownerId: string, sourceEventId: string, text: string) {
   return {
@@ -95,7 +95,7 @@ test('a blocked topic suppresses ingestion', () => {
   });
 });
 
-import { ConversationIngestor } from '../src/assistant/ingestion/conversation-ingestor.js';
+import { ConversationIngestor } from '../src/assistant/ingestion/conversation-ingestor.ts';
 
 function chatTurn(ownerId: string) {
   return {

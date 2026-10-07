@@ -1,21 +1,21 @@
 import { randomUUID } from 'node:crypto';
-import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
+import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.ts';
 import type { ImageMetadata, ImageTokenBudget, ToolActivity } from '@siftkit/contracts';
-import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
-import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
+import { getRepoSearchLineReadStats } from '../../line-read-guidance.ts';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.ts';
 import {
   type IgnorePolicy,
-} from '../command-safety.js';
+} from '../command-safety.ts';
 import {
   isTreeMutatingToolName,
-} from '../planner-protocol.js';
-import type { ChatMessage } from '../planner-chat-message.js';
-import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
-import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.js';
-import type { AgentLoopToolAction } from '../../agent-loop/types.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { estimateTokenCount } from '../../lib/token-estimate.js';
-import type { TaskCommand } from '../prompts.js';
+} from '../planner-protocol.ts';
+import type { ChatMessage } from '../planner-chat-message.ts';
+import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
+import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.ts';
+import type { AgentLoopToolAction } from '../../agent-loop/types.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { estimateTokenCount } from '../../lib/token-estimate.ts';
+import type { TaskCommand } from '../prompts.ts';
 import {
   buildRepeatedToolCallSummary,
   buildGitPromptToolResult,
@@ -23,11 +23,11 @@ import {
   classifyToolOutputNovelty,
   fingerprintGitToolCall,
   fingerprintToolCall,
-} from '../../tool-loop-governor.js';
-import { ChatGroundingPolicy } from '../chat-grounding-policy.js';
-import type { JsonLogger, RepoSearchMockCommandResult } from '../types.js';
-import { type ToolBatchOutcome } from '../../tool-call-messages.js';
-import { WebResearchTools } from '../../web-search/web-research-tools.js';
+} from '../../tool-loop-governor.ts';
+import { ChatGroundingPolicy } from '../chat-grounding-policy.ts';
+import type { JsonLogger, RepoSearchMockCommandResult } from '../types.ts';
+import { type ToolBatchOutcome } from '../../tool-call-messages.ts';
+import { WebResearchTools } from '../../web-search/web-research-tools.ts';
 import {
   buildEffectiveTranscriptAction,
   buildNativeToolRequestedCommand,
@@ -35,16 +35,16 @@ import {
   buildReadCommand,
   executeRepoTool,
   type RepoToolExecution,
-} from './repo-tools.js';
-import { buildApprovalReviewPayload, type ApprovalRequester } from './approval-gate.js';
-import { formatQuestionReply, type QuestionGate } from './question-gate.js';
-import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.js';
-import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
-import { ActivitySummaryCollector } from './activity-summary-collector.js';
-import { ProgressReporter } from './progress-reporter.js';
-import { getToolActivity } from '../tool-activity.js';
-import { buildReadPathKey } from './read-overlap.js';
-import { ReadWindowGovernor } from './read-window-governor.js';
+} from './repo-tools.ts';
+import { buildApprovalReviewPayload, type ApprovalRequester } from './approval-gate.ts';
+import { formatQuestionReply, type QuestionGate } from './question-gate.ts';
+import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.ts';
+import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.ts';
+import { ActivitySummaryCollector } from './activity-summary-collector.ts';
+import { ProgressReporter } from './progress-reporter.ts';
+import { getToolActivity } from '../tool-activity.ts';
+import { buildReadPathKey } from './read-overlap.ts';
+import { ReadWindowGovernor } from './read-window-governor.ts';
 import {
   applyToolOutputRepetitionGuard,
   buildToolBudgetNotice,
@@ -53,25 +53,25 @@ import {
   type RejectionKind,
   type TaskDefinition,
   type TurnOutcome,
-} from './task-loop-support.js';
-import { ToolResultBudgeter } from './tool-result-budgeter.js';
-import { TokenUsageTracker } from './token-usage.js';
-import { ToolStatsRecorder } from './tool-stats.js';
-import { TranscriptManager } from './transcript-manager.js';
-import { TurnBudget, type AvailableToolResultCapacity } from './turn-budget.js';
+} from './task-loop-support.ts';
+import { ToolResultBudgeter } from './tool-result-budgeter.ts';
+import { TokenUsageTracker } from './token-usage.ts';
+import { ToolStatsRecorder } from './tool-stats.ts';
+import { TranscriptManager } from './transcript-manager.ts';
+import { TurnBudget, type AvailableToolResultCapacity } from './turn-budget.ts';
 import {
   RepoNativeToolCallSchema,
   type AskUserToolArgs,
   type RepoExecutableToolCall,
   type RepoNativeToolCall,
-} from '../repo-tool-arguments.js';
-import { getAbortError, throwIfAborted } from '../../lib/abort.js';
+} from '../repo-tool-arguments.ts';
+import { getAbortError, throwIfAborted } from '../../lib/abort.ts';
 import {
   buildPendingAssistantMessage,
   resolveToolActionIdentity,
-} from './pending-tool-call-message.js';
-import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
-import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.js';
+} from './pending-tool-call-message.ts';
+import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
+import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.ts';
 
 type RunOutputDecision = ReturnType<RepoSearchRuntimeProfile['beginRun']>;
 
@@ -208,7 +208,11 @@ export class ToolActionProcessor {
   private readonly collector = new ActivitySummaryCollector();
   private progressToolCallSeq = 0;
 
-  constructor(private readonly deps: ToolActionProcessorDeps) {}
+  private readonly deps: ToolActionProcessorDeps;
+
+  constructor(deps: ToolActionProcessorDeps) {
+    this.deps = deps;
+  }
 
   async executeBatch(
     turn: number,

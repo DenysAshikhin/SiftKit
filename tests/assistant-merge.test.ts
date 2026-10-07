@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { NodeMergeService } from '../src/assistant/graph/merge-service.js';
-import { AssertionStore } from '../src/assistant/storage/assertion-store.js';
-import { AuditStore } from '../src/assistant/storage/audit-store.js';
-import { NodeStore } from '../src/assistant/storage/node-store.js';
-import { PolicyStore } from '../src/assistant/storage/policy-store.js';
-import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { NodeMergeService } from '../src/assistant/graph/merge-service.ts';
+import { AssertionStore } from '../src/assistant/storage/assertion-store.ts';
+import { AuditStore } from '../src/assistant/storage/audit-store.ts';
+import { NodeStore } from '../src/assistant/storage/node-store.ts';
+import { PolicyStore } from '../src/assistant/storage/policy-store.ts';
+import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 interface MergeHarness {
   readonly merges: NodeMergeService;

@@ -4,7 +4,7 @@ import {
   ModelRequestCandidateSchema,
   selectNextModelRequest,
   type ModelRequestCandidate,
-} from '../src/status-server/model-request-selection.js';
+} from '../src/status-server/model-request-selection.ts';
 
 test('a later resident-model request overtakes an older different-model request', () => {
   const candidates = [

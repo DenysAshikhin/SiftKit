@@ -1,4 +1,4 @@
-import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from './chat-session-runtime-store';
+import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from './chat-session-runtime-store.ts';
 
 /** The one mutable holder of chat runtime state; React reads it through useChatRuntimeSelector, never as component state. */
 export class ChatRuntimeHub {

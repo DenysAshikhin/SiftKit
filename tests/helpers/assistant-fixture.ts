@@ -3,29 +3,33 @@ import path from 'node:path';
 import type { KeyCustody } from '@siftkit/contracts';
 import {
   AssistantService, type AssistantConfigWriter,
-} from '../../src/assistant/assistant-service.js';
-import type { AssistantInferenceClient } from '../../src/assistant/inference/client.js';
-import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
-import { FakeAssistantInference } from './assistant-inference-fake.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './assistant-gates.js';
-import type { AssistantConfig } from '../../src/config/types.js';
-import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
-import { FixedClock } from '../../src/assistant/clock.js';
-import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
-import { SequentialIdGenerator } from '../../src/assistant/ids.js';
-import { assistantKeyFile } from '../../src/assistant/layout.js';
-import type { AssertionStore } from '../../src/assistant/storage/assertion-store.js';
-import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
+} from '../../src/assistant/assistant-service.ts';
+import type { AssistantInferenceClient } from '../../src/assistant/inference/client.ts';
+import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
+import { FakeAssistantInference } from './assistant-inference-fake.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './assistant-gates.ts';
+import type { AssistantConfig } from '../../src/config/types.ts';
+import { AssistantGraph } from '../../src/assistant/assistant-graph.ts';
+import { FixedClock } from '../../src/assistant/clock.ts';
+import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.ts';
+import { SequentialIdGenerator } from '../../src/assistant/ids.ts';
+import { assistantKeyFile } from '../../src/assistant/layout.ts';
+import type { AssertionStore } from '../../src/assistant/storage/assertion-store.ts';
+import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.ts';
 import {
   closeAllRuntimeDatabases, getRuntimeDatabase, type RuntimeDatabase,
-} from '../../src/state/runtime-db.js';
-import { createManagedTempDir } from './temp-dirs.js';
-import { InMemoryDataProtector } from './in-memory-data-protector.js';
+} from '../../src/state/runtime-db.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
+import { InMemoryDataProtector } from './in-memory-data-protector.ts';
 
 /** Durable-enough config store for unit tests: the service only needs its own flip to stick. */
 export class MemoryAssistantConfigWriter implements AssistantConfigWriter {
-  constructor(public persisted: AssistantConfig) {}
+  public persisted: AssistantConfig;
+
+  constructor(persisted: AssistantConfig) {
+    this.persisted = persisted;
+  }
 
   writeKeyCustody(custody: KeyCustody): AssistantConfig {
     this.persisted = { ...this.persisted, KeyCustody: custody };

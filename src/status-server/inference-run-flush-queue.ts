@@ -1,16 +1,16 @@
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { toError } from '../lib/errors.js';
-import { sleep } from '../lib/time.js';
-import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
-import type { InferenceBackendId } from '../config/types.js';
+import { toError } from '../lib/errors.ts';
+import { sleep } from '../lib/time.ts';
+import { moduleDirname } from '../lib/paths.ts';
+import type { InferenceBackendId } from '../config/types.ts';
 import {
   consumeInferenceRunPendingLogChunks,
   getInferenceRunPendingLogChunkStats,
   restoreInferenceRunPendingLogChunks,
   type InferenceRunPendingLogChunkEntry,
-} from '../state/inference-runs.js';
-import { getRuntimeDatabasePath, getRuntimeDatabaseStorage } from '../state/runtime-db.js';
+} from '../state/inference-runs.ts';
+import { getRuntimeDatabasePath, getRuntimeDatabaseStorage } from '../state/runtime-db.ts';
 import {
   clearUnrefTimer,
   deferredDrainWaitMs,
@@ -20,11 +20,11 @@ import {
   idleTimeoutError,
   normalizeTimeoutMs,
   scheduleUnrefTimer,
-} from './idle-drain.js';
-import { FlushWorkerResponseSchema, type FlushWorkerResponse } from './inference-run-flush-messages.js';
-import { InProcessFlushWriter, type FlushWorkerPort } from './inference-run-flush-writer.js';
-import { SHUTDOWN_CLOSE_FLUSH_WAIT_MS } from './shutdown-budget.js';
-import { serverLogger } from './server-logger.js';
+} from './idle-drain.ts';
+import { FlushWorkerResponseSchema, type FlushWorkerResponse } from './inference-run-flush-messages.ts';
+import { InProcessFlushWriter, type FlushWorkerPort } from './inference-run-flush-writer.ts';
+import { SHUTDOWN_CLOSE_FLUSH_WAIT_MS } from './shutdown-budget.ts';
+import { serverLogger } from './server-logger.ts';
 
 /**
  * Pending characters at which a run flushes even while a model request is
@@ -33,13 +33,9 @@ import { serverLogger } from './server-logger.js';
  */
 export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
 
-/** Where the shipped flush worker lands, resolved from this module so a relocated package still finds it. */
-function getShippedFlushWorkerPath(): string {
-  const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
-  if (packageRoot === null) {
-    throw new Error('Unable to locate the SiftKit package root for the inference-run flush worker.');
-  }
-  return join(packageRoot, 'dist', 'status-server', 'inference-run-flush-worker.js');
+/** The flush worker is this module's sibling source file; Node runs it without a build. */
+export function getShippedFlushWorkerPath(): string {
+  return join(moduleDirname(import.meta.url), 'inference-run-flush-worker.ts');
 }
 
 const DEFAULT_IDLE_WAIT_TIMEOUT_MS = 2000;

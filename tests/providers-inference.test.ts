@@ -7,13 +7,13 @@ import {
   listInferenceModels,
   generateInferenceResponse,
   getInferenceProviderStatus,
-} from '../src/providers/inference.js';
-import { loadConfig } from '../src/config/index.js';
-import { getErrorMessage } from '../src/lib/errors.js';
-import { withTestEnvAndServer, TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+} from '../src/providers/inference.ts';
+import { loadConfig } from '../src/config/index.ts';
+import { getErrorMessage } from '../src/lib/errors.ts';
+import { withTestEnvAndServer, TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
 test('listInferenceModels returns model list from server', async () => {
   await withTestEnvAndServer(async () => {

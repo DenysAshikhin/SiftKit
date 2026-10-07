@@ -3,18 +3,18 @@ import {
   addModelPreset,
   deleteModelPreset,
   getModelPresetAssignments,
-} from './model-runtime-presets.js';
+} from './model-runtime-presets.ts';
 import {
   applyOperationModeDefaults,
   applyPresetKindDefaults,
   getDefaultToolsForOperationMode,
   PRESET_TOOL_OPTIONS,
-} from './preset-editor.js';
-import { cloneDashboardConfig } from './lib/format.js';
+} from './preset-editor.ts';
+import { cloneDashboardConfig } from './lib/format.ts';
 import {
   deriveRuntimeModelId,
   syncDerivedSettingsFields,
-} from './settings-runtime.js';
+} from './settings-runtime.ts';
 import type {
   AssistantConfig,
   DashboardConfig,
@@ -29,7 +29,7 @@ import type {
   ModelPresetSettings,
   ReasoningEffort,
   WebSearchProviderId,
-} from './types.js';
+} from './types.ts';
 
 export type GeneralStringField = 'Version' | 'PolicyMode' | 'PromptPrefix';
 export type GeneralBooleanField = 'RawLogRetention' | 'ExpandReads';

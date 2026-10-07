@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 
-import { requestSse } from './helpers/sse-http.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { startHarness } from './helpers/streamed-op-harness.js';
+import { requestSse } from './helpers/sse-http.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { startHarness } from './helpers/streamed-op-harness.ts';
 
 const CLIENT_DEADLINE_MS = 250;
 

@@ -1,4 +1,4 @@
-import type { ProjectionBehavior } from './relation-types.js';
+import type { ProjectionBehavior } from './relation-types.ts';
 
 /** Every signal is a normalized [0, 1] value. §10.4. */
 export interface TierUtilityInput {

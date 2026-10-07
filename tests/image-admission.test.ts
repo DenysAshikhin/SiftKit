@@ -8,8 +8,8 @@ import {
   admitImageDataUrls,
   downscaleImageBuffer,
   readImageDimensions,
-} from '../src/llm-protocol/image-admission.js';
-import { gifBufferWithSize, INSTALLED_ENCODER, rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+} from '../src/llm-protocol/image-admission.ts';
+import { gifBufferWithSize, INSTALLED_ENCODER, rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
 
 const MODEL_BUDGET = {
   maxPixels: 2_097_152,

@@ -1,19 +1,19 @@
 import {
   getActiveInferenceBackend,
   type SiftConfig,
-} from '../config/index.js';
-import { estimateTokenCount } from '../lib/token-estimate.js';
-import { InferenceBackendIdSchema } from '../config/types.js';
-import { z } from '../lib/zod.js';
+} from '../config/index.ts';
+import { estimateTokenCount } from '../lib/token-estimate.ts';
+import { InferenceBackendIdSchema } from '../config/types.ts';
+import { z } from '../lib/zod.ts';
 import {
   DEFAULT_INFERENCE_TOKENIZE_RETRY_MAX_WAIT_MS,
   DEFAULT_INFERENCE_TOKENIZE_TIMEOUT_MS,
   countInferenceTokensDetailed,
   type CountInferenceTokensOptions,
   type InferenceTokenCountResult,
-} from '../providers/inference.js';
-import type { WirePrompt } from './wire-prompt.js';
-import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../config/constants.js';
+} from '../providers/inference.ts';
+import type { WirePrompt } from './wire-prompt.ts';
+import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../config/constants.ts';
 
 /**
  * Where a token count came from: the engine that tokenized it, or the local

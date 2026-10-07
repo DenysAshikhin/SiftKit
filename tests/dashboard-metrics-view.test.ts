@@ -7,8 +7,8 @@ import {
   describeToolType,
   getGraphHoverIndex,
   sortToolMetricsByCalls,
-} from '../dashboard/src/metrics-view.js';
-import type { TaskMetricDay, ToolStatsByTask } from '../dashboard/src/types.js';
+} from '../dashboard/src/metrics-view.ts';
+import type { TaskMetricDay, ToolStatsByTask } from '../dashboard/src/types.ts';
 
 test('buildToolMetricRows merges task kinds into one row per tool', () => {
   const stats: ToolStatsByTask = {

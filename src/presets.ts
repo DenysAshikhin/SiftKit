@@ -13,8 +13,8 @@ import {
   type SiftPreset,
 } from '@siftkit/contracts';
 
-import { JsonRecordReader } from './lib/json-record-reader.js';
-import type { OptionalJsonValue } from './lib/json-types.js';
+import { JsonRecordReader } from './lib/json-record-reader.ts';
+import type { OptionalJsonValue } from './lib/json-types.ts';
 
 export type {
   OperationModeAllowedTools,

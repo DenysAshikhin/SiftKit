@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 
-import { buildToolActivityRing, getToolActivityLabel } from '../src/lib/tool-activity-ring';
-import type { ChatToolCallMessage } from '../src/types';
+import { buildToolActivityRing, getToolActivityLabel } from '../src/lib/tool-activity-ring.ts';
+import type { ChatToolCallMessage } from '../src/types.ts';
 
 function tool(options: {
   id: string;

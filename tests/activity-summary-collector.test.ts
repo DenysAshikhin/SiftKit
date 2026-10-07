@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ActivitySummaryCollector } from '../src/repo-search/engine/activity-summary-collector.js';
-import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
-import type { TaskCommand } from '../src/repo-search/prompts.js';
+import { ActivitySummaryCollector } from '../src/repo-search/engine/activity-summary-collector.ts';
+import type { AgentLoopToolAction } from '../src/agent-loop/types.ts';
+import type { TaskCommand } from '../src/repo-search/prompts.ts';
 
 function makeReadAction(path: string): AgentLoopToolAction {
   return { kind: 'tool', callId: 'test_call_1', toolName: 'read', args: { path } };
@@ -152,7 +152,7 @@ test('classifies test commands by recognized patterns', () => {
   const testCommands = [
     'npm test',
     'npm run test',
-    'node .\\dist\\test-runner\\run-tests.js',
+    'node .\\src\\test-runner\\run-tests.ts',
     'npx vitest',
     'npx jest',
     'pytest',

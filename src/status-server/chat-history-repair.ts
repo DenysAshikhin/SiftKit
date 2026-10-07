@@ -1,22 +1,22 @@
 import { buildChatMessageId } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { RepoAgentRunRequestSchema, RepoAgentRunStateSchema } from '../repo-agent/run-schemas.js';
-import { ChatArchiveSourceSchema, digestChatArchiveSources, readChatHistoryArchive, readChatHistoryArchiveSources } from './chat-history-archive.js';
+import { z } from '../lib/zod.ts';
+import { RepoAgentRunRequestSchema, RepoAgentRunStateSchema } from '../repo-agent/run-schemas.ts';
+import { ChatArchiveSourceSchema, digestChatArchiveSources, readChatHistoryArchive, readChatHistoryArchiveSources } from './chat-history-archive.ts';
 import { ChatRunTerminalCauseSchema, ChatStreamQueuedUserMessageSchema, PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, reduceChatTranscript } from '@siftkit/contracts';
 import { createHash } from 'node:crypto';
-import { stableStringify } from '../lib/json.js';
-import { digestStableJson } from '../lib/json-digest.js';
-import { PlannerChatMessagesSchema, type ChatMessage } from '../repo-search/planner-chat-message.js';
-import { buildUserContent } from '../llm-protocol/image-attachments.js';
-import { buildTaskInitialUserPrompt } from '../repo-search/prompts.js';
-import { linkChatArchiveContext, projectChatHistoryArchive } from './chat-history-archive-projection.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import type { ChatRuntimeOwner } from '../state/chat-runtime-owner.js';
-import { ChatJournalStore } from '../state/chat-journal.js';
-import { readChatSessionFromDatabase } from '../state/chat-sessions.js';
-import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
-import { recordImportedChatBaseline } from './chat-history-import.js';
-import { reconcileChatRun } from './chat-run-projection.js';
+import { stableStringify } from '../lib/json.ts';
+import { digestStableJson } from '../lib/json-digest.ts';
+import { PlannerChatMessagesSchema, type ChatMessage } from '../repo-search/planner-chat-message.ts';
+import { buildUserContent } from '../llm-protocol/image-attachments.ts';
+import { buildTaskInitialUserPrompt } from '../repo-search/prompts.ts';
+import { linkChatArchiveContext, projectChatHistoryArchive } from './chat-history-archive-projection.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import type { ChatRuntimeOwner } from '../state/chat-runtime-owner.ts';
+import { ChatJournalStore } from '../state/chat-journal.ts';
+import { readChatSessionFromDatabase } from '../state/chat-sessions.ts';
+import { ChatMessageQueueStore } from '../state/chat-message-queue.ts';
+import { recordImportedChatBaseline } from './chat-history-import.ts';
+import { reconcileChatRun } from './chat-run-projection.ts';
 
 export const ChatHistoryRepairInputSchema = z.strictObject({
   sessionId: z.string().min(1), requestId: z.string().min(1),

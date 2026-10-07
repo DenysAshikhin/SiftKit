@@ -1,32 +1,32 @@
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
 after(() => isolatedRuntime.close());
 import assert from 'node:assert/strict';
 import os from 'node:os';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
 import {
   PLANNER_REASONING_BUDGET_MESSAGE,
   requestContextCompactionSummary,
   requestRepoSearchPlannerProtocolAction,
-} from '../src/repo-search/planner-protocol.js';
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+} from '../src/repo-search/planner-protocol.ts';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
 import {
   buildReasoningDeltas,
   FAKE_PROMPT_USAGE,
   startFakeChatServer,
   type FakeChatServer,
   type FakeChatServerOptions,
-} from './helpers/fake-chat-server.js';
-import type { SiftConfig } from '../src/config/types.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { TEST_THROUGHPUT_AUDIT, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from './helpers/fake-chat-server.ts';
+import type { SiftConfig } from '../src/config/types.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { TEST_THROUGHPUT_AUDIT, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 // Request 1 streams enough reasoning to blow a tiny ReasoningBudget (10 x 8 = 80
 // chars exceed it under the 2.5 chars/token estimate), then the finish action;

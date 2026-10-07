@@ -1,5 +1,5 @@
 // Fixture60 chunking-config repro helper (typed port of runtime-benchmark-repro.js).
-import { loadConfig, saveConfig } from '../_runtime-helpers.js';
+import { loadConfig, saveConfig } from '../_runtime-helpers.ts';
 
 export const STABLE_CHUNK_BUDGET_METRICS = {
   inputCharactersTotal: 2500,

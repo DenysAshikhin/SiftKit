@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, InferenceChatMessage, InferenceToolDefinition, NormalizedInferenceChatResponse } from '../llm-protocol/types.js';
+import type { JsonObject, JsonValue, InferenceChatMessage, InferenceToolDefinition, NormalizedInferenceChatResponse } from '../llm-protocol/types.ts';
 
 export type AgentLoopKind = 'repo-search' | 'chat' | 'summary-planner';
 

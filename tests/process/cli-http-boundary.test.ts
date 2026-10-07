@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../../src/cli/index.js';
-import { makeCaptureStream } from '../_test-helpers.js';
-import { withBoundaryServer } from '../helpers/cli-boundary-server.js';
+import { runCli } from '../../src/cli/index.ts';
+import { makeCaptureStream } from '../_test-helpers.ts';
+import { withBoundaryServer } from '../helpers/cli-boundary-server.ts';
 
 test('run command executes locally and sends captured output to server', async () => {
   await withBoundaryServer(async (server) => {

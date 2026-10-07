@@ -1,6 +1,6 @@
-import { spawnDirectCommand } from '../lib/command-spawn.js';
-import { z } from '../lib/zod.js';
-import { serverLogger } from './server-logger.js';
+import { spawnDirectCommand } from '../lib/command-spawn.ts';
+import { z } from '../lib/zod.ts';
+import { serverLogger } from './server-logger.ts';
 
 const NvidiaSmiRowSchema = z.tuple([
   z.coerce.number().int().nonnegative(),

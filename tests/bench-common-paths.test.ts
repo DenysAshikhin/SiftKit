@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getRepoRoot } from '../bench/common/paths.js';
+import { getRepoRoot } from '../bench/common/paths.ts';
 
 test('getRepoRoot resolves to the SiftKit repo root (containing the siftkit package.json)', () => {
   const root = getRepoRoot();

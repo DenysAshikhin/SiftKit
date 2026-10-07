@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { startStubStatusServer } from './_runtime-helpers.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { asObject, requestJson, requestSse } from './helpers/dashboard-http.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { startStubStatusServer } from './_runtime-helpers.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
+import { asObject, requestJson, requestSse } from './helpers/dashboard-http.ts';
 
 const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const CHAT_SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';

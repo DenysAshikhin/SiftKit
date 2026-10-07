@@ -1,31 +1,31 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { z } from '../../lib/zod.js';
-import { toError } from '../../lib/errors.js';
-import { mergeToolTypeStats } from '../../line-read-guidance.js';
-import { getRuntimeDatabase } from '../../state/runtime-db.js';
-import { upsertRuntimeJsonArtifact } from '../../state/runtime-artifacts.js';
+import { z } from '../../lib/zod.ts';
+import { toError } from '../../lib/errors.ts';
+import { mergeToolTypeStats } from '../../line-read-guidance.ts';
+import { getRuntimeDatabase } from '../../state/runtime-db.ts';
+import { upsertRuntimeJsonArtifact } from '../../state/runtime-artifacts.ts';
 import {
   STATUS_TRUE,
   parseRunning,
   parseStatusMetadata,
   parseStatusMetadataRecord,
-} from '../status-file.js';
-import { normalizeMetrics, writeMetrics } from '../metrics.js';
-import { recordWebSearchUsage } from '../web-search-usage.js';
+} from '../status-file.ts';
+import { normalizeMetrics, writeMetrics } from '../metrics.ts';
+import { recordWebSearchUsage } from '../web-search-usage.ts';
 import {
   buildStatusRequestLogBody,
   upsertRunArtifactPayload,
   updateRunLogSpeculativeMetricsByRequestId,
-} from '../dashboard-runs.js';
-import { UNRECORDED_RUN_IDENTITY } from '../dashboard-runs/run-identity.js';
+} from '../dashboard-runs.ts';
+import { UNRECORDED_RUN_IDENTITY } from '../dashboard-runs/run-identity.ts';
 import {
   StatusArtifactTypeSchema,
   getStatusArtifactId,
   getStatusArtifactUri,
-} from '../../state/status-artifacts.js';
-import { serverLogger } from '../server-logger.js';
-import type { ServerContext } from '../server-types.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
+} from '../../state/status-artifacts.ts';
+import { serverLogger } from '../server-logger.ts';
+import type { ServerContext } from '../server-types.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
 import {
   clearIdleSummaryTimer,
   enqueueDeferredArtifacts,
@@ -33,27 +33,27 @@ import {
   getPublishedStatusText,
   scheduleIdleSummaryIfNeeded,
   writePublishedStatus,
-} from '../server-ops.js';
+} from '../server-ops.ts';
 import {
   buildStatusRunStartInput,
   type ActiveRunState,
-} from '../status-run-registry.js';
+} from '../status-run-registry.ts';
 import {
   enqueueTerminalMetadata,
   scheduleDeferredTerminalMetadata,
-} from '../terminal-metadata.js';
+} from '../terminal-metadata.ts';
 import {
   logToolStatsLines,
   normalizeTaskKind,
-} from '../status-run-log.js';
+} from '../status-run-log.ts';
 import {
   readBody,
   parseJsonBody,
   sendBodyReadError,
   sendJson,
-} from '../http-utils.js';
-import { sendServerErrorJson } from '../error-response.js';
-import { mergeInferenceThroughput } from '../../lib/inference-throughput.js';
+} from '../http-utils.ts';
+import { sendServerErrorJson } from '../error-response.ts';
+import { mergeInferenceThroughput } from '../../lib/inference-throughput.ts';
 
 type StatusPostMetadata = ReturnType<typeof parseStatusMetadata>;
 type StatusPostDeferredMetadata = ReturnType<typeof parseStatusMetadataRecord>;
@@ -128,11 +128,19 @@ export class StatusPostEndpoint implements RouteEndpoint {
 }
 
 class StatusPostRequestHandler {
+  private readonly ctx: ServerContext;
+  private readonly req: IncomingMessage;
+  private readonly res: ServerResponse;
+
   constructor(
-    private readonly ctx: ServerContext,
-    private readonly req: IncomingMessage,
-    private readonly res: ServerResponse,
-  ) {}
+    ctx: ServerContext,
+    req: IncomingMessage,
+    res: ServerResponse,
+  ) {
+    this.ctx = ctx;
+    this.req = req;
+    this.res = res;
+  }
 
   private get configPath(): string { return this.ctx.configPath; }
   private get statusPath(): string { return this.ctx.statusPath; }

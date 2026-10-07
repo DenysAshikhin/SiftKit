@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseStatusMetadata } from '../src/status-server/status-file.js';
-import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
+import { parseStatusMetadata } from '../src/status-server/status-file.ts';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.ts';
 
 function parseTerminal(extra: object) {
   return parseStatusMetadata(JSON.stringify({

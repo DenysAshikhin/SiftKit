@@ -2,19 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import type { ChatTurnInput } from '../src/assistant/ingestion/conversation-ingestor.js';
-import type { RetrieveResult } from '../src/assistant/retrieval/memory-retriever.js';
-import { getConfigPath } from '../src/config/index.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { getAddressInfo, requestJson, requestSse } from './helpers/dashboard-http.js';
+import type { ChatTurnInput } from '../src/assistant/ingestion/conversation-ingestor.ts';
+import type { RetrieveResult } from '../src/assistant/retrieval/memory-retriever.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { getAddressInfo, requestJson, requestSse } from './helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
   restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+} from './helpers/dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
 const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const CHAT_SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';

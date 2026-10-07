@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CommandOutputAnalyzer } from '../../src/command-output/analyzer.js';
-import { invokeProcess, invokeShellProcess } from '../../src/capture/process.js';
-import { withTestEnvAndServer } from '../_test-helpers.js';
+import { CommandOutputAnalyzer } from '../../src/command-output/analyzer.ts';
+import { invokeProcess, invokeShellProcess } from '../../src/capture/process.ts';
+import { withTestEnvAndServer } from '../_test-helpers.ts';
 
 test('runCommand invokes a real command and produces a result', async () => {
   await withTestEnvAndServer(async () => {

@@ -10,7 +10,7 @@ import type {
   ModelStringField,
   ThresholdIntegerField,
   WebSearchIntegerField,
-} from './settings-draft-editor.js';
+} from './settings-draft-editor.ts';
 import type {
   AssistantConfig,
   DashboardPresetKind,
@@ -21,7 +21,7 @@ import type {
   ModelIdleAction,
   ReasoningEffort,
   WebSearchProviderId,
-} from './types.js';
+} from './types.ts';
 
 export type AssistantSettingsActions = {
   replace(value: AssistantConfig): void;

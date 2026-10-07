@@ -1,4 +1,4 @@
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
 export const NODE_TYPES = [
   'person', 'organization', 'place', 'device', 'software', 'project', 'document',

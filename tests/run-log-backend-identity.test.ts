@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RunLogDbRowSchema } from '../src/status-server/dashboard-runs/types.js';
-import { REMOVED_BACKEND_ID, REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
+import { RunLogDbRowSchema } from '../src/status-server/dashboard-runs/types.ts';
+import { REMOVED_BACKEND_ID, REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.ts';
 
 test('run_logs.backend accepts only engine ids or null', () => {
   const backendSchema = RunLogDbRowSchema.shape.backend;

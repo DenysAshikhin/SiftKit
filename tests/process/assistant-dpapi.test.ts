@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import test from 'node:test';
 
-import { DpapiDataProtector, DpapiUnavailableError } from '../../src/assistant/crypto/dpapi.js';
+import { DpapiDataProtector, DpapiUnavailableError } from '../../src/assistant/crypto/dpapi.ts';
 
 const dpapi = new DpapiDataProtector();
 

@@ -1,10 +1,10 @@
-import type { SiftConfig } from '../config/index.js';
-import { estimateTokenCount } from '../lib/token-estimate.js';
+import type { SiftConfig } from '../config/index.ts';
+import { estimateTokenCount } from '../lib/token-estimate.ts';
 import {
   countTokensWithFallbackDetailed,
   type TokenCountSource,
   type TokenCountWithFallbackResult,
-} from './prompt-budget.js';
+} from './prompt-budget.ts';
 
 export type IncrementalTokenCountResult = TokenCountWithFallbackResult & {
   /** True when the count includes accumulated delta sums rather than one full tokenize. */

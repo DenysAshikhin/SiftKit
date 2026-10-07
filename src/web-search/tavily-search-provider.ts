@@ -1,4 +1,4 @@
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.ts';
 import {
   WebSearchProvider,
   asRecord,
@@ -7,8 +7,8 @@ import {
   getText,
   toWebSearchResult,
   type WebSearchProviderOptions,
-} from './web-search-provider-base.js';
-import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.js';
+} from './web-search-provider-base.ts';
+import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.ts';
 
 const TAVILY_SEARCH_ENDPOINT = 'https://api.tavily.com/search';
 const TAVILY_USAGE_ENDPOINT = 'https://api.tavily.com/usage';
@@ -16,8 +16,11 @@ const TAVILY_USAGE_ENDPOINT = 'https://api.tavily.com/usage';
 export class TavilySearchProvider extends WebSearchProvider {
   readonly id = 'tavily' as const;
 
-  constructor(private readonly apiKey: string) {
+  private readonly apiKey: string;
+
+  constructor(apiKey: string) {
     super();
+    this.apiKey = apiKey;
   }
 
   private authHeaders(): Record<string, string> {

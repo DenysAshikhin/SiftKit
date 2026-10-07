@@ -1,9 +1,9 @@
-import { BASIS_CONFIDENCE_CEILING } from '../domain/confidence.js';
+import { BASIS_CONFIDENCE_CEILING } from '../domain/confidence.ts';
 import {
   isExplicitBasis, type AssertionBasis, type EvidenceSourceType,
-} from '../domain/enums.js';
-import type { SecretScanner, SensitiveTopic } from '../domain/secrets.js';
-import type { PolicyStore } from '../storage/policy-store.js';
+} from '../domain/enums.ts';
+import type { SecretScanner, SensitiveTopic } from '../domain/secrets.ts';
+import type { PolicyStore } from '../storage/policy-store.ts';
 
 export type CandidateRejectionCode =
   | 'empty_rationale' | 'secret_prohibited' | 'basis_unsupported' | 'confidence_out_of_range'
@@ -52,10 +52,16 @@ const SUPPORTED_BASES: Record<EvidenceSourceType, readonly AssertionBasis[]> = {
  * whether a proposal may become a belief, and at what confidence.
  */
 export class CandidateGate {
+  private readonly policies: PolicyStore;
+  private readonly secrets: SecretScanner;
+
   constructor(
-    private readonly policies: PolicyStore,
-    private readonly secrets: SecretScanner,
-  ) {}
+    policies: PolicyStore,
+    secrets: SecretScanner,
+  ) {
+    this.policies = policies;
+    this.secrets = secrets;
+  }
 
   evaluate(input: CandidateGateInput): CandidateGateOutcome {
     if (input.rationale.trim().length === 0) {

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../src/cli/index.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
-import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
+import { runCli } from '../src/cli/index.ts';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.ts';
 
 test('preset list shows builtin and custom cli-visible presets from the server', async () => {
   const catalog = PresetCatalog.createDefault();

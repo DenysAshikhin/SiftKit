@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { KeyCustodySchema } from './assistant-desktop.js';
+import { KeyCustodySchema } from './assistant-desktop.ts';
 
 /** KV cache quantizations the EXL3 engine can express as TabbyAPI cache modes. */
 export const ModelKvCacheQuantizationSchema = z.enum([

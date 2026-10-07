@@ -8,8 +8,8 @@ import type {
   HumanApprovalRequester,
   HumanApprovalRequestInput,
   LiveApprovalMode,
-} from '../src/repo-search/engine/approval-gate.js';
-import { ModeSwitchedApprovalRequester } from '../src/repo-search/engine/approval-mode-requester.js';
+} from '../src/repo-search/engine/approval-gate.ts';
+import { ModeSwitchedApprovalRequester } from '../src/repo-search/engine/approval-mode-requester.ts';
 
 class FakeHumanGate implements HumanApprovalRequester {
   readonly calls: HumanApprovalRequestInput[] = [];
@@ -28,7 +28,11 @@ class FakeLlmGate implements ApprovalRequester {
 }
 
 class MutableMode implements LiveApprovalMode {
-  constructor(public mode: ApprovalMode) {}
+  public mode: ApprovalMode;
+
+  constructor(mode: ApprovalMode) {
+    this.mode = mode;
+  }
 }
 
 const INPUT: ApprovalRequestInput = {

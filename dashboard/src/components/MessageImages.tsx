@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ImageMetadata } from '@siftkit/contracts';
 
-import { requestImageCaption } from '../api.js';
-import { ImageLightbox } from './ImageLightbox';
+import { requestImageCaption } from '../api.ts';
+import { ImageLightbox } from './ImageLightbox.tsx';
 
 type CaptionState =
   | { status: 'pending' }

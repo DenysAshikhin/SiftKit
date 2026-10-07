@@ -1,8 +1,8 @@
-import { sendJson } from '../../http-utils.js';
-import { AssistantNotFoundError } from '../../../assistant/errors.js';
+import { sendJson } from '../../http-utils.ts';
+import { AssistantNotFoundError } from '../../../assistant/errors.ts';
 import {
   assistantRoute, id, integerParam, sendError, sendQueryResult,
-} from './helpers.js';
+} from './helpers.ts';
 
 export const searchEndpoint = assistantRoute(({ service, res, url }) => {
   const result = service.memoryQueries.search(

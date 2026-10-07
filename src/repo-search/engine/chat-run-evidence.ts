@@ -1,6 +1,6 @@
-import type { ChatHistoryRevision, ChatJournalEvent } from '../../state/chat-journal-schema.js';
-import type { ChatContextInit, ChatContextSplice } from '../planner-chat-message.js';
-import type { ModelRuntimePreset } from '../../config/types.js';
+import type { ChatHistoryRevision, ChatJournalEvent } from '../../state/chat-journal-schema.ts';
+import type { ChatContextInit, ChatContextSplice } from '../planner-chat-message.ts';
+import type { ModelRuntimePreset } from '../../config/types.ts';
 
 /** One journal event family without the discriminator, which the recorder stamps on itself. */
 type EvidenceBody<Kind extends ChatJournalEvent['kind']> = Omit<Extract<ChatJournalEvent, { kind: Kind }>, 'kind'>;

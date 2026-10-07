@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
-import { archiveEntries, archiveBytes, archiveUploadPath } from '../helpers/archive-bytes.js';
-import { seedOwnerAssertion } from '../helpers/gate-e-seed.js';
-import { buildService, PROJECTION_SIGNAL, assertProjectionIntegrity } from '../helpers/assistant-gate-e-e2e-fixtures.js';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.ts';
+import { archiveEntries, archiveBytes, archiveUploadPath } from '../helpers/archive-bytes.ts';
+import { seedOwnerAssertion } from '../helpers/gate-e-seed.ts';
+import { buildService, PROJECTION_SIGNAL, assertProjectionIntegrity } from '../helpers/assistant-gate-e-e2e-fixtures.ts';
 
 test('gate E scenario 12: export survives factory reset and restore byte for byte', async () => {
   const { service, context } = buildService('siftkit-gate-e-scenario-12-', []);

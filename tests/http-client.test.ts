@@ -2,17 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 import {
   HttpClient,
   HttpResponseError,
   HttpTimeoutError,
   DEFAULT_USER_AGENT,
   CONNECT_TIMEOUT_MS,
-} from '../src/lib/http-client.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
+} from '../src/lib/http-client.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
 
 type ServerHandle = {
   baseUrl: string;

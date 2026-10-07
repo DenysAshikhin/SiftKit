@@ -1,12 +1,12 @@
-import { BASIS_CONFIDENCE_CEILING } from '../domain/confidence.js';
-import { isExplicitBasis, type AssertionBasis, type Sensitivity } from '../domain/enums.js';
-import { normalizeLiteralValue, type AssertionObjectRef } from '../domain/keys.js';
+import { BASIS_CONFIDENCE_CEILING } from '../domain/confidence.ts';
+import { isExplicitBasis, type AssertionBasis, type Sensitivity } from '../domain/enums.ts';
+import { normalizeLiteralValue, type AssertionObjectRef } from '../domain/keys.ts';
 import {
   allowsLiteralObject, isNodeTypeAllowedAsObject, isNodeTypeAllowedAsSubject, isRelationType,
   RELATION_DEFINITIONS, type RelationType,
-} from '../domain/relation-types.js';
-import type { NodeStore } from '../storage/node-store.js';
-import type { PolicyStore } from '../storage/policy-store.js';
+} from '../domain/relation-types.ts';
+import type { NodeStore } from '../storage/node-store.ts';
+import type { PolicyStore } from '../storage/policy-store.ts';
 
 export type ValidationCode =
   | 'unknown_predicate'
@@ -68,10 +68,16 @@ function reject(code: ValidationCode, message: string): ValidationFailure {
  * Returns a typed result so the caller can record the reason rather than swallowing an exception.
  */
 export class AssertionValidator {
+  private readonly nodes: NodeStore;
+  private readonly policies: PolicyStore;
+
   constructor(
-    private readonly nodes: NodeStore,
-    private readonly policies: PolicyStore,
-  ) {}
+    nodes: NodeStore,
+    policies: PolicyStore,
+  ) {
+    this.nodes = nodes;
+    this.policies = policies;
+  }
 
   validate(request: AssertionValidationRequest): ValidationResult {
     if (request.sensitivity === 'secret_prohibited') {

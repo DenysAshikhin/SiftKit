@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { z } from '../../src/lib/zod.js';
-import { JsonObjectSchema, type JsonObject } from '../../src/lib/json-types.js';
-import { getRepoRoot } from '../common/paths.js';
+import { z } from '../../src/lib/zod.ts';
+import { JsonObjectSchema, type JsonObject } from '../../src/lib/json-types.ts';
+import { getRepoRoot } from '../common/paths.ts';
 
 export const RawMatrixManifestSchema = z.object({
   fixtureRoot: z.string(),

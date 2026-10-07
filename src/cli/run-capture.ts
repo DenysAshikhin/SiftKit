@@ -1,9 +1,9 @@
-import { resolveExternalCommand } from '../capture/command-path.js';
-import { captureWithTranscript } from '../capture/process.js';
-import { parseArguments, type ResolvedCliArgs } from './args.js';
-import { normalizeCliFormat, normalizeCliPolicyProfile } from './request-normalizers.js';
-import { CliProgressRenderer } from './progress-renderer.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
+import { resolveExternalCommand } from '../capture/command-path.ts';
+import { captureWithTranscript } from '../capture/process.ts';
+import { parseArguments, type ResolvedCliArgs } from './args.ts';
+import { normalizeCliFormat, normalizeCliPolicyProfile } from './request-normalizers.ts';
+import { CliProgressRenderer } from './progress-renderer.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
 
 export async function runCaptureInternalCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;

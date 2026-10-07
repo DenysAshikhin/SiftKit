@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   dropFtsRow, fetchRowsByIds, recordFtsRowid,
-} from '../src/assistant/storage/sql-helpers.js';
-import { NodeRowSchema } from '../src/assistant/storage/rows.js';
-import { z } from '../src/lib/zod.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+} from '../src/assistant/storage/sql-helpers.ts';
+import { NodeRowSchema } from '../src/assistant/storage/rows.ts';
+import { z } from '../src/lib/zod.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 const FtsStateSchema = z.object({ fts_rowid: z.number().int().nullable() });
 const CountSchema = z.object({ count: z.number() });

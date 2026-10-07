@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { ChildProcessEngineLauncher, type EngineProcess } from '../../src/status-server/engine-process.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+import { ChildProcessEngineLauncher, type EngineProcess } from '../../src/status-server/engine-process.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 function readStream(stream: NodeJS.ReadableStream | null): Promise<string> {
   if (!stream) throw new Error('The engine process has no output pipe.');

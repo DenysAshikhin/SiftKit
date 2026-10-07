@@ -1,38 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AssistantJobRunner } from '../src/assistant/jobs/job-runner.js';
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
-import { CandidateConsolidator } from '../src/assistant/ingestion/consolidator.js';
-import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.js';
-import { ConversationExtractor } from '../src/assistant/ingestion/conversation-extractor.js';
-import { IngestionPipeline } from '../src/assistant/ingestion/pipeline.js';
-import { ConversationIngestor } from '../src/assistant/ingestion/conversation-ingestor.js';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
+import { AssistantJobRunner } from '../src/assistant/jobs/job-runner.ts';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
+import { CandidateConsolidator } from '../src/assistant/ingestion/consolidator.ts';
+import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.ts';
+import { ConversationExtractor } from '../src/assistant/ingestion/conversation-extractor.ts';
+import { IngestionPipeline } from '../src/assistant/ingestion/pipeline.ts';
+import { ConversationIngestor } from '../src/assistant/ingestion/conversation-ingestor.ts';
+import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService,
   SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.js';
-import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
-import type { CaptureRetentionSummary } from '../src/assistant/images/capture-retention.js';
-import type { ImageExtractionOutcome } from '../src/assistant/images/image-extractor.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import type { AssistantInferenceRequest } from '../src/assistant/inference/client.js';
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+} from '../src/assistant/projections/projection-summarizer.ts';
+import type { AssistantGraph } from '../src/assistant/assistant-graph.ts';
+import type { CaptureRetentionSummary } from '../src/assistant/images/capture-retention.ts';
+import type { ImageExtractionOutcome } from '../src/assistant/images/image-extractor.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import type { AssistantInferenceRequest } from '../src/assistant/inference/client.ts';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 import {
   AssistantResourcePolicy,
   UnavailablePowerStateProvider,
   type ResourceDecision,
   type ResourcePolicy,
-} from '../src/assistant/jobs/resource-policy.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+} from '../src/assistant/jobs/resource-policy.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
 
 class StaticIdleGate {
-  constructor(private idle: boolean) {}
+  private idle: boolean;
+
+  constructor(idle: boolean) {
+    this.idle = idle;
+  }
 
   evaluate() {
     return this.idle
@@ -46,7 +50,11 @@ class StaticIdleGate {
 }
 
 class StaticResidencyGate {
-  constructor(private resident: boolean) {}
+  private resident: boolean;
+
+  constructor(resident: boolean) {
+    this.resident = resident;
+  }
 
   isModelResident(): boolean {
     return this.resident;
@@ -265,8 +273,11 @@ test('preemption returns the job to the queue without spending an attempt', asyn
     class PreemptingInference extends FakeAssistantInference {
       private runner: AssistantJobRunner | null = null;
 
-      constructor(private readonly idleGate: StaticIdleGate) {
+      private readonly idleGate: StaticIdleGate;
+
+      constructor(idleGate: StaticIdleGate) {
         super([usesPowerShell]);
+        this.idleGate = idleGate;
       }
 
       attachRunner(runner: AssistantJobRunner): void {
@@ -527,8 +538,11 @@ test('an unlimited drain still stops on preemption', async () => {
     class PreemptingInference extends FakeAssistantInference {
       private runner: AssistantJobRunner | null = null;
 
-      constructor(private readonly idleGate: StaticIdleGate) {
+      private readonly idleGate: StaticIdleGate;
+
+      constructor(idleGate: StaticIdleGate) {
         super([usesPowerShell]);
+        this.idleGate = idleGate;
       }
 
       attachRunner(runner: AssistantJobRunner): void {

@@ -7,8 +7,8 @@ import type {
   AssistantNodeDetail,
   AssistantProjectionDto,
   AssistantTopicForgetPreview,
-} from '../types.js';
-import type { AssistantNeighborhood } from '../assistant-api.js';
+} from '../types.ts';
+import type { AssistantNeighborhood } from '../assistant-api.ts';
 
 export type AssistantMemorySelection =
   | { kind: 'node'; value: AssistantNodeDetail; neighborhood: AssistantNeighborhood }

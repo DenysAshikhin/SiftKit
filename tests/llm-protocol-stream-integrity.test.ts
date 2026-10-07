@@ -1,21 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { HttpResponseError, type FullJsonResponse, type SseStreamOptions } from '../src/lib/http-client.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+import { HttpResponseError, type FullJsonResponse, type SseStreamOptions } from '../src/lib/http-client.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 import {
   RawFrameHttpClient,
   RecordingLogger,
   buildStreamingTestConfig,
   contentFrame,
   errorFrame,
-} from './helpers/streaming-client.js';
+} from './helpers/streaming-client.ts';
 import {
   ProviderContextLengthError,
   ProviderStreamErrorFrameError,
-} from '../src/llm-protocol/stream-errors.js';
+} from '../src/llm-protocol/stream-errors.ts';
 
 test('malformed stream frames are logged rather than silently skipped', async () => {
   const logger = new RecordingLogger();
@@ -91,7 +91,11 @@ test('a stream ending without [DONE] throws', async () => {
 /** Fails the first N attempts with a transient 503, then streams normally. */
 class FlakyStreamHttpClient {
   attempts = 0;
-  constructor(private readonly failures: number) {}
+  private readonly failures: number;
+
+  constructor(failures: number) {
+    this.failures = failures;
+  }
 
   async requestJsonFull<T>(): Promise<FullJsonResponse<T>> {
     throw new Error('requestJsonFull must not be called for chat completions');

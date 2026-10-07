@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildInferenceJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
-} from '../src/providers/structured-output-schema.js';
+} from '../src/providers/structured-output-schema.ts';
 
 test('buildSummaryDecisionJsonSchema excludes unsupported_input when disabled', () => {
   const schema = buildSummaryDecisionJsonSchema({ allowUnsupportedInput: false });

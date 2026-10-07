@@ -1,18 +1,18 @@
-import { z } from '../../lib/zod.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
+import { z } from '../../lib/zod.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
 import {
   isIndexableInPlaintext, type AliasType, type NodeStatus, type Sensitivity,
-} from '../domain/enums.js';
-import { normalizeAliasText } from '../domain/keys.js';
-import type { NodeType } from '../domain/node-types.js';
-import type { IdGenerator } from '../ids.js';
+} from '../domain/enums.ts';
+import { normalizeAliasText } from '../domain/keys.ts';
+import type { NodeType } from '../domain/node-types.ts';
+import type { IdGenerator } from '../ids.ts';
 import {
   AliasRowSchema, MergeRowSchema, NodeRowSchema,
   type AliasRow, type MergeRow, type NodeRow,
-} from './rows.js';
-import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
+} from './rows.ts';
+import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.ts';
 
 export interface CreateNodeInput {
   readonly ownerId: string;
@@ -48,11 +48,19 @@ export interface RecordMergeInput {
 }
 
 export class NodeStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   createNode(input: CreateNodeInput): NodeRow {
     const id = this.ids.next('node');

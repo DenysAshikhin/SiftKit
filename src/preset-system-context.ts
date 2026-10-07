@@ -5,9 +5,9 @@ import {
   resolve,
 } from 'node:path';
 
-import type { SiftPreset } from './presets.js';
-import { buildIgnorePolicy } from './repo-search/command-safety.js';
-import { readAgentsMd, scanRepoFiles } from './repo-search/prompts.js';
+import type { SiftPreset } from './presets.ts';
+import { buildIgnorePolicy } from './repo-search/command-safety.ts';
+import { readAgentsMd, scanRepoFiles } from './repo-search/prompts.ts';
 
 export type PresetSystemContext = {
   content: string;

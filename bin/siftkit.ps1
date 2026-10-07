@@ -18,19 +18,6 @@ function Import-SiftKitCliModule {
     throw 'SiftKit module could not be located. Import the module or run Install-SiftKitShellIntegration first.'
 }
 
-function Get-SiftCliPath {
-    $module = Get-Module SiftKit
-    if (-not $module) {
-        throw 'SiftKit module is not loaded.'
-    }
-
-    $cliPath = Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\cli\main.js'
-    if (-not (Test-Path -LiteralPath $cliPath)) {
-        throw ('TS CLI entrypoint not found: {0}. Run npm run build.' -f $cliPath)
-    }
-    $cliPath
-}
-
 function Get-SiftCommandName {
     param(
         [string[]]$Args
@@ -130,7 +117,8 @@ if ($script:PipelineBuffer.Count -gt 0 -and $commandName -eq 'summary' -and -not
 }
 
 try {
-    $cliPath = Get-SiftCliPath
+    # The module owns CLI resolution, so an installed shim runs the checkout its module loads from.
+    $cliPath = Invoke-SiftModuleHelper -ScriptBlock { Get-SiftCliPath }
     $previousSourceKind = $env:SIFTKIT_SUMMARY_SOURCE_KIND
     $previousCommandExitCode = $env:SIFTKIT_SUMMARY_COMMAND_EXIT_CODE
     if ($tempInputPath) {

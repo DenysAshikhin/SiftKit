@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { QuestionGate, formatQuestionReply, type QuestionEvidenceSink } from '../src/repo-search/engine/question-gate.js';
-import type { ChatQuestionRequestedEvidence, ChatQuestionResolvedEvidence } from '../src/repo-search/engine/chat-run-evidence.js';
+import { QuestionGate, formatQuestionReply, type QuestionEvidenceSink } from '../src/repo-search/engine/question-gate.ts';
+import type { ChatQuestionRequestedEvidence, ChatQuestionResolvedEvidence } from '../src/repo-search/engine/chat-run-evidence.ts';
 
 class RecordingSink implements QuestionEvidenceSink {
   readonly controller = new AbortController();

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   parseRepoAgentInvocation,
   RepoAgentInvocationSchema,
-} from '../src/cli/repo-agent-args.js';
+} from '../src/cli/repo-agent-args.ts';
 
 test('parses one positional start task with options on either sides', () => {
   assert.deepEqual(

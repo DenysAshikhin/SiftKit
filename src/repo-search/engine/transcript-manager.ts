@@ -1,23 +1,23 @@
-import { renderTaskTranscript } from '../planner-protocol.js';
+import { renderTaskTranscript } from '../planner-protocol.ts';
 import { buildChatMessageId } from '@siftkit/contracts';
-import { applyChatContextRevisions } from '../../state/chat-history-revisions.js';
-import { COMPACTION_SUMMARY_MARKER } from './transcript-compactor.js';
+import { applyChatContextRevisions } from '../../state/chat-history-revisions.ts';
+import { COMPACTION_SUMMARY_MARKER } from './transcript-compactor.ts';
 import {
   ChatContextInitSchema,
   ChatContextSpliceSchema,
   type ChatContextSpliceReason,
   type ChatContextSplice,
   type ChatMessage,
-} from '../planner-chat-message.js';
-import type { ChatContextRecorder } from './chat-run-evidence.js';
+} from '../planner-chat-message.ts';
+import type { ChatContextRecorder } from './chat-run-evidence.ts';
 import {
   buildToolBatchMessages,
   resolveTrailingUserSlot,
   type ToolBatchOutcome,
-} from '../../tool-call-messages.js';
-import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
-import { ImageRetentionPolicy } from '../../image-retention-policy.js';
-import { buildUserContent, countContentImages } from '../../llm-protocol/image-attachments.js';
+} from '../../tool-call-messages.ts';
+import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.ts';
+import { ImageRetentionPolicy } from '../../image-retention-policy.ts';
+import { buildUserContent, countContentImages } from '../../llm-protocol/image-attachments.ts';
 
 /**
  * The sole owner of the planner's mutable history. Callers read a readonly view and ask for named

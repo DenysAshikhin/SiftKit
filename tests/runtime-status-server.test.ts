@@ -5,9 +5,9 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { ActiveStatusRun } from '@siftkit/contracts';
 
-import { loadConfig, getConfigPath } from '../src/config/index.js';
-import { getRuntimeDatabase, closeAllRuntimeDatabases, runtimeDatabaseExists } from '../src/state/runtime-db.js';
-import { getDefaultMetrics, writeMetrics } from '../src/status-server/metrics.js';
+import { loadConfig, getConfigPath } from '../src/config/index.ts';
+import { getRuntimeDatabase, closeAllRuntimeDatabases, runtimeDatabaseExists } from '../src/state/runtime-db.ts';
+import { getDefaultMetrics, writeMetrics } from '../src/status-server/metrics.ts';
 
 const TextRowSchema = z.object({ text: z.string().nullish() }).optional();
 const RequestJsonRowSchema = z.object({ request_json: z.string().nullish() }).optional();
@@ -21,9 +21,9 @@ const RunIdentityRowSchema = z.object({
 const SpeculativeRowSchema = z
   .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
   .optional();
-import { writeConfig } from '../src/status-server/config-store.js';
-import { readStatusText } from '../src/status-server/status-file.js';
-import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs.js';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { readStatusText } from '../src/status-server/status-file.ts';
+import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs.ts';
 
 import {
   applyManagedScriptConfig,
@@ -43,16 +43,16 @@ import {
   type RuntimeStatusResponse,
   type InferenceModelsResponse,
   type HealthCheckResponse,
-} from './_runtime-helpers.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
+} from './_runtime-helpers.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.ts';
 import {
   REMOVED_BACKEND_MANAGED_READY_FIELD,
   REMOVED_BACKEND_MANAGED_STARTING_FIELD,
   REMOVED_BACKEND_MANAGED_STARTUP_WARNING_FIELD,
-} from './helpers/legacy-backend-fixtures.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+} from './helpers/legacy-backend-fixtures.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 interface StatusPostResponse {
   ok?: boolean;

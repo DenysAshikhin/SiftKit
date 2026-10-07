@@ -4,23 +4,23 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { CaptureSubmissionDto } from '@siftkit/contracts';
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import type { AssistantConfig } from '../src/config/types.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
-import { CaptureRetentionService } from '../src/assistant/images/capture-retention.js';
-import type { CaptureQueueState } from '../src/assistant/domain/enums.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import type { AssistantConfig } from '../src/config/types.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.ts';
+import { CaptureRetentionService } from '../src/assistant/images/capture-retention.ts';
+import type { CaptureQueueState } from '../src/assistant/domain/enums.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
 import {
   MemoryAssistantConfigWriter, withAssistantContext, type AssistantTestContext,
-} from './helpers/assistant-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+} from './helpers/assistant-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 const BYTES_PER_GB = 1024 ** 3;
 

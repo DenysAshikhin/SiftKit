@@ -4,11 +4,11 @@ import {
   AssistantMutationRequestSchema,
   AssistantTopicForgetRequestSchema,
 } from '@siftkit/contracts';
-import { z } from '../../../lib/zod.js';
-import { sendJson } from '../../http-utils.js';
+import { z } from '../../../lib/zod.ts';
+import { sendJson } from '../../http-utils.ts';
 import {
   assistantRoute, body, CorrectionSchema, id, PinSchema, success,
-} from './helpers.js';
+} from './helpers.ts';
 
 export const confirmEndpoint = assistantRoute(async ({ service, req, res, match }) => {
   const request = await body(req, AssistantMutationRequestSchema);

@@ -1,10 +1,10 @@
-import type { ActivitySummaryProgressEvent } from '../types.js';
-import type { RepoSearchProgressEvent } from '../types.js';
-import type { ProgressWriter } from '../../lib/progress-writer.js';
-import type { TokenCountSource } from '../prompt-budget.js';
+import type { ActivitySummaryProgressEvent } from '../types.ts';
+import type { RepoSearchProgressEvent } from '../types.ts';
+import type { ProgressWriter } from '../../lib/progress-writer.ts';
+import type { TokenCountSource } from '../prompt-budget.ts';
 import type { ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
-import { foldTurnTokenRecords, resolveCharsPerToken } from './turn-token-record.js';
-import type { TurnTokenRecord } from './turn-token-record.js';
+import { foldTurnTokenRecords, resolveCharsPerToken } from './turn-token-record.ts';
+import type { TurnTokenRecord } from './turn-token-record.ts';
 
 export type TokenizeDoneInfo = {
   promptTokenCount: number;

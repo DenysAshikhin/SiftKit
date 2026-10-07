@@ -1,5 +1,5 @@
-import { InferenceToolCallParser } from './tool-call-parser.js';
-import type { LiveContentClassification, LiveContentResult } from './types.js';
+import { InferenceToolCallParser } from './tool-call-parser.ts';
+import type { LiveContentClassification, LiveContentResult } from './types.ts';
 
 export type LiveContentSnapshot = {
   classification: LiveContentClassification;

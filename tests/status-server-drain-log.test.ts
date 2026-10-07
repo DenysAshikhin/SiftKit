@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { startStatusServer } from '../src/status-server/index.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { requestJson, getAddressInfo } from './helpers/dashboard-http.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { waitForAsyncExpectation } from './_runtime-helpers.js';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { requestJson, getAddressInfo } from './helpers/dashboard-http.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { waitForAsyncExpectation } from './_runtime-helpers.ts';
 
 const REQUEST_ID = 'drain-storm-request';
 

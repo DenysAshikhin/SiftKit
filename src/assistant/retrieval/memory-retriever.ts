@@ -1,16 +1,16 @@
-import type { AssistantConfig } from '../../config/types.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { isExplicitBasis } from '../domain/enums.js';
-import { rankAssertion } from '../domain/ranking.js';
-import { RELATION_DEFINITIONS, type RelationType } from '../domain/relation-types.js';
-import { stalenessFactor } from '../domain/staleness.js';
-import type { TokenCounter } from '../domain/tokens.js';
-import { hashTextContent } from '../domain/keys.js';
-import { renderAssertionSentence } from '../projections/assertion-sentence.js';
-import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
-import { isProjectableInPlaintext, type AssertionView } from '../projections/assertion-view.js';
-import type { RetrievalUsageStore } from '../storage/retrieval-usage-store.js';
-import { QueryIntentExtractor } from './query-intent.js';
+import type { AssistantConfig } from '../../config/types.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { isExplicitBasis } from '../domain/enums.ts';
+import { rankAssertion } from '../domain/ranking.ts';
+import { RELATION_DEFINITIONS, type RelationType } from '../domain/relation-types.ts';
+import { stalenessFactor } from '../domain/staleness.ts';
+import type { TokenCounter } from '../domain/tokens.ts';
+import { hashTextContent } from '../domain/keys.ts';
+import { renderAssertionSentence } from '../projections/assertion-sentence.ts';
+import { AssertionViewBuilder } from '../projections/assertion-view-builder.ts';
+import { isProjectableInPlaintext, type AssertionView } from '../projections/assertion-view.ts';
+import type { RetrievalUsageStore } from '../storage/retrieval-usage-store.ts';
+import { QueryIntentExtractor } from './query-intent.ts';
 
 export interface RetrieveRequest {
   readonly ownerId: string;
@@ -44,12 +44,19 @@ export class MemoryRetriever {
   private readonly views: AssertionViewBuilder;
   private limits: AssistantConfig['Retrieval'];
 
+  private readonly graph: AssistantGraph;
+  private readonly tokens: TokenCounter;
+  private readonly usage: RetrievalUsageStore;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly tokens: TokenCounter,
+    graph: AssistantGraph,
+    tokens: TokenCounter,
     limits: AssistantConfig['Retrieval'],
-    private readonly usage: RetrievalUsageStore,
+    usage: RetrievalUsageStore,
   ) {
+    this.graph = graph;
+    this.tokens = tokens;
+    this.usage = usage;
     this.views = new AssertionViewBuilder(graph);
     this.limits = limits;
   }

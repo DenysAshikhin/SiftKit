@@ -1,8 +1,8 @@
-import { getRuntimeDatabase, getRuntimeMetadataValue, setRuntimeMetadataValue } from '../state/runtime-db.js';
-import { z } from '../lib/zod.js';
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { parseJsonValueText } from '../lib/json.js';
-import type { RuntimeEngineConfig } from '../config/types.js';
+import { getRuntimeDatabase, getRuntimeMetadataValue, setRuntimeMetadataValue } from '../state/runtime-db.ts';
+import { z } from '../lib/zod.ts';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import type { RuntimeEngineConfig } from '../config/types.ts';
 
 const SNAPSHOT_KEY = 'runtime_engine_launch_snapshot';
 

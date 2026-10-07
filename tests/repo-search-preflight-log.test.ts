@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildRepoSearchPreflightLogBody } from '../src/repo-search/execute.js';
+import { buildRepoSearchPreflightLogBody } from '../src/repo-search/execute.ts';
 
 test('a fast, clean preflight prints nothing: the command line already carries the turn', () => {
   assert.equal(

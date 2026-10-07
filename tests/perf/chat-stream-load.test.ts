@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
 import { z } from 'zod';
-import { createChatUpdateRecords, encodeChatProjectionRecords } from '../../src/status-server/chat-projection-encoder.js';
-import { HeadlessChrome, bundleBrowserPage, bundleResponse, type BrowserPage } from '../helpers/browser-page.js';
+import { createChatUpdateRecords, encodeChatProjectionRecords } from '../../src/status-server/chat-projection-encoder.ts';
+import { HeadlessChrome, bundleBrowserPage, bundleResponse, type BrowserPage } from '../helpers/browser-page.ts';
 import {
   FIXTURE_OPERATION_ID, chatProjectionCapture, chatSnapshotFrames, nextTransferId, projectionPackets, singleRecordFrames, terminalRecord,
-} from '../../dashboard/tests/chat-snapshot-fixture.js';
-import { liveTranscriptSnapshot, type LiveTranscriptStep } from '../../dashboard/tests/live-transcript-fixture.js';
+} from '../../dashboard/tests/chat-snapshot-fixture.ts';
+import { liveTranscriptSnapshot, type LiveTranscriptStep } from '../../dashboard/tests/live-transcript-fixture.ts';
 import {
   LOAD_ANSWER_TOKENS, LOAD_SESSION_ID, LOAD_THINKING_TOKENS, LOAD_TOKENS_PER_SECOND, StreamLoadResultSchema, loadTokenText,
-} from '../../dashboard/tests/chat-stream-load-content.js';
+} from '../../dashboard/tests/chat-stream-load-content.ts';
 
 const TOKENS = LOAD_THINKING_TOKENS + LOAD_ANSWER_TOKENS;
 /** How much more main-thread time per token a long history may cost than an empty one. */

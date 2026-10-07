@@ -1,7 +1,7 @@
-import type { RelationType } from '../domain/relation-types.js';
-import type { AssertionStore } from '../storage/assertion-store.js';
-import type { NodeStore } from '../storage/node-store.js';
-import type { AssertionRow } from '../storage/rows.js';
+import type { RelationType } from '../domain/relation-types.ts';
+import type { AssertionStore } from '../storage/assertion-store.ts';
+import type { NodeStore } from '../storage/node-store.ts';
+import type { AssertionRow } from '../storage/rows.ts';
 
 export type TruncationReason = 'max_hops' | 'max_nodes' | 'max_assertions' | 'max_fanout';
 
@@ -28,10 +28,16 @@ export interface NeighborhoodRequest {
  * never mistake a truncated neighborhood for a complete one (§11.4).
  */
 export class NeighborhoodReader {
+  private readonly nodes: NodeStore;
+  private readonly assertions: AssertionStore;
+
   constructor(
-    private readonly nodes: NodeStore,
-    private readonly assertions: AssertionStore,
-  ) {}
+    nodes: NodeStore,
+    assertions: AssertionStore,
+  ) {
+    this.nodes = nodes;
+    this.assertions = assertions;
+  }
 
   read(request: NeighborhoodRequest): Neighborhood {
     this.nodes.requireNode(request.rootNodeId);

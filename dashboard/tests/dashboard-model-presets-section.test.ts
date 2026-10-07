@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
-import { ModelPresetsSection } from '../dashboard/src/tabs/settings/ModelPresetsSection.js';
-import type { ModelPresetSettingsActions } from '../dashboard/src/settings-action-groups.js';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../../src/lib/context-token-budget.ts';
+import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
+import type { ModelPresetSettingsActions } from '../src/settings-action-groups.ts';
 
 interface PresetRenderOptions {
   externalServerEnabled?: boolean;

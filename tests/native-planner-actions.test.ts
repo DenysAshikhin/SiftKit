@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { AgentLoopFinishAction } from '../src/agent-loop/types.js';
-import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
-import type { InferenceToolCall } from '../src/llm-protocol/types.js';
-import { completeLiveContent } from '../src/llm-protocol/live-content-classifier.js';
-import { z } from '../src/lib/zod.js';
-import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
+import type { AgentLoopFinishAction } from '../src/agent-loop/types.ts';
+import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.ts';
+import type { InferenceToolCall } from '../src/llm-protocol/types.ts';
+import { completeLiveContent } from '../src/llm-protocol/live-content-classifier.ts';
+import { z } from '../src/lib/zod.ts';
+import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../src/planner-protocol/json-schema.ts';
 import {
   NativePlannerResponseError,
   NativePlannerToolCallError,
   parseNativePlannerActions as parseNativePlannerActionsFromResult,
   type NativePlannerActionOptions,
-} from '../src/planner-protocol/native-actions.js';
+} from '../src/planner-protocol/native-actions.ts';
 
 function parseNativePlannerActions(
   response: { text: string; toolCalls: InferenceToolCall[] },

@@ -1,10 +1,10 @@
 import { DESKTOP_HEARTBEAT_STALENESS_SECONDS, type EnvironmentStateDto } from '@siftkit/contracts';
 
-import type { Clock } from '../clock.js';
-import type { PowerState, PowerStateProvider } from '../jobs/resource-policy.js';
+import type { Clock } from '../clock.ts';
+import type { PowerState, PowerStateProvider } from '../jobs/resource-policy.ts';
 import type {
   QuestionEnvironmentState, QuestionEnvironmentStateProvider,
-} from '../questions/environment-state.js';
+} from '../questions/environment-state.ts';
 
 /** The two shell-reported input signals, named as on the wire. */
 export type DesktopInputIdle = Pick<
@@ -21,7 +21,11 @@ function localTimeOf(epochMs: number): string {
  * `QuestionEnvironmentStateProvider.read()` return different shapes under the same name.
  */
 class DesktopPowerStateProvider implements PowerStateProvider {
-  constructor(private readonly cache: DesktopEnvironmentCache) {}
+  private readonly cache: DesktopEnvironmentCache;
+
+  constructor(cache: DesktopEnvironmentCache) {
+    this.cache = cache;
+  }
 
   read(): PowerState {
     return this.cache.readPower();
@@ -40,10 +44,15 @@ export class DesktopEnvironmentCache implements QuestionEnvironmentStateProvider
   private last: EnvironmentStateDto | null = null;
   private receivedEpochMs = 0;
 
+  private readonly clock: Clock;
+  private readonly stalenessSeconds: number;
+
   constructor(
-    private readonly clock: Clock,
-    private readonly stalenessSeconds: number = DESKTOP_HEARTBEAT_STALENESS_SECONDS,
+    clock: Clock,
+    stalenessSeconds: number = DESKTOP_HEARTBEAT_STALENESS_SECONDS,
   ) {
+    this.clock = clock;
+    this.stalenessSeconds = stalenessSeconds;
     this.power = new DesktopPowerStateProvider(this);
   }
 

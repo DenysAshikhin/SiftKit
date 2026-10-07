@@ -1,15 +1,15 @@
 import { buildChatRunMessageIdPrefix, buildChatMessageId, reduceChatTranscript, type ChatTranscriptMessage, ChatRecoveryIssueSchema, CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, type ChatRecoveryIssue, type ChatRecoveryIssueCode, type ChatRecoveryStatus, type ChatToolExecutionState } from '@siftkit/contracts';
-import { buildAssistantToolCallMessage, buildToolResultMessage } from '../tool-call-messages.js';
+import { buildAssistantToolCallMessage, buildToolResultMessage } from '../tool-call-messages.ts';
 import {
   findPlannerContextViolation,
   type ChatMessage,
-} from '../repo-search/planner-chat-message.js';
-import type { JsonObject } from '../lib/json-types.js';
-import { ChatJournalStore } from '../state/chat-journal.js';
-import type { ChatHistoryRevision, ChatJournalEnvelope, ChatJournalEvent, ChatToolCallIdentity } from '../state/chat-journal-schema.js';
-import { applyChatContextRevisions } from '../state/chat-history-revisions.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import { buildUserContent } from '../llm-protocol/image-attachments.js';
+} from '../repo-search/planner-chat-message.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import { ChatJournalStore } from '../state/chat-journal.ts';
+import type { ChatHistoryRevision, ChatJournalEnvelope, ChatJournalEvent, ChatToolCallIdentity } from '../state/chat-journal-schema.ts';
+import { applyChatContextRevisions } from '../state/chat-history-revisions.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import { buildUserContent } from '../llm-protocol/image-attachments.ts';
 
 /**
  * What a recovered run knows about one of its tool calls. `not_started` and `uncertain` are the
@@ -80,7 +80,12 @@ class ToolCallRecord {
   private output: string | null = null;
   private finalizedText: string | null = null;
 
-  constructor(readonly call: ChatToolCallIdentity, readonly toolName: string, commandArguments: JsonObject) {
+  readonly call: ChatToolCallIdentity;
+  readonly toolName: string;
+
+  constructor(call: ChatToolCallIdentity, toolName: string, commandArguments: JsonObject) {
+    this.call = call;
+    this.toolName = toolName;
     this.recoveryArguments = commandArguments;
   }
 

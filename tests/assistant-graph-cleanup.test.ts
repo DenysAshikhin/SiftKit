@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GraphCleanupService } from '../src/assistant/control/graph-cleanup-service.js';
-import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.js';
-import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
-import { ImageExtractor } from '../src/assistant/images/image-extractor.js';
-import { UnavailableImageCapabilityProvider } from '../src/assistant/images/image-capability.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { GraphCleanupService } from '../src/assistant/control/graph-cleanup-service.ts';
+import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.ts';
+import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.ts';
+import { ImageExtractor } from '../src/assistant/images/image-extractor.ts';
+import { UnavailableImageCapabilityProvider } from '../src/assistant/images/image-capability.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 const CAPTURED_AT = '2026-08-10T14:03:11.000Z';
 const PNG_BYTES = Buffer.from(

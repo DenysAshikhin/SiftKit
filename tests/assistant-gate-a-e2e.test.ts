@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 function recordStatement(context: AssistantTestContext, sourceEventId: string, text: string): string {
   return context.graph.evidence.recordTextEvidence({

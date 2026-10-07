@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ReactNode } from 'react';
-import type { TabKey } from '../App';
+import type { TabKey } from '../App.tsx';
 
 export type RailItem = { tab: TabKey; label: string; title: string; icon: ReactNode };
 

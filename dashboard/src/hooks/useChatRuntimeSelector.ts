@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
-import type { ChatRuntimeHub } from '../lib/chat-runtime-hub';
-import type { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
+import type { ChatRuntimeHub } from '../lib/chat-runtime-hub.ts';
+import type { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store.ts';
 
 /**
  * One slice of the chat runtime; the component re-renders only when the slice changes identity. `select`

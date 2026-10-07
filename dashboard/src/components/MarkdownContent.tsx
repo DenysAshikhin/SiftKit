@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { splitMarkdownBlocks } from '../lib/markdown-blocks';
+import { splitMarkdownBlocks } from '../lib/markdown-blocks.ts';
 
 const REMARK_PLUGINS = [remarkGfm];
 

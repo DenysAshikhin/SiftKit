@@ -1,4 +1,4 @@
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
 export const ASSISTANT_JOB_TYPES = [
   'conversation_ingestion', 'candidate_consolidation', 'projection_maintenance',

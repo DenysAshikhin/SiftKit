@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
-import { currentModelTarget } from './helpers/chat-run-recorder.js';
+import { currentModelTarget } from './helpers/chat-run-recorder.ts';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { ChatStreamUsageEvent } from '@siftkit/contracts';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { deleteChatMessage, readChatMeasuredContext, type ChatSession } from '../src/state/chat-sessions.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { buildChatRunSettings, ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
-import { buildChatSessionResponse } from '../src/status-server/chat-session-response.js';
-import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
-import { createTestChatSession } from './helpers/chat-sessions.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { deleteChatMessage, readChatMeasuredContext, type ChatSession } from '../src/state/chat-sessions.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { buildChatRunSettings, ChatRunRecorder } from '../src/status-server/chat-run-recorder.ts';
+import { buildChatSessionResponse } from '../src/status-server/chat-session-response.ts';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function usageFrame(turn: number, promptTokens: number, outputTokens: number, thinkingTokens: number): ChatStreamUsageEvent {
   return {

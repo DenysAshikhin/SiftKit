@@ -1,6 +1,6 @@
 import { buildChatMessageId, buildChatRunMessageIdPrefix } from '@siftkit/contracts';
-import type { ChatSessionLive } from './chat-session-runtime-store';
-import { getLiveMessageTokenDisplay, type TokenDisplay } from './format';
+import type { ChatSessionLive } from './chat-session-runtime-store.ts';
+import { getLiveMessageTokenDisplay, type TokenDisplay } from './format.ts';
 
 /** Provisional text counts belong to the view; canonical transcript rows remain measured only. */
 export function buildLiveTokenDisplays(live: ChatSessionLive): ReadonlyMap<string, TokenDisplay> {

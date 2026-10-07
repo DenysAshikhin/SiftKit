@@ -1,5 +1,5 @@
 import React from 'react';
-import { getToolActivityLabel, type ToolActivityGroup } from '../lib/tool-activity-ring';
+import { getToolActivityLabel, type ToolActivityGroup } from '../lib/tool-activity-ring.ts';
 
 export function ToolActivityRow({ group }: { group: ToolActivityGroup }) {
   const tone = group.state === 'failed' ? 'tool-activity-failed' : 'tool-activity-neutral';

@@ -1,9 +1,9 @@
 import { ChatSessionSchema, ChatSessionResponseSchema, ChatSessionSummarySchema, PersistedChatTranscriptMessageSchema, type ChatRecoveryReport } from '@siftkit/contracts';
-import type { SiftConfig } from '../config/types.js';
-import { readChatMeasuredContext, type ChatSession, type StoredChatSessionSummary } from '../state/chat-sessions.js';
-import { buildChatPromptContext } from './chat-prompt-context.js';
-import { buildContextUsage, resolveChatSessionContextWindow, resolveChatSessionModel } from './chat.js';
-import { buildChatSessionThroughput } from './chat-turn-telemetry.js';
+import type { SiftConfig } from '../config/types.ts';
+import { readChatMeasuredContext, type ChatSession, type StoredChatSessionSummary } from '../state/chat-sessions.ts';
+import { buildChatPromptContext } from './chat-prompt-context.ts';
+import { buildContextUsage, resolveChatSessionContextWindow, resolveChatSessionModel } from './chat.ts';
+import { buildChatSessionThroughput } from './chat-turn-telemetry.ts';
 
 export function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return { ...session, promptContext: buildChatPromptContext(config, session) };

@@ -6,7 +6,7 @@ import {
   type ReadRange,
   type ReadOverlapSummary,
   type FileReadState,
-} from './read-overlap.js';
+} from './read-overlap.ts';
 
 export type ReadExecutionMetrics = {
   overlapLines: number;

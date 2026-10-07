@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hasUsableWebSearchProvider } from '../src/web-search/web-search-provider.js';
-import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.js';
-import { EXPOSED_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { buildWebSearchConfig } from './helpers/mock-config.js';
+import { hasUsableWebSearchProvider } from '../src/web-search/web-search-provider.ts';
+import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.ts';
+import { EXPOSED_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { buildWebSearchConfig } from './helpers/mock-config.ts';
 
 test('hasUsableWebSearchProvider is false when every provider is disabled', () => {
   assert.equal(hasUsableWebSearchProvider(buildWebSearchConfig()), false);

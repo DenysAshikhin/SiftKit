@@ -1,16 +1,16 @@
 import { appendFileSync } from 'node:fs';
-import { createTracer } from '../lib/trace.js';
-import type { InferenceBackendId } from '../config/types.js';
-import type { JsonObject } from '../lib/json-types.js';
-import { getStatusArtifactUri, type DeferredArtifact } from '../state/status-artifacts.js';
-import type { RunIdentity } from '../status-server/dashboard-runs/run-identity.js';
-import { getRecord } from './planner/json-filter.js';
+import { createTracer } from '../lib/trace.ts';
+import type { InferenceBackendId } from '../config/types.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import { getStatusArtifactUri, type DeferredArtifact } from '../state/status-artifacts.ts';
+import type { RunIdentity } from '../status-server/dashboard-runs/run-identity.ts';
+import { getRecord } from './planner/json-filter.ts';
 import type {
   SummaryFailureContext,
   SummaryProviderId,
   SummarySourceKind,
-} from './types.js';
-import type { SummaryClassification } from '../planner-protocol/summary-tools.js';
+} from './types.ts';
+import type { SummaryClassification } from '../planner-protocol/summary-tools.ts';
 
 // ---------- failure context ---------- //
 

@@ -1,21 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { repairInput, seedRepairArchive } from '../helpers/chat-history-archive-fixture.js';
-import { ChatHistoryRepairReportSchema } from '../../src/status-server/chat-history-repair.js';
-import { z } from '../../src/lib/zod.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
-import { createTestChatSession } from '../helpers/chat-sessions.js';
-import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { saveChatSession, readChatSessionFromDatabase } from '../../src/state/chat-sessions.js';
-import { ChatJournalStore } from '../../src/state/chat-journal.js';
+import { repairInput, seedRepairArchive } from '../helpers/chat-history-archive-fixture.ts';
+import { ChatHistoryRepairReportSchema } from '../../src/status-server/chat-history-repair.ts';
+import { z } from '../../src/lib/zod.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
+import { createTestChatSession } from '../helpers/chat-sessions.ts';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { saveChatSession, readChatSessionFromDatabase } from '../../src/state/chat-sessions.ts';
+import { ChatJournalStore } from '../../src/state/chat-journal.ts';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.ts';
 
 function runRecoveryCommand(args: string[]) {
-  return spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/recover-web-chat.ts'), ...args], { encoding: 'utf8', timeout: 60_000 });
+  return spawnSync(process.execPath, [resolve('scripts/recover-web-chat.ts'), ...args], { encoding: 'utf8', timeout: 60_000 });
 }
 
 test('recovery command defaults to dry-run and leaves its source database unchanged', () => {
@@ -29,7 +29,7 @@ test('recovery command defaults to dry-run and leaves its source database unchan
   writeFileSync(statePath, JSON.stringify(input.state));
   writeFileSync(join(root, 'request.json'), JSON.stringify(input.request));
   closeAllRuntimeDatabases();
-  const result = spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/recover-web-chat.ts'),
+  const result = spawnSync(process.execPath, [resolve('scripts/recover-web-chat.ts'),
     '--database', databasePath, '--session-id', 'session', '--request-id', 'request', '--repo-agent-state', statePath, '--max-turns', '200'],
   { encoding: 'utf8', timeout: 30_000 });
   assert.equal(result.status, 0, result.stderr);

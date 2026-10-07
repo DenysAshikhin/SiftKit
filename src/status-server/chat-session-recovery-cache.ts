@@ -1,6 +1,6 @@
 import type { ChatRecoveryReport } from '@siftkit/contracts';
-import type { RuntimeDatabase } from '../state/runtime-db.js';
-import { reconcileChatSession } from './chat-run-recovery.js';
+import type { RuntimeDatabase } from '../state/runtime-db.ts';
+import { reconcileChatSession } from './chat-run-recovery.ts';
 
 /**
  * The one owner of "what the last replay of this session's journals found".
@@ -18,7 +18,11 @@ import { reconcileChatSession } from './chat-run-recovery.js';
 export class ChatSessionRecoveryCache {
   private readonly reports = new Map<string, ChatRecoveryReport[]>();
 
-  constructor(private readonly database: RuntimeDatabase) {}
+  private readonly database: RuntimeDatabase;
+
+  constructor(database: RuntimeDatabase) {
+    this.database = database;
+  }
 
   /** Replays on this process's first read of the session; later reads return those reports. */
   forSession(sessionId: string): ChatRecoveryReport[] {

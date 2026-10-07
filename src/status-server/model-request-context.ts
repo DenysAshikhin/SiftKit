@@ -5,9 +5,9 @@ import {
   type ModelRuntimePreset,
   type SiftConfig,
 } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import type { ModelRequestIntent } from '../lib/model-request-intent.js';
-import { PresetCatalog } from '../preset-catalog.js';
+import { z } from '../lib/zod.ts';
+import type { ModelRequestIntent } from '../lib/model-request-intent.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
 
 export const ModelRequestContextSchema = z.object({
   operationPreset: SiftPresetSchema.nullable(),

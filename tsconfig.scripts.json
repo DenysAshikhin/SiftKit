@@ -1,19 +1,14 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true,
-    "rootDir": ".",
-    "tsBuildInfoFile": ".tscache/scripts.tsbuildinfo",
-    "rewriteRelativeImportExtensions": true
+    "tsBuildInfoFile": ".tscache/scripts.tsbuildinfo"
   },
   "include": [
     "src/types/better-sqlite3.d.ts",
     "scripts/build-clean.ts",
-    "scripts/build-test.ts",
     "scripts/recover-web-chat.ts",
     "scripts/build-exllamav3-wheel.ts",
     "scripts/dashboard-stamp.ts",
-    "scripts/sync-dist-runtime.ts",
     "scripts/purge-temp-dirs.ts",
     "scripts/purge-temp-dirs-main.ts",
     "scripts/extract-invalid-action-corpus.ts",

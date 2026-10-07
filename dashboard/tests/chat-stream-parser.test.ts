@@ -1,9 +1,9 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { CHAT_PROJECTION_MAX_FRAME_BYTES, CHAT_PROJECTION_PROTOCOL_VERSION, ChatTranscriptMessageSchema, type ChatProjectionFrame } from '@siftkit/contracts';
-import { parseChatStreamPacket, ChatStreamReader, type ChatStreamEvent } from '../src/lib/chat-stream-parser';
-import { ChatOperationProjection } from '../src/lib/chat-operation-projection';
-import { chatProjectionCapture, chatQueueState, chatSnapshotFrames, nextTransferId, projectionPackets } from './chat-snapshot-fixture.js';
+import { parseChatStreamPacket, ChatStreamReader, type ChatStreamEvent } from '../src/lib/chat-stream-parser.ts';
+import { ChatOperationProjection } from '../src/lib/chat-operation-projection.ts';
+import { chatProjectionCapture, chatQueueState, chatSnapshotFrames, nextTransferId, projectionPackets } from './chat-snapshot-fixture.ts';
 
 const encoder = new TextEncoder();
 

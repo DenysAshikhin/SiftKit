@@ -1,16 +1,16 @@
-import { z } from '../lib/zod.js';
-import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
-import { JsonValueSchema, type JsonValue, type OptionalJsonValue } from '../lib/json-types.js';
-import { parseJsonValueText } from '../lib/json.js';
+import { z } from '../lib/zod.ts';
+import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.ts';
+import { JsonValueSchema, type JsonValue, type OptionalJsonValue } from '../lib/json-types.ts';
+import { parseJsonValueText } from '../lib/json.ts';
 import {
   getDefaultOperationModeAllowedTools,
   normalizeOperationModeAllowedTools,
-} from '../presets.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { toError } from '../lib/errors.js';
-import { PersistedConfigInvalidError } from '../config/errors.js';
-import { getDefaultConfigObject } from '../config/defaults.js';
-import { getActiveModelPreset, managesManagedEngineLifecycle } from '../config/getters.js';
+} from '../presets.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { toError } from '../lib/errors.ts';
+import { PersistedConfigInvalidError } from '../config/errors.ts';
+import { getDefaultConfigObject } from '../config/defaults.ts';
+import { getActiveModelPreset, managesManagedEngineLifecycle } from '../config/getters.ts';
 import {
   getFinitePositiveInteger,
   getManagedStartupTimeoutMs,
@@ -21,15 +21,15 @@ import {
   normalizeConfigObject,
   normalizeModelRuntimePresetArray,
   normalizeWebSearchConfig,
-} from '../config/normalization.js';
+} from '../config/normalization.ts';
 import type {
   ModelRuntimePreset,
   SiftConfig,
   WebSearchConfig,
-} from '../config/types.js';
-import { getRuntimeDatabase, type RuntimeDatabase } from '../state/runtime-db.js';
-import { LOCAL_OWNER_ID } from '../assistant/storage/schema.js';
-import { readRuntimeLaunchSnapshot, type RuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
+} from '../config/types.ts';
+import { getRuntimeDatabase, type RuntimeDatabase } from '../state/runtime-db.ts';
+import { LOCAL_OWNER_ID } from '../assistant/storage/schema.ts';
+import { readRuntimeLaunchSnapshot, type RuntimeLaunchSnapshot } from './runtime-launch-snapshot.ts';
 
 export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = getDefaultConfigObject().WebSearch;
 

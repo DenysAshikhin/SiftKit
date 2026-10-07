@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../src/lib/http-client.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { InferenceClient } from '../src/llm-protocol/inference-client.js';
-import { buildStreamingTestConfig } from './helpers/streaming-client.js';
-import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../src/lib/http-client.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { InferenceClient } from '../src/llm-protocol/inference-client.ts';
+import { buildStreamingTestConfig } from './helpers/streaming-client.ts';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts';
 
 /** Rejects any blocking request aimed at chat completions. */
 class ChatBlockingDetector {

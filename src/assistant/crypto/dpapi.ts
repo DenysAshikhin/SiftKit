@@ -1,4 +1,4 @@
-import { spawnPowerShellAsync } from '../../lib/powershell.js';
+import { spawnPowerShellAsync } from '../../lib/powershell.ts';
 
 /**
  * Windows DPAPI (`CurrentUser` scope) via PowerShell — the same protection the desktop shell uses

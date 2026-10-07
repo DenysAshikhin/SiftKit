@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { asObject } from './helpers/dashboard-http.js';
+import { asObject } from './helpers/dashboard-http.ts';
 import {
   fs,
   path,
@@ -24,13 +24,13 @@ import {
   withTempEnv,
   withStubServer,
   createEmptyPresetSystemContext,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 
 const SIFTKIT_REPO_ROOT = process.cwd();
-import type { SiftConfig } from '../src/config/types.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
-import type { SummaryPolicyProfile } from '../src/summary/types.js';
+import type { SiftConfig } from '../src/config/types.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
+import type { SummaryPolicyProfile } from '../src/summary/types.ts';
 
 interface FixtureManifestEntry {
   File: string;

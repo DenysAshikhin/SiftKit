@@ -1,9 +1,9 @@
-import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import type { SiftConfig } from '../../config/index.js';
-import { estimateTokenCount } from '../../lib/token-estimate.js';
-import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
-import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
-import { FAILED_COMMAND_TAIL_CAP_TOKENS, type AvailableToolResultCapacity } from './turn-budget.js';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.ts';
+import type { SiftConfig } from '../../config/index.ts';
+import { estimateTokenCount } from '../../lib/token-estimate.ts';
+import { countTokensWithFallbackDetailed } from '../prompt-budget.ts';
+import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
+import { FAILED_COMMAND_TAIL_CAP_TOKENS, type AvailableToolResultCapacity } from './turn-budget.ts';
 
 export type FittedToolResult = {
   resultText: string;

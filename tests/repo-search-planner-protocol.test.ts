@@ -1,20 +1,20 @@
-import { getActiveModelPreset } from '../src/config/getters.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { ModelJson } from '../src/lib/model-json.js';
-import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
-import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
-import { serverLogger } from '../src/status-server/server-logger.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
-import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { toProtocolTools } from '../src/providers/inference.js';
+import { ModelJson } from '../src/lib/model-json.ts';
+import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.ts';
+import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.ts';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { serverLogger } from '../src/status-server/server-logger.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.ts';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { toProtocolTools } from '../src/providers/inference.ts';
 import {
   captureExecutingPlannerRequest,
   getRepoSearchToolNames,
@@ -27,9 +27,9 @@ import {
   type PlannerActionResponse,
   type PlannerDerivedRequestOptions,
   type PlannerThinkingFlags,
-} from '../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import type { JsonLogger } from '../src/repo-search/types.js';
+} from '../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import type { JsonLogger } from '../src/repo-search/types.ts';
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
 const PLANNER_REQUEST_DEFAULTS = {
@@ -1118,9 +1118,9 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
 import {
   isRepoSearchNativeToolName,
   sanitizeNonInteractiveAllowedTools,
-} from '../src/repo-search/planner-protocol.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+} from '../src/repo-search/planner-protocol.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 test('interactive tool names extend the exposed surface with write, edit, run', () => {
   assert.deepEqual(

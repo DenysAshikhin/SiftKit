@@ -1,11 +1,11 @@
-import type { TokenCounter } from '../domain/tokens.js';
-import { isExplicitBasis } from '../domain/enums.js';
-import { renderAssertionSentence } from './assertion-sentence.js';
+import type { TokenCounter } from '../domain/tokens.ts';
+import { isExplicitBasis } from '../domain/enums.ts';
+import { renderAssertionSentence } from './assertion-sentence.ts';
 import {
   TIER_TOKEN_LIMIT, compareViewsByValue, isProjectableInPlaintext,
   type AssertionView, type CompiledDocument,
-} from './assertion-view.js';
-import { TokenLimitEnforcer } from './token-limit-enforcer.js';
+} from './assertion-view.ts';
+import { TokenLimitEnforcer } from './token-limit-enforcer.ts';
 
 export interface DossierCompileRequest {
   readonly tier: 2 | 3;
@@ -27,10 +27,16 @@ const CHRONOLOGY_PREDICATES = [
 
 /** Tiers 2 and 3: the §10.3 dossier structure, one renderer, two budgets. */
 export class DossierCompiler {
+  private readonly tokens: TokenCounter;
+  private readonly enforcer: TokenLimitEnforcer;
+
   constructor(
-    private readonly tokens: TokenCounter,
-    private readonly enforcer: TokenLimitEnforcer,
-  ) {}
+    tokens: TokenCounter,
+    enforcer: TokenLimitEnforcer,
+  ) {
+    this.tokens = tokens;
+    this.enforcer = enforcer;
+  }
 
   async compile(request: DossierCompileRequest): Promise<CompiledDocument> {
     const eligible = request.views.filter(isProjectableInPlaintext).sort(compareViewsByValue);

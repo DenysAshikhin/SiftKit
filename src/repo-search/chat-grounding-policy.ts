@@ -1,9 +1,9 @@
-import { z } from '../lib/zod.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { z } from '../lib/zod.ts';
+import type { JsonObject } from '../lib/json-types.ts';
 import {
   parseWebToolCommand,
   type RetainedWebToolCall,
-} from '../web-search/web-tool-command.js';
+} from '../web-search/web-tool-command.ts';
 
 export const ChatGroundingStatusSchema = z.enum(['ungrounded', 'snippet_only', 'fetched']);
 export type ChatGroundingStatus = z.infer<typeof ChatGroundingStatusSchema>;

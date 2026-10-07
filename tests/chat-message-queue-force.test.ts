@@ -2,21 +2,21 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
 
-import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { startHarness } from './helpers/streamed-op-harness.js';
-import { requestJson, requestSse, asObject, asObjectArray } from './helpers/dashboard-http.js';
-import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
-import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
+import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { saveChatSession, type ChatSession } from '../src/state/chat-sessions.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { startHarness } from './helpers/streamed-op-harness.ts';
+import { requestJson, requestSse, asObject, asObjectArray } from './helpers/dashboard-http.ts';
+import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.ts';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { RepoSearchExecutionRequest } from '../src/repo-search/types.js';
-import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
-import { z } from '../src/lib/zod.js';
-import { readChatStreamViews } from './helpers/chat-stream-views.js';
+import type { RepoSearchExecutionRequest } from '../src/repo-search/types.ts';
+import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.ts';
+import { z } from '../src/lib/zod.ts';
+import { readChatStreamViews } from './helpers/chat-stream-views.ts';
 
 class FailAfterExecutionService extends HoldingCaptureEngineService {
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<never> {
@@ -30,7 +30,10 @@ class TerminalHoldService extends HoldingCaptureEngineService {
   private notifyRelease: (() => void) | null = null;
   readonly ready = new Promise<void>((resolve) => { this.notifyReady = resolve; });
   private readonly terminalReleased = new Promise<void>((resolve) => { this.notifyRelease = resolve; });
-  constructor(private readonly failed: boolean | 'throw') { super('unused'); }
+  private readonly failed: boolean | 'throw';
+
+  constructor(failed: boolean | 'throw') { super('unused');
+    this.failed = failed; }
   release(): void { this.notifyRelease?.(); }
   override async executeRepoSearch(request: RepoSearchExecutionRequest) {
     const result = await super.executeRepoSearch(request);

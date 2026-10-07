@@ -45,10 +45,6 @@ const TYPING_RULES = {
 export default tseslint.config(
   {
     ignores: [
-      'dist/**',
-      // Generated test bundles: 198MB of esbuild output. Linting them costs ~150s
-      // per run and can only ever flag code that originated in already-linted sources.
-      '.test-build/**',
       'dashboard/dist/**',
       'desktop/src-tauri/target/**',
       '**/node_modules/**',
@@ -94,21 +90,18 @@ export default tseslint.config(
     files: CLEAN_FIXTURES,
     rules: TYPING_RULES,
   },
-  // src/** compiles to the ESM dist (src/package.json is type:module, dist has no
-  // package.json so node runs it as ESM). CommonJS globals are undefined there and
-  // crash the shipped CLI at runtime, yet @types/node declares them so neither tsc
-  // nor the base lint flags them. Ban them here so reintroduction fails loud.
-  // tsx polyfills them under the test harness, which is why this bug reached prod.
+  // src/** runs as native ESM (root package.json is type:module). CommonJS globals are
+  // undefined there, yet @types/node declares them so tsc cannot flag them; ban them so reintroduction fails loud.
   {
     files: ['src/**/*.ts'],
     rules: {
       'no-restricted-globals': [
         'error',
-        { name: '__dirname', message: '__dirname is undefined in the ESM dist; use moduleDirname(import.meta.url) from lib/paths.' },
-        { name: '__filename', message: '__filename is undefined in the ESM dist; use moduleFilename(import.meta.url) from lib/paths.' },
-        { name: 'require', message: 'require is undefined in the ESM dist; use import, or isMainModule(import.meta.url) from lib/paths for direct-run checks.' },
-        { name: 'module', message: 'CommonJS module is undefined in the ESM dist; use ESM export.' },
-        { name: 'exports', message: 'CommonJS exports is undefined in the ESM dist; use ESM export.' },
+        { name: '__dirname', message: '__dirname is undefined in ESM; use moduleDirname(import.meta.url) from lib/paths.' },
+        { name: '__filename', message: '__filename is undefined in ESM; use moduleFilename(import.meta.url) from lib/paths.' },
+        { name: 'require', message: 'require is undefined in ESM; use import, or isMainModule(import.meta.url) from lib/paths for direct-run checks.' },
+        { name: 'module', message: 'CommonJS module is undefined in ESM; use ESM export.' },
+        { name: 'exports', message: 'CommonJS exports is undefined in ESM; use ESM export.' },
       ],
     },
   },

@@ -6,7 +6,7 @@ import {
   FORCED_FINISH_MODE_MESSAGE,
   ForcedFinishController,
   ZERO_OUTPUT_FORCE_THRESHOLD,
-} from '../src/repo-search/engine/forced-finish.js';
+} from '../src/repo-search/engine/forced-finish.ts';
 
 test('activateFromStagnation arms the controller and returns the mode-change message', () => {
   const controller = new ForcedFinishController();

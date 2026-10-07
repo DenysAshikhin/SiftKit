@@ -1,18 +1,18 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
 import type {
   AssistantDeletionPreview,
   AssistantEvidenceDeletionPreview,
   AssistantFactoryResetPreview,
   AssistantTopicForgetPreview,
 } from '@siftkit/contracts';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
-import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
-import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
-import { ASSISTANT_METADATA_PREFIX, OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../errors.ts';
+import { AssertionViewBuilder } from '../projections/assertion-view-builder.ts';
+import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.ts';
+import { ASSISTANT_METADATA_PREFIX, OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
 
 const PREVIEW_SECRET_KEY = `${ASSISTANT_METADATA_PREFIX}deletion_preview.secret.v1`;
 
@@ -98,10 +98,16 @@ export function topicAssertionIds(
 }
 
 export class DeletionPreviewService {
+  private readonly graph: AssistantGraph;
+  private readonly database: RuntimeDatabase;
+
   constructor(
-    private readonly graph: AssistantGraph,
-    private readonly database: RuntimeDatabase,
-  ) {}
+    graph: AssistantGraph,
+    database: RuntimeDatabase,
+  ) {
+    this.graph = graph;
+    this.database = database;
+  }
 
   previewForgetAssertion(ownerId: string, assertionId: string): AssistantDeletionPreview {
     const payload = this.buildForgetAssertionPayload(ownerId, assertionId);

@@ -6,7 +6,7 @@ import {
   SINGLE_SCREENSHOT_TEXT_CEILING,
   aggregateSupport,
   resolveConfidence,
-} from '../src/assistant/domain/confidence.js';
+} from '../src/assistant/domain/confidence.ts';
 
 test('every basis has a ceiling and explicit bases outrank passive ones', () => {
   assert.equal(BASIS_CONFIDENCE_CEILING.explicit_user_statement, 0.99);

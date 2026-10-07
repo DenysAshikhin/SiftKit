@@ -1,16 +1,16 @@
-// Summary module barrel preserves the dist/summary.js public surface.
+// Summary module barrel preserves the summary.ts public surface.
 export {
   UNSUPPORTED_INPUT_MESSAGE,
   getDeterministicExcerpt,
-} from './summary/measure.js';
-export { buildSummaryPrompt } from './summary/prompt.js';
-export { getSummaryDecision } from './summary/decision.js';
+} from './summary/measure.ts';
+export { buildSummaryPrompt } from './summary/prompt.ts';
+export { getSummaryDecision } from './summary/decision.ts';
 export {
   getPlannerPromptBudget,
   planTokenAwareInferenceChunks,
-} from './summary/chunking.js';
-export { buildSummaryPlannerToolDefinitions } from './planner-protocol/summary-tools.js';
+} from './summary/chunking.ts';
+export { buildSummaryPlannerToolDefinitions } from './planner-protocol/summary-tools.ts';
 export {
   readSummaryInput,
   summarizeRequest,
-} from './summary/core.js';
+} from './summary/core.ts';

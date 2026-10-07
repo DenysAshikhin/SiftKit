@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { buildToolActivityRing, getToolActivityLabel } from '../lib/tool-activity-ring';
-import type { ChatToolCallMessage } from '../types';
+import { buildToolActivityRing, getToolActivityLabel } from '../lib/tool-activity-ring.ts';
+import type { ChatToolCallMessage } from '../types.ts';
 
 export function ToolCallCard({ message }: { message: ChatToolCallMessage }) {
   const [expanded, setExpanded] = useState(false);

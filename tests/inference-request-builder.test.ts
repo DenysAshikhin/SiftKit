@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { InferenceRequestBuilder } from '../src/llm-protocol/inference-request-builder.js';
+import { InferenceRequestBuilder } from '../src/llm-protocol/inference-request-builder.ts';
 
 const messages = [{ role: 'user' as const, content: 'hello' }];
 const tools = [

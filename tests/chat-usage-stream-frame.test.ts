@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
-import { toChatStreamPromptEvent, toChatStreamUsageEvent } from '../src/status-server/chat-stream-frames.js';
+import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.ts';
+import { toChatStreamPromptEvent, toChatStreamUsageEvent } from '../src/status-server/chat-stream-frames.ts';
 import { ChatStreamPromptEventSchema } from '@siftkit/contracts';
-import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { createTestChatSession } from './helpers/chat-sessions.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
 import { join } from 'node:path';
 
 test('a failed timer flush stops publication and still records a storage-failure terminal outcome', t => {

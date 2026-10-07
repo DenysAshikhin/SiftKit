@@ -31,17 +31,17 @@ import {
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
   StatusServerUnavailableError,
   MissingObservedBudgetError,
-} from '../src/config/index.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { normalizeConfig, updateRuntimePaths } from '../src/config/normalization.js';
-import type { SiftConfig } from '../src/config/index.js';
-import type { ModelRuntimePreset } from '../src/config/types.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
-import { ensureDirectory, saveContentAtomically } from '../src/lib/fs.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/config/index.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { normalizeConfig, updateRuntimePaths } from '../src/config/normalization.ts';
+import type { SiftConfig } from '../src/config/index.ts';
+import type { ModelRuntimePreset } from '../src/config/types.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
+import { ensureDirectory, saveContentAtomically } from '../src/lib/fs.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function makeConfig(overrides: Partial<SiftConfig>): SiftConfig {
   return { ...getDefaultConfigObject(), ...overrides };

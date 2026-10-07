@@ -1,6 +1,6 @@
-import { syncDerivedSettingsFields } from '../settings-runtime.js';
-import telemetryMetrics from '../../../src/lib/telemetry-metrics.js';
-import type { JsonValue, JsonObject, OptionalJsonValue } from '../../../src/lib/json-types.js';
+import { syncDerivedSettingsFields } from '../settings-runtime.ts';
+import telemetryMetrics from '../../../src/lib/telemetry-metrics.ts';
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../../src/lib/json-types.ts';
 import { sumContextImageTokens } from '@siftkit/contracts';
 import type {
   ChatMessage,
@@ -9,8 +9,8 @@ import type {
   RunDetailResponse,
   RunGroupFilter,
   RunRecord,
-} from '../types.js';
-import type { ChatTurn } from './chatTurns.js';
+} from '../types.ts';
+import type { ChatTurn } from './chatTurns.ts';
 
 const {
   getAcceptanceRate,

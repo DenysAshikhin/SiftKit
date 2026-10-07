@@ -1,11 +1,11 @@
 import http from 'node:http';
-import { SseFrameParser, type SseFrame } from '../../src/lib/sse-frame-parser.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import { toError } from '../../src/lib/errors.js';
-import { OperationStreamErrorSchema, type OperationStreamError } from '../../src/lib/operation-stream.js';
-import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.js';
-import { asObject } from './dashboard-http.js';
-import { testHttpAgent } from './http-agent.js';
+import { SseFrameParser, type SseFrame } from '../../src/lib/sse-frame-parser.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import { toError } from '../../src/lib/errors.ts';
+import { OperationStreamErrorSchema, type OperationStreamError } from '../../src/lib/operation-stream.ts';
+import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.ts';
+import { asObject } from './dashboard-http.ts';
+import { testHttpAgent } from './http-agent.ts';
 
 export type CollectedSseResponse = {
   statusCode: number;

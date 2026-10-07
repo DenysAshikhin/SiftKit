@@ -1,8 +1,8 @@
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import { z } from '../../lib/zod.js';
-import type { Clock } from '../clock.js';
-import type { DeviceStatus } from '../domain/enums.js';
-import { DeviceRowSchema, type DeviceRow } from './rows.js';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import { z } from '../../lib/zod.ts';
+import type { Clock } from '../clock.ts';
+import type { DeviceStatus } from '../domain/enums.ts';
+import { DeviceRowSchema, type DeviceRow } from './rows.ts';
 
 export interface InsertDeviceInput {
   readonly id: string;
@@ -21,7 +21,13 @@ const MaxTimestampRowSchema = z.object({ max_ts: z.number() });
  * reuse a nonce, and its monotonic timestamp must strictly increase.
  */
 export class DeviceStore {
-  constructor(private readonly database: RuntimeDatabase, private readonly clock: Clock) {}
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+
+  constructor(database: RuntimeDatabase, clock: Clock) {
+    this.database = database;
+    this.clock = clock;
+  }
 
   getDevice(deviceId: string): DeviceRow | null {
     const row = this.database.prepare('SELECT * FROM assistant_devices WHERE id = ?').get(deviceId);

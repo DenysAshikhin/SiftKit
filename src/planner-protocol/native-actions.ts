@@ -1,10 +1,10 @@
-import type { AgentLoopAction } from '../agent-loop/types.js';
-import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue, type OptionalJsonValue } from '../lib/json-types.js';
-import { ModelJson } from '../lib/model-json.js';
-import { z } from '../lib/zod.js';
-import { InferenceToolCallParser } from '../llm-protocol/tool-call-parser.js';
-import type { LiveContentClassification, InferenceToolCall } from '../llm-protocol/types.js';
-import type { PlannerToolDefinition } from './json-schema.js';
+import type { AgentLoopAction } from '../agent-loop/types.ts';
+import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue, type OptionalJsonValue } from '../lib/json-types.ts';
+import { ModelJson } from '../lib/model-json.ts';
+import { z } from '../lib/zod.ts';
+import { InferenceToolCallParser } from '../llm-protocol/tool-call-parser.ts';
+import type { LiveContentClassification, InferenceToolCall } from '../llm-protocol/types.ts';
+import type { PlannerToolDefinition } from './json-schema.ts';
 
 export class NativePlannerResponseError extends Error {
   constructor(message: string) {
@@ -14,13 +14,20 @@ export class NativePlannerResponseError extends Error {
 }
 
 export class NativePlannerToolCallError extends Error {
+  readonly callId: string;
+  readonly toolName: string;
+  readonly args: JsonObject;
+
   constructor(
     message: string,
-    readonly callId: string,
-    readonly toolName: string,
-    readonly args: JsonObject,
+    callId: string,
+    toolName: string,
+    args: JsonObject,
   ) {
     super(message);
+    this.callId = callId;
+    this.toolName = toolName;
+    this.args = args;
     this.name = 'NativePlannerToolCallError';
   }
 }

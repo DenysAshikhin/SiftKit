@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { getDefaultWebPresetId, getPresetById, getPresetFamily, getSurfacePresets } from '../dashboard-presets';
-import { getLastTurnTelemetry, getSessionTelemetryStats, readSearchParams } from '../lib/format';
-import { getErrorMessage } from '../../../src/lib/errors.js';
-import { useChatSessions } from './useChatSessions';
-import type { PendingImage } from '../lib/downscale-image';
-import type { ToastLevel } from './useToasts';
-import type { DashboardConfig } from '../types';
-import type { ChatTabProps } from '../tabs/ChatTab';
-import { selectRuntime } from '../lib/chat-runtime-selectors';
-import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
+import { getDefaultWebPresetId, getPresetById, getPresetFamily, getSurfacePresets } from '../dashboard-presets.ts';
+import { getLastTurnTelemetry, getSessionTelemetryStats, readSearchParams } from '../lib/format.ts';
+import { getErrorMessage } from '../../../src/lib/errors.ts';
+import { useChatSessions } from './useChatSessions.ts';
+import type { PendingImage } from '../lib/downscale-image.ts';
+import type { ToastLevel } from './useToasts.ts';
+import type { DashboardConfig } from '../types.ts';
+import type { ChatTabProps } from '../tabs/ChatTab.tsx';
+import { selectRuntime } from '../lib/chat-runtime-selectors.ts';
+import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store.ts';
 
 export type ChatController = {
   tabProps: ChatTabProps;

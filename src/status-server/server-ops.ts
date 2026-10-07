@@ -8,43 +8,43 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MIXED_MODEL_PRESET_LABEL } from '@siftkit/contracts';
-import { getErrorMessage, toError } from '../lib/errors.js';
-import { readConfig, persistAppliedModelSelection } from './config-store.js';
-import { MissingModelPathError } from '../inference-presets/exl3-preset-adapter.js';
+import { getErrorMessage, toError } from '../lib/errors.ts';
+import { readConfig, persistAppliedModelSelection } from './config-store.ts';
+import { MissingModelPathError } from '../inference-presets/exl3-preset-adapter.ts';
 import {
   resolveModelRequestContext,
   type ModelRequestContext,
-} from './model-request-context.js';
-import type { ModelRequestIntent } from '../lib/model-request-intent.js';
-import type { ModelRequestWaitingReason, ModelResidencyDiagnostics } from '../lib/operation-stream.js';
+} from './model-request-context.ts';
+import type { ModelRequestIntent } from '../lib/model-request-intent.ts';
+import type { ModelRequestWaitingReason, ModelResidencyDiagnostics } from '../lib/operation-stream.ts';
 import {
   selectNextModelRequest,
   type ModelRequestCandidate,
-} from './model-request-selection.js';
-import type { SiftConfig } from '../config/types.js';
-import { getActiveModelPreset } from '../config/getters.js';
+} from './model-request-selection.ts';
+import type { SiftConfig } from '../config/types.ts';
+import { getActiveModelPreset } from '../config/getters.ts';
 import {
   STATUS_TRUE,
   STATUS_FALSE,
   writeStatusText,
-} from './status-file.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
-import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
+} from './status-file.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
+import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.ts';
 import {
   buildIdleSummarySnapshot,
   buildIdleSummarySnapshotMessage,
   persistIdleSummarySnapshot,
   type IdleSummarySnapshot,
-} from './idle-summary.js';
-import { auditInferenceThroughput } from './inference-throughput-audit.js';
+} from './idle-summary.ts';
+import { auditInferenceThroughput } from './inference-throughput-audit.ts';
 import {
   upsertRunArtifactPayload,
-} from './dashboard-runs.js';
+} from './dashboard-runs.ts';
 import {
   getStatusArtifactId,
   getStatusArtifactUri,
   type DeferredArtifact,
-} from '../state/status-artifacts.js';
+} from '../state/status-artifacts.ts';
 import type {
   DatabaseInstance,
   ModelQueueTimeout,
@@ -54,8 +54,8 @@ import type {
   ModelRequestWaitOptions,
   ModelRequestWaiter,
   ServerContext,
-} from './server-types.js';
-import { serverLogger } from './server-logger.js';
+} from './server-types.ts';
+import { serverLogger } from './server-logger.ts';
 
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
 /**

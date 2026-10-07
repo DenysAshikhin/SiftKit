@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import type { ActivitySummaryProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.ts';
+import type { ActivitySummaryProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
 
 function collect(): { writer: CollectingProgressWriter<RepoSearchProgressEvent>; events: RepoSearchProgressEvent[]; reporter: ProgressReporter } {
   const writer = new CollectingProgressWriter<RepoSearchProgressEvent>();

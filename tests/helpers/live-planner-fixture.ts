@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { getActiveModelPreset, getConfiguredEngineBaseUrl, loadConfig } from '../../src/config/index.js';
-import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.js';
-import type { ChatMessage } from '../../src/repo-search/planner-chat-message.js';
-import { toProtocolTools } from '../../src/providers/inference.js';
+import { getActiveModelPreset, getConfiguredEngineBaseUrl, loadConfig } from '../../src/config/index.ts';
+import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.ts';
+import type { ChatMessage } from '../../src/repo-search/planner-chat-message.ts';
+import { toProtocolTools } from '../../src/providers/inference.ts';
 
 export const LIVE_REQUEST_TIMEOUT_MS = 300_000;
 export const LIVE_TEST_TIMEOUT_MS = 600_000;

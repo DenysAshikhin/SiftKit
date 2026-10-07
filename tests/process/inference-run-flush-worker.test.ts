@@ -4,15 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { z } from '../../src/lib/zod.js';
+import { z } from '../../src/lib/zod.ts';
 import {
   createInferenceRun,
   readInferenceRunLogTextByStream,
   type InferenceRunPendingLogChunkEntry,
-} from '../../src/state/inference-runs.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { getFlushWorkerPath } from '../helpers/flush-worker-fixture.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
+} from '../../src/state/inference-runs.ts';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { getShippedFlushWorkerPath } from '../../src/status-server/inference-run-flush-queue.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 const FlushWorkerResponseSchema = z.object({
   id: z.number(),
@@ -25,7 +25,7 @@ async function flushInWorker(request: {
   databasePath: string;
   entries: InferenceRunPendingLogChunkEntry[];
 }): Promise<z.infer<typeof FlushWorkerResponseSchema>> {
-  const worker = new Worker(getFlushWorkerPath());
+  const worker = new Worker(getShippedFlushWorkerPath());
   try {
     return await new Promise((resolve, reject) => {
       worker.on('message', (message) => resolve(FlushWorkerResponseSchema.parse(message)));

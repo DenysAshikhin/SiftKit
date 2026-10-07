@@ -1,5 +1,5 @@
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../database-handle.js';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
 
 const ColumnNameRowsSchema = z.array(z.object({ name: z.string() }));
 

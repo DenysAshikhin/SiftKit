@@ -3,15 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
-import { CURRENT_SCHEMA_VERSION, type RuntimeDatabase } from '../../state/runtime-db.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { DataProtector } from '../crypto/dpapi.js';
-import type { KeyCustodyService } from '../crypto/key-custody.js';
-import { assistantEvidenceDir } from '../layout.js';
+import { CURRENT_SCHEMA_VERSION, type RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { DataProtector } from '../crypto/dpapi.ts';
+import type { KeyCustodyService } from '../crypto/key-custody.ts';
+import { assistantEvidenceDir } from '../layout.ts';
 import {
   BLOB_PREFIX, KEY_ENTRY, MANIFEST_ENTRY, SNAPSHOT_ENTRY, type BackupManifest,
-} from './backup-format.js';
-import { TempArchiveBuilder, type TempArchive } from './temp-archive.js';
+} from './backup-format.ts';
+import { TempArchiveBuilder, type TempArchive } from './temp-archive.ts';
 
 export interface BackupServiceOptions {
   readonly graph: AssistantGraph;

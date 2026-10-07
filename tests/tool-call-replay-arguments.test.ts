@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildAssistantToolCallMessage } from '../src/tool-call-messages.js';
-import { toProtocolChatMessages } from '../src/repo-search/planner-protocol.js';
+import { buildAssistantToolCallMessage } from '../src/tool-call-messages.ts';
+import { toProtocolChatMessages } from '../src/repo-search/planner-protocol.ts';
 
 test('replayed tool calls carry standard string arguments', () => {
   const message = buildAssistantToolCallMessage([

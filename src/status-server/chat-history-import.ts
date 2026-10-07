@@ -1,21 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { PersistedChatTranscriptMessageSchema, type ChatRunTerminalCause } from '@siftkit/contracts';
-import type { SiftConfig } from '../config/types.js';
-import { digestStableJson } from '../lib/json-digest.js';
-import { ChatJournalStore } from '../state/chat-journal.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import type { ChatSession } from '../state/chat-sessions.js';
-import { selectReplayableChatMessages, shouldPreserveThinking, trimText } from './chat.js';
+import type { SiftConfig } from '../config/types.ts';
+import { digestStableJson } from '../lib/json-digest.ts';
+import { ChatJournalStore } from '../state/chat-journal.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import type { ChatSession } from '../state/chat-sessions.ts';
+import { selectReplayableChatMessages, shouldPreserveThinking, trimText } from './chat.ts';
 import type { ReplayableChatMessage } from '@siftkit/contracts';
-import { getActiveModelPreset } from '../config/getters.js';
-import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-chat-message.js';
-import { buildCompactionSummaryMessage } from '../repo-search/engine/transcript-compactor.js';
-import { ImageRetentionPolicy } from '../image-retention-policy.js';
-import { buildReplayToolCall } from '../llm-protocol/tool-call-parser.js';
-import { buildUserContent } from '../llm-protocol/image-attachments.js';
-import { requireDurableToolResult } from './chat-tool-results.js';
-import { reconcileChatRun } from './chat-run-projection.js';
-import type { ChatEngineBinding, ChatJournalEvent, ChatRunStart } from '../state/chat-journal-schema.js';
+import { getActiveModelPreset } from '../config/getters.ts';
+import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-chat-message.ts';
+import { buildCompactionSummaryMessage } from '../repo-search/engine/transcript-compactor.ts';
+import { ImageRetentionPolicy } from '../image-retention-policy.ts';
+import { buildReplayToolCall } from '../llm-protocol/tool-call-parser.ts';
+import { buildUserContent } from '../llm-protocol/image-attachments.ts';
+import { requireDurableToolResult } from './chat-tool-results.ts';
+import { reconcileChatRun } from './chat-run-projection.ts';
+import type { ChatEngineBinding, ChatJournalEvent, ChatRunStart } from '../state/chat-journal-schema.ts';
 
 /** One baseline record, shared by admission migration and explicit archive repair. */
 export function recordImportedChatBaseline(database: RuntimeDatabase, options:

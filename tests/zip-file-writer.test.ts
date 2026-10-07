@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { readArchiveEntries } from './helpers/archive-bytes.js';
-import { ZipFileWriter } from '../src/lib/zip-file-writer.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { readArchiveEntries } from './helpers/archive-bytes.ts';
+import { ZipFileWriter } from '../src/lib/zip-file-writer.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const LOCAL_METHOD_OFFSET = 8;
 const LOCAL_CRC_OFFSET = 14;

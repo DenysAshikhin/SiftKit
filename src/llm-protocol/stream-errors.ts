@@ -1,4 +1,4 @@
-import type { StreamErrorFrame } from './stream-error-frame.js';
+import type { StreamErrorFrame } from './stream-error-frame.ts';
 
 export type ProviderStreamDegenerateReason = 'no_frames' | 'missing_done_sentinel';
 
@@ -8,10 +8,14 @@ export type ProviderStreamDegenerateReason = 'no_frames' | 'missing_done_sentine
  * reasoning budget and idle-timeout semantics.
  */
 export class ProviderStreamDegenerateError extends Error {
+  readonly url: string;
+  readonly reason: ProviderStreamDegenerateReason;
+  readonly frameCount: number;
+
   constructor(
-    readonly url: string,
-    readonly reason: ProviderStreamDegenerateReason,
-    readonly frameCount: number,
+    url: string,
+    reason: ProviderStreamDegenerateReason,
+    frameCount: number,
   ) {
     super(
       reason === 'no_frames'
@@ -20,17 +24,27 @@ export class ProviderStreamDegenerateError extends Error {
         : `Chat stream ended without a [DONE] sentinel after ${frameCount} frame(s) (url=${url}). `
           + 'The response may be truncated.',
     );
+    this.url = url;
+    this.reason = reason;
+    this.frameCount = frameCount;
     this.name = 'ProviderStreamDegenerateError';
   }
 }
 
 /** A streaming chat request ran past its total wall-clock budget. */
 export class ProviderStreamDeadlineError extends Error {
-  constructor(readonly url: string, readonly totalDeadlineMs: number, readonly maxTokens: number) {
+  readonly url: string;
+  readonly totalDeadlineMs: number;
+  readonly maxTokens: number;
+
+  constructor(url: string, totalDeadlineMs: number, maxTokens: number) {
     super(
       `Chat stream exceeded its total deadline of ${totalDeadlineMs} ms `
       + `(maxTokens=${maxTokens}, url=${url}).`,
     );
+    this.url = url;
+    this.totalDeadlineMs = totalDeadlineMs;
+    this.maxTokens = maxTokens;
     this.name = 'ProviderStreamDeadlineError';
   }
 }
@@ -43,15 +57,22 @@ export const CONTEXT_LENGTH_EXCEEDED_CODE = 'context_length_exceeded';
  * failed; the message is whatever it chose to tell us.
  */
 export class ProviderStreamErrorFrameError extends Error {
+  readonly url: string;
+  readonly serverMessage: string;
+  readonly serverCode: string | null;
+
   constructor(
-    readonly url: string,
-    readonly serverMessage: string,
-    readonly serverCode: string | null,
+    url: string,
+    serverMessage: string,
+    serverCode: string | null,
   ) {
     super(
       `Provider stream returned an error frame: ${serverMessage} `
       + `(code=${serverCode ?? 'none'}, url=${url})`,
     );
+    this.url = url;
+    this.serverMessage = serverMessage;
+    this.serverCode = serverCode;
     this.name = 'ProviderStreamErrorFrameError';
   }
 }
@@ -62,8 +83,13 @@ export class ProviderStreamErrorFrameError extends Error {
  * through. Kept distinct so budget failures stay greppable in run_logs.
  */
 export class ProviderContextLengthError extends Error {
-  constructor(readonly url: string, readonly serverMessage: string) {
+  readonly url: string;
+  readonly serverMessage: string;
+
+  constructor(url: string, serverMessage: string) {
     super(`Provider rejected the prompt as too long: ${serverMessage} (url=${url})`);
+    this.url = url;
+    this.serverMessage = serverMessage;
     this.name = 'ProviderContextLengthError';
   }
 }

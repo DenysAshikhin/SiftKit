@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { toError } from '../../src/lib/errors.js';
+import { toError } from '../../src/lib/errors.ts';
 import {
   RunsResponseSchema, RunDetailResponseSchema, RunLogDeletePreviewResponseSchema, RunLogDeleteResponseSchema,
   MetricsResponseSchema, WebSearchQuotaResponseSchema, IdleSummaryResponseSchema, DashboardHealthSchema,
@@ -73,9 +73,9 @@ import {
   type ModelLifecycleAction,
   type ModelLifecycleResponse,
 } from '@siftkit/contracts';
-import { ChatStreamReader } from './lib/chat-stream-parser.js';
-import type { ChatStreamEvent } from './lib/chat-stream-parser.js';
-import { type JsonValue, type JsonSerializable } from '../../src/lib/json-types.js';
+import { ChatStreamReader } from './lib/chat-stream-parser.ts';
+import type { ChatStreamEvent } from './lib/chat-stream-parser.ts';
+import { type JsonValue, type JsonSerializable } from '../../src/lib/json-types.ts';
 
 export async function parseJsonResponse<S extends z.ZodTypeAny>(response: Response, schema: S): Promise<z.infer<S>> {
   if (!response.ok) {
@@ -431,7 +431,10 @@ export function removeQueuedChatMessage(sessionId: string, id: string) {
 }
 
 export class ChatQueueRejectedError extends Error {
-  constructor(readonly response: ChatMessageQueueConflictResponse) { super(response.error); }
+  readonly response: ChatMessageQueueConflictResponse;
+
+  constructor(response: ChatMessageQueueConflictResponse) { super(response.error);
+    this.response = response; }
 }
 
 export async function forceChatQueue(sessionId: string, input: z.infer<typeof ChatQueueForceRequestSchema>) {
@@ -560,15 +563,21 @@ export function createPlanMessage(
 }
 
 export class ChatSessionBusyError extends Error {
-  constructor(readonly response: ChatSessionBusyResponse) {
+  readonly response: ChatSessionBusyResponse;
+
+  constructor(response: ChatSessionBusyResponse) {
     super(response.error);
+    this.response = response;
     this.name = 'ChatSessionBusyError';
   }
 }
 
 export class ChatStreamHttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = 'ChatStreamHttpError';
   }
 }

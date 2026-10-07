@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.js';
+import type { SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.ts';
 import {
   SummaryPlannerCompletionState,
   SummaryPlannerLoopRuntime,
   SummaryPlannerTranscriptState,
-} from '../src/summary/planner/mode.js';
+} from '../src/summary/planner/mode.ts';
 
 test('SummaryPlannerLoopRuntime keeps the existing controller surface', () => {
   type RuntimeIsController = SummaryPlannerLoopRuntime extends SummaryPlannerLoopController ? true : false;

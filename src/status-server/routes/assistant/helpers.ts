@@ -3,16 +3,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream/promises';
 
 import { SIFT_MAX_IMAGE_BYTES } from '@siftkit/contracts';
-import { z } from '../../../lib/zod.js';
-import { ObjectValueTypeSchema } from '../../../assistant/domain/enums.js';
-import { JsonValueSchema } from '../../../lib/json-types.js';
-import type { AssistantService, DesktopPayloadKind } from '../../../assistant/assistant-service.js';
-import type { TempArchive } from '../../../assistant/control/temp-archive.js';
+import { z } from '../../../lib/zod.ts';
+import { ObjectValueTypeSchema } from '../../../assistant/domain/enums.ts';
+import { JsonValueSchema } from '../../../lib/json-types.ts';
+import type { AssistantService, DesktopPayloadKind } from '../../../assistant/assistant-service.ts';
+import type { TempArchive } from '../../../assistant/control/temp-archive.ts';
 import {
   parseJsonBody, readBody, sendJson,
-} from '../../http-utils.js';
-import type { RouteEndpoint, RouteMatch } from '../../route-table.js';
-import type { ServerContext } from '../../server-types.js';
+} from '../../http-utils.ts';
+import type { RouteEndpoint, RouteMatch } from '../../route-table.ts';
+import type { ServerContext } from '../../server-types.ts';
 
 export const MUTATION_BODY_LIMIT = 256 * 1024;
 export const QUESTION_ANSWER_BODY_LIMIT = 64 * 1024;

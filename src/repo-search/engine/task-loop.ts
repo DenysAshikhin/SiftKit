@@ -1,10 +1,10 @@
-import { buildUserContent } from '../../llm-protocol/image-attachments.js';
+import { buildUserContent } from '../../llm-protocol/image-attachments.ts';
 import {
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   getActiveModelPreset,
   getConfiguredContextTokens,
-} from '../../config/index.js';
-import { AgentLoop } from '../../agent-loop/agent-loop.js';
+} from '../../config/index.ts';
+import { AgentLoop } from '../../agent-loop/agent-loop.ts';
 import type {
   AgentLoopAction,
   AgentLoopFinishAction,
@@ -17,11 +17,11 @@ import type {
   AgentLoopToolAction,
   AgentLoopToolExecution,
   AgentLoopToolResult,
-} from '../../agent-loop/types.js';
-import { NativePlannerResponseError, NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
-import type { InferenceToolDefinition, NormalizedInferenceChatResponse } from '../../llm-protocol/types.js';
-import { toProtocolTools } from '../../providers/inference.js';
-import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
+} from '../../agent-loop/types.ts';
+import { NativePlannerResponseError, NativePlannerToolCallError } from '../../planner-protocol/native-actions.ts';
+import type { InferenceToolDefinition, NormalizedInferenceChatResponse } from '../../llm-protocol/types.ts';
+import { toProtocolTools } from '../../providers/inference.ts';
+import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.ts';
 import {
   PLANNER_REASONING_BUDGET_MESSAGE,
   captureExecutingPlannerRequest,
@@ -33,34 +33,34 @@ import {
   type ExecutingPlannerRequest,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
-} from '../planner-protocol.js';
-import type { ChatMessage } from '../planner-chat-message.js';
-import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
+} from '../planner-protocol.ts';
+import type { ChatMessage } from '../planner-chat-message.ts';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.ts';
 import {
   RepoSearchActionAdapter,
   RepoSearchPlannerModelClient,
   RepoSearchPromptAdapter,
   RepoSearchResultAssembler,
   RepoSearchToolAdapter,
-} from '../agent-loop-adapter.js';
+} from '../agent-loop-adapter.ts';
 import {
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt,
   type TaskCommand,
-} from '../prompts.js';
-import { evaluateFinishAttempt } from '../../tool-loop-governor.js';
+} from '../prompts.ts';
+import { evaluateFinishAttempt } from '../../tool-loop-governor.ts';
 import {
   CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION,
   ChatGroundingPolicy,
-} from '../chat-grounding-policy.js';
-import { WebResearchTools } from '../../web-search/web-research-tools.js';
-import { throwIfAborted } from '../../lib/abort.js';
-import { SilentProgressWriter } from '../../lib/progress-writer.js';
-import { DuplicateTracker } from './duplicate-tracker.js';
-import { ForcedFinishController } from './forced-finish.js';
-import { ProgressReporter } from './progress-reporter.js';
-import { PromptPreparer, type PreparedTurnBudget } from './prompt-preparer.js';
-import { ReadWindowGovernor } from './read-window-governor.js';
+} from '../chat-grounding-policy.ts';
+import { WebResearchTools } from '../../web-search/web-research-tools.ts';
+import { throwIfAborted } from '../../lib/abort.ts';
+import { SilentProgressWriter } from '../../lib/progress-writer.ts';
+import { DuplicateTracker } from './duplicate-tracker.ts';
+import { ForcedFinishController } from './forced-finish.ts';
+import { ProgressReporter } from './progress-reporter.ts';
+import { PromptPreparer, type PreparedTurnBudget } from './prompt-preparer.ts';
+import { ReadWindowGovernor } from './read-window-governor.ts';
 import {
   buildAssistantReplayMessage,
   buildToolLimitReachedSummary,
@@ -79,23 +79,23 @@ import {
   type TaskResult,
   TRUNCATED_FINISH_MESSAGE,
   type TurnOutcome,
-} from './task-loop-support.js';
-import { TerminalSynthesizer } from './terminal-synthesizer.js';
-import { ToolActionProcessor } from './tool-action-processor.js';
-import { ToolResultBudgeter } from './tool-result-budgeter.js';
-import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
-import type { TurnTokenRecord } from './turn-token-record.js';
-import { ToolStatsRecorder } from './tool-stats.js';
-import { TranscriptManager } from './transcript-manager.js';
-import { TranscriptCompactor } from './transcript-compactor.js';
-import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.js';
-import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
-import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.js';
+} from './task-loop-support.ts';
+import { TerminalSynthesizer } from './terminal-synthesizer.ts';
+import { ToolActionProcessor } from './tool-action-processor.ts';
+import { ToolResultBudgeter } from './tool-result-budgeter.ts';
+import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.ts';
+import type { TurnTokenRecord } from './turn-token-record.ts';
+import { ToolStatsRecorder } from './tool-stats.ts';
+import { TranscriptManager } from './transcript-manager.ts';
+import { TranscriptCompactor } from './transcript-compactor.ts';
+import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.ts';
+import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.ts';
+import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.ts';
 import type { ImageTokenBudget } from '@siftkit/contracts';
-import type { ApprovalRequester } from './approval-gate.js';
-import { LlmApprovalGate } from './llm-approval-gate.js';
-import { ModeSwitchedApprovalRequester } from './approval-mode-requester.js';
-import type { RepoSearchLoopKind } from '../task-kind.js';
+import type { ApprovalRequester } from './approval-gate.ts';
+import { LlmApprovalGate } from './llm-approval-gate.ts';
+import { ModeSwitchedApprovalRequester } from './approval-mode-requester.ts';
+import type { RepoSearchLoopKind } from '../task-kind.ts';
 
 export {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -103,8 +103,8 @@ export {
   type RunTaskLoopOptions,
   type TaskDefinition,
   type TaskResult,
-} from './task-loop-support.js';
-export { DEFAULT_MAX_TURNS } from './turn-budget.js';
+} from './task-loop-support.ts';
+export { DEFAULT_MAX_TURNS } from './turn-budget.ts';
 
 type RepoSearchModelData = AgentLoopModelData & {
   kind: 'repo-search';

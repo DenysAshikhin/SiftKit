@@ -1,41 +1,41 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { toError } from '../../lib/errors.js';
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { JsonObject, JsonSerializable } from '../../lib/json-types.js';
-import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
-import { sleep } from '../../lib/time.js';
-import { readConfig } from '../config-store.js';
-import { readBody, parseJsonBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
+import { toError } from '../../lib/errors.ts';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import type { JsonObject, JsonSerializable } from '../../lib/json-types.ts';
+import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.ts';
+import { sleep } from '../../lib/time.ts';
+import { readConfig } from '../config-store.ts';
+import { readBody, parseJsonBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.ts';
 import {
   sanitizeNonInteractiveAllowedTools,
-} from '../../repo-search/planner-protocol.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../../planner-protocol/repo-search.js';
+} from '../../repo-search/planner-protocol.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../../planner-protocol/repo-search.ts';
 import {
   ApprovalGate,
   RepoSearchApprovalRequestSchema,
   toApprovalDecision,
-} from '../../repo-search/engine/approval-gate.js';
+} from '../../repo-search/engine/approval-gate.ts';
 import {
   createRepoSearchAdmissionRecord,
   markRepoSearchAdmissionFailed,
   upsertRepoSearchAdmission,
   type RepoSearchAdmissionRecord,
-} from '../repo-search-admissions.js';
-import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
-import { parseRepoSearchRequest, type RepoSearchRouteRequest } from '../route-request-normalizers.js';
-import { LoggedRepoSearchSseProgressWriter } from '../operation-progress-writers.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import type { RepoAgentSession } from '../repo-agent-sessions.js';
-import type { ServerContext } from '../server-types.js';
+} from '../repo-search-admissions.ts';
+import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.ts';
+import { parseRepoSearchRequest, type RepoSearchRouteRequest } from '../route-request-normalizers.ts';
+import { LoggedRepoSearchSseProgressWriter } from '../operation-progress-writers.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import type { RepoAgentSession } from '../repo-agent-sessions.ts';
+import type { ServerContext } from '../server-types.ts';
 import {
   StreamedOperationEndpoint,
   type ParsedStreamedRequest,
   type StreamedOperationContext,
-} from './streamed-operation-endpoint.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import { MockPlannerResponsesSchema } from '../../planner-protocol/mock-response.js';
-import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
+} from './streamed-operation-endpoint.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
+import { MockPlannerResponsesSchema } from '../../planner-protocol/mock-response.ts';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.ts';
 
 type ParsedRepoSearchRoute = {
   parsedBody: JsonObject;

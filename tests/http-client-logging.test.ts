@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { getAddressInfo } from './helpers/dashboard-http.js';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
 
-import { httpClient } from '../src/lib/http-client.js';
-import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
+import { httpClient } from '../src/lib/http-client.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
 
 test('requestJson does not write repo-search client logs to stderr by default', async () => {
   const server = http.createServer((req, res) => {

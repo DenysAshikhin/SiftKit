@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
-import { parseStatusMetadata } from '../src/status-server/status-file.js';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.ts';
+import { parseStatusMetadata } from '../src/status-server/status-file.ts';
 
 const ARTIFACT = {
   artifactType: 'summary_request',

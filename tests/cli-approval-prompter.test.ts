@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { CliApprovalPrompter } from '../src/cli/approval-prompter.js';
-import { CLIENT_ABORT_MESSAGE } from '../src/repo-search/engine/approval-gate.js';
-import type { ApprovalRequestProgressEvent } from '../src/repo-search/types.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { CliApprovalPrompter } from '../src/cli/approval-prompter.ts';
+import { CLIENT_ABORT_MESSAGE } from '../src/repo-search/engine/approval-gate.ts';
+import type { ApprovalRequestProgressEvent } from '../src/repo-search/types.ts';
+import { makeCaptureStream } from './_test-helpers.ts';
 
 function makePrompter(): { prompter: CliApprovalPrompter; input: PassThrough; output: ReturnType<typeof makeCaptureStream> } {
   const input = new PassThrough();

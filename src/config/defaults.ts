@@ -15,13 +15,13 @@ import {
   SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS,
   SIFT_DEFAULT_NUM_CTX,
   SIFT_DEFAULT_PROMPT_PREFIX,
-} from './constants.js';
+} from './constants.ts';
 import { DEFAULT_REASONING_EFFORT } from '@siftkit/contracts';
-import { getRuntimePaths } from './paths.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { getDefaultOperationModeAllowedTools } from '../presets.js';
-import type { AssistantConfig, ModelRuntimePreset, SiftConfig } from './types.js';
+import { getRuntimePaths } from './paths.ts';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { getDefaultOperationModeAllowedTools } from '../presets.ts';
+import type { AssistantConfig, ModelRuntimePreset, SiftConfig } from './types.ts';
 
 export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
   Enabled: false,

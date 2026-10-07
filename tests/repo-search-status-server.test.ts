@@ -2,35 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire, Module } from 'node:module';
 
-import { startStatusServer, buildRepoSearchProgressLogBody } from '../src/status-server/index.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
+import { startStatusServer, buildRepoSearchProgressLogBody } from '../src/status-server/index.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
 import {
   writeManagedEngineHost,
   acquireChildPortLease,
   waitForAsyncExpectation,
-} from './_runtime-helpers.js';
-import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { readStatusModelRequests } from './helpers/model-request-status.js';
-import { ModelRequestQueueDiagnosticsSchema } from '../src/lib/operation-stream.js';
-import { readMetrics } from '../src/status-server/metrics.js';
-import { getMetricsPath } from '../src/status-server/paths.js';
-import { requestSse } from './helpers/sse-http.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
-import { runManagedEngineReadinessScenario, writeManagedEngineReadinessTestConfig } from './helpers/managed-engine-readiness-scenario.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
-
-const SIFTKIT_REPO_ROOT = process.cwd();
-const requireFromHere = createRequire(path.join(SIFTKIT_REPO_ROOT, '.test-build', 'tests', 'repo-search-status-server.test.js'));
-
+} from './_runtime-helpers.ts';
+import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.ts';
+import { readStatusModelRequests } from './helpers/model-request-status.ts';
+import { ModelRequestQueueDiagnosticsSchema } from '../src/lib/operation-stream.ts';
+import { readMetrics } from '../src/status-server/metrics.ts';
+import { getMetricsPath } from '../src/status-server/paths.ts';
+import { requestSse } from './helpers/sse-http.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
+import { runManagedEngineReadinessScenario, writeManagedEngineReadinessTestConfig } from './helpers/managed-engine-readiness-scenario.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 
 test('status server stays responsive while repo-search is running', async () => {
   const tempRoot = createManagedTempDir('siftkit-repo-search-status-');
@@ -966,123 +961,6 @@ test('repo-search transcript artifact replays the fitted read range using per-to
       database.close();
     }
   } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(previousCwd);
-    closeAllRuntimeDatabases();
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test('repo-search endpoint reloads executor module per request', async () => {
-  const tempRoot = createManagedTempDir('siftkit-repo-search-reload-');
-  const previousCwd = process.cwd();
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-    'utf8',
-  );
-  process.chdir(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup: Record<string, string | undefined> = {
-    sift_kit_status: process.env.sift_kit_status,
-    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
-    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
-    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
-    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-  };
-  process.env.sift_kit_status = statusPath;
-  process.env.SIFTKIT_STATUS_PATH = statusPath;
-  process.env.SIFTKIT_CONFIG_PATH = configPath;
-  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-  process.env.SIFTKIT_STATUS_PORT = '0';
-
-  const repoSearchModulePath = requireFromHere.resolve(path.join(SIFTKIT_REPO_ROOT, 'dist', 'repo-search', 'index.js'));
-  const priorCacheEntry = requireFromHere.cache[repoSearchModulePath];
-  writeConfig(getConfigPath(), getDefaultServerConfig());
-  const server = startStatusServer({ disableManagedEngineStartup: true });
-
-  try {
-    await server.startupPromise;
-    const address = getAddressInfo(server);
-    const baseUrl = `http://127.0.0.1:${address.port}`;
-    const mockModule = new Module(repoSearchModulePath);
-    mockModule.filename = repoSearchModulePath;
-    mockModule.loaded = true;
-    mockModule.exports = {
-      executeRepoSearchRequest: async () => ({
-        requestId: 'cache-hit',
-        transcriptPath: '',
-        artifactPath: '',
-        scorecard: {
-          runId: 'cache-hit',
-          model: 'cache-hit',
-          tasks: [{
-            id: 'repo-search',
-            question: 'cache-hit',
-            reason: 'finish',
-            turnsUsed: 0,
-            safetyRejects: 0,
-            invalidResponses: 0,
-            rejectedCalls: 0,
-            nonZeroExits: 0,
-            commands: [],
-            finalOutput: 'CACHE_HIT_OUTPUT',
-          }],
-          totals: {
-            tasks: 1,
-            passed: 1,
-            failed: 0,
-            commandsExecuted: 0,
-            safetyRejects: 0,
-            invalidResponses: 0,
-            rejectedCalls: 0,
-            nonZeroExits: 0,
-          },
-          verdict: 'pass',
-          failureReasons: [],
-        },
-      }),
-    };
-    requireFromHere.cache[repoSearchModulePath] = mockModule;
-
-    const response = await requestSse(`${baseUrl}/repo-search`, {
-      timeoutMs: 15000,
-      body: {
-        prompt: 'find x',
-        repoRoot: process.cwd(),
-        maxTurns: 1,
-        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
-        mockResponses: [
-          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
-          { content: 'Terminal synthesis answer: src/example.ts:1.' },
-          { content: '{"verdict":"pass","reason":"supported"}' },
-        ],
-        mockCommandResults: {
-          "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
-        },
-      },
-    });
-
-    assert.ok(response.result);
-    const scorecard = asObject(response.result.scorecard);
-    const finalOutput = String(asObject(asObjectArray(scorecard.tasks)[0]).finalOutput || '');
-    assert.notEqual(finalOutput, 'CACHE_HIT_OUTPUT');
-  } finally {
-    if (priorCacheEntry) {
-      requireFromHere.cache[repoSearchModulePath] = priorCacheEntry;
-    } else {
-      delete requireFromHere.cache[repoSearchModulePath];
-    }
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

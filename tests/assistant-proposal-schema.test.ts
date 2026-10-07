@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { z } from '../src/lib/zod.js';
-import type { JsonValue } from '../src/lib/json-types.js';
-import { buildProposedStatementSchema, SCOPE_NODE_TYPE } from '../src/assistant/domain/proposal-schema.js';
-import { RELATION_TYPES, RELATION_DEFINITIONS } from '../src/assistant/domain/relation-types.js';
+import { z } from '../src/lib/zod.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
+import { buildProposedStatementSchema, SCOPE_NODE_TYPE } from '../src/assistant/domain/proposal-schema.ts';
+import { RELATION_TYPES, RELATION_DEFINITIONS } from '../src/assistant/domain/relation-types.ts';
 
 const Statement = buildProposedStatementSchema({});
 

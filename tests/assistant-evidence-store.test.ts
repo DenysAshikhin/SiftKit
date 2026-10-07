@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { BlobCipher } from '../src/assistant/crypto/blob-cipher.js';
-import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
-import { hashBytes, hashTextContent } from '../src/assistant/domain/keys.js';
-import { assistantEvidenceDir, assistantKeyFile } from '../src/assistant/layout.js';
-import { EvidenceStore } from '../src/assistant/storage/evidence-store.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { BlobCipher } from '../src/assistant/crypto/blob-cipher.ts';
+import { FileKeyProvider } from '../src/assistant/crypto/key-provider.ts';
+import { hashBytes, hashTextContent } from '../src/assistant/domain/keys.ts';
+import { assistantEvidenceDir, assistantKeyFile } from '../src/assistant/layout.ts';
+import { EvidenceStore } from '../src/assistant/storage/evidence-store.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 function newKeyProvider(context: AssistantTestContext): FileKeyProvider {
   return new FileKeyProvider(assistantKeyFile(context.runtimeRoot));

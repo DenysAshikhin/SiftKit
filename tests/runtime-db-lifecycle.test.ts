@@ -3,18 +3,18 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 import {
   closeAllRuntimeDatabases,
   closeRuntimeDatabase,
   getRuntimeDatabase,
   getRuntimeDatabasePath,
-} from '../src/state/runtime-db.js';
-import { enqueueDeferredArtifacts, flushDeferredArtifacts } from '../src/status-server/server-ops.js';
-import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
-import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { twoPaths, readValues } from './helpers/runtime-db-lifecycle-fixtures.js';
+} from '../src/state/runtime-db.ts';
+import { enqueueDeferredArtifacts, flushDeferredArtifacts } from '../src/status-server/server-ops.ts';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.ts';
+import { createTestServerContext } from './helpers/server-context-fixture.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { twoPaths, readValues } from './helpers/runtime-db-lifecycle-fixtures.ts';
 
 test('the same path and its case/separator aliases share one handle', () => {
   const { firstPath } = twoPaths('runtime-db-lifecycle-alias-');

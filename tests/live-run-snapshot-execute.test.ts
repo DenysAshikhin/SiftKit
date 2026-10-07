@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { getLiveRunSnapshotPath } from '../src/config/paths.js';
-import { executeRepoSearchRequest } from '../src/repo-search/index.js';
-import { LiveRunSnapshotSchema } from '../src/repo-search/live-snapshot/schemas.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
+import { getLiveRunSnapshotPath } from '../src/config/paths.ts';
+import { executeRepoSearchRequest } from '../src/repo-search/index.ts';
+import { LiveRunSnapshotSchema } from '../src/repo-search/live-snapshot/schemas.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
 
 async function waitForFile(filePath: string, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;

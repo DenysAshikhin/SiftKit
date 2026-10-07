@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { startStubStatusServer } from './_runtime-helpers.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { requestJson } from './helpers/dashboard-http.js';
+import { startStubStatusServer } from './_runtime-helpers.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
 
 test('restart reports failure instead of success when managed backend startup is disabled', async () => {
   const server = await DashboardTestServer.start('siftkit-restart-disabled-');

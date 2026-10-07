@@ -9,7 +9,7 @@ import {
   TempDirRegistry,
   removeDirectorySync,
   removeDirectoryWithRetries,
-} from '../helpers/temp-dirs.js';
+} from '../helpers/temp-dirs.ts';
 
 /**
  * Returns a directory that cannot be removed, and the kill switch that frees it. A live child

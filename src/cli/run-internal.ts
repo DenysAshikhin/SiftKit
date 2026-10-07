@@ -1,13 +1,13 @@
-import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey } from '../config/index.js';
-import { resolveExternalCommand } from '../capture/command-path.js';
-import { captureWithTranscript, invokeProcess, invokeShellProcess } from '../capture/process.js';
-import { findFiles } from '../find-files.js';
-import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.js';
-import { readTextFileWithEncoding } from '../lib/text-encoding.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
-import { parseArguments, type ResolvedCliArgs, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
+import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey } from '../config/index.ts';
+import { resolveExternalCommand } from '../capture/command-path.ts';
+import { captureWithTranscript, invokeProcess, invokeShellProcess } from '../capture/process.ts';
+import { findFiles } from '../find-files.ts';
+import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.ts';
+import { readTextFileWithEncoding } from '../lib/text-encoding.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import type { JsonObject, JsonSerializable } from '../lib/json-types.ts';
+import { parseArguments, type ResolvedCliArgs, SERVER_DEPENDENT_INTERNAL_OPS } from './args.ts';
 import {
   normalizeCliFormat,
   normalizeCliPolicyProfile,
@@ -15,12 +15,12 @@ import {
   normalizeCliReducerProfile,
   normalizeCliRiskLevel,
   normalizeCliShell,
-} from './request-normalizers.js';
-import { parseOptionalSummaryProvider } from '../summary/types.js';
-import { buildTestResult } from './run-test.js';
-import { SilentProgressRenderer } from './progress-renderer.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
-import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.js';
+} from './request-normalizers.ts';
+import { parseOptionalSummaryProvider } from '../summary/types.ts';
+import { buildTestResult } from './run-test.ts';
+import { SilentProgressRenderer } from './progress-renderer.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
+import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.ts';
 
 function readRequestFile(filePath: string): JsonObject {
   return JsonRecordReader.asObject(parseJsonValueText(readTextFileWithEncoding(filePath))) ?? {};

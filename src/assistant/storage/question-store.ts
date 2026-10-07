@@ -1,17 +1,17 @@
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
-import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { QuestionFeedbackType, QuestionStatus, QuestionType } from '../domain/enums.js';
-import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
-import type { IdGenerator } from '../ids.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { QuestionFeedbackType, QuestionStatus, QuestionType } from '../domain/enums.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../errors.ts';
+import type { IdGenerator } from '../ids.ts';
 import {
   QuestionFeedbackRowSchema,
   QuestionRowSchema,
   type QuestionFeedbackRow,
   type QuestionRow,
-} from './rows.js';
+} from './rows.ts';
 
 const CandidateIdListSchema = z.array(z.string());
 const LIVE_QUESTION_STATUSES = ['planned', 'eligible', 'shown', 'snoozed'] as const;
@@ -36,11 +36,19 @@ export interface RecordQuestionFeedbackInput {
 }
 
 export class QuestionStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   create(input: CreateQuestionInput): QuestionRow {
     if (this.findLiveByTopic(input.ownerId, input.topicKey) !== null) {

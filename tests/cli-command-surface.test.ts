@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../src/cli/index.js';
-import { parseArguments } from '../src/cli/args.js';
-import { CLI_COMMAND_CATALOG } from '../src/cli/command-catalog.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { runCli } from '../src/cli/index.ts';
+import { parseArguments } from '../src/cli/args.ts';
+import { CLI_COMMAND_CATALOG } from '../src/cli/command-catalog.ts';
+import { makeCaptureStream } from './_test-helpers.ts';
 
 test('blocked public commands are not accessible', async () => {
   const blocked = ['install', 'test', 'eval', 'config-get', 'config-set'];

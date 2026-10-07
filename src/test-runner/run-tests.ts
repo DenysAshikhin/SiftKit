@@ -2,11 +2,10 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { HERMETIC_FS_BUNDLE_PATH } from './test-build-state.js';
-import { buildNodeTestArgs } from './test-targets.js';
-import { terminateProcessTree } from '../lib/process-tree.js';
-import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.js';
-import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../config/constants.js';
+import { buildNodeTestArgs } from './test-targets.ts';
+import { buildGuardEnv } from './test-environment.ts';
+import { terminateProcessTree } from '../lib/process-tree.ts';
+import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.ts';
 
 /**
  * Wall-clock ceiling for the whole run. Exceeding it exits with `TIMEOUT_EXIT_CODE`.
@@ -31,13 +30,10 @@ function readRunBudgetMs(): number {
 const RUN_BUDGET_MS = readRunBudgetMs();
 
 const repoRoot = process.cwd();
-// The guard does travel in NODE_OPTIONS, because catching a leak from a spawned CLI is
-// exactly its job. It is the compiled sibling of this file, so no loader is needed to read
-// it, and the URL is absolute so a child in a temp cwd resolves it like one in the repo.
+// The guard travels in NODE_OPTIONS because catching a leak from a spawned CLI is its job;
+// the URL is absolute so a child in a temp cwd resolves it too.
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
-const liveInstanceGuardUrl = pathToFileURL(path.resolve(scriptsDirectory, 'live-instance-guard.js')).href;
-// buildNodeTestArgs reaches readCurrentTestBuildManifest, which asserts the build is current;
-// asserting here too would hash every input a second time before a single test ran.
+const liveInstanceGuardUrl = pathToFileURL(path.resolve(scriptsDirectory, 'live-instance-guard.ts')).href;
 const testArgs = buildNodeTestArgs(repoRoot, process.argv.slice(2));
 // Node defaults to no per-test timeout, so one test awaiting a server or child process that never
 // answers freezes the whole run with no output. A bounded failure is always more useful than a hang.
@@ -46,14 +42,8 @@ const child = spawn(process.execPath, ['--test', ...testArgs], {
   cwd: repoRoot,
   env: {
     ...process.env,
-    // The guard preload cannot import this module: it runs inside every process the suite
-    // touches, including the production CLIs the tests spawn, so anything it imports is
-    // injected into their module graphs. The ports therefore travel to it as env, sourced
-    // from the same constants src uses so there is nothing to keep in sync.
-    SIFTKIT_GUARD_STATUS_PORT: String(SIFT_DEFAULT_STATUS_PORT),
-    SIFTKIT_GUARD_ENGINE_PORT: String(SIFT_DEFAULT_ENGINE_PORT),
-    SIFTKIT_GUARD_RUNTIME_DATABASE: path.resolve(repoRoot, '.siftkit', 'runtime.sqlite'),
-    SIFTKIT_GUARD_HERMETIC_FS: pathToFileURL(path.resolve(repoRoot, HERMETIC_FS_BUNDLE_PATH)).href,
+    // The guard preload imports only builtins, so its settings travel as env.
+    ...buildGuardEnv(repoRoot),
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${liveInstanceGuardUrl}`.trim(),
   },
   stdio: 'inherit',

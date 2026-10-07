@@ -1,10 +1,10 @@
 import path from 'node:path';
 
-import { z } from '../../src/lib/zod.js';
+import { z } from '../../src/lib/zod.ts';
 import {
   getRuntimeDatabase,
-} from '../../src/state/runtime-db.js';
-import { createManagedTempDir } from './temp-dirs.js';
+} from '../../src/state/runtime-db.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
 
 const ValueRowsSchema = z.array(z.object({ value: z.string() }));
 

@@ -4,10 +4,10 @@ import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 
 import type { OrchestratorChildWork, OrchestratorStartRequest } from '@siftkit/contracts';
-import { OrchestratorRunStore } from '../src/orchestrator/run-store.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function openStore(t: TestContext): { store: OrchestratorRunStore; dbPath: string } {
   const dbPath = path.join(createManagedTempDir('siftkit-orchestrator-store-'), 'runtime.sqlite');

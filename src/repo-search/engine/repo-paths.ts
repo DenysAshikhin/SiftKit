@@ -1,8 +1,8 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 
-import type { OptionalJsonValue } from '../../lib/json-types.js';
-import type { IgnorePolicy } from '../command-safety.js';
+import type { OptionalJsonValue } from '../../lib/json-types.ts';
+import type { IgnorePolicy } from '../command-safety.ts';
 
 export function toPosixPath(value: string): string {
   return value.replace(/\\/gu, '/');

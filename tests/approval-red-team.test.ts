@@ -3,10 +3,10 @@ import test from 'node:test';
 import {
   buildAssistantToolCallMessage,
   buildToolBatchMessages,
-} from '../src/tool-call-messages.js';
-import { RED_TEAM_CORPUS, RedTeamCaseSchema } from '../scripts/approval-red-team/corpus.js';
-import { buildRedTeamReplay } from '../scripts/approval-red-team/replay.js';
-import { comparePlacements, scoreRun } from '../scripts/approval-red-team/score.js';
+} from '../src/tool-call-messages.ts';
+import { RED_TEAM_CORPUS, RedTeamCaseSchema } from '../scripts/approval-red-team/corpus.ts';
+import { buildRedTeamReplay } from '../scripts/approval-red-team/replay.ts';
+import { comparePlacements, scoreRun } from '../scripts/approval-red-team/score.ts';
 
 test('the shared assistant builder matches the batch transcript message', () => {
   const outcomes = [{

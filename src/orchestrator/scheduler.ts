@@ -1,7 +1,7 @@
 import type { OrchestratorPlan, OrchestratorTask, OrchestratorTaskState } from '@siftkit/contracts';
 
-import type { SiftConfig } from '../config/types.js';
-import { requireOrchestratorWorkerPreset, workerCanMutate } from './plan.js';
+import type { SiftConfig } from '../config/types.ts';
+import { requireOrchestratorWorkerPreset, workerCanMutate } from './plan.ts';
 
 export type ActiveTask = { taskId: string; mutating: boolean };
 

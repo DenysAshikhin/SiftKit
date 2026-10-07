@@ -1,11 +1,11 @@
 import { ChatStreamQueuedUserMessageSchema, ImageDataUrlSchema, PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatMessageId, reduceChatTranscript, type ChatTranscriptMessage } from '@siftkit/contracts';
-import { reconstructChatArchiveContext, type readChatHistoryArchive } from './chat-history-archive.js';
-import { z } from '../lib/zod.js';
-import { PlannerChatMessagesSchema, type ChatMessage } from '../repo-search/planner-chat-message.js';
-import { extractContentText } from '../llm-protocol/image-attachments.js';
-import { COMPACTION_SUMMARY_MARKER } from '../repo-search/engine/transcript-compactor.js';
-import { TurnCommandStartEventSchema } from '../repo-search/live-snapshot/schemas.js';
-import { stableStringify } from '../lib/json.js';
+import { reconstructChatArchiveContext, type readChatHistoryArchive } from './chat-history-archive.ts';
+import { z } from '../lib/zod.ts';
+import { PlannerChatMessagesSchema, type ChatMessage } from '../repo-search/planner-chat-message.ts';
+import { extractContentText } from '../llm-protocol/image-attachments.ts';
+import { COMPACTION_SUMMARY_MARKER } from '../repo-search/engine/transcript-compactor.ts';
+import { TurnCommandStartEventSchema } from '../repo-search/live-snapshot/schemas.ts';
+import { stableStringify } from '../lib/json.ts';
 
 const ResponseSchema = z.object({
   turn: z.number().int().positive(), text: z.string(), thinkingText: z.string(),

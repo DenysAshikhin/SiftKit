@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import type { SiftConfig } from '../src/config/types.js';
-import { validateOrchestratorPlan } from '../src/orchestrator/plan.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import type { SiftConfig } from '../src/config/types.ts';
+import { validateOrchestratorPlan } from '../src/orchestrator/plan.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
+import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function createRepo(): string {
   const repoRoot = createManagedTempDir('siftkit-orchestrator-plan-');

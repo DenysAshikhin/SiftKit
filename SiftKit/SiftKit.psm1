@@ -15,9 +15,9 @@ function Get-SiftRepoPath {
 }
 
 function Get-SiftCliPath {
-    $cliPath = Get-SiftRepoPath -RelativePath 'dist\cli\main.js'
+    $cliPath = Get-SiftRepoPath -RelativePath 'src\cli\main.ts'
     if (-not (Test-Path -LiteralPath $cliPath)) {
-        throw ('TS CLI entrypoint not found: {0}. Run npm run build.' -f $cliPath)
+        throw ('CLI entrypoint not found: {0}.' -f $cliPath)
     }
     $cliPath
 }
@@ -591,7 +591,9 @@ function Invoke-SiftInteractiveCommandWrapper {
     if ((Test-SiftPipelineTargetsSiftKit -InvocationLine $InvocationLine) -and (Test-SiftInteractiveCommandMatch -CommandName $CommandName -ArgumentList $ArgumentList -Config $config)) {
         $question = Get-SiftQuestionFromInvocationLine -InvocationLine $InvocationLine
         $captureResult = Invoke-SiftInteractiveCapture -Command $CommandName -ArgumentList $ArgumentList -Question $question
-        $captureResult.OutputText
+        # Same two lines the CLI capture command prints.
+        if ($captureResult.Summary) { ([string]$captureResult.Summary).Trim() } else { 'No summary generated.' }
+        'Raw transcript: {0}' -f $captureResult.RawLogPath
         return
     }
 

@@ -1,25 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseJsonValueText } from '../src/lib/json.js';
-import { ApprovalVerdictSchema } from '../src/repo-search/approval-verdict.js';
-import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
-import { resolvePlannerThinkingFlags } from '../src/repo-search/engine/task-loop-support.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { ApprovalVerdictSchema } from '../src/repo-search/approval-verdict.ts';
+import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.ts';
+import { resolvePlannerThinkingFlags } from '../src/repo-search/engine/task-loop-support.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 import {
   captureExecutingPlannerRequest,
   requestApprovalVerdict,
   requestRepoSearchPlannerProtocolAction,
   serializeProtocolMessages,
   type PlannerActionResponse,
-} from '../src/repo-search/planner-protocol.js';
+} from '../src/repo-search/planner-protocol.ts';
 import {
   buildLiveContextTranscript,
   LIVE_PLANNER_MAX_TOKENS,
   LIVE_REQUEST_TIMEOUT_MS,
   LIVE_TEST_TIMEOUT_MS,
   loadLivePlannerFixture,
-} from './helpers/live-planner-fixture.js';
+} from './helpers/live-planner-fixture.ts';
 
 const ENABLED = process.env.SIFTKIT_TEST_LIVE_APPROVAL_VERDICT_BUDGET === '1';
 const CONTEXT_LINE_COUNT = 1_200;

@@ -4,15 +4,15 @@ import {
   parseDashboardRunLogDeleteRequest,
   parseRepoSearchRequest,
   parseSummaryRequest,
-} from '../src/status-server/route-request-normalizers.js';
+} from '../src/status-server/route-request-normalizers.ts';
 import {
   parseChatMessageRequest,
   parseChatRepoRequest,
   parseChatSessionCreateRequest,
   parseChatSessionUpdateRequest,
-} from '../src/status-server/chat-route-request-normalizers.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
+} from '../src/status-server/chat-route-request-normalizers.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.ts';
 
 const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));
 

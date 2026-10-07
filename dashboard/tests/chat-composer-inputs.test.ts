@@ -1,12 +1,12 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import {
   parsePlanMaxTurnsOverride,
   requireSelectedSession,
   resolveRepoRoot,
-} from '../src/lib/chat-composer-inputs';
-import type { ChatSession } from '../src/types';
+} from '../src/lib/chat-composer-inputs.ts';
+import type { ChatSession } from '../src/types.ts';
 
 const SESSION: ChatSession = {
   id: 's1',

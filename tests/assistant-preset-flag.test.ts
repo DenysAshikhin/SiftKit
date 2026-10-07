@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SiftPresetSchema } from '../packages/contracts/src/config.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
-import { SIFT_DEFAULT_ASSISTANT_MEMORY } from '../src/config/constants.js';
+import { SiftPresetSchema } from '../packages/contracts/src/config.ts';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import { SIFT_DEFAULT_ASSISTANT_MEMORY } from '../src/config/constants.ts';
 
 const BUILTIN_PRESETS = PresetCatalog.createDefault().list();
 

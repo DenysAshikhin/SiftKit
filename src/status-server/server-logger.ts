@@ -1,6 +1,6 @@
-import { z } from '../lib/zod.js';
-import type { JsonSerializable } from '../lib/json-types.js';
-import type { JsonLogger } from '../repo-search/types.js';
+import { z } from '../lib/zod.ts';
+import type { JsonSerializable } from '../lib/json-types.ts';
+import type { JsonLogger } from '../repo-search/types.ts';
 
 const LogLevelSchema = z.enum(['quiet', 'normal', 'debug']);
 export type LogLevel = z.infer<typeof LogLevelSchema>;

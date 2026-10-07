@@ -5,7 +5,10 @@ export class OutputCapture {
   private buffer = '';
   private restored = false;
 
-  private constructor(private readonly stream: NodeJS.WriteStream) {
+  private readonly stream: NodeJS.WriteStream;
+
+  private constructor(stream: NodeJS.WriteStream) {
+    this.stream = stream;
     this.lines = this.collectedLines;
     this.originalWrite = stream.write.bind(stream);
     stream.write = (

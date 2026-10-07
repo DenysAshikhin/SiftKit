@@ -4,11 +4,11 @@ import { PassThrough } from 'node:stream';
 
 import type {
   EngineLaunchSpec, EngineProcess, EngineProcessLauncher, ManagedEngineHost,
-} from '../../src/status-server/engine-process.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import { JsonObjectSchema, type JsonValue } from '../../src/lib/json-types.js';
-import { z } from '../../src/lib/zod.js';
-import { buildTabbyUsage } from './streaming-client.js';
+} from '../../src/status-server/engine-process.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import { JsonObjectSchema, type JsonValue } from '../../src/lib/json-types.ts';
+import { z } from '../../src/lib/zod.ts';
+import { buildTabbyUsage } from './streaming-client.ts';
 
 export type FakeTabbyOptions = {
   port: number;
@@ -91,8 +91,11 @@ class FakeTabbyProcess extends EventEmitter implements EngineProcess {
   readonly stderr = new PassThrough();
   private server: http.Server | null = null;
 
-  constructor(readonly spec: EngineLaunchSpec) {
+  readonly spec: EngineLaunchSpec;
+
+  constructor(spec: EngineLaunchSpec) {
     super();
+    this.spec = spec;
   }
 
   get serving(): boolean {
@@ -137,7 +140,11 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
   private readonly processes: FakeTabbyProcess[] = [];
   private deferredLogReleased = false;
 
-  constructor(private readonly options: FakeTabbyOptions) {}
+  private readonly options: FakeTabbyOptions;
+
+  constructor(options: FakeTabbyOptions) {
+    this.options = options;
+  }
 
   get baseUrl(): string {
     return `http://127.0.0.1:${this.options.port}`;

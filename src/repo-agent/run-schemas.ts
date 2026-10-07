@@ -1,5 +1,5 @@
 import { ApprovalModeSchema, RepoAgentApprovalSchema } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
+import { z } from '../lib/zod.ts';
 
 export const RepoAgentRunIdSchema = z.string().uuid();
 const RevisionSchema = z.number().int().nonnegative();

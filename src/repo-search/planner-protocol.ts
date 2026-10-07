@@ -1,34 +1,34 @@
-import type { SiftConfig } from '../config/types.js';
-import { getConfiguredEngineNumCtx } from '../config/getters.js';
-import { resolveGenerationTokenLimit } from '../lib/context-token-budget.js';
-import { estimateTokenCount } from '../lib/token-estimate.js';
-import { InferenceClient } from '../llm-protocol/inference-client.js';
-import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
-import type { InferenceActivityObserver } from '../lib/progress-writer.js';
-import type { JsonObject, InferenceChatMessage, InferenceChatRequest, InferenceChatRole, InferenceToolCall, InferenceToolDefinition, StreamStop } from '../llm-protocol/types.js';
-import { CLEAN_STREAM_STOP, InferenceToolDefinitionsSchema } from '../llm-protocol/types.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { extractContentText } from '../llm-protocol/image-attachments.js';
-import type { ChatMessage } from './planner-chat-message.js';
-import { toError } from '../lib/errors.js';
+import type { SiftConfig } from '../config/types.ts';
+import { getConfiguredEngineNumCtx } from '../config/getters.ts';
+import { resolveGenerationTokenLimit } from '../lib/context-token-budget.ts';
+import { estimateTokenCount } from '../lib/token-estimate.ts';
+import { InferenceClient } from '../llm-protocol/inference-client.ts';
+import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.ts';
+import type { InferenceActivityObserver } from '../lib/progress-writer.ts';
+import type { JsonObject, InferenceChatMessage, InferenceChatRequest, InferenceChatRole, InferenceToolCall, InferenceToolDefinition, StreamStop } from '../llm-protocol/types.ts';
+import { CLEAN_STREAM_STOP, InferenceToolDefinitionsSchema } from '../llm-protocol/types.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { extractContentText } from '../llm-protocol/image-attachments.ts';
+import type { ChatMessage } from './planner-chat-message.ts';
+import { toError } from '../lib/errors.ts';
 import {
   buildProviderErrorMessage,
   retryProviderRequest,
   serializeNetworkError,
-} from '../lib/provider-helpers.js';
-import { buildInferenceJsonSchemaResponseFormat } from '../providers/structured-output-schema.js';
-import { buildApprovalVerdictJsonSchema } from './approval-verdict.js';
-import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.js';
-import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
-import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
-import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
-import type { JsonLogger } from './types.js';
-import { REPO_TOOL_ARGUMENT_SCHEMAS, type RepoToolName } from './repo-tool-arguments.js';
+} from '../lib/provider-helpers.ts';
+import { buildInferenceJsonSchemaResponseFormat } from '../providers/structured-output-schema.ts';
+import { buildApprovalVerdictJsonSchema } from './approval-verdict.ts';
+import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
+import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
+import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.ts';
+import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.ts';
+import type { JsonLogger } from './types.ts';
+import { REPO_TOOL_ARGUMENT_SCHEMAS, type RepoToolName } from './repo-tool-arguments.ts';
 import {
   EXPOSED_REPO_TOOL_NAMES,
-} from '../planner-protocol/repo-search.js';
-import { emptyInferenceThroughput } from '../lib/inference-throughput.js';
+} from '../planner-protocol/repo-search.ts';
+import { emptyInferenceThroughput } from '../lib/inference-throughput.ts';
 import type { InferenceThroughput, ThroughputAuditOperation } from '@siftkit/contracts';
 
 export type PlannerActionResponse = {
@@ -843,7 +843,7 @@ export async function requestContextCompactionSummary(options: {
   return requestRepoSearchPlannerProtocolAction(request);
 }
 
-export { isTransientProviderError } from '../lib/provider-helpers.js';
+export { isTransientProviderError } from '../lib/provider-helpers.ts';
 
 export function renderTaskTranscript(
   messages: readonly ChatMessage[],

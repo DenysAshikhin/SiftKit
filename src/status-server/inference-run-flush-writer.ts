@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 
-import { toError } from '../lib/errors.js';
-import { appendInferenceRunLogChunks } from '../state/inference-runs.js';
-import type { FlushWorkerRequest, FlushWorkerResponse } from './inference-run-flush-messages.js';
+import { toError } from '../lib/errors.ts';
+import { appendInferenceRunLogChunks } from '../state/inference-runs.ts';
+import type { FlushWorkerRequest, FlushWorkerResponse } from './inference-run-flush-messages.ts';
 
 /** Whether a batch has anything to write; an empty one is answered without opening the database. */
 export function hasFlushChunks(request: FlushWorkerRequest): boolean {

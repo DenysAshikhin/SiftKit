@@ -1,8 +1,8 @@
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { CaptureQueueState } from '../domain/enums.js';
-import { CaptureQueueRowSchema, CountRowSchema, type CaptureQueueRow } from '../storage/rows.js';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { CaptureQueueState } from '../domain/enums.ts';
+import { CaptureQueueRowSchema, CountRowSchema, type CaptureQueueRow } from '../storage/rows.ts';
 
 /** States whose pixels are still on disk; byte accounting sees exactly these. */
 const LIVE_CAPTURE_STATES = [
@@ -42,10 +42,16 @@ export interface EnqueueCaptureInput {
  * anything (spec §4).
  */
 export class CaptureQueueStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+  ) {
+    this.database = database;
+    this.clock = clock;
+  }
 
   enqueue(input: EnqueueCaptureInput): CaptureQueueRow {
     const nowUtc = this.clock.nowUtc();

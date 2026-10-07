@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { readWebSearchQuotas, WebSearchQuotaCache } from '../src/status-server/web-search-quota.js';
-import type { WebSearchConfig } from '../src/web-search/types.js';
-import type { JsonValue } from '../src/lib/json-types.js';
-import { HttpClient } from '../src/lib/http-client.js';
+import { readWebSearchQuotas, WebSearchQuotaCache } from '../src/status-server/web-search-quota.ts';
+import type { WebSearchConfig } from '../src/web-search/types.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
+import { HttpClient } from '../src/lib/http-client.ts';
 
 function makeConfig(): WebSearchConfig {
   return {
@@ -37,8 +37,11 @@ class CountingClient extends HttpClient {
 }
 
 class FakeHttpClient extends HttpClient {
-  constructor(private readonly fetchImpl: (url: string | URL) => Promise<Response>) {
+  private readonly fetchImpl: (url: string | URL) => Promise<Response>;
+
+  constructor(fetchImpl: (url: string | URL) => Promise<Response>) {
     super();
+    this.fetchImpl = fetchImpl;
   }
 
   override fetch(url: string | URL): Promise<Response> {

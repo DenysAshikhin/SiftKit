@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { Socket } from 'node:net';
 
-import { getAddressInfo, requestJson, requestSse as requestCollectedSse } from './helpers/dashboard-http.js';
-import { requestJson as requestRuntimeJson } from './helpers/runtime-http.js';
-import { requestSse, writeSseResult } from './helpers/sse-http.js';
+import { getAddressInfo, requestJson, requestSse as requestCollectedSse } from './helpers/dashboard-http.ts';
+import { requestJson as requestRuntimeJson } from './helpers/runtime-http.ts';
+import { requestSse, writeSseResult } from './helpers/sse-http.ts';
 
 /**
  * Answers `/health` as JSON and `/events` as SSE, and can drop every connection it has accepted.

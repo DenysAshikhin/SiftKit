@@ -1,7 +1,7 @@
-import { z } from '../../lib/zod.js';
-import { InferenceBackendIdSchema } from '../../config/types.js';
-import type { InferenceBackendId } from '../../config/types.js';
-import type { JsonObject } from '../../lib/json-types.js';
+import { z } from '../../lib/zod.ts';
+import { InferenceBackendIdSchema } from '../../config/types.ts';
+import type { InferenceBackendId } from '../../config/types.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
 import type { InferenceThroughput, RunOperationType } from '@siftkit/contracts';
 
 export type RunLogGroup = 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';

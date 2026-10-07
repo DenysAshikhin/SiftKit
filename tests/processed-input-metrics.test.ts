@@ -5,17 +5,17 @@ import path from 'node:path';
 
 import {
   normalizeIdleSummarySnapshotRow,
-} from '../src/status-server/dashboard-runs.js';
+} from '../src/status-server/dashboard-runs.ts';
 import {
   IdleSummarySnapshotDbRowSchema,
-} from '../src/status-server/idle-summary.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { createManagedTempDir, removeDirectorySync } from './helpers/temp-dirs.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+} from '../src/status-server/idle-summary.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { createManagedTempDir, removeDirectorySync } from './helpers/temp-dirs.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
 import {
   closeAllRuntimeDatabases,
   getRuntimeDatabase,
-} from '../src/state/runtime-db.js';
+} from '../src/state/runtime-db.ts';
 
 // SQLite .get()/.all() return `unknown`; narrow rows to JsonObject at the boundary.
 function asRow<T>(value: T): JsonObject {

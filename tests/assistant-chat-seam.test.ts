@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildChatSystemContent } from '../src/status-server/chat.js';
-import { ChatMemorySeam } from '../src/status-server/chat-memory-seam.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
-import type { ChatTurnInput } from '../src/assistant/ingestion/conversation-ingestor.js';
-import type { RetrieveResult } from '../src/assistant/retrieval/memory-retriever.js';
-import type { ChatSession } from '../src/state/chat-sessions.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
+import { buildChatSystemContent } from '../src/status-server/chat.ts';
+import { ChatMemorySeam } from '../src/status-server/chat-memory-seam.ts';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import type { ChatTurnInput } from '../src/assistant/ingestion/conversation-ingestor.ts';
+import type { RetrieveResult } from '../src/assistant/retrieval/memory-retriever.ts';
+import type { ChatSession } from '../src/state/chat-sessions.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
 
 const basePreset = PresetCatalog.createDefault().requireById('summary');
 const optedIn = { ...basePreset, id: 'in', assistantMemory: true };

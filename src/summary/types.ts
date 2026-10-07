@@ -1,13 +1,13 @@
-import { z } from '../lib/zod.js';
-import type { SiftConfig } from '../config/index.js';
-import type { SummaryProgressEvent } from './progress-reporter.js';
-import type { ProgressWriter } from '../lib/progress-writer.js';
+import { z } from '../lib/zod.ts';
+import type { SiftConfig } from '../config/index.ts';
+import type { SummaryProgressEvent } from './progress-reporter.ts';
+import type { ProgressWriter } from '../lib/progress-writer.ts';
 import type { InferenceThroughput } from '@siftkit/contracts';
 import {
   SummaryClassificationSchema,
   type SummaryClassification,
   type SummaryPlannerToolName,
-} from '../planner-protocol/summary-tools.js';
+} from '../planner-protocol/summary-tools.ts';
 
 /**
  * Summary provider identity. NOT the inference engine axis (see

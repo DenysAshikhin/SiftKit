@@ -1,5 +1,5 @@
-import type { JsonObject } from './lib/json-types.js';
-import type { GitToolArgs } from './repo-search/repo-tool-arguments.js';
+import type { JsonObject } from './lib/json-types.ts';
+import type { GitToolArgs } from './repo-search/repo-tool-arguments.ts';
 
 type ToolLoopKind = 'repo-search' | 'planner' | 'chat' | 'repo-agent';
 

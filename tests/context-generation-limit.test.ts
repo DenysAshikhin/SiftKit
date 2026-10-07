@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   resolveFinalGenerationTokenLimit,
   resolveGenerationTokenLimit,
-} from '../src/lib/context-token-budget.js';
+} from '../src/lib/context-token-budget.ts';
 
 test('generation uses the window still free at the current prompt position', () => {
   assert.equal(resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount: 0 }), 155_000);

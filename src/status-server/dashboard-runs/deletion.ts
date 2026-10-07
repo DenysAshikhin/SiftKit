@@ -1,11 +1,11 @@
 import { existsSync, unlinkSync } from 'node:fs';
 import Database from 'better-sqlite3';
-import { z } from '../../lib/zod.js';
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import { parseJsonValueText } from '../../lib/json.js';
-import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import { commandMatchesDisplayText } from '../tool-command-display.js';
-import type { DashboardRunLogDeleteCriteria, DashboardRunLogType } from './types.js';
+import { z } from '../../lib/zod.ts';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import { commandMatchesDisplayText } from '../tool-command-display.ts';
+import type { DashboardRunLogDeleteCriteria, DashboardRunLogType } from './types.ts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 

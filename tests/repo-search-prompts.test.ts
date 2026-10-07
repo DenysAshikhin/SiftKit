@@ -8,22 +8,22 @@ import {
   buildCompactionSummaryInstruction,
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt as buildTaskSystemPromptForTools,
-} from '../src/repo-search/prompts.js';
+} from '../src/repo-search/prompts.ts';
 import {
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
-} from '../src/planner-protocol/repo-search.js';
-import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
-import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.js';
+} from '../src/planner-protocol/repo-search.ts';
+import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.ts';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.ts';
+import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.ts';
 import {
   PresetSystemContextBuilder,
   type PresetSystemContext,
-} from '../src/preset-system-context.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { resolveRunSystemPrompt } from '../src/repo-search/run-system-prompt.js';
-import { usableWebSearchConfig } from './helpers/mock-config.js';
+} from '../src/preset-system-context.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { resolveRunSystemPrompt } from '../src/repo-search/run-system-prompt.ts';
+import { usableWebSearchConfig } from './helpers/mock-config.ts';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = createManagedTempDir('siftkit-repo-prompt-');

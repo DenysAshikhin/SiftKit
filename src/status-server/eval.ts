@@ -1,17 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { z } from '../lib/zod.js';
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { getConfiguredModel, initializeRuntime, loadConfig, type SiftConfig } from '../config/index.js';
-import { summarizeRequest } from '../summary/core.js';
-import { resolveSummaryProvider } from '../summary/types.js';
-import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
-import type { ProgressWriter } from '../lib/progress-writer.js';
-import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
-import { persistEvalResult } from '../state/runtime-results.js';
-import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
-import type { EvalCaseResult, EvalRequest, EvaluationResult } from '../eval-types.js';
+import { z } from '../lib/zod.ts';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { getConfiguredModel, initializeRuntime, loadConfig, type SiftConfig } from '../config/index.ts';
+import { summarizeRequest } from '../summary/core.ts';
+import { resolveSummaryProvider } from '../summary/types.ts';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.ts';
+import type { ProgressWriter } from '../lib/progress-writer.ts';
+import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.ts';
+import { persistEvalResult } from '../state/runtime-results.ts';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.ts';
+import type { EvalCaseResult, EvalRequest, EvaluationResult } from '../eval-types.ts';
 
 const FixtureSchema = z.object({
   Name: z.string(),

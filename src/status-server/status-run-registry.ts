@@ -1,6 +1,6 @@
 import type { ActiveStatusRun } from '@siftkit/contracts';
-import type { TaskKind } from './metrics.js';
-import type { StatusMetadata } from './status-file.js';
+import type { TaskKind } from './metrics.ts';
+import type { StatusMetadata } from './status-file.ts';
 
 export const TERMINAL_SNAPSHOT_RETENTION_MS = 300_000;
 export const COMPLETED_REQUEST_RETENTION_MS = 900_000;

@@ -1,18 +1,18 @@
-import { toError } from '../lib/errors.js';
+import { toError } from '../lib/errors.ts';
 import { finalizeChatRunTranscript, buildChatRunMessageIdPrefix, buildChatMessageId, ChatRepoAgentApprovalMessageSchema, ChatRecoveryIssueSchema, ChatRecoveryReportSchema, CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, PersistedChatTranscriptMessageSchema, reduceChatTranscript, type ChatRecoveryIssue, type ChatRecoveryIssueCode, type ChatRecoveryReport, type ChatRecoveryStatus, type ChatRunTerminalCause, type ChatToolOutcome, type ChatTranscriptMessage, type ChatTranscriptMetadata, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
-import { stableStringify, writeStableJson } from '../lib/json.js';
-import { z } from '../lib/zod.js';
-import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.js';
-import type { ChatJournalEnvelope, ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.js';
+import { stableStringify, writeStableJson } from '../lib/json.ts';
+import { z } from '../lib/zod.ts';
+import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.ts';
+import type { ChatJournalEnvelope, ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.ts';
 import {
   insertChatMessages,
   nextChatMessagePosition,
   readChatRunMessages,
-} from '../state/chat-sessions.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import { COMPACTION_SUMMARY_MARKER } from '../repo-search/engine/transcript-compactor.js';
-import { buildCompactionSummaryRow } from './chat.js';
-import { applyChatDisplayRevisions, readChatCompactionRevisions, readChatHistoryRevisions } from '../state/chat-history-revisions.js';
+} from '../state/chat-sessions.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import { COMPACTION_SUMMARY_MARKER } from '../repo-search/engine/transcript-compactor.ts';
+import { buildCompactionSummaryRow } from './chat.ts';
+import { applyChatDisplayRevisions, readChatCompactionRevisions, readChatHistoryRevisions } from '../state/chat-history-revisions.ts';
 import { createHash } from 'node:crypto';
 
 /** Digest of the rows as stored, streamed so a large transcript never becomes one string. */
@@ -59,12 +59,15 @@ export class ChatRunProjection {
   private readonly approvals = new Map<string, Extract<ChatJournalEvent, { kind: 'approval_requested' }>>();
   private readonly retained: ReadonlySet<ChatTranscriptMessage>;
 
+  private readonly metadata: ChatTranscriptMetadata;
+
   /** Requests seen before this fold started seed the map an incremental pass resolves against. */
   constructor(
-    private readonly metadata: ChatTranscriptMetadata,
+    metadata: ChatTranscriptMetadata,
     initialMessages: readonly ChatTranscriptMessage[] = [],
     approvalEvidence: readonly ChatJournalEnvelope[] = [],
   ) {
+    this.metadata = metadata;
     this.messages = [...initialMessages];
     this.retained = new Set(initialMessages);
     for (const envelope of approvalEvidence) {

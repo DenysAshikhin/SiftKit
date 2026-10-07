@@ -1,7 +1,7 @@
 import React from 'react';
 
-import { postModelResidencyAction } from '../../api';
-import type { InferenceRuntimeStatusResult } from '../../hooks/useInferenceRuntimeStatus';
+import { postModelResidencyAction } from '../../api.ts';
+import type { InferenceRuntimeStatusResult } from '../../hooks/useInferenceRuntimeStatus.ts';
 import type {
   InferenceModelState,
   InferenceProcessState,

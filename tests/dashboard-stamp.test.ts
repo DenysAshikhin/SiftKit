@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { computeDashboardStamp } from '../scripts/dashboard-stamp.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { computeDashboardStamp } from '../scripts/dashboard-stamp.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function writeFixtureRepo(root: string): void {
   fs.mkdirSync(path.join(root, 'dashboard', 'src'), { recursive: true });

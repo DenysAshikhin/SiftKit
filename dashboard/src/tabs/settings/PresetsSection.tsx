@@ -4,18 +4,18 @@ import { OrchestratorPresetOptionsSchema } from '@siftkit/contracts';
 import {
   getEffectivePresetTools,
   PRESET_TOOL_OPTIONS,
-} from '../../preset-editor';
-import { isPresetKind, isPresetOperationMode } from '../../../../src/presets.js';
-import { SettingsField } from '../../settings/SettingsFields';
-import type { PresetSettingsActions } from '../../settings-action-groups';
+} from '../../preset-editor.ts';
+import { isPresetKind, isPresetOperationMode } from '../../../../src/presets.ts';
+import { SettingsField } from '../../settings/SettingsFields.tsx';
+import type { PresetSettingsActions } from '../../settings-action-groups.ts';
 import {
   isPresetAutoloadPickerBusy,
   type SettingsPathPickerBusyTarget,
-} from '../../settings-flow';
+} from '../../settings-flow.ts';
 import type {
   DashboardConfig,
   DashboardPreset,
-} from '../../types';
+} from '../../types.ts';
 
 /** An orchestrator preset without its options is malformed stored config, never a silent default. */
 function OrchestratorCapField({ preset, presetActions }: { preset: DashboardPreset; presetActions: PresetSettingsActions }) {

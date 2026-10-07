@@ -1,8 +1,8 @@
 import type { OrchestratorPlan, OrchestratorTask, OrchestratorVerificationCheck, SiftPreset } from '@siftkit/contracts';
 
-import type { SiftConfig } from '../config/types.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.js';
+import type { SiftConfig } from '../config/types.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
 
 const MUTATING_TOOLS = ['write', 'edit', 'run'] as const;
 

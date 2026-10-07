@@ -7,30 +7,30 @@ import {
   AssistantRestorePreviewResponseSchema, AssistantRestoreResultSchema,
   AssistantTopicForgetPreviewSchema,
 } from '@siftkit/contracts';
-import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
-import { FixedClock } from '../../src/assistant/clock.js';
-import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
-import { SequentialIdGenerator } from '../../src/assistant/ids.js';
-import { assistantKeyFile } from '../../src/assistant/layout.js';
-import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
-import { readArchiveEntriesFromBytes } from '../helpers/archive-bytes.js';
-import { getConfigPath } from '../../src/config/index.js';
-import { getDefaultConfig, readConfig, writeConfig } from '../../src/status-server/config-store.js';
-import { startStatusServer } from '../../src/status-server/index.js';
-import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { FIXTURE_START_INSTANT, type AssistantTestContext } from '../helpers/assistant-fixture.js';
+import { AssistantGraph } from '../../src/assistant/assistant-graph.ts';
+import { FixedClock } from '../../src/assistant/clock.ts';
+import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.ts';
+import { SequentialIdGenerator } from '../../src/assistant/ids.ts';
+import { assistantKeyFile } from '../../src/assistant/layout.ts';
+import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.ts';
+import { readArchiveEntriesFromBytes } from '../helpers/archive-bytes.ts';
+import { getConfigPath } from '../../src/config/index.ts';
+import { getDefaultConfig, readConfig, writeConfig } from '../../src/status-server/config-store.ts';
+import { startStatusServer } from '../../src/status-server/index.ts';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { FIXTURE_START_INSTANT, type AssistantTestContext } from '../helpers/assistant-fixture.ts';
 import {
   closeHttpServer, getAddressInfo, requestBinary, requestJson,
-} from '../helpers/dashboard-http.js';
+} from '../helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from '../helpers/dashboard-test-repo.js';
-import { seedOwnerAssertion } from '../helpers/gate-e-seed.js';
+} from '../helpers/dashboard-test-repo.ts';
+import { seedOwnerAssertion } from '../helpers/gate-e-seed.ts';
 import {
   TEST_DEVICE_ID, seedTestDevice, signEnvelope, unsignedEnvelope,
-} from '../helpers/mobile-envelope.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.js';
-import { InMemoryDataProtector } from '../helpers/in-memory-data-protector.js';
+} from '../helpers/mobile-envelope.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.ts';
+import { InMemoryDataProtector } from '../helpers/in-memory-data-protector.ts';
 
 /**
  * A second view over the server's own runtime database, used only to seed rows and read them

@@ -2,13 +2,13 @@ import {
   getConfiguredEngineBaseUrl,
   SIFT_DEFAULT_ENGINE_BASE_URL,
   type SiftConfig,
-} from '../config/index.js';
-import type { MockPlannerResponse } from '../planner-protocol/mock-response.js';
-import { countTokensWithFallbackDetailed } from '../repo-search/prompt-budget.js';
+} from '../config/index.ts';
+import type { MockPlannerResponse } from '../planner-protocol/mock-response.ts';
+import { countTokensWithFallbackDetailed } from '../repo-search/prompt-budget.ts';
 import type { PersistedChatTranscriptMessage, ThroughputAuditOperation } from '@siftkit/contracts';
-import { calculateThroughputRates, emptyInferenceThroughput, mergeInferenceThroughput } from '../lib/inference-throughput.js';
-import type { ChatSession } from '../state/chat-sessions.js';
-import { auditInferenceThroughput } from './inference-throughput-audit.js';
+import { calculateThroughputRates, emptyInferenceThroughput, mergeInferenceThroughput } from '../lib/inference-throughput.ts';
+import type { ChatSession } from '../state/chat-sessions.ts';
+import { auditInferenceThroughput } from './inference-throughput-audit.ts';
 
 const CHAT_TOKEN_COUNT_TIMEOUT_MS = 1_000;
 

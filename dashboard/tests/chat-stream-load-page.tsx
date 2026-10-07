@@ -2,14 +2,14 @@ import React from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import '../src/styles.css';
-import { consumeChatStream } from '../src/api';
-import { ChatTab } from '../src/tabs/ChatTab';
-import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';
-import { ownedStreamTransitions, toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
-import { summarizeChatSession } from '../src/hooks/useChatSessions';
-import { FIXTURE_OPERATION_ID } from './chat-snapshot-fixture.js';
-import { LOAD_SESSION_ID, LOAD_SUBMISSION_ID, type StreamLoadResult } from './chat-stream-load-content.js';
-import { SESSION_A, buildDefaultStore, buildProps, msg } from './chat-tab-fixture.js';
+import { consumeChatStream } from '../src/api.ts';
+import { ChatTab } from '../src/tabs/ChatTab.tsx';
+import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
+import { ownedStreamTransitions, toRuntimeTransitions } from '../src/lib/chat-stream-transitions.ts';
+import { summarizeChatSession } from '../src/hooks/useChatSessions.ts';
+import { FIXTURE_OPERATION_ID } from './chat-snapshot-fixture.ts';
+import { LOAD_SESSION_ID, LOAD_SUBMISSION_ID, type StreamLoadResult } from './chat-stream-load-content.ts';
+import { SESSION_A, buildDefaultStore, buildProps, msg } from './chat-tab-fixture.ts';
 
 /** The real ChatTab fed by the real stream client; tests/process/chat-stream-load.test.ts drives and measures it. */
 declare global {

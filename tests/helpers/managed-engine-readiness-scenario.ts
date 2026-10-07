@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getConfigPath } from '../../src/config/index.js';
-import type { Exl3EngineConfig } from '../../src/config/types.js';
-import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
-import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
-import type { ManagedEngineHost } from '../../src/status-server/engine-process.js';
-import { startStatusServer } from '../../src/status-server/index.js';
-import { waitForAsyncExpectation } from '../_runtime-helpers.js';
-import { getAddressInfo, requestJson } from './dashboard-http.js';
-import { readStatusModelRequests } from './model-request-status.js';
-import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.js';
-import { requestSse } from './sse-http.js';
+import { getConfigPath } from '../../src/config/index.ts';
+import type { Exl3EngineConfig } from '../../src/config/types.ts';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.ts';
+import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.ts';
+import type { ManagedEngineHost } from '../../src/status-server/engine-process.ts';
+import { startStatusServer } from '../../src/status-server/index.ts';
+import { waitForAsyncExpectation } from '../_runtime-helpers.ts';
+import { getAddressInfo, requestJson } from './dashboard-http.ts';
+import { readStatusModelRequests } from './model-request-status.ts';
+import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.ts';
+import { requestSse } from './sse-http.ts';
 
 /** The fixture fields both the in-process and the child-process fake engines provide. */
 export type ManagedEngineConfigFixture = {

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   getManagedFilePickerDialogOptions,
   pickManagedFilePath,
-} from '../src/status-server/file-picker.js';
+} from '../src/status-server/file-picker.ts';
 
 test('getManagedFilePickerDialogOptions opens a directory picker for the model preset path', () => {
   const options = getManagedFilePickerDialogOptions(

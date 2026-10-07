@@ -1,4 +1,4 @@
-import type { ModelRuntimePreset } from '../config/types.js';
+import type { ModelRuntimePreset } from '../config/types.ts';
 
 /**
  * Sole in-memory owner of the normalized applied model preset.

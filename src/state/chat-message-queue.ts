@@ -15,9 +15,9 @@ import {
   ChatQueueEditableMessageSchema,
 } from '@siftkit/contracts';
 
-import { z } from '../lib/zod.js';
-import { setRuntimeMetadataValue, type RuntimeDatabase } from './runtime-db.js';
-import { CHAT_QUEUE_METADATA_PREFIX, chatMetadataKey } from './chat-metadata-keys.js';
+import { z } from '../lib/zod.ts';
+import { setRuntimeMetadataValue, type RuntimeDatabase } from './runtime-db.ts';
+import { CHAT_QUEUE_METADATA_PREFIX, chatMetadataKey } from './chat-metadata-keys.ts';
 
 const QueueRowSchema = z.object({
   sequence: z.number().int().positive(),
@@ -113,7 +113,11 @@ function sameBody(message: ChatQueuedMessage, input: ChatQueueEnqueueInput): boo
  * is one SQLite transaction, so a claim and its bookkeeping cannot be observed half-done.
  */
 export class ChatMessageQueueStore {
-  constructor(private readonly database: RuntimeDatabase) {}
+  private readonly database: RuntimeDatabase;
+
+  constructor(database: RuntimeDatabase) {
+    this.database = database;
+  }
 
   private metadata(sessionId: string) {
     const raw = this.database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(chatMetadataKey.queue(sessionId));

@@ -1,8 +1,8 @@
 import Database from 'better-sqlite3';
-import { JsonRecordReader } from '../../src/lib/json-record-reader.js';
-import type { RuntimeDatabase } from '../../src/state/database-handle.js';
-import { getRuntimeDatabase, getRuntimeDatabaseStorage, isRuntimeDatabaseOpen } from '../../src/state/runtime-db.js';
-import { rewriteStoredRuntimeDatabase } from './stored-runtime-database.js';
+import { JsonRecordReader } from '../../src/lib/json-record-reader.ts';
+import type { RuntimeDatabase } from '../../src/state/database-handle.ts';
+import { getRuntimeDatabase, getRuntimeDatabaseStorage, isRuntimeDatabaseOpen } from '../../src/state/runtime-db.ts';
+import { rewriteStoredRuntimeDatabase } from './stored-runtime-database.ts';
 
 /**
  * Helpers for inspecting and sabotaging a runtime database from *outside* the process that owns it,

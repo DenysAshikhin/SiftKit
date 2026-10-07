@@ -3,18 +3,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.ts';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
+import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
 
-import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
+import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
 import {
   createFakeExl3Capabilities,
   writeFakeUnifiedExl3Venv,
   writeFakeEngineHost,
   writeFakeExl3Venv,
-} from './helpers/tabby-fake.js';
+} from './helpers/tabby-fake.ts';
 
 function capabilitiesForJobSource(jobSourcePath: string): Exl3ModelCapabilities {
   const packageDirectory = path.dirname(path.dirname(jobSourcePath));

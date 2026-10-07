@@ -1,18 +1,18 @@
-import { ensureStatusServerReachable } from '../config/index.js';
+import { ensureStatusServerReachable } from '../config/index.ts';
 import {
   RepoAgentRunResultSchema,
   type RepoAgentRunResult,
   type RepoAgentRunState,
-} from '../repo-agent/run-schemas.js';
-import type { RepoAgentDecideRequest } from '../repo-agent/api-schemas.js';
-import { CliApprovalPrompter, type ApprovalPrompter } from './approval-prompter.js';
-import { CliProgressRenderer } from './progress-renderer.js';
-import type { RepoAgentInvocation } from './repo-agent-args.js';
-import { REPO_AGENT_EXIT_CODES } from './repo-agent-help.js';
-import { buildRepoAgentServerRequest } from './repo-agent-request.js';
-import type { StatusServerApiClient } from './status-server-api-client.js';
-import { assertStdinIsTty } from './tty.js';
-import { RepoAgentDecideRequestSchema } from '../repo-agent/api-schemas.js';
+} from '../repo-agent/run-schemas.ts';
+import type { RepoAgentDecideRequest } from '../repo-agent/api-schemas.ts';
+import { CliApprovalPrompter, type ApprovalPrompter } from './approval-prompter.ts';
+import { CliProgressRenderer } from './progress-renderer.ts';
+import type { RepoAgentInvocation } from './repo-agent-args.ts';
+import { REPO_AGENT_EXIT_CODES } from './repo-agent-help.ts';
+import { buildRepoAgentServerRequest } from './repo-agent-request.ts';
+import type { StatusServerApiClient } from './status-server-api-client.ts';
+import { assertStdinIsTty } from './tty.ts';
+import { RepoAgentDecideRequestSchema } from '../repo-agent/api-schemas.ts';
 
 export type RepoAgentApi = Pick<StatusServerApiClient, 'requestRepoAgent' | 'requestRepoAgentDecide' | 'requestRepoAgentStatus'>;
 

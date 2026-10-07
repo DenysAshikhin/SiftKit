@@ -13,7 +13,7 @@ export {
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
   SIFT_DEFAULT_PROMPT_PREFIX,
-} from './constants.js';
+} from './constants.ts';
 
 export type {
   ModelKvCacheQuantization,
@@ -27,12 +27,12 @@ export type {
   ServerModelPresetsConfig,
   SiftConfig,
   WebSearchConfig,
-} from './types.js';
+} from './types.ts';
 
 export {
   StatusServerUnavailableError,
   MissingObservedBudgetError,
-} from './errors.js';
+} from './errors.ts';
 
 export {
   getConfigPath,
@@ -42,7 +42,7 @@ export {
   getRepoLocalRuntimeRoot,
   getRuntimeRoot,
   initializeRuntime,
-} from './paths.js';
+} from './paths.ts';
 
 export {
   getRuntimeEngine,
@@ -59,23 +59,23 @@ export {
   getDefaultNumCtx,
   isReadExpansionEnabled,
   getMissingRuntimeFields,
-} from './getters.js';
+} from './getters.ts';
 
 export {
   overlayActivePreset,
-} from './overrides.js';
+} from './overrides.ts';
 
 export {
   getChunkThresholdCharacters,
   getDerivedMaxInputCharacters,
   getEffectiveInputCharactersPerContextToken,
   getEffectiveMaxInputCharacters,
-} from './effective.js';
+} from './effective.ts';
 
 export {
   applyHostEngineRuntimeSettings,
   resetHostEngineSettingsCacheForTests,
-} from './host-sync.js';
+} from './host-sync.ts';
 
 export {
   ensureStatusServerReachable,
@@ -83,7 +83,7 @@ export {
   getStatusServerHealthUrl,
   getStatusServerUnavailableMessage,
   notifyStatusBackend,
-} from './status-backend.js';
+} from './status-backend.ts';
 
 export {
   getConfigServiceUrl,
@@ -91,4 +91,4 @@ export {
   normalizeLoadedConfig,
   saveConfig,
   setTopLevelConfigKey,
-} from './config-service.js';
+} from './config-service.ts';

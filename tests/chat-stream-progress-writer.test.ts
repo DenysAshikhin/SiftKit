@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ChatTranscriptEvent } from '@siftkit/contracts';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
-import { LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from '../src/status-server/live-text-delta.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
-import { QuestionGate } from '../src/repo-search/engine/question-gate.js';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.ts';
+import { LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from '../src/status-server/live-text-delta.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.ts';
+import { QuestionGate } from '../src/repo-search/engine/question-gate.ts';
 
 function fixture() {
   const { database, recorder } = beginRepoAgentTestRun('chat-stream-progress-writer-');

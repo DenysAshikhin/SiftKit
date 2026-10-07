@@ -2,13 +2,13 @@ import {
   getConfiguredEngineBaseUrl,
   getConfiguredEngineNumCtx,
   type SiftConfig,
-} from '../config/index.js';
-import { resolveGenerationTokenLimit } from '../lib/context-token-budget.js';
-import { estimateTokenCount, estimateTokenCountFromCharacters } from '../lib/token-estimate.js';
-import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
-import { InferenceClient } from '../llm-protocol/inference-client.js';
-import { getErrorMessage } from '../lib/errors.js';
-import { HttpTimeoutError, InferenceHttpError } from '../lib/http-client.js';
+} from '../config/index.ts';
+import { resolveGenerationTokenLimit } from '../lib/context-token-budget.ts';
+import { estimateTokenCount, estimateTokenCountFromCharacters } from '../lib/token-estimate.ts';
+import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.ts';
+import { InferenceClient } from '../llm-protocol/inference-client.ts';
+import { getErrorMessage } from '../lib/errors.ts';
+import { HttpTimeoutError, InferenceHttpError } from '../lib/http-client.ts';
 import type {
   InferenceChatMessage as ProtocolInferenceChatMessage,
   InferenceResponseFormat,
@@ -18,15 +18,15 @@ import type {
   LiveContentResult,
   NormalizedInferenceChatResponse,
   StreamStop,
-} from '../llm-protocol/types.js';
-import { InferenceToolDefinitionSchema } from '../llm-protocol/types.js';
+} from '../llm-protocol/types.ts';
+import { InferenceToolDefinitionSchema } from '../llm-protocol/types.ts';
 import {
   buildInferenceJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
-} from './structured-output-schema.js';
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
+} from './structured-output-schema.ts';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
 import type { ThroughputAuditIdentity } from '@siftkit/contracts';
-import { createTracer } from '../lib/trace.js';
+import { createTracer } from '../lib/trace.ts';
 
 function logInferenceError(operation: string, message: string): void {
   console.error(`inference ${operation} error: ${message}`);

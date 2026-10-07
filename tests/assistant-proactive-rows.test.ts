@@ -8,13 +8,13 @@ import {
   QuestionFeedbackTypeSchema,
   QuestionStatusSchema,
   QuestionTypeSchema,
-} from '../src/assistant/domain/enums.js';
+} from '../src/assistant/domain/enums.ts';
 import {
   AssertionRowSchema,
   QuestionFeedbackRowSchema,
   QuestionRowSchema,
   RetrievalUsageRowSchema,
-} from '../src/assistant/storage/rows.js';
+} from '../src/assistant/storage/rows.ts';
 
 test('Gate C question enums accept every persisted value and reject unknown values', () => {
   for (const value of QUESTION_TYPES) assert.equal(QuestionTypeSchema.parse(value), value);

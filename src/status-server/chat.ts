@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ChatRunRecorder } from './chat-run-recorder.js';
+import type { ChatRunRecorder } from './chat-run-recorder.ts';
 import { buildChatMessageId, DEFAULT_REASONING_EFFORT, isReplayableChatMessage, resolveEffectiveImagePixelCeiling, sumContextImageTokens } from '@siftkit/contracts';
 import type { ChatTurnTokenRecord, ContextUsage, ReasoningEffort, ReplayableChatMessage } from '@siftkit/contracts';
 import {
@@ -8,39 +8,39 @@ import {
   getConfiguredCompactionReserveTokens,
   getConfiguredEngineBaseUrl,
   getConfiguredEngineNumCtx,
-} from '../config/getters.js';
-import { resolveModelRequestContext } from './model-request-context.js';
-import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
-import type { OptionalJsonValue } from '../lib/json-types.js';
-import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
-import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
-import type { JsonLogger, RepoSearchExecutionResult } from '../repo-search/types.js';
-import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
+} from '../config/getters.ts';
+import { resolveModelRequestContext } from './model-request-context.ts';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.ts';
+import type { OptionalJsonValue } from '../lib/json-types.ts';
+import { resolveContextTokenBudget } from '../lib/context-token-budget.ts';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
+import type { JsonLogger, RepoSearchExecutionResult } from '../repo-search/types.ts';
+import type { RepoAgentRunResult } from '../repo-agent/run-schemas.ts';
 import {
   TranscriptCompactor,
   writePromptCacheEpochReset,
-} from '../repo-search/engine/transcript-compactor.js';
-import { TokenUsageTracker } from '../repo-search/engine/token-usage.js';
-import { DEFAULT_TIMEOUT_MS, resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
-import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
-import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
-import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
-import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
+} from '../repo-search/engine/transcript-compactor.ts';
+import { TokenUsageTracker } from '../repo-search/engine/token-usage.ts';
+import { DEFAULT_TIMEOUT_MS, resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.ts';
+import { RepoSearchOutputFormatter } from '../repo-search/output-format.ts';
+import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.ts';
+import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.ts';
+import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.ts';
 import {
   type ChatSession,
   type ChatMessage as PersistedChatTranscriptMessage,
   estimateTokenCount,
-} from '../state/chat-sessions.js';
-import { requireDurableToolResult } from './chat-tool-results.js';
+} from '../state/chat-sessions.ts';
+import { requireDurableToolResult } from './chat-tool-results.ts';
 import {
   parseWebToolCommand,
   type RetainedWebToolCall,
-} from '../web-search/web-tool-command.js';
+} from '../web-search/web-tool-command.ts';
 import {
   normalizeRepoSearchResult,
   normalizeRepoSearchScorecard,
   type RepoSearchScorecard,
-} from './repo-search-scorecard-types.js';
+} from './repo-search-scorecard-types.ts';
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
 
@@ -124,11 +124,18 @@ class ContextUsageBuilder {
   /** The session's own request shape: its preset snapshot once the live active preset moved on. */
   private readonly effectiveConfig: SiftConfig;
 
+  private readonly config: SiftConfig;
+  private readonly session: ChatSession;
+  private readonly measured: ChatTurnTokenRecord | null;
+
   constructor(
-    private readonly config: SiftConfig,
-    private readonly session: ChatSession,
-    private readonly measured: ChatTurnTokenRecord | null,
+    config: SiftConfig,
+    session: ChatSession,
+    measured: ChatTurnTokenRecord | null,
   ) {
+    this.config = config;
+    this.session = session;
+    this.measured = measured;
     this.effectiveConfig = resolveChatPreviewConfig(config, session);
   }
 

@@ -1,15 +1,15 @@
 ﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.js';
-import { MemoryMutationService } from '../src/assistant/control/memory-mutation-service.js';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
+import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.ts';
+import { MemoryMutationService } from '../src/assistant/control/memory-mutation-service.ts';
+import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService,
   SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+} from '../src/assistant/projections/projection-summarizer.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 class UnusedSummarizer implements ProjectionSummaryService {
   async summarize(): Promise<SummarizeProjectionResult> {

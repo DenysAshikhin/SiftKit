@@ -1,5 +1,5 @@
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from '../helpers/isolated-runtime.js';
+import { IsolatedRuntime } from '../helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
@@ -11,13 +11,13 @@ import path from 'node:path';
 
 import {
   runTaskLoop,
-} from '../../src/repo-search/engine.js';
-import { mockOfflineSiftConfig } from '../helpers/mock-config.js';
-import { createEmptyPresetSystemContext } from '../helpers/empty-preset-system-context.js';
-import { createManagedTempDir } from '../helpers/temp-dirs.js';
-import { createMockLoopDefaults } from '../helpers/mock-loop-defaults.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from '../_test-helpers.js';
+} from '../../src/repo-search/engine.ts';
+import { mockOfflineSiftConfig } from '../helpers/mock-config.ts';
+import { createEmptyPresetSystemContext } from '../helpers/empty-preset-system-context.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
+import { createMockLoopDefaults } from '../helpers/mock-loop-defaults.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from '../_test-helpers.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 

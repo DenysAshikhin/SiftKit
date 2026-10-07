@@ -1,9 +1,9 @@
-import { httpClient } from '../lib/http-client.js';
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { getActiveModelPreset } from './getters.js';
-import { normalizeConfigObject } from './normalization.js';
-import { overlayActivePreset } from './overrides.js';
-import type { ModelRuntimePreset, SiftConfig } from './types.js';
+import { httpClient } from '../lib/http-client.ts';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { getActiveModelPreset } from './getters.ts';
+import { normalizeConfigObject } from './normalization.ts';
+import { overlayActivePreset } from './overrides.ts';
+import type { ModelRuntimePreset, SiftConfig } from './types.ts';
 
 /**
  * In pass-through mode this SiftKit does not own the inference server — a remote

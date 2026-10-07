@@ -1,14 +1,14 @@
-import type { SiftConfig } from '../config/index.js';
+import type { SiftConfig } from '../config/index.ts';
 import {
   getErrorSignalMetrics,
   measureText,
-} from './measure.js';
+} from './measure.ts';
 import type {
   SummaryDecision,
   SummaryResult,
   SummarySourceKind,
-} from './types.js';
-import type { SummaryClassification } from '../planner-protocol/summary-tools.js';
+} from './types.ts';
+import type { SummaryClassification } from '../planner-protocol/summary-tools.ts';
 
 function getCommandOutputRawReviewRequired(options: {
   text: string;

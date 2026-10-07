@@ -7,14 +7,14 @@ import type {
   AssistantProjectionDto,
   AssistantMemoryHistoryEntryDto,
 } from '@siftkit/contracts';
-import { JsonObjectSchema } from '../../lib/json-types.js';
-import { parseJsonText } from '../../lib/json.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import { RELATION_TYPES } from '../domain/relation-types.js';
-import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
-import type { AssertionView } from '../projections/assertion-view.js';
-import type { AssertionRow, EvidenceRow, NodeRow, ProjectionRow } from '../storage/rows.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
+import { JsonObjectSchema } from '../../lib/json-types.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import { RELATION_TYPES } from '../domain/relation-types.ts';
+import { AssertionViewBuilder } from '../projections/assertion-view-builder.ts';
+import type { AssertionView } from '../projections/assertion-view.ts';
+import type { AssertionRow, EvidenceRow, NodeRow, ProjectionRow } from '../storage/rows.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.ts';
 
 export interface PageRequest {
   readonly limit: number;
@@ -34,7 +34,10 @@ export interface MemorySearchResult {
 export class MemoryQueryService {
   private readonly views: AssertionViewBuilder;
 
-  constructor(private readonly graph: AssistantGraph) {
+  private readonly graph: AssistantGraph;
+
+  constructor(graph: AssistantGraph) {
+    this.graph = graph;
     this.views = new AssertionViewBuilder(graph);
   }
 

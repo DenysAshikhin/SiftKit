@@ -1,14 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { z } from './zod.js';
+import { z } from './zod.ts';
 
 const PackageJsonNameSchema = z.object({ name: z.string().optional() });
 
 /**
- * ESM-safe replacement for the CommonJS `__filename`. The compiled `dist/**`
- * runs as ES modules (no `type: commonjs`), where `__filename`/`__dirname` do
- * not exist. Pass `import.meta.url` from the calling module.
+ * ESM-safe replacement for the CommonJS `__filename`; src/** runs as ES modules,
+ * where `__filename`/`__dirname` do not exist. Pass `import.meta.url` from the calling module.
  */
 export function moduleFilename(moduleUrl: string): string {
   return fileURLToPath(moduleUrl);

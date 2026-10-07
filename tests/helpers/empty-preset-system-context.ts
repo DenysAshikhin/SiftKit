@@ -1,4 +1,4 @@
-import type { PresetSystemContext } from '../../src/preset-system-context.js';
+import type { PresetSystemContext } from '../../src/preset-system-context.ts';
 
 export function createEmptyPresetSystemContext(): PresetSystemContext {
   return {

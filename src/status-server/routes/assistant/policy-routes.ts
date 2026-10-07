@@ -1,10 +1,10 @@
 import {
   AssistantResolveIdentityRequestSchema, AssistantValidationNotesRequestSchema,
 } from '@siftkit/contracts';
-import { sendJson } from '../../http-utils.js';
+import { sendJson } from '../../http-utils.ts';
 import {
   assistantRoute, BlockPolicyTopicSchema, body, id, PolicyPatchSchema, sendError, success,
-} from './helpers.js';
+} from './helpers.ts';
 
 export const listPoliciesEndpoint = assistantRoute(({ service, res }) => {
   sendJson(res, 200, { items: service.policyControl.list() });

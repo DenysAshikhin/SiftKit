@@ -2,17 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRuntimeDatabase, closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
 
 import {
   queryDashboardRunDetailFromDb,
   queryDashboardRunsFromDb,
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
-} from '../src/status-server/dashboard-runs.js';
-import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
-import { withTempEnv } from './_runtime-helpers.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+} from '../src/status-server/dashboard-runs.ts';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.ts';
+import { withTempEnv } from './_runtime-helpers.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 test('dashboard runs keep persisted speculative totals when artifact payloads disagree', async () => {
   await withTempEnv(async (tempRoot) => {

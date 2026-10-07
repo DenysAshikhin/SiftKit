@@ -1,4 +1,4 @@
-import { StatusServerApiClient } from './status-server-api-client.js';
+import { StatusServerApiClient } from './status-server-api-client.ts';
 
 export async function runPresetList(options: {
   stdout: NodeJS.WritableStream;

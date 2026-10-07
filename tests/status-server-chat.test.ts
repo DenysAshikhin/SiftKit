@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
+import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.ts';
 import {
   buildChatSystemContent,
   buildContextUsage,
@@ -10,24 +10,24 @@ import {
   resolveChatSessionModel,
   resolveChatSessionContextWindow,
   resolveChatPreviewConfig,
-} from '../src/status-server/chat.js';
-import { buildChatSessionResponse } from '../src/status-server/chat-session-response.js';
+} from '../src/status-server/chat.ts';
+import { buildChatSessionResponse } from '../src/status-server/chat-session-response.ts';
 import {
   getActiveModelPreset,
   getConfiguredReasoning,
-} from '../src/config/getters.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { mergeConfig } from '../src/config/normalization.js';
-import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
-import { resolveChatRunAllowedTools } from '../src/status-server/chat-operation-preset.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import { normalizeConfig } from '../src/status-server/config-store.js';
-import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
-import { z } from '../src/lib/zod.js';
-import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
-import type { SiftConfig } from '../src/config/types.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/config/getters.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { mergeConfig } from '../src/config/normalization.ts';
+import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
+import { resolveChatRunAllowedTools } from '../src/status-server/chat-operation-preset.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import { normalizeConfig } from '../src/status-server/config-store.ts';
+import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
+import { z } from '../src/lib/zod.ts';
+import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.ts';
+import type { SiftConfig } from '../src/config/types.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import {
   ChatTranscriptMessageKindSchema,
   ChatTranscriptRoleSchema,

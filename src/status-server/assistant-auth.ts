@@ -1,8 +1,8 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { z } from '../lib/zod.js';
-import type { Clock } from '../assistant/clock.js';
-import type { RuntimeDatabase } from '../state/runtime-db.js';
-import { ASSISTANT_METADATA_PREFIX } from '../assistant/storage/schema.js';
+import { z } from '../lib/zod.ts';
+import type { Clock } from '../assistant/clock.ts';
+import type { RuntimeDatabase } from '../state/runtime-db.ts';
+import { ASSISTANT_METADATA_PREFIX } from '../assistant/storage/schema.ts';
 
 const TOKEN_METADATA_KEY = `${ASSISTANT_METADATA_PREFIX}api.token.v1`;
 
@@ -27,10 +27,16 @@ export type AssistantAuthorization = z.infer<typeof AssistantAuthorizationSchema
 export type AssistantAuthorizationMode = 'bootstrap' | 'bearer';
 
 export class AssistantTokenStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+  ) {
+    this.database = database;
+    this.clock = clock;
+  }
 
   getOrCreate(): string {
     const existing = this.database.prepare(
@@ -48,7 +54,11 @@ export class AssistantTokenStore {
 }
 
 export class AssistantRouteGuard {
-  constructor(private readonly tokens: AssistantTokenStore) {}
+  private readonly tokens: AssistantTokenStore;
+
+  constructor(tokens: AssistantTokenStore) {
+    this.tokens = tokens;
+  }
 
   authorize(rawRequest: AssistantAuthRequest, mode: AssistantAuthorizationMode): AssistantAuthorization {
     const request = AssistantAuthRequestSchema.parse(rawRequest);

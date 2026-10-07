@@ -4,19 +4,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
-import { JsonValueSchema } from '../src/lib/json-types.js';
-import { executeRepoSearchRequest } from '../src/repo-search/index.js';
-import { summarizeRequest } from '../src/summary.js';
-import { createTemporaryTimingRecorderFromEnv } from '../src/lib/temporary-timing-recorder.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
+import { JsonValueSchema } from '../src/lib/json-types.ts';
+import { executeRepoSearchRequest } from '../src/repo-search/index.ts';
+import { summarizeRequest } from '../src/summary.ts';
+import { createTemporaryTimingRecorderFromEnv } from '../src/lib/temporary-timing-recorder.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
 import {
   buildOversizedTransitionsInput,
   getChunkThresholdCharacters,
   loadConfig,
   withStubServer,
   withTempEnv,
-} from './_runtime-helpers.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from './_runtime-helpers.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const TimingTraceSchema = z
   .object({

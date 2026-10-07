@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 import {
   readMatrixManifest,
   buildLaunchSignature,
   buildLauncherArgs,
   buildBenchmarkArgs,
   pruneOldLauncherLogs,
-} from '../bench/benchmark-matrix/index.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../bench/benchmark-matrix/index.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 type MatrixTarget = Parameters<typeof buildLaunchSignature>[0];
 type MatrixManifest = Parameters<typeof buildLauncherArgs>[0];

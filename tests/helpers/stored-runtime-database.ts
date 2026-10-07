@@ -4,7 +4,7 @@ import {
   readRuntimeDatabaseImage,
   writeRuntimeDatabaseImage,
   type RuntimeDatabase,
-} from '../../src/state/runtime-db.js';
+} from '../../src/state/runtime-db.ts';
 
 /** A detached raw copy of what is stored at the path, open or closed, with no bootstrap; the caller closes it. */
 export function openStoredRuntimeDatabase(databasePath: string): RuntimeDatabase {

@@ -39,12 +39,22 @@ function sanitizePathPart(value: string): string {
 export class TemporaryTimingSpan {
   private ended = false;
 
+  private readonly recorder: TemporaryTimingRecorder;
+  private readonly label: string;
+  private readonly startedAtMs: number;
+  private readonly metadata: TemporaryTimingMetadata;
+
   constructor(
-    private readonly recorder: TemporaryTimingRecorder,
-    private readonly label: string,
-    private readonly startedAtMs: number,
-    private readonly metadata: TemporaryTimingMetadata,
-  ) {}
+    recorder: TemporaryTimingRecorder,
+    label: string,
+    startedAtMs: number,
+    metadata: TemporaryTimingMetadata,
+  ) {
+    this.recorder = recorder;
+    this.label = label;
+    this.startedAtMs = startedAtMs;
+    this.metadata = metadata;
+  }
 
   end(metadata: TemporaryTimingMetadata = {}): void {
     if (this.ended) {
@@ -65,12 +75,22 @@ export class TemporaryTimingRecorder {
   private readonly events: TemporaryTimingEvent[] = [];
   private readonly summaries = new Map<string, TemporaryTimingSummary>();
 
+  private readonly kind: TemporaryTimingKind;
+  private readonly requestId: string;
+  private readonly filePath: string;
+  private readonly metadata: TemporaryTimingMetadata;
+
   constructor(
-    private readonly kind: TemporaryTimingKind,
-    private readonly requestId: string,
-    private readonly filePath: string,
-    private readonly metadata: TemporaryTimingMetadata = {},
-  ) {}
+    kind: TemporaryTimingKind,
+    requestId: string,
+    filePath: string,
+    metadata: TemporaryTimingMetadata = {},
+  ) {
+    this.kind = kind;
+    this.requestId = requestId;
+    this.filePath = filePath;
+    this.metadata = metadata;
+  }
 
   getFilePath(): string {
     return this.filePath;

@@ -1,30 +1,30 @@
-import { TokenCountSourceSchema } from './prompt-budget.js';
+import { TokenCountSourceSchema } from './prompt-budget.ts';
 import { ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import type { JsonSerializable } from '../lib/json-types.js';
-import type { SiftConfig } from '../config/index.js';
-import type { ProgressWriter } from '../lib/progress-writer.js';
+import { z } from '../lib/zod.ts';
+import type { JsonSerializable } from '../lib/json-types.ts';
+import type { SiftConfig } from '../config/index.ts';
+import type { ProgressWriter } from '../lib/progress-writer.ts';
 
 export type JsonLogger = {
   path: string;
   write: (event: Record<string, JsonSerializable>) => void;
 };
-import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
-import type { ApprovalGate } from './engine/approval-gate.js';
-import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
-import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.js';
-import type { QuestionGate } from './engine/question-gate.js';
-import type { ChatMessage } from './planner-chat-message.js';
-import { ScorecardSchema } from './engine.js';
-import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.js';
-import { ActivitySummaryProgressEventSchema } from './engine/activity-summary-collector.js';
-import type { RepoSearchTaskKind } from './task-kind.js';
-import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
+import type { RetainedWebToolCall } from '../web-search/web-tool-command.ts';
+import type { ApprovalGate } from './engine/approval-gate.ts';
+import type { ChatMessageQueueDelivery } from './engine/queue-delivery.ts';
+import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.ts';
+import type { QuestionGate } from './engine/question-gate.ts';
+import type { ChatMessage } from './planner-chat-message.ts';
+import { ScorecardSchema } from './engine.ts';
+import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.ts';
+import { ActivitySummaryProgressEventSchema } from './engine/activity-summary-collector.ts';
+import type { RepoSearchTaskKind } from './task-kind.ts';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
 import { ChatStreamQueuedUserMessageSchema } from '@siftkit/contracts';
 
-export type { ActivitySummaryCategory, ActivitySummaryEntry, ActivitySummaryProgressEvent } from './engine/activity-summary-collector.js';
+export type { ActivitySummaryCategory, ActivitySummaryEntry, ActivitySummaryProgressEvent } from './engine/activity-summary-collector.ts';
 
-export type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
+export type { RetainedWebToolCall } from '../web-search/web-tool-command.ts';
 
 /**
  * Progress events are a wire contract: they cross stdout, SSE and the dashboard before

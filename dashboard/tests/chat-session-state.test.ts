@@ -1,11 +1,11 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { deriveSessionIndicator, isSessionBusy } from '../src/lib/chat-session-state';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import type { ChatSessionRuntime } from '../src/lib/chat-session-runtime-store';
-import type { ChatSessionSummary } from '../src/types';
-import { applyLiveTranscript } from './live-transcript-fixture.js';
-import { chatSnapshot } from './chat-snapshot-fixture.js';
+import { deriveSessionIndicator, isSessionBusy } from '../src/lib/chat-session-state.ts';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import type { ChatSessionRuntime } from '../src/lib/chat-session-runtime-store.ts';
+import type { ChatSessionSummary } from '../src/types.ts';
+import { applyLiveTranscript } from './live-transcript-fixture.ts';
+import { chatSnapshot } from './chat-snapshot-fixture.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 

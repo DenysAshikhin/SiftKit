@@ -1,10 +1,10 @@
 import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici';
-import { z } from './zod.js';
-import { parseJsonText } from './json.js';
-import { SseFrameParser, type SseFrame } from './sse-frame-parser.js';
-import { formatTimestamp } from './text-format.js';
+import { z } from './zod.ts';
+import { parseJsonText } from './json.ts';
+import { SseFrameParser, type SseFrame } from './sse-frame-parser.ts';
+import { formatTimestamp } from './text-format.ts';
 
 export const CONNECT_TIMEOUT_MS = 20_000;
 export const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
@@ -68,11 +68,16 @@ type SseStreamItem =
   | { kind: 'error'; error: Error };
 
 export class HttpResponseError extends Error {
+  public readonly statusCode: number;
+  public readonly rawText: string;
+
   constructor(
-    public readonly statusCode: number,
-    public readonly rawText: string,
+    statusCode: number,
+    rawText: string,
   ) {
     super(`HTTP ${statusCode}: ${rawText}`);
+    this.statusCode = statusCode;
+    this.rawText = rawText;
     this.name = 'HttpResponseError';
   }
 }
@@ -83,10 +88,15 @@ export class HttpResponseError extends Error {
  * a blocking request exceeded its total allowance.
  */
 export class HttpTimeoutError extends Error {
-  constructor(readonly timeoutMs: number, readonly kind: 'request' | 'stream_idle') {
+  readonly timeoutMs: number;
+  readonly kind: 'request' | 'stream_idle';
+
+  constructor(timeoutMs: number, kind: 'request' | 'stream_idle') {
     super(kind === 'stream_idle'
       ? `Operation stream timed out after ${timeoutMs} ms of inactivity.`
       : `Request timed out after ${timeoutMs} ms.`);
+    this.timeoutMs = timeoutMs;
+    this.kind = kind;
     this.name = 'HttpTimeoutError';
   }
 }

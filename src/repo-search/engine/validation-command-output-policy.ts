@@ -1,4 +1,4 @@
-import type { RunOutputMode } from '../repo-tool-arguments.js';
+import type { RunOutputMode } from '../repo-tool-arguments.ts';
 
 const VALIDATION_COMMAND_PATTERNS = [
   /^(?:&\s*)?(?:npm(?:\.cmd)?|pnpm(?:\.cmd)?|yarn(?:\.cmd)?|bun(?:\.exe)?)\s+(?:run\s+)?(?:test|build|lint|typecheck)(?::[a-z0-9_.-]+)?(?:\s|$)/iu,

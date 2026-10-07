@@ -1,5 +1,5 @@
-import { getErrorMessage } from '../../src/lib/errors.js';
-import { main } from './runner.js';
+import { getErrorMessage } from '../../src/lib/errors.ts';
+import { main } from './runner.ts';
 
 void main().catch((error) => {
   process.stderr.write(`${getErrorMessage(error)}\n`);

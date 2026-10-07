@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AssertionViewBuilder } from '../src/assistant/projections/assertion-view-builder.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { AssertionViewBuilder } from '../src/assistant/projections/assertion-view-builder.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 test('buildMany resolves node references in one batch and matches build', () => {
   withAssistantContext(({ graph, ownerId }) => {

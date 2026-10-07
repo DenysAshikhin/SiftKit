@@ -7,8 +7,8 @@ import {
   COMPLETED_REQUEST_RETENTION_MS,
   type ActiveRunState,
   type StatusRunStartResult,
-} from '../src/status-server/status-run-registry.js';
-import { parseStatusMetadata } from '../src/status-server/status-file.js';
+} from '../src/status-server/status-run-registry.ts';
+import { parseStatusMetadata } from '../src/status-server/status-file.ts';
 
 function buildStart(requestId: string, nowMs: number) {
   const metadata = parseStatusMetadata(JSON.stringify({

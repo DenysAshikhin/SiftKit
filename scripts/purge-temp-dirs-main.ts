@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 
-import { parseMinAgeMinutes, purgeTempDirectories } from './purge-temp-dirs.js';
+import { parseMinAgeMinutes, purgeTempDirectories } from './purge-temp-dirs.ts';
 
 const minAgeMinutes = parseMinAgeMinutes(process.argv.slice(2));
 const tempRoot = fs.realpathSync(os.tmpdir());

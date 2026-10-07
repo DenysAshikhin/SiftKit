@@ -1,7 +1,7 @@
 import { ToolActivitySchema, type ToolActivity, type ToolActivityKind, type ToolActivitySubject } from '@siftkit/contracts';
 
-import type { RepoNativeToolCall } from './repo-tool-arguments.js';
-import { isValidationCommand } from './engine/validation-command-output-policy.js';
+import type { RepoNativeToolCall } from './repo-tool-arguments.ts';
+import { isValidationCommand } from './engine/validation-command-output-policy.ts';
 
 function deriveActivityKind(call: RepoNativeToolCall): ToolActivityKind {
   switch (call.toolName) {

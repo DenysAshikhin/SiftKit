@@ -7,7 +7,7 @@ import {
   AssistantShellConfigSchema,
   decideAssistantShellAction,
   getAssistantShellPath,
-} from '../scripts/start-dev-assistant-shell.js';
+} from '../scripts/start-dev-assistant-shell.ts';
 
 test('assistant shell starts when the switch is already on at startup', () => {
   assert.equal(decideAssistantShellAction(null, true, false), 'start');
@@ -57,7 +57,7 @@ test('assistant shell config schema extracts only the enabled flag', () => {
 test('start-dev wires the assistant shell watcher into the dev stack', () => {
   const script = fs.readFileSync(path.join('scripts', 'start-dev.ts'), 'utf8');
 
-  assert.match(script, /start-dev-assistant-shell\.js/u);
+  assert.match(script, /start-dev-assistant-shell\.ts/u);
   assert.match(script, /decideAssistantShellAction/u);
   assert.match(script, /\/config/u);
   assert.doesNotMatch(script, /4765/u);

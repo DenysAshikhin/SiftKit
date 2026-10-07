@@ -3,9 +3,9 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { buildChatMessageId, buildChatRunMessageIdPrefix } from '@siftkit/contracts';
-import { z } from '../src/lib/zod.js';
-import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { z } from '../src/lib/zod.ts';
+import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const AT = '2026-09-22T10:00:00.000Z';
 const PREFIX = buildChatRunMessageIdPrefix('9a1f6c2e-5d0b-4e47-8a55-2b7f0c1d3e90');

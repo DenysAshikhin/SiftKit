@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { buildToolPolicyMatrixRows, toggleToolInMode, TOOL_POLICY_GROUPS } from '../src/lib/tool-policy-matrix';
-import type { DashboardOperationModeAllowedTools } from '../src/types';
+import { buildToolPolicyMatrixRows, toggleToolInMode, TOOL_POLICY_GROUPS } from '../src/lib/tool-policy-matrix.ts';
+import type { DashboardOperationModeAllowedTools } from '../src/types.ts';
 
 const ALLOWED: DashboardOperationModeAllowedTools = {
   summary: ['find_text', 'read_lines'],

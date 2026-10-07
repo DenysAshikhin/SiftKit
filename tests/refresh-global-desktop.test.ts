@@ -13,9 +13,9 @@ test('refresh-global resolves the tooling root from toolchain-paths.mjs, not a p
   assert.match(script, /desktop:install-toolchain/u);
 });
 
-test('refresh-global builds the desktop shell before packing', () => {
+test('refresh-global builds the desktop shell before linking', () => {
   assert.match(script, /desktop:build/u);
   const desktopIndex = script.indexOf('desktop:build');
-  const packIndex = script.indexOf('Packing current repo');
-  assert.ok(desktopIndex >= 0 && packIndex >= 0 && desktopIndex < packIndex);
+  const linkIndex = script.indexOf('Linking the repo');
+  assert.ok(desktopIndex >= 0 && linkIndex >= 0 && desktopIndex < linkIndex);
 });

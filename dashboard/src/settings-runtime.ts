@@ -1,4 +1,4 @@
-import type { DashboardConfig } from './types.js';
+import type { DashboardConfig } from './types.ts';
 
 export function deriveRuntimeModelId(modelPath: string | null): string {
   const normalizedPath = String(modelPath || '').trim();

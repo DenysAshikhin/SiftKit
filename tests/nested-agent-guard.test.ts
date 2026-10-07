@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../src/cli/index.js';
-import { AGENT_RUN_ID_ENV } from '../src/lib/agent-run-marker.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { runCli } from '../src/cli/index.ts';
+import { AGENT_RUN_ID_ENV } from '../src/lib/agent-run-marker.ts';
+import { makeCaptureStream } from './_test-helpers.ts';
 
 async function runGuardedCli(argv: string[], stdinText?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   const previous = process.env[AGENT_RUN_ID_ENV];

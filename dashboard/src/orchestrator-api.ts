@@ -9,9 +9,9 @@ import {
   type OrchestratorRunState,
   type OrchestratorStartRequest,
 } from '@siftkit/contracts';
-import { parseJsonText } from '../../src/lib/json.js';
-import { SseFrameParser } from '../../src/lib/sse-frame-parser.js';
-import { parseJsonResponse } from './api.js';
+import { parseJsonText } from '../../src/lib/json.ts';
+import { SseFrameParser } from '../../src/lib/sse-frame-parser.ts';
+import { parseJsonResponse } from './api.ts';
 
 function postJson(url: string, body: string, signal?: AbortSignal): Promise<Response> {
   return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, ...(signal ? { signal } : {}) });

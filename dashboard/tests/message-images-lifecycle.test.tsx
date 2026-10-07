@@ -1,12 +1,12 @@
-import './react-test-environment.js';
+import './react-test-environment.ts';
 
-import test, { afterEach } from 'node:test';
+import { test, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { ImageMetadataSchema } from '@siftkit/contracts';
 
-import { fireEvent, render } from './react-test-environment.js';
-import { MessageImages } from '../src/components/MessageImages.js';
+import { fireEvent, render } from './react-test-environment.ts';
+import { MessageImages } from '../src/components/MessageImages.tsx';
 
 const PNG_A = 'data:image/png;base64,AA==';
 const PNG_B = 'data:image/png;base64,AQ==';

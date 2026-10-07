@@ -1,6 +1,6 @@
 import type {
   AssistantInferenceClient, AssistantInferenceRequest, AssistantInferenceResult,
-} from '../../src/assistant/inference/client.js';
+} from '../../src/assistant/inference/client.ts';
 
 /**
  * Fixture-driven inference (§19.3). Responses are consumed in order; running out is a test bug,

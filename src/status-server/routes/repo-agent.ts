@@ -1,44 +1,44 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { toError } from '../../lib/errors.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
-import { readBody, parseJsonBody, sendBodyReadError, sendJson } from '../http-utils.js';
-import { sendServerErrorJson, recordServerError } from '../error-response.js';
-import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
-import { readConfig } from '../config-store.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../../planner-protocol/repo-search.js';
+import { toError } from '../../lib/errors.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.ts';
+import { readBody, parseJsonBody, sendBodyReadError, sendJson } from '../http-utils.ts';
+import { sendServerErrorJson, recordServerError } from '../error-response.ts';
+import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.ts';
+import { readConfig } from '../config-store.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../../planner-protocol/repo-search.ts';
 import {
   RepoAgentRunIdSchema,
   RepoAgentRunRequestSchema,
   isTerminalStatus,
   repoAgentStateToResult,
-} from '../../repo-agent/run-schemas.js';
+} from '../../repo-agent/run-schemas.ts';
 import {
   RepoAgentDecideRequestSchema,
   RepoAgentStartRequestSchema,
-} from '../../repo-agent/api-schemas.js';
-import { ServerModelLockAdapter } from '../repo-agent-lock-adapter.js';
-import { ModelRequestTargetError, previewModelRequestTarget } from '../server-ops.js';
+} from '../../repo-agent/api-schemas.ts';
+import { ServerModelLockAdapter } from '../repo-agent-lock-adapter.ts';
+import { ModelRequestTargetError, previewModelRequestTarget } from '../server-ops.ts';
 import {
   createRepoSearchAdmissionRecord,
   upsertRepoSearchAdmission,
-} from '../repo-search-admissions.js';
-import type { RepoSearchRouteRequest } from '../route-request-normalizers.js';
-import type { ModelQueueTimeout, ServerContext } from '../server-types.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import { streamSessionBoundary } from './repo-search.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import type { RepoAgentApprovalDelivery, RepoAgentSession } from '../repo-agent-sessions.js';
-import type { RepoSearchAdmissionRecord } from '../repo-search-admissions.js';
+} from '../repo-search-admissions.ts';
+import type { RepoSearchRouteRequest } from '../route-request-normalizers.ts';
+import type { ModelQueueTimeout, ServerContext } from '../server-types.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import { streamSessionBoundary } from './repo-search.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
+import type { RepoAgentApprovalDelivery, RepoAgentSession } from '../repo-agent-sessions.ts';
+import type { RepoSearchAdmissionRecord } from '../repo-search-admissions.ts';
 import { APPROVAL_MODE_ERROR, type ApprovalMode } from '@siftkit/contracts';
-import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '../../repo-search/types.js';
-import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
-import type { ChatRunRecorder } from '../chat-run-recorder.js';
-import type { QuestionGate } from '../../repo-search/engine/question-gate.js';
-import { requireChatRunRecorder } from './chat-session-operation-endpoint.js';
-import type { ChatMessageQueue } from '../chat-message-queue.js';
-import type { RepositoryAccess } from '../orchestrator-runs.js';
+import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '../../repo-search/types.ts';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.ts';
+import type { ChatRunRecorder } from '../chat-run-recorder.ts';
+import type { QuestionGate } from '../../repo-search/engine/question-gate.ts';
+import { requireChatRunRecorder } from './chat-session-operation-endpoint.ts';
+import type { ChatMessageQueue } from '../chat-message-queue.ts';
+import type { RepositoryAccess } from '../orchestrator-runs.ts';
 
 export class RepoAgentStartEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {

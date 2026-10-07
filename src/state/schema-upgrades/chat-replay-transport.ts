@@ -15,23 +15,23 @@ import {
   ToolActivityKindSchema,
   ToolActivitySubjectSchema,
 } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
-import { stableStringify } from '../../lib/json.js';
-import { digestStableJson } from '../../lib/json-digest.js';
-import { JsonObjectSchema } from '../../lib/json-types.js';
+import { z } from '../../lib/zod.ts';
+import { stableStringify } from '../../lib/json.ts';
+import { digestStableJson } from '../../lib/json-digest.ts';
+import { JsonObjectSchema } from '../../lib/json-types.ts';
 import {
   ChatContextInitSchema,
   ChatContextSpliceReasonSchema,
   PlannerChatMessagesSchema,
-} from '../../repo-search/planner-chat-message.js';
+} from '../../repo-search/planner-chat-message.ts';
 import {
   ChatHistoryRevisionSchema,
   ChatImportProvenanceSchema,
   ChatRunStartedEventSchema,
   ChatToolCallIdentitySchema,
-} from '../chat-journal-schema.js';
-import { ApprovalVerdictSchema } from '../../repo-search/approval-verdict.js';
-import type { RuntimeDatabase } from '../database-handle.js';
+} from '../chat-journal-schema.ts';
+import { ApprovalVerdictSchema } from '../../repo-search/approval-verdict.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
 
 const LEGACY_EVENT_VERSION = 1;
 const UPGRADED_EVENT_VERSION = 2;

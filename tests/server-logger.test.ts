@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createServerJsonLogger, ServerLogger, shortenRequestId } from '../src/status-server/server-logger.js';
+import { createServerJsonLogger, ServerLogger, shortenRequestId } from '../src/status-server/server-logger.ts';
 
 function collect(): { lines: string[]; write: (text: string) => void } {
   const lines: string[] = [];

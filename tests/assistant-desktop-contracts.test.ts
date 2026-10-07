@@ -12,8 +12,8 @@ import {
   KeyMaterialDtoSchema,
   SuppressionAuditDtoSchema,
 } from '@siftkit/contracts';
-import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonValue } from '../src/lib/json-types.js';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
 import type { ZodType } from 'zod';
 
 const FIXTURE_ROOT = path.join(process.cwd(), 'desktop', 'contract-fixtures');

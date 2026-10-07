@@ -1,6 +1,6 @@
 import type {
   InteractivityGate, ModelResidencyGate,
-} from '../../src/assistant/jobs/job-runner.js';
+} from '../../src/assistant/jobs/job-runner.ts';
 
 /** The host is always quiet, so every drain in these suites is allowed to claim. */
 export const ALWAYS_IDLE = {

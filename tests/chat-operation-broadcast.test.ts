@@ -5,7 +5,7 @@ import {
   ChatOperationBroadcast,
   type ChatOperationClosure,
   type ChatOperationSubscriber,
-} from '../src/status-server/chat-operation-broadcast.js';
+} from '../src/status-server/chat-operation-broadcast.ts';
 
 class RecordingSubscriber implements ChatOperationSubscriber {
   published = 0;

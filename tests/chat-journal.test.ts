@@ -3,14 +3,14 @@ import path from 'node:path';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 
-import { ChatJournalStore, ChatJournalIntegrityError, CHAT_JOURNAL_READ_PAGE_BYTES, CHAT_JOURNAL_READ_PAGE_SIZE } from '../src/state/chat-journal.js';
-import { CHAT_JOURNAL_EVENT_VERSION, type ChatJournalAppend, type ChatJournalEvent, type ChatRunStart } from '../src/state/chat-journal-schema.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import type { RuntimeDatabase } from '../src/state/runtime-db.js';
-import { saveChatSession } from '../src/state/chat-sessions.js';
-import { z } from '../src/lib/zod.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { ChatJournalStore, ChatJournalIntegrityError, CHAT_JOURNAL_READ_PAGE_BYTES, CHAT_JOURNAL_READ_PAGE_SIZE } from '../src/state/chat-journal.ts';
+import { CHAT_JOURNAL_EVENT_VERSION, type ChatJournalAppend, type ChatJournalEvent, type ChatRunStart } from '../src/state/chat-journal-schema.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import type { RuntimeDatabase } from '../src/state/runtime-db.ts';
+import { saveChatSession } from '../src/state/chat-sessions.ts';
+import { z } from '../src/lib/zod.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
 
 const OWNER_EPOCH = 'owner-a:1';
 const OTHER_OWNER_EPOCH = 'owner-b:2';

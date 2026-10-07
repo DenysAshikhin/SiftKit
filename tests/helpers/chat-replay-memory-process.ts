@@ -4,15 +4,15 @@ import { randomUUID } from 'node:crypto';
 import { writeSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { z } from '../../src/lib/zod.js';
-import { ChatJournalStore } from '../../src/state/chat-journal.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { readChatRunMessages, saveChatSession } from '../../src/state/chat-sessions.js';
-import { ChatRunRecorder } from '../../src/status-server/chat-run-recorder.js';
-import { rebuildChatRun } from '../../src/status-server/chat-run-projection.js';
-import { buildRecoveredChatHistory } from '../../src/status-server/chat-context-replay.js';
-import { ChatOperationSnapshotReader } from '../../src/status-server/chat-operation-snapshot.js';
-import { mockModelPreset } from './mock-config.js';
+import { z } from '../../src/lib/zod.ts';
+import { ChatJournalStore } from '../../src/state/chat-journal.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { readChatRunMessages, saveChatSession } from '../../src/state/chat-sessions.ts';
+import { ChatRunRecorder } from '../../src/status-server/chat-run-recorder.ts';
+import { rebuildChatRun } from '../../src/status-server/chat-run-projection.ts';
+import { buildRecoveredChatHistory } from '../../src/status-server/chat-context-replay.ts';
+import { ChatOperationSnapshotReader } from '../../src/status-server/chat-operation-snapshot.ts';
+import { mockModelPreset } from './mock-config.ts';
 
 export const REPLAY_MEMORY_CHILD_ENV = 'SIFTKIT_TEST_CHAT_REPLAY_MEMORY_CHILD';
 const RESULT_PREFIX = 'CHAT_REPLAY_MEMORY ';

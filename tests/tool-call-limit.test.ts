@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { AgentLoopAction } from '../src/agent-loop/types.js';
-import { enforceToolCallLimit } from '../src/repo-search/engine/task-loop.js';
+import type { AgentLoopAction } from '../src/agent-loop/types.ts';
+import { enforceToolCallLimit } from '../src/repo-search/engine/task-loop.ts';
 import {
   buildToolBudgetNotice,
   buildToolLimitReachedSummary,
   POST_LIMIT_ANSWER_SLACK_TURNS,
-} from '../src/repo-search/engine/task-loop-support.js';
+} from '../src/repo-search/engine/task-loop-support.ts';
 
 function tool(callId: string): AgentLoopAction {
   return { kind: 'tool', callId, toolName: 'read', args: { path: 'README.md' } };

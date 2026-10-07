@@ -1,11 +1,11 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { formatLiveContextTokens, resolveLiveContextUsage } from '../../src/lib/contextBar';
-import { getLiveMessageTokenDisplay, sumLiveTokenDisplays } from '../../src/lib/format';
+import { formatLiveContextTokens, resolveLiveContextUsage } from '../../src/lib/contextBar.ts';
+import { getLiveMessageTokenDisplay, sumLiveTokenDisplays } from '../../src/lib/format.ts';
 import type { ChatStreamPromptEvent } from '@siftkit/contracts';
-import type { ChatMessage, ContextUsage } from '../../src/types';
-import { CONTEXT_USAGE } from '../fixtures.js';
+import type { ChatMessage, ContextUsage } from '../../src/types.ts';
+import { CONTEXT_USAGE } from '../fixtures.ts';
 
 const USAGE: ContextUsage = {
   ...CONTEXT_USAGE, chatUsedTokens: 20, totalUsedTokens: 20, remainingTokens: 80, providerOverheadTokens: 5,

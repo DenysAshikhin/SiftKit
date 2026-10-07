@@ -6,22 +6,22 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
-import { z } from '../src/lib/zod.js';
-import { toError } from '../src/lib/errors.js';
-import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { normalizeConfigObject } from '../src/config/normalization.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
-import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
-import { EnvBackup } from './helpers/env-backup.js';
-import { acquireChildPortLease } from './helpers/test-endpoints.js';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
+import { z } from '../src/lib/zod.ts';
+import { toError } from '../src/lib/errors.ts';
+import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
+import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.ts';
+import { EnvBackup } from './helpers/env-backup.ts';
+import { acquireChildPortLease } from './helpers/test-endpoints.ts';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
 import {
   createManagedTempDir,
   removeDirectoryWithRetries,
   reportUndeletableTempDirectories,
-} from './helpers/temp-dirs.js';
-import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
+} from './helpers/temp-dirs.ts';
+import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.ts';
 import {
   deriveServiceUrl,
   getDefaultConfig,
@@ -43,21 +43,21 @@ import {
   getRequestLogsPath,
   buildStructuredStubDecision,
   resolveAssistantContent,
-} from './helpers/runtime-config.js';
+} from './helpers/runtime-config.ts';
 import {
   readBody,
   resolveArtifactLogPathFromStatusPost,
   requestJson,
-} from './helpers/runtime-http.js';
-import { writeSseResult } from './helpers/sse-http.js';
+} from './helpers/runtime-http.ts';
+import { writeSseResult } from './helpers/sse-http.ts';
 import {
   buildProbeShimNodeOptions,
   writeManagedEngineHost,
   writeManagedEngineLauncher,
   type ManagedEngineHostFixture,
-} from './helpers/managed-engine-fixtures.js';
-import type { ManagedEngineHost } from '../src/status-server/engine-process.js';
-import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
+} from './helpers/managed-engine-fixtures.ts';
+import type { ManagedEngineHost } from '../src/status-server/engine-process.ts';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
 
 import {
   loadConfig,
@@ -68,16 +68,18 @@ import {
   getEffectiveInputCharactersPerContextToken,
   initializeRuntime,
   getStatusServerUnavailableMessage,
-} from '../src/config/index.js';
-import { summarizeRequest } from '../src/summary/core.js';
-import { parseOptionalSummaryProvider } from '../src/summary/types.js';
-import { buildSummaryPrompt } from '../src/summary/prompt.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { getSummaryDecision } from '../src/summary/decision.js';
-import { planTokenAwareInferenceChunks, getPlannerPromptBudget } from '../src/summary/chunking.js';
-import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
-import { runCommand } from './helpers/run-command-for-test.js';
-import { runBenchmarkSuite } from '../bench/benchmark/index.js';
+} from '../src/config/index.ts';
+import { summarizeRequest } from '../src/summary/core.ts';
+import { CommandOutputAnalyzer } from '../src/command-output/analyzer.ts';
+import { parseCommandOutputAnalyzeBody } from '../src/status-server/routes/operations.ts';
+import { parseOptionalSummaryProvider } from '../src/summary/types.ts';
+import { buildSummaryPrompt } from '../src/summary/prompt.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { getSummaryDecision } from '../src/summary/decision.ts';
+import { planTokenAwareInferenceChunks, getPlannerPromptBudget } from '../src/summary/chunking.ts';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.ts';
+import { runCommand } from './helpers/run-command-for-test.ts';
+import { runBenchmarkSuite } from '../bench/benchmark/index.ts';
 import {
   readMatrixManifest,
   buildLaunchSignature,
@@ -86,12 +88,12 @@ import {
   pruneOldLauncherLogs,
   runMatrix,
   runMatrixWithInterrupt,
-} from '../bench/benchmark-matrix/index.js';
+} from '../bench/benchmark-matrix/index.ts';
 import {
   countInferenceTokens,
   listInferenceModels,
   generateInferenceResponse,
-} from '../src/providers/inference.js';
+} from '../src/providers/inference.ts';
 import {
   buildIdleSummarySnapshot,
   buildIdleSummarySnapshotMessage,
@@ -100,14 +102,14 @@ import {
   getIdleSummarySnapshotsPath,
   startStatusServer,
   terminateProcessTree,
-} from '../src/status-server/index.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
-import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.js';
-import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
-import type { TaskKind, ToolTypeStats, Metrics } from '../src/status-server/metrics.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+} from '../src/status-server/index.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.ts';
+import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.ts';
+import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.ts';
+import type { TaskKind, ToolTypeStats, Metrics } from '../src/status-server/metrics.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 
 const TEST_REPO_ROOT = process.cwd();
 
@@ -694,6 +696,19 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
       return;
     }
 
+    // Runs the real analyzer in-process on the route's own body parser, as /summary runs the real summarizer.
+    if (req.method === 'POST' && req.url === '/command-output/analyze') {
+      const body = JsonValueSchema.parse(JSON.parse(await readBody(req) || '{}'));
+      try {
+        if (!isJsonObject(body)) throw new Error('Expected a JSON object body.');
+        writeSseResult(res, await new CommandOutputAnalyzer().analyze(parseCommandOutputAnalyzeBody(body)));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: toError(error).message }));
+      }
+      return;
+    }
+
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -1262,7 +1277,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: '1',
     ...(options.probeShimPath ? { NODE_OPTIONS: buildProbeShimNodeOptions(options.probeShimPath) } : {}),
   };
-  const statusServerEntrypoint = path.resolve(TEST_REPO_ROOT, 'dist', 'status-server', 'main.js');
+  const statusServerEntrypoint = path.resolve(TEST_REPO_ROOT, 'src', 'status-server', 'main.ts');
   const args = [statusServerEntrypoint];
   if (options.disableManagedEngineStartup) {
     args.push('--disable-managed-engine-startup');
@@ -1541,7 +1556,7 @@ function runPowerShellScript(scriptPath: string): void {
 
 
 export {
-  // Re-exports from dist modules (used by test files)
+  // Re-exports from src modules (used by test files)
   assert, fs, http, path, spawn, spawnSync,
   loadConfig, saveConfig, getConfigPath,
   getChunkThresholdCharacters, getConfiguredEngineNumCtx,

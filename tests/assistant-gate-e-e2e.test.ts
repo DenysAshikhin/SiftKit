@@ -2,19 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { CaptureSubmissionDto } from '@siftkit/contracts';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
 import type {
   ProjectionSummaryService, SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
+} from '../src/assistant/projections/projection-summarizer.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
 import {
   FIXTURE_START_INSTANT,
   withAssistantContextAsync,
   type AssistantTestContext,
-} from './helpers/assistant-fixture.js';
-import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
-import { buildService, PROJECTION_SIGNAL, assertProjectionIntegrity } from './helpers/assistant-gate-e-e2e-fixtures.js';
+} from './helpers/assistant-fixture.ts';
+import { seedOwnerAssertion } from './helpers/gate-e-seed.ts';
+import { buildService, PROJECTION_SIGNAL, assertProjectionIntegrity } from './helpers/assistant-gate-e-e2e-fixtures.ts';
 
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',

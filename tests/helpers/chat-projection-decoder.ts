@@ -3,7 +3,7 @@ import {
   CHAT_PROJECTION_MAX_FRAME_BYTES, ChatOperationSnapshotSchema, ChatProjectionFrameSchema, ChatProjectionRecordSchema, ChatTranscriptMessageSchema,
   type ChatMessageQueueState, type ChatOperationSnapshot, type ChatProjectionCapture, type ChatProjectionFrame, type ChatProjectionRecord, type ChatTranscriptMessage,
 } from '@siftkit/contracts';
-import { serializeChatProjectionFrame } from '../../src/status-server/chat-projection-encoder.js';
+import { serializeChatProjectionFrame } from '../../src/status-server/chat-projection-encoder.ts';
 
 /** Reassembles frames exactly as a receiver would: by record, in chunk order, one JSON parse per record. */
 export function decodeChatProjectionFrames(frames: Iterable<ChatProjectionFrame>, transferId: string): ChatProjectionRecord[] {

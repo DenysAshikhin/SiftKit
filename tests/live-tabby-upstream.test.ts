@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { z } from 'zod';
-import { JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+import { JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
 
 const UsageSchema = z.object({
   prompt_tokens: z.number().int().nonnegative(),

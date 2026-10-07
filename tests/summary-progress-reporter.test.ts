@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SummaryProgressReporter, type SummaryProgressEvent } from '../src/summary/progress-reporter.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { SummaryProgressReporter, type SummaryProgressEvent } from '../src/summary/progress-reporter.ts';
+import { SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
 
 test('emits typed events to the writer with requestId stamped', () => {
   const writer = new CollectingProgressWriter<SummaryProgressEvent>();

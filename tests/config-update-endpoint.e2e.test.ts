@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { startStubStatusServer } from './_runtime-helpers.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { asObject, asObjectArray, requestJson, type Dict } from './helpers/dashboard-http.js';
+import { startStubStatusServer } from './_runtime-helpers.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
+import { asObject, asObjectArray, requestJson, type Dict } from './helpers/dashboard-http.ts';
 
 async function startServerWithRuntime(namePrefix: string): Promise<{
   server: DashboardTestServer;

@@ -1,15 +1,15 @@
 import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
 
-import type { SiftConfig } from '../config/types.js';
+import type { SiftConfig } from '../config/types.ts';
 import {
   normalizeOperationModeAllowedTools,
   resolvePresetAllowedTools,
   type PresetKind,
   type SiftPreset,
-} from '../presets.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import type { ChatSession } from '../state/chat-sessions.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../planner-protocol/repo-search.js';
+} from '../presets.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import type { ChatSession } from '../state/chat-sessions.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
 
 export type ChatPresetOperation = 'chat' | 'plan' | 'repo-search' | 'repo-agent';
 

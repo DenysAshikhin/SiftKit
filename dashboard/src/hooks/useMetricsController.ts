@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { getIdleSummary, getMetrics, getWebSearchQuota } from '../api';
-import { buildTaskRunsSeries, buildToolMetricRows } from '../metrics-view';
-import type { MetricSeries } from '../components/MetricChart';
-import type { IdleSummarySnapshot, MetricDay, ProviderQuota, TaskMetricDay, ToolStatsByTask, WebSearchUsage } from '../types';
-import type { MetricsTabProps } from '../tabs/MetricsTab';
+import { getIdleSummary, getMetrics, getWebSearchQuota } from '../api.ts';
+import { buildTaskRunsSeries, buildToolMetricRows } from '../metrics-view.ts';
+import type { MetricSeries } from '../components/MetricChart.tsx';
+import type { IdleSummarySnapshot, MetricDay, ProviderQuota, TaskMetricDay, ToolStatsByTask, WebSearchUsage } from '../types.ts';
+import type { MetricsTabProps } from '../tabs/MetricsTab.tsx';
 
 export type MetricsController = {
   tabProps: MetricsTabProps;

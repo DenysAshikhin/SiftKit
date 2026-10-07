@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { buildChatMessageId, buildChatRunMessageIdPrefix } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import type { RuntimeDatabase } from './database-handle.js';
-import { ChatJournalStore } from './chat-journal.js';
-import type { ChatJournalEnvelope } from './chat-journal-schema.js';
-import { readChatHistoryRevisions } from './chat-history-revisions.js';
-import { PlannerChatMessagesSchema, type ChatMessage } from '../repo-search/planner-chat-message.js';
+import { z } from '../lib/zod.ts';
+import type { RuntimeDatabase } from './database-handle.ts';
+import { ChatJournalStore } from './chat-journal.ts';
+import type { ChatJournalEnvelope } from './chat-journal-schema.ts';
+import { readChatHistoryRevisions } from './chat-history-revisions.ts';
+import { PlannerChatMessagesSchema, type ChatMessage } from '../repo-search/planner-chat-message.ts';
 
 const EventLocatorRowsSchema = z.array(z.object({ operation_id: z.string(), sequence: z.number().int().positive() }));
 const ToolResultLocatorRowsSchema = z.array(z.object({

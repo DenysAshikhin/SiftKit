@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { extractClipboardImageFiles } from '../src/lib/clipboard-images';
+import { extractClipboardImageFiles } from '../src/lib/clipboard-images.ts';
 
 type ClipboardStub = { items: { kind: string; type: string; getAsFile(): File | null }[] };
 

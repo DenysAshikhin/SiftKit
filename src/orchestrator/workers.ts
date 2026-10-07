@@ -1,11 +1,11 @@
 import { OrchestratorChildRequestSchema, type OrchestratorChildRequest, type OrchestratorWorkerStatus } from '@siftkit/contracts';
 
-import type { SiftConfig } from '../config/types.js';
-import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
-import type { RepoAgentSession } from '../status-server/repo-agent-sessions.js';
-import { startRepoWorkerRun } from '../status-server/routes/repo-agent.js';
-import type { ServerContext } from '../status-server/server-types.js';
-import { requireOrchestratorWorkerPreset } from './plan.js';
+import type { SiftConfig } from '../config/types.ts';
+import type { RepoAgentRunResult } from '../repo-agent/run-schemas.ts';
+import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
+import { startRepoWorkerRun } from '../status-server/routes/repo-agent.ts';
+import type { ServerContext } from '../status-server/server-types.ts';
+import { requireOrchestratorWorkerPreset } from './plan.ts';
 
 /**
  * Starts one reserved child through the ordinary worker lifecycle. Its approvals park at the

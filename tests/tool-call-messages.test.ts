@@ -6,8 +6,8 @@ import {
   buildToolExchangeMessages,
   upsertTrailingUserMessage,
   type ToolBatchOutcome,
-} from '../src/tool-call-messages.js';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
+} from '../src/tool-call-messages.ts';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 
 test('buildToolExchangeMessages builds assistant tool_call and tool result messages', () => {
   const messages = buildToolExchangeMessages(

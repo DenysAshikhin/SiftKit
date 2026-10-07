@@ -4,36 +4,36 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { SuppressionAuditDto } from '@siftkit/contracts';
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
 import type {
   AssistantImageCapability, AssistantImageCapabilityProvider,
-} from '../src/assistant/images/image-capability.js';
-import { assistantKeyFile } from '../src/assistant/layout.js';
-import { DesktopEnvironmentCache } from '../src/assistant/observation/environment-cache.js';
+} from '../src/assistant/images/image-capability.ts';
+import { assistantKeyFile } from '../src/assistant/layout.ts';
+import { DesktopEnvironmentCache } from '../src/assistant/observation/environment-cache.ts';
 import {
   GraphQuestionPolicyContext, QuestionPolicyEngine,
-} from '../src/assistant/questions/policy-engine.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import type { AssistantConfig } from '../src/config/types.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
+} from '../src/assistant/questions/policy-engine.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import type { AssistantConfig } from '../src/config/types.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import {
   MemoryAssistantConfigWriter, withAssistantContext,
-} from './helpers/assistant-fixture.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { CAPTURE_PNG_BYTES, captureSubmissionDto } from './helpers/assistant-server-harness.js';
-import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.js';
+} from './helpers/assistant-fixture.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { CAPTURE_PNG_BYTES, captureSubmissionDto } from './helpers/assistant-server-harness.ts';
+import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+} from './helpers/dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 class StubImageCapability implements AssistantImageCapabilityProvider {
   read(): AssistantImageCapability {

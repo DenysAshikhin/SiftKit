@@ -1,10 +1,10 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { PresetsSection } from '../src/tabs/settings/PresetsSection';
-import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection';
-import type { PresetSettingsActions } from '../src/settings-action-groups';
-import { fireEvent, render, screen } from './react-test-environment.js';
+import { PresetsSection } from '../src/tabs/settings/PresetsSection.tsx';
+import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
+import type { PresetSettingsActions } from '../src/settings-action-groups.ts';
+import { fireEvent, render, screen } from './react-test-environment.ts';
 import {
   CUSTOM_PRESET,
   MANAGED_PRESET,
@@ -13,7 +13,7 @@ import {
   PRESET_ACTIONS,
   SECOND_MODEL_PRESET,
   TWO_MODEL_DASHBOARD_CONFIG,
-} from './fixtures';
+} from './fixtures.ts';
 
 test('the preset editor assigns a model preset and clears it back to the current model', () => {
   const calls: Array<[string, string | null]> = [];

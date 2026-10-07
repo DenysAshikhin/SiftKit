@@ -3,17 +3,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
-import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import type { ModelRequestLock } from '../src/status-server/server-types.js';
-import type { ModelRequestContext } from '../src/status-server/model-request-context.js';
-import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import type { ModelRuntimePreset } from '../src/config/types.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import type { ModelRequestLock } from '../src/status-server/server-types.ts';
+import type { ModelRequestContext } from '../src/status-server/model-request-context.ts';
+import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import type { ModelRuntimePreset } from '../src/config/types.ts';
 
 function createConfigPath(): string {
   const root = createManagedTempDir('siftkit-preset-coordinator-');

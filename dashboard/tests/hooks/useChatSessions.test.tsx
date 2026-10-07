@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import { z } from 'zod';
-import { chatProjectionCapture, chatSnapshotFrames, projectionPackets, singleRecordFrames, terminalRecord } from '../chat-snapshot-fixture.js';
-import { createLiveMessage } from '../../src/lib/chat-live-messages';
+import { chatProjectionCapture, chatSnapshotFrames, projectionPackets, singleRecordFrames, terminalRecord } from '../chat-snapshot-fixture.ts';
+import { createLiveMessage } from '../../src/lib/chat-live-messages.ts';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -14,7 +14,7 @@ import type {
   ChatRepoAgentDecideResponse,
 } from '@siftkit/contracts';
 import { ChatQueueEnqueueRequestSchema, DurableChatApprovalSchema, DurableChatQuestionSchema, type ChatQueueEnqueueRequest } from '@siftkit/contracts';
-import { renderHook, waitFor } from '../react-test-environment.js';
+import { renderHook, waitFor } from '../react-test-environment.ts';
 
 import {
   findSessionByIdStrict,
@@ -22,12 +22,12 @@ import {
   summarizeChatSession,
   upsertSession,
   useChatSessions,
-} from '../../src/hooks/useChatSessions';
-import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
-import { useChatRuntimeSelector } from '../../src/hooks/useChatRuntimeSelector';
-import { selectLive } from '../../src/lib/chat-runtime-selectors';
-import { CONTEXT_USAGE as BASE_CONTEXT_USAGE, MANAGED_PRESET } from '../fixtures.js';
-import type { ChatMessage, ChatSession } from '../../src/types';
+} from '../../src/hooks/useChatSessions.ts';
+import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store.ts';
+import { useChatRuntimeSelector } from '../../src/hooks/useChatRuntimeSelector.ts';
+import { selectLive } from '../../src/lib/chat-runtime-selectors.ts';
+import { CONTEXT_USAGE as BASE_CONTEXT_USAGE, MANAGED_PRESET } from '../fixtures.ts';
+import type { ChatMessage, ChatSession } from '../../src/types.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
@@ -277,7 +277,35 @@ class ChatFetchFixture {
   private restored = false;
   private releaseDetail: (() => void) | null = null;
 
-  constructor(private readonly options: {
+  private readonly options: {
+    session: ChatSession;
+    sessions?: ChatSession[];
+    detailResponse: ChatFixtureResponse;
+    streamResponse: ChatFixtureResponse;
+    runtimeStatus?: typeof RUNTIME_STATUS;
+    activeRun?: ActiveChatRepoAgentResponse;
+    activeOperations?: ActiveChatOperation[];
+    operationStream?: string;
+    operationStreams?: string[];
+    detailFailureRequestNumbers?: number[];
+    holdOperationStream?: boolean;
+    /** Holds the selected session's detail response until `releaseHeldDetail()` runs. */
+    holdDetail?: boolean;
+    /** Rejects the first submitted turn as another client's, the way a live server would. */
+    conflictOperationKind?: ActiveChatOperation['operationKind'];
+    decideResponse?: ChatRepoAgentDecideResponse;
+    questionResponse?: ChatQuestionAnswerResponse;
+    approvalModeResponse?: ChatRepoAgentApprovalModeResponse;
+    holdStream?: boolean;
+    stopStatus?: number;
+    queueStatus?: number;
+    loseFirstForceResponse?: boolean;
+    loseFirstStreamResponse?: boolean;
+    /** Serves the settled session detail once the attached run's stream has been read. */
+    settleAfterAttach?: boolean;
+  };
+
+  constructor(options: {
     session: ChatSession;
     sessions?: ChatSession[];
     detailResponse: ChatFixtureResponse;
@@ -304,6 +332,7 @@ class ChatFetchFixture {
     /** Serves the settled session detail once the attached run's stream has been read. */
     settleAfterAttach?: boolean;
   }) {
+    this.options = options;
     const sessions = this.options.sessions ?? [this.options.session];
     const hasMultipleSessions = this.options.sessions !== undefined;
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {

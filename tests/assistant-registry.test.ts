@@ -10,7 +10,7 @@ import {
   SENSITIVITY_RANK,
   isExplicitBasis,
   isSensitivityAtLeast,
-} from '../src/assistant/domain/enums.js';
+} from '../src/assistant/domain/enums.ts';
 
 test('sensitivity levels are ordered least to most restrictive', () => {
   assert.deepEqual(
@@ -39,14 +39,14 @@ test('assertion statuses cover the full lifecycle', () => {
   );
 });
 
-import { NODE_TYPES, NODE_TYPE_DEFINITIONS } from '../src/assistant/domain/node-types.js';
+import { NODE_TYPES, NODE_TYPE_DEFINITIONS } from '../src/assistant/domain/node-types.ts';
 import {
   RELATION_DEFINITIONS,
   RELATION_TYPES,
   getRelationDefinition,
   isNodeTypeAllowedAsObject,
   isNodeTypeAllowedAsSubject,
-} from '../src/assistant/domain/relation-types.js';
+} from '../src/assistant/domain/relation-types.ts';
 
 test('node type registry has 28 unique types, each with a definition', () => {
   assert.equal(NODE_TYPES.length, 28);

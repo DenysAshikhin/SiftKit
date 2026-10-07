@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CommandOutputAnalyzeResultSchema, PresetRunResultSchema } from '../src/command-output/types.js';
-import { requestSse } from './helpers/sse-http.js';
-import { asObjectArray, requestJson } from './helpers/dashboard-http.js';
-import { startHarness } from './helpers/streamed-op-harness.js';
+import { CommandOutputAnalyzeResultSchema, PresetRunResultSchema } from '../src/command-output/types.ts';
+import { requestSse } from './helpers/sse-http.ts';
+import { asObjectArray, requestJson } from './helpers/dashboard-http.ts';
+import { startHarness } from './helpers/streamed-op-harness.ts';
 
 test('command-output/analyze streams progress and a schema-valid result', async (t) => {
   const harness = await startHarness('siftkit-streamed-cmd-', t);

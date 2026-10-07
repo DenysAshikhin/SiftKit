@@ -2,13 +2,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { ActiveChatOperationsResponseSchema } from '@siftkit/contracts';
 
-import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
-import { sendJson } from '../http-utils.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import type { ServerContext } from '../server-types.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import { ChatJournalStore } from '../../state/chat-journal.js';
-import { closeOrphanedChatRun } from '../chat-run-recovery.js';
+import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.ts';
+import { sendJson } from '../http-utils.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import type { ServerContext } from '../server-types.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
+import { ChatJournalStore } from '../../state/chat-journal.ts';
+import { closeOrphanedChatRun } from '../chat-run-recovery.ts';
 
 export function streamRecordedChatOperation(
   ctx: ServerContext,

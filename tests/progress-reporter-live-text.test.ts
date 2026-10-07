@@ -1,15 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
 
 class StubWriter extends ProgressWriter<RepoSearchProgressEvent> {
   readonly events: RepoSearchProgressEvent[] = [];
 
-  constructor(private readonly liveText: boolean) {
+  private readonly liveText: boolean;
+
+  constructor(liveText: boolean) {
     super();
+    this.liveText = liveText;
   }
 
   get enabled(): boolean {

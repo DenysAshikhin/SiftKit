@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import type {
@@ -10,8 +10,8 @@ import type {
 import {
   AssistantMemoryDetail,
   type AssistantMemorySelection,
-} from '../src/components/AssistantMemoryDetail.js';
-import { fireEvent, render, screen } from './react-test-environment.js';
+} from '../src/components/AssistantMemoryDetail.tsx';
+import { fireEvent, render, screen } from './react-test-environment.ts';
 
 const EVIDENCE: AssistantEvidenceDto = {
   id: 'evidence-1',
@@ -76,7 +76,7 @@ function detailProps(overrides: Partial<DetailProps> = {}): DetailProps {
   };
 }
 
-test('pixels render only after explicit confirmation and the object URL is revoked on close', { concurrency: false }, async () => {
+test('pixels render only after explicit confirmation and the object URL is revoked on close', async () => {
   const created: string[] = [];
   const revoked: string[] = [];
   Object.defineProperty(window.URL, 'createObjectURL', {

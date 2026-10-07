@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { ToolActivityRow } from '../src/components/ToolActivityRow';
-import type { ToolActivityGroup } from '../src/lib/tool-activity-ring';
+import { ToolActivityRow } from '../src/components/ToolActivityRow.tsx';
+import type { ToolActivityGroup } from '../src/lib/tool-activity-ring.ts';
 
 function group(state: ToolActivityGroup['state']): ToolActivityGroup {
   return {

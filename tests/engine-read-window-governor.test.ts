@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ReadWindowGovernor } from '../src/repo-search/engine/read-window-governor.js';
+import { ReadWindowGovernor } from '../src/repo-search/engine/read-window-governor.ts';
 
 function recordRead(
   governor: ReadWindowGovernor,

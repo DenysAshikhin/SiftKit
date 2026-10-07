@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import type { JsonValue } from '../src/lib/json-types.js';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
 
-import { loadConfig, saveConfig, getChunkThresholdCharacters, getConfiguredModel, initializeRuntime } from '../src/config/index.js';
-import { summarizeRequest, buildSummaryPrompt, getSummaryDecision } from '../src/summary.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { loadConfig, saveConfig, getChunkThresholdCharacters, getConfiguredModel, initializeRuntime } from '../src/config/index.ts';
+import { summarizeRequest, buildSummaryPrompt, getSummaryDecision } from '../src/summary.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
 
 import {
   getDefaultConfig,
@@ -21,9 +21,9 @@ import {
   withStubServer,
   waitForAsyncExpectation,
   mockConfig,
-} from './_runtime-helpers.js';
-import { resetHostEngineSettingsCacheForTests } from '../src/config/index.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+} from './_runtime-helpers.ts';
+import { resetHostEngineSettingsCacheForTests } from '../src/config/index.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 // Index-signature view of the dynamic JsonObject status posts these tests read:
 // named optional fields stay precisely typed while the index keeps it a

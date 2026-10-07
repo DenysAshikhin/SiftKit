@@ -3,36 +3,40 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { DesktopStateDtoSchema, type CaptureSubmissionDto } from '@siftkit/contracts';
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { AssistantConflictError, AssistantNotFoundError } from '../src/assistant/errors.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../src/assistant/errors.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
 import type {
   AssistantImageCapability, AssistantImageCapabilityProvider,
-} from '../src/assistant/images/image-capability.js';
-import { QuestionStore } from '../src/assistant/storage/question-store.js';
-import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.js';
+} from '../src/assistant/images/image-capability.ts';
+import { QuestionStore } from '../src/assistant/storage/question-store.ts';
+import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import { getConfigPath } from '../src/config/index.ts';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.ts';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+} from './helpers/dashboard-test-repo.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
   + 'FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 class StubImageCapability implements AssistantImageCapabilityProvider {
-  constructor(private readonly capable: boolean) {}
+  private readonly capable: boolean;
+
+  constructor(capable: boolean) {
+    this.capable = capable;
+  }
 
   read(): AssistantImageCapability {
     return {

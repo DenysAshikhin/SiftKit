@@ -1,5 +1,5 @@
-import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import { getRecord } from './json-filter.js';
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import { getRecord } from './json-filter.ts';
 
 export const MAX_PLANNER_TOOL_RESULT_CHARACTERS = 12_000;
 

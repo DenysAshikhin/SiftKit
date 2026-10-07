@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
-import { summarizeRequest } from '../src/summary.js';
-import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { readStatusText } from '../src/status-server/status-file.js';
-import type { SiftConfig } from '../src/config/types.js';
+import { summarizeRequest } from '../src/summary.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { readStatusText } from '../src/status-server/status-file.ts';
+import type { SiftConfig } from '../src/config/types.ts';
 
 import {
   applyManagedScriptConfig,
@@ -24,10 +24,10 @@ import {
   type RuntimeStatusResponse,
   type HealthCheckResponse,
   type InferenceModelsResponse,
-} from './_runtime-helpers.js';
-import { getAddressInfo } from './helpers/dashboard-http.js';
-import { FakeTabbyModelState } from './helpers/tabby-fake.js';
-import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.js';
+} from './_runtime-helpers.ts';
+import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { FakeTabbyModelState } from './helpers/tabby-fake.ts';
+import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.ts';
 
 test('summary status notification failures do not abort provider work', async () => {
   await withTempEnv(async () => {

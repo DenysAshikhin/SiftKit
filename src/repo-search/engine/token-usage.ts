@@ -1,13 +1,13 @@
 import type { InferenceThroughput } from '@siftkit/contracts';
-import type { SiftConfig } from '../../config/index.js';
-import { emptyInferenceThroughput, mergeInferenceThroughput } from '../../lib/inference-throughput.js';
-import { estimateTokenCount } from '../../lib/token-estimate.js';
-import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
-import type { ProgressReporter } from './progress-reporter.js';
+import type { SiftConfig } from '../../config/index.ts';
+import { emptyInferenceThroughput, mergeInferenceThroughput } from '../../lib/inference-throughput.ts';
+import { estimateTokenCount } from '../../lib/token-estimate.ts';
+import { countTokensWithFallbackDetailed } from '../prompt-budget.ts';
+import type { ProgressReporter } from './progress-reporter.ts';
 import {
   foldTurnTokenRecords,
   type TurnTokenRecord,
-} from './turn-token-record.js';
+} from './turn-token-record.ts';
 
 export type ModelUsageResponse = {
   text?: string;

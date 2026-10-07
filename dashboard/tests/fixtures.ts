@@ -1,6 +1,6 @@
-import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types.js';
-import type { ChatSessionResponse, ContextUsage } from '../src/types';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
+import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types.ts';
+import type { ChatSessionResponse, ContextUsage } from '../src/types.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
 import type {
   AssistantSettingsActions,
   GeneralSettingsActions,
@@ -9,7 +9,7 @@ import type {
   PresetSettingsActions,
   ToolPolicySettingsActions,
   WebSearchSettingsActions,
-} from '../src/settings-action-groups.js';
+} from '../src/settings-action-groups.ts';
 
 export const ASSISTANT_ACTIONS: AssistantSettingsActions = {
   replace() {},

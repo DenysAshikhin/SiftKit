@@ -1,7 +1,7 @@
-import { toTopicKey } from '../../src/assistant/projections/assertion-view-builder.js';
-import type { AssertionRow } from '../../src/assistant/storage/rows.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.js';
-import type { AssistantTestContext } from './assistant-fixture.js';
+import { toTopicKey } from '../../src/assistant/projections/assertion-view-builder.ts';
+import type { AssertionRow } from '../../src/assistant/storage/rows.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.ts';
+import type { AssistantTestContext } from './assistant-fixture.ts';
 
 export interface SeededOwnerAssertion {
   readonly assertion: AssertionRow;

@@ -1,10 +1,10 @@
 import path from 'node:path';
 
-import { z } from '../../src/lib/zod.js';
-import { UNSUPPORTED_INPUT_MESSAGE } from '../../src/summary/measure.js';
-import { PresetCatalog } from '../../src/preset-catalog.js';
-import { getDefaultOperationModeAllowedTools } from '../../src/presets.js';
-import { normalizeModelRuntimePresetArray } from '../../src/config/normalization.js';
+import { z } from '../../src/lib/zod.ts';
+import { UNSUPPORTED_INPUT_MESSAGE } from '../../src/summary/measure.ts';
+import { PresetCatalog } from '../../src/preset-catalog.ts';
+import { getDefaultOperationModeAllowedTools } from '../../src/presets.ts';
+import { normalizeModelRuntimePresetArray } from '../../src/config/normalization.ts';
 import {
   JsonValueSchema,
   JsonObjectSchema,
@@ -12,9 +12,9 @@ import {
   type JsonObject,
   type JsonValue,
   type MutableJsonObject,
-} from '../../src/lib/json-types.js';
-import type { Exl3EngineConfig, InferenceConfig, SiftConfig } from '../../src/config/types.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
+} from '../../src/lib/json-types.ts';
+import type { Exl3EngineConfig, InferenceConfig, SiftConfig } from '../../src/config/types.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
 
 // Chat-request view types are derived from runtime schemas so the JSON catchall
 // (tests read arbitrary keys like cache_prompt/id_slot/max_tokens off captured

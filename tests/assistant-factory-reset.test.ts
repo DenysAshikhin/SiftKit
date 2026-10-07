@@ -2,19 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { z } from '../src/lib/zod.js';
-import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.js';
-import { FactoryResetService } from '../src/assistant/control/factory-reset-service.js';
-import { KeyCustodyService } from '../src/assistant/crypto/key-custody.js';
-import { ImportedKeyProvider } from '../src/assistant/crypto/imported-key-provider.js';
-import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
-import { AssistantConflictError } from '../src/assistant/errors.js';
-import { assistantEvidenceDir, assistantKeyFile } from '../src/assistant/layout.js';
+import { z } from '../src/lib/zod.ts';
+import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.ts';
+import { FactoryResetService } from '../src/assistant/control/factory-reset-service.ts';
+import { KeyCustodyService } from '../src/assistant/crypto/key-custody.ts';
+import { ImportedKeyProvider } from '../src/assistant/crypto/imported-key-provider.ts';
+import { FileKeyProvider } from '../src/assistant/crypto/key-provider.ts';
+import { AssistantConflictError } from '../src/assistant/errors.ts';
+import { assistantEvidenceDir, assistantKeyFile } from '../src/assistant/layout.ts';
 import {
   ASSISTANT_FTS_TABLE_NAMES, ASSISTANT_TABLE_NAMES,
-} from '../src/assistant/storage/schema.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
-import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
+} from '../src/assistant/storage/schema.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
+import { seedOwnerAssertion } from './helpers/gate-e-seed.ts';
 
 /** A custody port over a plain field: the reset only ever needs to read and write the mode. */
 class MemoryCustodyConfigPort {

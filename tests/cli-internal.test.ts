@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runCli } from '../src/cli/index.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
-import { withRealStatusServer, withTempEnv } from './_runtime-helpers.js';
-import { asObject, asObjectArray } from './helpers/dashboard-http.js';
-import { rasterBuffer } from './helpers/image-fixtures.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
+import { runCli } from '../src/cli/index.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.ts';
+import { withRealStatusServer, withTempEnv } from './_runtime-helpers.ts';
+import { asObject, asObjectArray } from './helpers/dashboard-http.ts';
+import { rasterBuffer } from './helpers/image-fixtures.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.ts';
 
 const IMAGE_RETENTION_ZERO_ERROR = 'Image input is disabled for this preset (VisionImageRetention = 0)';
 

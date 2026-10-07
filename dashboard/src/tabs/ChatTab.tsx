@@ -1,5 +1,5 @@
-import { buildLiveTokenDisplays } from '../lib/chat-live-token-display';
-import { requireLiveTokenDisplay, type TokenDisplay } from '../lib/format';
+import { buildLiveTokenDisplays } from '../lib/chat-live-token-display.ts';
+import { requireLiveTokenDisplay, type TokenDisplay } from '../lib/format.ts';
 import React from 'react';
 
 import {
@@ -10,50 +10,50 @@ import {
   formatNumber,
   formatTokenLabel,
   getTurnTokenDisplay,
-} from '../lib/format';
-import { getContextBarFillTone } from '../lib/context-bar-tone';
-import { formatLiveContextTokens, resolveLiveContextUsage } from '../lib/contextBar';
-import { deriveSessionIndicator, hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
-import type { ChatSessionRuntime, SessionIndicator } from '../lib/chat-session-runtime-store';
-import type { ChatRuntimeHub } from '../lib/chat-runtime-hub';
-import { useChatRuntimeSelector } from '../hooks/useChatRuntimeSelector';
+} from '../lib/format.ts';
+import { getContextBarFillTone } from '../lib/context-bar-tone.ts';
+import { formatLiveContextTokens, resolveLiveContextUsage } from '../lib/contextBar.ts';
+import { deriveSessionIndicator, hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state.ts';
+import type { ChatSessionRuntime, SessionIndicator } from '../lib/chat-session-runtime-store.ts';
+import type { ChatRuntimeHub } from '../lib/chat-runtime-hub.ts';
+import { useChatRuntimeSelector } from '../hooks/useChatRuntimeSelector.ts';
 import {
   NO_MESSAGES, selectActionableApproval, selectActionableQuestion, selectAwaitingResponse, selectCompactedEarlierHistory,
   selectLive, selectLiveOperationId, selectQuestionId, selectRuntime, selectStreamedCharsSinceBase,
-} from '../lib/chat-runtime-selectors';
-import { ToolCallCard } from '../components/ToolCallCard';
-import { ToolActivityRow } from '../components/ToolActivityRow';
-import { PendingImageStrip } from '../components/PendingImageStrip';
-import { ChatPendingQueue, type ChatPendingQueueActions } from '../components/ChatPendingQueue';
-import { MessageImages } from '../components/MessageImages';
-import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
-import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
-import type { RepoAgentDecision } from '../api';
+} from '../lib/chat-runtime-selectors.ts';
+import { ToolCallCard } from '../components/ToolCallCard.tsx';
+import { ToolActivityRow } from '../components/ToolActivityRow.tsx';
+import { PendingImageStrip } from '../components/PendingImageStrip.tsx';
+import { ChatPendingQueue, type ChatPendingQueueActions } from '../components/ChatPendingQueue.tsx';
+import { MessageImages } from '../components/MessageImages.tsx';
+import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar.tsx';
+import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard.tsx';
+import type { RepoAgentDecision } from '../api.ts';
 import { REPO_AGENT_DEFAULT_MAX_TURNS, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply } from '@siftkit/contracts';
-import { ChatQuestionCard } from '../components/ChatQuestionCard';
-import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl';
-import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl';
-import { OrchestratorRunPanel } from '../components/OrchestratorRunPanel';
-import { useOrchestratorRun } from '../hooks/useOrchestratorRun';
-import { PlanMaxTurnsOverrideSchema } from '../lib/chat-composer-inputs';
-import type { LastTurnTelemetry } from '../lib/format';
-import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
-import { extractClipboardImageFiles } from '../lib/clipboard-images';
-import { useChatScroll } from '../hooks/useChatScroll';
-import { useLatest } from '../lib/use-latest';
-import { LiveStreamedText } from '../components/LiveStreamedText';
-import { chunkAtTurnStarts, groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
-import { buildCompactionSegments, markEarlierRunsCompacted, splitAfterLastSummary, type CompactionSegment } from '../lib/compaction-segments';
-import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
-import { hasSamePresetExecutionContext } from '../dashboard-presets';
+import { ChatQuestionCard } from '../components/ChatQuestionCard.tsx';
+import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl.tsx';
+import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl.tsx';
+import { OrchestratorRunPanel } from '../components/OrchestratorRunPanel.tsx';
+import { useOrchestratorRun } from '../hooks/useOrchestratorRun.ts';
+import { PlanMaxTurnsOverrideSchema } from '../lib/chat-composer-inputs.ts';
+import type { LastTurnTelemetry } from '../lib/format.ts';
+import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image.ts';
+import { extractClipboardImageFiles } from '../lib/clipboard-images.ts';
+import { useChatScroll } from '../hooks/useChatScroll.ts';
+import { useLatest } from '../lib/use-latest.ts';
+import { LiveStreamedText } from '../components/LiveStreamedText.tsx';
+import { chunkAtTurnStarts, groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns.ts';
+import { buildCompactionSegments, markEarlierRunsCompacted, splitAfterLastSummary, type CompactionSegment } from '../lib/compaction-segments.ts';
+import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages.ts';
+import { hasSamePresetExecutionContext } from '../dashboard-presets.ts';
 import type {
   ChatSession,
   ChatSessionSummary,
   ContextUsage,
   DashboardPreset,
   DashboardPresetExecutionFamily,
-} from '../types';
-import type { ChatMessage, ChatToolCallMessage } from '../types';
+} from '../types.ts';
+import type { ChatMessage, ChatToolCallMessage } from '../types.ts';
 
 const GROUNDING_STATUS_LABELS: Record<'ungrounded' | 'snippet_only' | 'fetched', string> = {
   ungrounded: 'No web evidence',

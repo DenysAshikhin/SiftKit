@@ -1,5 +1,5 @@
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../database-handle.js';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
 
 const HiddenStatusRowsSchema = z.array(z.object({ session_id: z.string(), id: z.string() }));
 /** Only a turn-scoped narration identity was ever hidden; the run-wide progress row keeps its kind. */

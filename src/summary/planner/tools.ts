@@ -1,5 +1,5 @@
-import { getErrorMessage } from '../../lib/errors.js';
-import type { JsonObject, JsonValue, OptionalJsonValue } from '../../lib/json-types.js';
+import { getErrorMessage } from '../../lib/errors.ts';
+import type { JsonObject, JsonValue, OptionalJsonValue } from '../../lib/json-types.ts';
 import {
   SUMMARY_PLANNER_TOOL_NAMES,
   SummaryNativeToolCallSchema,
@@ -8,7 +8,7 @@ import {
   type JsonGetToolArgs,
   type ReadLinesToolArgs,
   type SummaryPlannerToolName as PlannerToolName,
-} from '../../planner-protocol/summary-tools.js';
+} from '../../planner-protocol/summary-tools.ts';
 import {
   formatCompactJsonBlock,
   formatNumberedLineBlock,
@@ -16,7 +16,7 @@ import {
   formatPlannerToolResultHeader,
   formatPlannerToolResultTokenGuardError,
   truncatePlannerText,
-} from './formatters.js';
+} from './formatters.ts';
 import {
   getRecord,
   getValueByPath,
@@ -24,7 +24,7 @@ import {
   normalizeJsonFilterFilters,
   parseJsonForJsonFilter,
   projectJsonFilterItem,
-} from './json-filter.js';
+} from './json-filter.ts';
 
 // Re-export formatters so callers can pick them up without importing from
 // planner/formatters directly.

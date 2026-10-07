@@ -3,11 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { installCodexPolicy, installShellIntegration, installSiftKit } from '../src/install.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-
-void installShellIntegration;
+import { installCodexPolicy, installSiftKit } from '../src/install.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 test('installCodexPolicy creates AGENTS.md with policy block', async () => {
   const tempRoot = createManagedTempDir('siftkit-install-policy-');
@@ -73,10 +71,6 @@ test('PowerShell wrappers do not enable common-parameter parsing for forwarded a
   assert.match(wrapperContent, /\$CliArgs\s*=\s*@\(\$args\)/u);
   assert.match(postinstallContent, /\$CliArgs\s*=\s*@\(\$args\)/u);
 });
-
-// installShellIntegration is not directly testable because getRepoRoot()
-// resolves to the repo root when run from dist/, which would copy the entire
-// repository. It is tested indirectly via the CLI internal op path.
 
 test('installSiftKit returns installation info', async () => {
   await withTestEnvAndServer(async () => {

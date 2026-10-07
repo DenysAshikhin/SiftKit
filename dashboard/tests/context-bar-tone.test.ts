@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { getContextBarFillTone } from '../src/lib/context-bar-tone';
+import { getContextBarFillTone } from '../src/lib/context-bar-tone.ts';
 
 test('fill tone is accent below 85% and warn at/above', () => {
   assert.equal(getContextBarFillTone(0), 'accent');

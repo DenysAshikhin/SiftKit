@@ -1,9 +1,9 @@
 import type { ServerResponse } from 'node:http';
-import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../../src/lib/http-client.js';
-import { isJsonObject, type JsonObject, type JsonSerializable } from '../../src/lib/json-types.js';
-import type { SseFrame } from '../../src/lib/sse-frame-parser.js';
-import { getDefaultConfigObject } from '../../src/config/defaults.js';
-import type { SiftConfig } from '../../src/config/types.js';
+import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../../src/lib/http-client.ts';
+import { isJsonObject, type JsonObject, type JsonSerializable } from '../../src/lib/json-types.ts';
+import type { SseFrame } from '../../src/lib/sse-frame-parser.ts';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import type { SiftConfig } from '../../src/config/types.ts';
 
 export const STREAM_TEST_BASE_URL = 'http://127.0.0.1:8097';
 
@@ -69,7 +69,11 @@ export function errorFrame(error: JsonSerializable): string {
 
 /** Yields raw frame strings verbatim so tests can emit malformed JSON. */
 export class RawFrameHttpClient {
-  constructor(private readonly frames: string[]) {}
+  private readonly frames: string[];
+
+  constructor(frames: string[]) {
+    this.frames = frames;
+  }
 
   async requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonResponse<T>> {
     throw new Error(`requestJsonFull must not be called for chat completions (${options.url})`);

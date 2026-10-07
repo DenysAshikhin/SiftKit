@@ -8,24 +8,24 @@ import {
   getConfiguredModel,
   getConfiguredPromptPrefix,
   getEffectiveInputCharactersPerContextToken,
-} from '../../src/config/index.js';
-import { getSummaryDecision, planTokenAwareInferenceChunks } from '../../src/summary.js';
+} from '../../src/config/index.ts';
+import { getSummaryDecision, planTokenAwareInferenceChunks } from '../../src/summary.ts';
 import {
   DEFAULT_SUMMARY_PROVIDER,
-} from '../../src/summary/types.js';
-import type { SummaryClassification } from '../../src/planner-protocol/summary-tools.js';
-import { countInferenceTokens, generateInferenceResponse } from '../../src/providers/inference.js';
-import { ModelJson } from '../../src/lib/model-json.js';
-import { getErrorMessage } from '../../src/lib/errors.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import type { JsonSerializable } from '../../src/lib/json-types.js';
-import type { SiftConfig } from '../../src/config/index.js';
-import { getRepoRoot } from '../common/paths.js';
+} from '../../src/summary/types.ts';
+import type { SummaryClassification } from '../../src/planner-protocol/summary-tools.ts';
+import { countInferenceTokens, generateInferenceResponse } from '../../src/providers/inference.ts';
+import { ModelJson } from '../../src/lib/model-json.ts';
+import { getErrorMessage } from '../../src/lib/errors.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import type { JsonSerializable } from '../../src/lib/json-types.ts';
+import type { SiftConfig } from '../../src/config/index.ts';
+import { getRepoRoot } from '../common/paths.ts';
 import {
   BenchmarkFixtureSchema,
   type BenchmarkFixture,
-} from '../benchmark/types.js';
-import { SummaryReproPromptBuilder } from './summary-prompt-builder.js';
+} from '../benchmark/types.ts';
+import { SummaryReproPromptBuilder } from './summary-prompt-builder.ts';
 
 const INFERENCE_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const INFERENCE_THINKING_PROMPT_TOKEN_RESERVE = 15_000;

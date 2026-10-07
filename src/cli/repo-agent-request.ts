@@ -1,8 +1,8 @@
-import { readImageFileDataUrl } from '../llm-protocol/image-attachments.js';
+import { readImageFileDataUrl } from '../llm-protocol/image-attachments.ts';
 import {
   RepoAgentStartRequestSchema,
   type RepoAgentStartRequest,
-} from '../repo-agent/api-schemas.js';
+} from '../repo-agent/api-schemas.ts';
 import type { ApprovalMode } from '@siftkit/contracts';
 
 export function buildRepoAgentServerRequest(input: {

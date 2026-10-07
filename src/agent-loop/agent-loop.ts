@@ -1,4 +1,4 @@
-import type { InferenceChatMessage, InferenceToolDefinition } from '../llm-protocol/types.js';
+import type { InferenceChatMessage, InferenceToolDefinition } from '../llm-protocol/types.ts';
 import type {
   AgentLoopAction,
   AgentLoopActionAdapter,
@@ -8,7 +8,7 @@ import type {
   AgentLoopResult,
   AgentLoopToolAdapter,
   AgentLoopTurn,
-} from './types.js';
+} from './types.ts';
 
 export interface AgentLoopModelClient {
   chat(options: {
@@ -31,7 +31,11 @@ export type AgentLoopOptions = {
 export class AgentLoop {
   private readonly turns: AgentLoopTurn[] = [];
 
-  constructor(private readonly options: AgentLoopOptions) {}
+  private readonly options: AgentLoopOptions;
+
+  constructor(options: AgentLoopOptions) {
+    this.options = options;
+  }
 
   async run(): Promise<AgentLoopResult> {
     if (!this.options.modelClient || !this.options.actionAdapter || !this.options.toolAdapter || !this.options.promptAdapter) {

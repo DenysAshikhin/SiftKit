@@ -1,9 +1,9 @@
-import type { AssistantConfig } from '../../config/types.js';
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { QuestionRow } from '../storage/rows.js';
-import type { QuestionCandidate, QuestionCandidateSource } from './candidates.js';
-import type { QuestionPlanningService } from './planner.js';
-import type { QuestionPolicyDecision, QuestionPolicyEngine } from './policy-engine.js';
+import type { AssistantConfig } from '../../config/types.ts';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { QuestionRow } from '../storage/rows.ts';
+import type { QuestionCandidate, QuestionCandidateSource } from './candidates.ts';
+import type { QuestionPlanningService } from './planner.ts';
+import type { QuestionPolicyDecision, QuestionPolicyEngine } from './policy-engine.ts';
 
 export interface PlanQuestionsSummary {
   readonly planned: number;

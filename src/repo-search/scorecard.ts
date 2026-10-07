@@ -1,4 +1,4 @@
-import type { Scorecard } from './engine.js';
+import type { Scorecard } from './engine.ts';
 
 export function getOutputCharacterCount(scorecard: Scorecard): number {
   const outputText = scorecard.tasks

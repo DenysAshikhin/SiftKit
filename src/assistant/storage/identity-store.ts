@@ -1,11 +1,15 @@
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import { z } from '../../lib/zod.js';
-import { OwnerRowSchema, type OwnerRow } from './rows.js';
-import { LOCAL_DEVICE_METADATA_KEY, LOCAL_OWNER_ID } from './schema.js';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import { z } from '../../lib/zod.ts';
+import { OwnerRowSchema, type OwnerRow } from './rows.ts';
+import { LOCAL_DEVICE_METADATA_KEY, LOCAL_OWNER_ID } from './schema.ts';
 
 /** Reads the owner identity seeded by the migration. Never creates it. Device rows: `DeviceStore`. */
 export class IdentityStore {
-  constructor(private readonly database: RuntimeDatabase) {}
+  private readonly database: RuntimeDatabase;
+
+  constructor(database: RuntimeDatabase) {
+    this.database = database;
+  }
 
   getOwner(): OwnerRow {
     const row = this.database

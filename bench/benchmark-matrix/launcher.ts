@@ -1,16 +1,16 @@
 import { spawn } from 'node:child_process';
-import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
-import { sleep } from '../../src/lib/time.js';
-import { getRequiredString } from './args.js';
-import { invokeConfigGet, getActivePresetBaseUrl, waitForEngineReadiness } from './config-rpc.js';
-import { spawnAndWait } from './process.js';
+import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.ts';
+import { sleep } from '../../src/lib/time.ts';
+import { getRequiredString } from './args.ts';
+import { invokeConfigGet, getActivePresetBaseUrl, waitForEngineReadiness } from './config-rpc.ts';
+import { spawnAndWait } from './process.ts';
 import {
   powerShellExe,
   repoRoot,
   type LaunchResult,
   type ResolvedMatrixManifest,
   type ResolvedMatrixTarget,
-} from './types.js';
+} from './types.ts';
 
 function appendMatrixLog(runId: string | null, streamKind: Parameters<typeof appendBenchmarkMatrixLogChunk>[0]['streamKind'], chunk: string): void {
   if (!runId || !chunk) {

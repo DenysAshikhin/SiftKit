@@ -1,16 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
-import { deriveServiceUrl } from '../../src/config/status-backend.js';
-import { buildBenchmarkArgs } from './launcher.js';
-import { spawnAndWait } from './process.js';
+import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.ts';
+import { deriveServiceUrl } from '../../src/config/status-backend.ts';
+import { buildBenchmarkArgs } from './launcher.ts';
+import { spawnAndWait } from './process.ts';
 import {
   nodeExe,
   repoRoot,
   type BenchmarkProcessResult,
   type ResolvedMatrixManifest,
   type ResolvedMatrixTarget,
-} from './types.js';
+} from './types.ts';
 
 function extractBenchmarkRunUri(stdoutText: string): string | null {
   const lines = stdoutText
@@ -37,8 +37,7 @@ export async function invokeBenchmarkProcess(
     throw new Error(`Benchmark entrypoint not found: ${benchmarkEntrypoint}.`);
   }
 
-  const tsxCliPath = path.join(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-  const args = [tsxCliPath, benchmarkEntrypoint, ...buildBenchmarkArgs(manifest, run, promptPrefixFile)];
+  const args = [benchmarkEntrypoint,...buildBenchmarkArgs(manifest, run, promptPrefixFile)];
   const result = await spawnAndWait({
     filePath: nodeExe,
     args,

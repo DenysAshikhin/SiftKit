@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AssertionService } from '../src/assistant/graph/assertion-service.js';
-import { AssertionValidator } from '../src/assistant/graph/validation.js';
-import { AssertionStore } from '../src/assistant/storage/assertion-store.js';
-import { AuditStore } from '../src/assistant/storage/audit-store.js';
-import { NodeStore } from '../src/assistant/storage/node-store.js';
-import { PolicyStore } from '../src/assistant/storage/policy-store.js';
-import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.js';
+import { AssertionService } from '../src/assistant/graph/assertion-service.ts';
+import { AssertionValidator } from '../src/assistant/graph/validation.ts';
+import { AssertionStore } from '../src/assistant/storage/assertion-store.ts';
+import { AuditStore } from '../src/assistant/storage/audit-store.ts';
+import { NodeStore } from '../src/assistant/storage/node-store.ts';
+import { PolicyStore } from '../src/assistant/storage/policy-store.ts';
+import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.ts';
 import {
   supportWeights, withAssistantContext, type AssistantTestContext,
-} from './helpers/assistant-fixture.js';
+} from './helpers/assistant-fixture.ts';
 
 interface ServiceHarness {
   readonly service: AssertionService;

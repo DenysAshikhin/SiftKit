@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { requestSse } from './helpers/sse-http.js';
-import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { RecordingEngineService } from './helpers/recording-engine-service.js';
+import { requestSse } from './helpers/sse-http.ts';
+import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
+import { RecordingEngineService } from './helpers/recording-engine-service.ts';
 
 const MODEL_A = 'exl3-main';
 

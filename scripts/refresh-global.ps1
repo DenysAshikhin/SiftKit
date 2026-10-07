@@ -129,12 +129,6 @@ function Invoke-RetryableCommand {
     }
 }
 
-function Get-SiftKitPackageTarballName {
-    $package = Get-Content (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json
-    $packageName = $package.name -replace '^@', '' -replace '/', '-'
-    '{0}-{1}.tgz' -f $packageName, $package.version
-}
-
 function Get-GlobalSiftKitCommandPath {
     $globalPrefix = (npm prefix -g 2>$null | Select-Object -First 1).ToString().Trim()
     if (-not $globalPrefix) {
@@ -155,26 +149,6 @@ function Get-GlobalSiftKitCommandPath {
     throw ('Unable to locate the global siftkit shim under {0}.' -f $globalPrefix)
 }
 
-function Stop-ExistingGlobalSiftKitStatusServer {
-    $globalPrefix = (npm prefix -g 2>$null | Select-Object -First 1).ToString().Trim()
-    if (-not $globalPrefix) {
-        return
-    }
-
-    $globalPackageRoot = Join-Path $globalPrefix 'node_modules\siftkit'
-    $statusServerPath = Join-Path $globalPackageRoot 'dist\status-server\main.js'
-    $normalizedStatusServerPath = [System.IO.Path]::GetFullPath($statusServerPath).ToLowerInvariant()
-    $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object {
-        $commandLine = [string]$_.CommandLine
-        $commandLine.ToLowerInvariant().Contains($normalizedStatusServerPath)
-    })
-
-    foreach ($process in $processes) {
-        Write-Host ('Stopping existing global SiftKit status server process {0} before npm global refresh.' -f $process.ProcessId)
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
-    }
-}
-
 function Get-SiftKitDesktopToolingRoot {
     $toolchainPathsScript = Join-Path $script:RepoRoot 'scripts\desktop\toolchain-paths.mjs'
     $printRoot = 'const { pathToFileURL } = await import(''node:url''); const m = await import(pathToFileURL(process.argv[1]).href); process.stdout.write(m.TOOLING_ROOT);'
@@ -185,16 +159,9 @@ function Get-SiftKitDesktopToolingRoot {
     $root
 }
 
-$tarballName = Get-SiftKitPackageTarballName
-
-# Reconcile node_modules and the hidden node_modules/.package-lock.json before packing.
-# Workspace package.json edits (e.g. dashboard) leave that lockfile stale, which drops the
-# @siftkit/contracts workspace link's resolved target and makes `npm pack` crash inside
-# npm-packlist with a silent exit 1 while gathering bundleDependencies.
-# This install relies on `audit=false` from the repo .npmrc. Without it npm's post-reify bulk
-# advisory POST can stall forever with no client-side timeout, hanging the refresh after
-# `reify:save` has already completed. See .npmrc for the full rationale.
-Write-Host 'Reconciling workspace install before packing...'
+# The linked global package runs this checkout's node_modules, so reconcile it first.
+# Relies on `audit=false` from the repo .npmrc; see .npmrc for why the audit POST can hang.
+Write-Host 'Reconciling workspace install...'
 # --offline: refresh must not depend on the registry; a lockfile ahead of node_modules fails loudly here.
 Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('install', '--offline', '--loglevel', 'error') -Description 'Reconciling workspace install'
 
@@ -215,18 +182,10 @@ finally {
     $env:CARGO_NET_OFFLINE = $previousCargoNetOffline
 }
 
-Write-Host 'Packing current repo...'
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--workspaces=false', '--loglevel', 'error') -Description 'Packing current repo'
-
-Stop-ExistingGlobalSiftKitStatusServer
-
-Write-Host 'Installing packed tarball globally...'
-# --no-audit must be explicit here. `npm i -g` does not load the project .npmrc (it resolves
-# config against the global prefix), so the repo's audit=false never reaches this call, and
-# arborist gates the audit solely on `options.audit === false` with no exemption for global
-# installs. Without the flag this step keeps the original hang.
-# --offline: every runtime dependency is bundled in the tarball (bundleDependencies: true).
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--no-audit', '--offline', '--loglevel', 'error') -Description 'Installing packed tarball globally'
+Write-Host 'Linking the repo as the global siftkit package...'
+# Node refuses to strip types under node_modules; a linked install resolves to this checkout's realpath.
+# `npm i -g` ignores the repo .npmrc, so --no-audit must be explicit or the audit POST can hang.
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $script:RepoRoot, '--no-audit', '--offline', '--loglevel', 'error') -Description 'Linking repo globally' -MaxAttempts 1
 
 Write-Host 'Resolving freshly installed global siftkit command...'
 $globalSiftKit = Get-GlobalSiftKitCommandPath

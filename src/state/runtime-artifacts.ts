@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { z } from '../lib/zod.js';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import { parseJsonValueText } from '../lib/json.js';
-import type { JsonObject } from '../lib/json-types.js';
-import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
+import { z } from '../lib/zod.ts';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.ts';
 
 export type RuntimeArtifactRecord = {
   id: string;

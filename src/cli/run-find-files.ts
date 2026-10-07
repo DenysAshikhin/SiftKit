@@ -1,5 +1,5 @@
-import { findFiles } from '../find-files.js';
-import { parseArguments, type ResolvedCliArgs } from './args.js';
+import { findFiles } from '../find-files.ts';
+import { parseArguments, type ResolvedCliArgs } from './args.ts';
 
 export async function runFindFiles(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;

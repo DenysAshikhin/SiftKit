@@ -4,17 +4,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ImageMetadataSchema } from '@siftkit/contracts';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { ImageRetentionPolicy } from '../src/image-retention-policy.js';
-import { countContentImages, extractContentText } from '../src/llm-protocol/image-attachments.js';
-import type { ChatMessage as PlannerChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import { buildReadPathKey } from '../src/repo-search/engine/read-overlap.js';
-import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
-import { rasterBuffer } from './helpers/image-fixtures.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { createTestChatSession } from './helpers/chat-sessions.js';
-import { makeProcessor } from './helpers/tool-action-processor.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { ImageRetentionPolicy } from '../src/image-retention-policy.ts';
+import { countContentImages, extractContentText } from '../src/llm-protocol/image-attachments.ts';
+import type { ChatMessage as PlannerChatMessage } from '../src/repo-search/planner-chat-message.ts';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
+import { buildReadPathKey } from '../src/repo-search/engine/read-overlap.ts';
+import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.ts';
+import { rasterBuffer } from './helpers/image-fixtures.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
+import { makeProcessor } from './helpers/tool-action-processor.ts';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 

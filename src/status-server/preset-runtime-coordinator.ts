@@ -4,11 +4,11 @@ import type {
   InferenceRuntimeStatus,
   ModelLifecycleActionResult,
 } from '@siftkit/contracts';
-import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
-import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
-import type { ModelRequestLock } from './server-types.js';
-import type { AppliedModelPresetState } from './applied-model-preset-state.js';
-import { persistAppliedModelSelection, readConfig, restorePreviousModelSelection } from './config-store.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.ts';
+import type { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
+import type { ModelRequestLock } from './server-types.ts';
+import type { AppliedModelPresetState } from './applied-model-preset-state.ts';
+import { persistAppliedModelSelection, readConfig, restorePreviousModelSelection } from './config-store.ts';
 
 const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is in progress; retry once it completes.';
 
@@ -28,16 +28,23 @@ export class PresetRuntimeCoordinator {
   private admissionBlockerPromise: Promise<void> = Promise.resolve();
   private resolveAdmissionBlocker: (() => void) | null = null;
 
+  private readonly configPath: string;
+  private readonly runtime: ManagedInferenceRuntime;
+  /** The server's live in-flight request map and the single owner of that fact,
+   * so nothing has to notify the coordinator when it changes. */
+  private readonly activeModelRequests: ReadonlyMap<string, ModelRequestLock>;
+  private readonly appliedModelPresetState: AppliedModelPresetState;
+
   constructor(
-    private readonly configPath: string,
-    private readonly runtime: ManagedInferenceRuntime,
-    /**
-     * The server's live in-flight request map, read on this coordinator's own terms. It is the
-     * single owner of that fact: nothing has to remember to notify the coordinator when it changes.
-     */
-    private readonly activeModelRequests: ReadonlyMap<string, ModelRequestLock>,
-    private readonly appliedModelPresetState: AppliedModelPresetState,
+    configPath: string,
+    runtime: ManagedInferenceRuntime,
+    activeModelRequests: ReadonlyMap<string, ModelRequestLock>,
+    appliedModelPresetState: AppliedModelPresetState,
   ) {
+    this.configPath = configPath;
+    this.runtime = runtime;
+    this.activeModelRequests = activeModelRequests;
+    this.appliedModelPresetState = appliedModelPresetState;
     this.appliedModelPresetState.applyPreset(this.getConfiguredPreset());
   }
 

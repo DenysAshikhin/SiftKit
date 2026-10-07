@@ -1,21 +1,21 @@
 import path from 'node:path';
 
-import { startStatusServer } from '../../src/status-server/index.js';
-import { writeConfig } from '../../src/status-server/config-store.js';
-import { getDefaultServerConfig } from './mock-config.js';
-import { readMetrics, type Metrics } from '../../src/status-server/metrics.js';
-import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-launch-snapshot.js';
-import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
-import { closeHttpServer, getAddressInfo } from './dashboard-http.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
-import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.js';
-import type { GpuMemoryProbe } from '../../src/status-server/gpu-memory.js';
+import { startStatusServer } from '../../src/status-server/index.ts';
+import { writeConfig } from '../../src/status-server/config-store.ts';
+import { getDefaultServerConfig } from './mock-config.ts';
+import { readMetrics, type Metrics } from '../../src/status-server/metrics.ts';
+import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-launch-snapshot.ts';
+import { getRuntimeDatabasePath } from '../../src/state/runtime-db.ts';
+import { closeHttpServer, getAddressInfo } from './dashboard-http.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.ts';
+import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.ts';
+import type { GpuMemoryProbe } from '../../src/status-server/gpu-memory.ts';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
   restoreDashboardTestEnv,
   restoreDashboardTestRepo,
-} from './dashboard-test-repo.js';
+} from './dashboard-test-repo.ts';
 
 /** Points the active preset at a stand-in inference backend for engine-backed E2Es. */
 export type DashboardTestBackend = {
@@ -44,13 +44,25 @@ const METRICS_SETTLE_TIMEOUT_MS = 10_000;
 export class DashboardTestServer {
   private closePromise: Promise<void> | null = null;
 
+  readonly tempRoot: string;
+  readonly baseUrl: string;
+  private readonly server: ReturnType<typeof startStatusServer>;
+  private readonly previousCwd: string;
+  private readonly envBackup: Record<string, string | undefined>;
+
   private constructor(
-    readonly tempRoot: string,
-    readonly baseUrl: string,
-    private readonly server: ReturnType<typeof startStatusServer>,
-    private readonly previousCwd: string,
-    private readonly envBackup: Record<string, string | undefined>,
-  ) {}
+    tempRoot: string,
+    baseUrl: string,
+    server: ReturnType<typeof startStatusServer>,
+    previousCwd: string,
+    envBackup: Record<string, string | undefined>,
+  ) {
+    this.tempRoot = tempRoot;
+    this.baseUrl = baseUrl;
+    this.server = server;
+    this.previousCwd = previousCwd;
+    this.envBackup = envBackup;
+  }
 
   private static seedExternalBackendConfig(backend: DashboardTestBackend): void {
     // Config and the launch snapshot both live in the runtime database.

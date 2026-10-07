@@ -1,8 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Rail, RAIL_ITEMS } from '../src/components/Rail';
+import { Rail, RAIL_ITEMS } from '../src/components/Rail.tsx';
 
 test('rail lists all six sections with labels', () => {
   const markup = renderToStaticMarkup(

@@ -1,17 +1,17 @@
 import type { ActivityEventDto } from '@siftkit/contracts';
 
-import type { AssistantConfig } from '../../config/types.js';
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { IdGenerator } from '../ids.js';
+import type { AssistantConfig } from '../../config/types.ts';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { IdGenerator } from '../ids.ts';
 import {
   ActivityEventRowSchema, ActivitySessionRowSchema,
   type ActivityEventRow, type ActivitySessionRow,
-} from '../storage/rows.js';
-import type { EvidenceStore } from '../storage/evidence-store.js';
-import type { ObservationStore } from '../storage/observation-store.js';
-import { requireObservationAllowed } from './observation-gate.js';
+} from '../storage/rows.ts';
+import type { EvidenceStore } from '../storage/evidence-store.ts';
+import type { ObservationStore } from '../storage/observation-store.ts';
+import { requireObservationAllowed } from './observation-gate.ts';
 
 /** A pause longer than this ends the session, per spec §4 sessionization. */
 const SESSION_GAP_SECONDS = 300;

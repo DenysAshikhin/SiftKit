@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { getDisplayToolCommand, commandMatchesDisplayText } from '../src/lib/display-command';
+import { getDisplayToolCommand, commandMatchesDisplayText } from '../src/lib/display-command.ts';
 
 test('getDisplayToolCommand prefers modelVisibleCommand', () => {
   assert.equal(getDisplayToolCommand({ modelVisibleCommand: ' rg foo ', command: 'rg bar' }), 'rg foo');

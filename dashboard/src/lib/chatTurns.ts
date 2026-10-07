@@ -1,6 +1,6 @@
 import { isDisplayOnlyImageMessage } from '@siftkit/contracts';
-import type { ChatMessage, ChatToolCallMessage } from '../types';
-import { buildToolActivityRing, type ToolActivityGroup } from './tool-activity-ring';
+import type { ChatMessage, ChatToolCallMessage } from '../types.ts';
+import { buildToolActivityRing, type ToolActivityGroup } from './tool-activity-ring.ts';
 
 /** How many recent thinking blocks a live turn keeps on screen, newest last. */
 export const LIVE_THINKING_STACK_DEPTH = 3;

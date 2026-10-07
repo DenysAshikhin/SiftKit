@@ -1,5 +1,5 @@
-import { JsonValueSchema, type JsonValue } from '../lib/json-types.js';
-import { parseJsonText } from '../lib/json.js';
+import { JsonValueSchema, type JsonValue } from '../lib/json-types.ts';
+import { parseJsonText } from '../lib/json.ts';
 
 export type AssistantCliInvocation =
   | { readonly kind: 'status' | 'pause' | 'resume' | 'policy_list' | 'projections_rebuild' }

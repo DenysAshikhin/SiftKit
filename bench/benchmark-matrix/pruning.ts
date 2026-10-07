@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ONE_WEEK_MS } from './types.js';
+import { ONE_WEEK_MS } from './types.ts';
 
 export function isLauncherLogFile(fileName: string): boolean {
   return /^launcher_.*_(stdout|stderr)\.log$/u.test(fileName);

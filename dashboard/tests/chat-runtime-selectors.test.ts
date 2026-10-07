@@ -1,12 +1,12 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { createLiveMessage } from '../src/lib/chat-live-messages';
-import { chatSnapshot } from './chat-snapshot-fixture.js';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { createLiveMessage } from '../src/lib/chat-live-messages.ts';
+import { chatSnapshot } from './chat-snapshot-fixture.ts';
 import {
   NO_MESSAGES, selectActionableApproval, selectActionableQuestion, selectAwaitingResponse, selectCompactedEarlierHistory,
   selectLive, selectLiveOperationId, selectQuestionId, selectRuntime, selectStreamedCharsSinceBase,
-} from '../src/lib/chat-runtime-selectors';
+} from '../src/lib/chat-runtime-selectors.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-0000000000d1';
 

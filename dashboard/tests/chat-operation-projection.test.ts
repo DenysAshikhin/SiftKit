@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { CHAT_PROJECTION_PROTOCOL_VERSION, ChatTextRowMetadataSchema, ChatTranscriptMessageSchema, ChatSessionResponseSchema, ChatRecoveryReportSchema, DurableChatQuestionSchema, type ChatProjectionRecord, type ChatProjectionFrame } from '@siftkit/contracts';
-import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../../src/status-server/chat-projection-encoder.js';
-import { ChatOperationProjection } from '../src/lib/chat-operation-projection';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
-import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
-import { CHAT_SESSION_RESPONSE } from './fixtures.js';
+import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../../src/status-server/chat-projection-encoder.ts';
+import { ChatOperationProjection } from '../src/lib/chat-operation-projection.ts';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions.ts';
+import type { ChatStreamEvent } from '../src/lib/chat-stream-parser.ts';
+import { CHAT_SESSION_RESPONSE } from './fixtures.ts';
 import {
   chatProjectionCapture, chatQueueState, chatSnapshotFrames, errorRecord, fragmentedFrames, nextTransferId, singleRecordFrames, terminalRecord,
-} from './chat-snapshot-fixture.js';
+} from './chat-snapshot-fixture.ts';
 
 const operationId = '4f9c1f9a-0000-4000-8000-000000000002';
 function message(id: string, content: string, kind: 'assistant_answer' | 'assistant_narration' = 'assistant_answer') {

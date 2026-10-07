@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../src/cli/index.js';
-import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
-import { parseJsonValueText } from '../src/lib/json.js';
+import { runCli } from '../src/cli/index.ts';
+import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
 import {
   detectRepoAgentHelpInvocation,
   RepoAgentHelpSchema,
   REPO_AGENT_EXIT_CODES,
-} from '../src/cli/repo-agent-help.js';
-import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
-import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
+} from '../src/cli/repo-agent-help.ts';
+import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.ts';
+import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.ts';
 
 test('CLI accepts --h as help alias', async () => {
   const stdout = makeCaptureStream();

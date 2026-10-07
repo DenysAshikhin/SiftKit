@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
 import {
   SEED_CHARS_PER_TOKEN,
   foldTurnTokenRecords,
   resolveCharsPerToken,
   type TurnTokenRecord,
-} from '../src/repo-search/engine/turn-token-record.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+} from '../src/repo-search/engine/turn-token-record.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
 
 function record(overrides: Partial<TurnTokenRecord> = {}): TurnTokenRecord {
   return {
@@ -75,7 +75,7 @@ test('resolveCharsPerToken ignores a turn that generated no tokens', () => {
   assert.equal(ratio, 5);
 });
 
-import { RepoSearchProgressEventSchema } from '../src/repo-search/types.js';
+import { RepoSearchProgressEventSchema } from '../src/repo-search/types.ts';
 
 test('the usage progress event carries the turn record, totals, and calibration ratio', () => {
   const parsed = RepoSearchProgressEventSchema.parse({

@@ -1,14 +1,14 @@
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import { z } from '../../lib/zod.js';
-import type { JsonValue } from '../../lib/json-types.js';
-import type { Clock } from '../clock.js';
-import type { ActorType, MutationOperation } from '../domain/enums.js';
-import type { IdGenerator } from '../ids.js';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import { z } from '../../lib/zod.ts';
+import type { JsonValue } from '../../lib/json-types.ts';
+import type { Clock } from '../clock.ts';
+import type { ActorType, MutationOperation } from '../domain/enums.ts';
+import type { IdGenerator } from '../ids.ts';
 import {
   AuditEventRowSchema, MetadataValueRowSchema, MutationLogRowSchema,
   type AuditEventRow, type MutationLogRow,
-} from './rows.js';
-import { GRAPH_VERSION_METADATA_KEY } from './schema.js';
+} from './rows.ts';
+import { GRAPH_VERSION_METADATA_KEY } from './schema.ts';
 
 export interface MutationLogEntry {
   readonly ownerId: string;
@@ -38,11 +38,19 @@ export interface AuditEventEntry {
  * Callers run these inside their own transaction; this store never opens one.
  */
 export class AuditStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   recordMutation(entry: MutationLogEntry): string {
     const id = this.ids.next('mut');

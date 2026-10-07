@@ -1,34 +1,34 @@
-import { toError } from '../../lib/errors.js';
+import { toError } from '../../lib/errors.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { z } from '../../lib/zod.js';
-import { MockPlannerResponsesSchema } from '../../planner-protocol/mock-response.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { assertPresetAcceptsImages } from '../../llm-protocol/image-attachments.js';
-import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js';
-import type { ChatMessage, ChatSession } from '../../state/chat-sessions.js';
+import { z } from '../../lib/zod.ts';
+import { MockPlannerResponsesSchema } from '../../planner-protocol/mock-response.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import { assertPresetAcceptsImages } from '../../llm-protocol/image-attachments.ts';
+import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.ts';
+import type { ChatMessage, ChatSession } from '../../state/chat-sessions.ts';
 import {
   ChatMessageImageNotFoundError,
   readChatSessionFromPath,
   updateChatMessageImageCaption,
-} from '../../state/chat-sessions.js';
-import { getActiveModelPreset } from '../../config/getters.js';
-import { readConfig } from '../config-store.js';
-import { ChatOperationPresetSelector } from '../chat-operation-preset.js';
-import { getRuntimeRoot } from '../paths.js';
-import { sendJson } from '../http-utils.js';
+} from '../../state/chat-sessions.ts';
+import { getActiveModelPreset } from '../../config/getters.ts';
+import { readConfig } from '../config-store.ts';
+import { ChatOperationPresetSelector } from '../chat-operation-preset.ts';
+import { getRuntimeRoot } from '../paths.ts';
+import { sendJson } from '../http-utils.ts';
 import {
   ChatSessionOperationEndpoint,
   type ChatSessionOperationRequest,
   type ChatOperationOutcome,
-} from './chat-session-operation-endpoint.js';
-import type { ModelRequestLock, ServerContext } from '../server-types.js';
+} from './chat-session-operation-endpoint.ts';
+import type { ModelRequestLock, ServerContext } from '../server-types.ts';
 import {
   ModelRequestTargetError,
   UncancelledModelWaitError,
   acquireWebUiModelRequest,
   releaseModelRequest,
-} from '../server-ops.js';
+} from '../server-ops.ts';
 
 const CAPTION_PROMPT = 'Describe this image in two or three sentences. Say what is legible and '
   + 'what is not at this resolution. Do not speculate about anything you cannot see.';

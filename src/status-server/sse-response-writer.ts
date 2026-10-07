@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { JsonSerializable } from '../lib/json-types.js';
-import { OPERATION_STREAM_HEARTBEAT_MS } from '../lib/operation-stream.js';
+import type { JsonSerializable } from '../lib/json-types.ts';
+import { OPERATION_STREAM_HEARTBEAT_MS } from '../lib/operation-stream.ts';
 
 const SSE_DRAIN_TIMEOUT_MS = 15_000;
 const SSE_CHUNK_CODE_UNITS = 16 * 1024;
@@ -14,11 +14,14 @@ export class SseResponseWriter {
   private drainingFrame = false;
   private readonly drainTimeoutMs: number;
 
+  private readonly res: ServerResponse;
+
   constructor(
     req: IncomingMessage,
-    private readonly res: ServerResponse,
+    res: ServerResponse,
     options: { heartbeatMs?: number; drainTimeoutMs?: number } = {},
   ) {
+    this.res = res;
     this.heartbeatMs = options.heartbeatMs ?? OPERATION_STREAM_HEARTBEAT_MS;
     this.clientDisconnected = res.destroyed || res.writableEnded;
     this.drainTimeoutMs = options.drainTimeoutMs ?? SSE_DRAIN_TIMEOUT_MS;

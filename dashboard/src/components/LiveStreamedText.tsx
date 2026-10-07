@@ -1,7 +1,7 @@
 import React from 'react';
-import { MarkdownBlocks } from './MarkdownContent';
-import { streamTailStart } from '../lib/markdown-blocks';
-import { SmoothStreamPacer } from '../lib/smooth-stream-pacer';
+import { MarkdownBlocks } from './MarkdownContent.tsx';
+import { streamTailStart } from '../lib/markdown-blocks.ts';
+import { SmoothStreamPacer } from '../lib/smooth-stream-pacer.ts';
 
 /** Every tail write makes Chrome present a frame; above ~30 Hz that costs GPU and CPU (measured), not smoothness. */
 export const STREAM_ADVANCE_INTERVAL_MS = 33;

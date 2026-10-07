@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { parseJsonResponse } from '../dashboard/src/api.js';
+import { parseJsonResponse } from '../dashboard/src/api.ts';
 
 test('parseJsonResponse validates against the schema', async () => {
   const out = await parseJsonResponse(new Response(JSON.stringify({ ok: true })), z.object({ ok: z.boolean() }));

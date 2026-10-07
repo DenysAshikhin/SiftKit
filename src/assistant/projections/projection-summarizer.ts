@@ -1,7 +1,7 @@
-import { z } from '../../lib/zod.js';
-import { SensitivitySchema } from '../domain/enums.js';
-import type { TokenCounter } from '../domain/tokens.js';
-import type { StructuredOutputRunner } from '../inference/structured-runner.js';
+import { z } from '../../lib/zod.ts';
+import { SensitivitySchema } from '../domain/enums.ts';
+import type { TokenCounter } from '../domain/tokens.ts';
+import type { StructuredOutputRunner } from '../inference/structured-runner.ts';
 
 const ProjectionSummaryOutputSchema = z.object({
   sentences: z.array(z.object({
@@ -46,10 +46,16 @@ const INSTRUCTIONS = [
 const CITATION_PATTERN = /\[M:([^\]]+)\]/gu;
 
 export class ProjectionSummarizer implements ProjectionSummaryService {
+  private readonly structuredOutput: StructuredOutputRunner;
+  private readonly tokens: TokenCounter;
+
   constructor(
-    private readonly structuredOutput: StructuredOutputRunner,
-    private readonly tokens: TokenCounter,
-  ) {}
+    structuredOutput: StructuredOutputRunner,
+    tokens: TokenCounter,
+  ) {
+    this.structuredOutput = structuredOutput;
+    this.tokens = tokens;
+  }
 
   async summarize(
     rawInput: SummarizeProjectionInput,

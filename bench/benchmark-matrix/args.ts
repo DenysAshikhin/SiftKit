@@ -1,5 +1,5 @@
-import type { OptionalJsonValue } from '../../src/lib/json-types.js';
-import { defaultManifestPath, type MatrixCliOptions } from './types.js';
+import type { OptionalJsonValue } from '../../src/lib/json-types.ts';
+import { defaultManifestPath, type MatrixCliOptions } from './types.ts';
 
 export function getRequiredString(value: OptionalJsonValue, name: string): string {
   const text = String(value ?? '').trim();

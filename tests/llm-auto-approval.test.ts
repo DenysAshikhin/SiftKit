@@ -1,6 +1,6 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test, { before, after } from 'node:test';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
 before(() => isolatedRuntime.start());
@@ -9,35 +9,35 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { buildScorecard, runTaskLoop } from '../src/repo-search/engine.js';
-import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
+import { buildScorecard, runTaskLoop } from '../src/repo-search/engine.ts';
+import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.ts';
 import {
   CLIENT_ABORT_MESSAGE,
   buildApprovalTimeoutMessage,
   type ApprovalDecision,
   type ApprovalGate,
-} from '../src/repo-search/engine/approval-gate.js';
-import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.js';
-import type { ChatApprovalReviewedEvidence } from '../src/repo-search/engine/chat-run-evidence.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
-import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
-import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
-import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
+} from '../src/repo-search/engine/approval-gate.ts';
+import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.ts';
+import type { ChatApprovalReviewedEvidence } from '../src/repo-search/engine/chat-run-evidence.ts';
+import { SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.ts';
+import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.ts';
+import { sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
+import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { ApprovalGateHarness } from './helpers/approval-gate-harness.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
 
 const RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
@@ -119,8 +119,11 @@ class AlwaysApproveProvider implements DecisionProvider {
 
 class RecordingWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
   public gate: ApprovalGate | null = null;
-  constructor(private readonly provider: DecisionProvider) {
+  private readonly provider: DecisionProvider;
+
+  constructor(provider: DecisionProvider) {
     super();
+    this.provider = provider;
   }
   override write(event: RepoSearchProgressEvent): void {
     super.write(event);

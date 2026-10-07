@@ -1,10 +1,10 @@
-import type { SiftConfig } from '../../src/config/index.js';
-import { PresetCatalog } from '../../src/preset-catalog.js';
+import type { SiftConfig } from '../../src/config/index.ts';
+import { PresetCatalog } from '../../src/preset-catalog.ts';
 import {
   PresetSystemContextBuilder,
   type PresetSystemContext,
-} from '../../src/preset-system-context.js';
-import { buildSummaryPrompt } from '../../src/summary/prompt.js';
+} from '../../src/preset-system-context.ts';
+import { buildSummaryPrompt } from '../../src/summary/prompt.ts';
 
 type SummaryPromptOptions = Parameters<typeof buildSummaryPrompt>[0];
 

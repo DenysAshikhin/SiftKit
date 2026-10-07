@@ -3,23 +3,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { startStatusServer } from '../src/status-server/index.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
 import {
   requestJson,
   asObjectArray,
   asArray,
   getAddressInfo,
-} from './helpers/dashboard-http.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+} from './helpers/dashboard-http.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 import {
   DashboardRunSeeder,
   buildRepoSearchTranscriptText,
   getOrdinalRequestId,
-} from './helpers/dashboard-run-seed.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
-import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+} from './helpers/dashboard-run-seed.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 
 function seedSummaryRuns(seeder: DashboardRunSeeder, count: number, hourUtc: string): void {
   for (let index = 0; index < count; index += 1) {

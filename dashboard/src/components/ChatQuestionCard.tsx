@@ -1,7 +1,7 @@
 import React from 'react';
 import { CHAT_QUESTION_MAX_NOTE_CHARS, type ChatQuestionReply, type DurableChatQuestion } from '@siftkit/contracts';
-import { useExpired } from '../hooks/useExpired';
-import { formatDate } from '../lib/format';
+import { useExpired } from '../hooks/useExpired.ts';
+import { formatDate } from '../lib/format.ts';
 
 /** The assistant's question: up to three choices, an optional discuss note, and Cancel (which stops the run). */
 export function ChatQuestionCard({ question, onAnswer, onCancel }: {

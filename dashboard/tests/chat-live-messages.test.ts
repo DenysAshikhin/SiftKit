@@ -1,15 +1,15 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import {
   createLiveMessage,
   upsertLiveMessageInto,
-} from '../src/lib/chat-live-messages';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../src/lib/chatTurns';
-import type { ChatTurn } from '../src/lib/chatTurns';
+} from '../src/lib/chat-live-messages.ts';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../src/lib/chatTurns.ts';
+import type { ChatTurn } from '../src/lib/chatTurns.ts';
 import type { ChatStreamToolEvent } from '@siftkit/contracts';
-import { applyLiveTranscript, type LiveTranscriptStep } from './live-transcript-fixture.js';
+import { applyLiveTranscript, type LiveTranscriptStep } from './live-transcript-fixture.ts';
 
 test('upsertLiveMessageInto appends a new entry when the id is unique', () => {
   const initial = createLiveMessage('a', 'assistant_answer', 'assistant', 'one');

@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { getRuntimeDatabase, closeAllRuntimeDatabases, type RuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, closeAllRuntimeDatabases, type RuntimeDatabase } from '../src/state/runtime-db.ts';
 import {
   ChatToolResultsError,
   requireDurableToolResult,
   type ChatToolResultsFailure,
-} from '../src/status-server/chat-tool-results.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { readChatToolResults } from './helpers/chat-tool-results.js';
+} from '../src/status-server/chat-tool-results.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { readChatToolResults } from './helpers/chat-tool-results.ts';
 
 function isReaderFailure(reason: ChatToolResultsFailure): (error: Error) => boolean {
   return (error) => error instanceof ChatToolResultsError && error.reason === reason;

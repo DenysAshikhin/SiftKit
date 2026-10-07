@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { startHarness } from './helpers/streamed-op-harness.js';
-import { requestJson, requestSse, asObject } from './helpers/dashboard-http.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
-import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { startHarness } from './helpers/streamed-op-harness.ts';
+import { requestJson, requestSse, asObject } from './helpers/dashboard-http.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
+import { ChatMessageQueueStore } from '../src/state/chat-message-queue.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
 
 async function createSession(baseUrl: string): Promise<string> {
   return String(asObject((await requestJson(`${baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'root' }) })).body.session).id);

@@ -1,10 +1,10 @@
-import { z } from '../lib/zod.js';
+import { z } from '../lib/zod.ts';
 import { createHash } from 'node:crypto';
 import { RunOperationTypeSchema } from '@siftkit/contracts';
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { PlannerChatMessagesSchema, findPlannerContextViolation, type ChatMessage } from '../repo-search/planner-chat-message.js';
-import { readChatToolResultsFromTranscript, type ChatToolTranscript } from './chat-tool-results.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { PlannerChatMessagesSchema, findPlannerContextViolation, type ChatMessage } from '../repo-search/planner-chat-message.ts';
+import { readChatToolResultsFromTranscript, type ChatToolTranscript } from './chat-tool-results.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
 
 export const ChatArchiveSourceSchema = z.strictObject({
   sourceId: z.string().min(1),

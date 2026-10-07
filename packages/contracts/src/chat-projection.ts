@@ -5,7 +5,7 @@ import {
   ChatRunTerminalCauseSchema,
   ChatTextRowMetadataSchema,
   ChatTranscriptMessageSchema,
-} from './chat.js';
+} from './chat.ts';
 import {
   ChatEventCursorSchema,
   ChatOperationSnapshotSchema,
@@ -15,7 +15,7 @@ import {
   ChatStreamErrorSchema,
   DurableChatApprovalSchema,
   DurableChatQuestionSchema,
-} from './chat-recovery.js';
+} from './chat-recovery.ts';
 
 export const CHAT_PROJECTION_PROTOCOL_VERSION = 3;
 /** Upper bound on one encoded `chat_projection` SSE event, escaping and framing included. */

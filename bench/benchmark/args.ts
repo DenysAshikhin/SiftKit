@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { initializeRuntime } from '../../src/config/index.js';
-import { parseOptionalSummaryProvider } from '../../src/summary/types.js';
-import { getLocalTimestamp } from '../../src/lib/time.js';
+import { initializeRuntime } from '../../src/config/index.ts';
+import { parseOptionalSummaryProvider } from '../../src/summary/types.ts';
+import { getLocalTimestamp } from '../../src/lib/time.ts';
 import {
   DEFAULT_REQUEST_TIMEOUT_SECONDS,
   type BenchmarkFixture,
   type BenchmarkRunnerOptions,
-} from './types.js';
+} from './types.ts';
 
 export function parseArguments(argv: string[]): BenchmarkRunnerOptions {
   const parsed: BenchmarkRunnerOptions = {};

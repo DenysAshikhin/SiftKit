@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RunOperationTypeSchema } from './operation-types.js';
+import { RunOperationTypeSchema } from './operation-types.ts';
 
 /**
  * Canonical model-throughput record. One record folds every physical model request observed for an

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { countChatInputTokens } from '../src/status-server/chat-turn-telemetry.js';
+import { countChatInputTokens } from '../src/status-server/chat-turn-telemetry.ts';
 
 test('chat turn telemetry estimates input tokens when no tokenizer is configured', async () => {
   assert.deepEqual(await countChatInputTokens(undefined, '12345678'), { tokenCount: 2, estimated: true });

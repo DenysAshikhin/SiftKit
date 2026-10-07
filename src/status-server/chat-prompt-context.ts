@@ -1,12 +1,12 @@
-import { getActiveModelPreset } from '../config/index.js';
-import type { SiftConfig } from '../config/types.js';
-import type { SiftPreset } from '../presets.js';
-import { PresetCatalog } from '../preset-catalog.js';
-import { resolveRunSystemPrompt, type RunSystemPromptSurface } from '../repo-search/run-system-prompt.js';
-import type { ChatSession } from '../state/chat-sessions.js';
-import { resolveChatRunAllowedTools } from './chat-operation-preset.js';
-import { buildChatSystemContent, resolveChatPreviewConfig } from './chat.js';
-import { PresetSystemContextBuilder } from '../preset-system-context.js';
+import { getActiveModelPreset } from '../config/index.ts';
+import type { SiftConfig } from '../config/types.ts';
+import type { SiftPreset } from '../presets.ts';
+import { PresetCatalog } from '../preset-catalog.ts';
+import { resolveRunSystemPrompt, type RunSystemPromptSurface } from '../repo-search/run-system-prompt.ts';
+import type { ChatSession } from '../state/chat-sessions.ts';
+import { resolveChatRunAllowedTools } from './chat-operation-preset.ts';
+import { buildChatSystemContent, resolveChatPreviewConfig } from './chat.ts';
+import { PresetSystemContextBuilder } from '../preset-system-context.ts';
 
 export type ChatPromptContext = {
   id: string;

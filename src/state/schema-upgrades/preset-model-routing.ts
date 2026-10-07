@@ -1,7 +1,7 @@
 import { SiftPresetSchema } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
-import { parseJsonValueText } from '../../lib/json.js';
-import type { RuntimeDatabase } from '../database-handle.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonValueText } from '../../lib/json.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
 
 const StoredCatalogRowsSchema = z.array(z.object({
   id: z.number().int(),

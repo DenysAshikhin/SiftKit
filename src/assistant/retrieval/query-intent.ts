@@ -1,4 +1,4 @@
-import { z } from '../../lib/zod.js';
+import { z } from '../../lib/zod.ts';
 
 export const MemoryTaskTypeSchema = z.enum([
   'conversation', 'coding', 'planning', 'troubleshooting',

@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { AGENT_RUN_ID_HEADER } from '../lib/agent-run-marker.js';
-import { recordServerError } from './error-response.js';
-import { sendJson } from './http-utils.js';
-import { getModelRequestQueueDiagnostics } from './server-ops.js';
-import type { ServerContext } from './server-types.js';
+import { AGENT_RUN_ID_HEADER } from '../lib/agent-run-marker.ts';
+import { recordServerError } from './error-response.ts';
+import { sendJson } from './http-utils.ts';
+import { getModelRequestQueueDiagnostics } from './server-ops.ts';
+import type { ServerContext } from './server-types.ts';
 
 export function rejectNestedAgentSelfCall(
   ctx: ServerContext,

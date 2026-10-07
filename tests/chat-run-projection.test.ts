@@ -3,16 +3,16 @@ import path from 'node:path';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import type { ChatJournalEvent } from '../src/state/chat-journal-schema.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
-import { rebuildChatRun, reconcileChatRun } from '../src/status-server/chat-run-projection.js';
-import type { RuntimeDatabase } from '../src/state/database-handle.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { ChatRecoveryInvariantError } from '../src/state/chat-journal.js';
-import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.js';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import type { ChatJournalEvent } from '../src/state/chat-journal-schema.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { readChatSessions, saveChatSession } from '../src/state/chat-sessions.ts';
+import { rebuildChatRun, reconcileChatRun } from '../src/status-server/chat-run-projection.ts';
+import type { RuntimeDatabase } from '../src/state/database-handle.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
+import { ChatRecoveryInvariantError } from '../src/state/chat-journal.ts';
+import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.ts';
 
 const SESSION_ID = 'projection-session';
 const OWNER_EPOCH = 'owner-a:1';

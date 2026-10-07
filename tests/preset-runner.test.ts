@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { requireRunnableCliPreset, selectPresetRunKind, StatusPresetRunner } from '../src/status-server/preset-runner.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
-import { buildScorecard } from '../src/repo-search/engine.js';
-import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import { getConfigPath, type SiftConfig } from '../src/config/index.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { currentModelTarget } from './helpers/chat-run-recorder.js';
-import { mockConfig, withTempEnv } from './_runtime-helpers.js';
+import { requireRunnableCliPreset, selectPresetRunKind, StatusPresetRunner } from '../src/status-server/preset-runner.ts';
+import { StatusEngineService } from '../src/status-server/engine-service.ts';
+import { buildScorecard } from '../src/repo-search/engine.ts';
+import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.ts';
+import { getConfigPath, type SiftConfig } from '../src/config/index.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { currentModelTarget } from './helpers/chat-run-recorder.ts';
+import { mockConfig, withTempEnv } from './_runtime-helpers.ts';
 
 class CapturingEngineService extends StatusEngineService {
   readonly repoSearchRequests: RepoSearchExecutionRequest[] = [];

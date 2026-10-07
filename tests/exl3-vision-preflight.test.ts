@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ModelRuntimePresetSchema, type ModelRuntimePreset } from '@siftkit/contracts';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import type { JsonValue } from '../src/lib/json-types.js';
-import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.js';
-import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
+import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.ts';
+import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.ts';
 
 function createTempDir(prefix: string): string {
   return createManagedTempDir(prefix);

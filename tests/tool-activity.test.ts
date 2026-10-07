@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getToolActivity } from '../src/repo-search/tool-activity.js';
+import { getToolActivity } from '../src/repo-search/tool-activity.ts';
 
 test('getToolActivity derives kind and concise subject from validated native tool identity', () => {
   assert.deepEqual(getToolActivity({ toolName: 'read', args: { path: 'dashboard/src/tabs/ChatTab.tsx' } }), {

@@ -8,9 +8,9 @@ import test from 'node:test';
 import {
   RequestBodyTooLargeError,
   readBodyToFile,
-} from '../src/status-server/http-utils.js';
-import { testHttpAgent } from './helpers/http-agent.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+} from '../src/status-server/http-utils.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 type WriteOutcome = { ok: true } | { ok: false; error: Error };
 

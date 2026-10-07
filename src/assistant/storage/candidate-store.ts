@@ -1,17 +1,17 @@
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { AssertionBasis, CandidateStatus, Sensitivity } from '../domain/enums.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { AssertionBasis, CandidateStatus, Sensitivity } from '../domain/enums.ts';
 import {
   buildCandidateFingerprint, CandidateObjectRefSchema, UnresolvedNodeRefSchema,
   type CandidateObjectRef, type UnresolvedNodeRef,
-} from '../domain/keys.js';
-import type { RelationType } from '../domain/relation-types.js';
-import { AssistantConflictError } from '../errors.js';
-import type { IdGenerator } from '../ids.js';
-import { CandidateHoldSchema, type CandidateHold } from '../ingestion/candidate-hold.js';
-import { CandidateRowSchema, type CandidateRow } from './rows.js';
+} from '../domain/keys.ts';
+import type { RelationType } from '../domain/relation-types.ts';
+import { AssistantConflictError } from '../errors.ts';
+import type { IdGenerator } from '../ids.ts';
+import { CandidateHoldSchema, type CandidateHold } from '../ingestion/candidate-hold.ts';
+import { CandidateRowSchema, type CandidateRow } from './rows.ts';
 
 export interface ProposeCandidateInput {
   readonly ownerId: string;
@@ -39,11 +39,19 @@ export interface CandidateRefs {
  * a graph assertion; nothing in this file writes to the graph.
  */
 export class CandidateStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   /** Returns `null` when the same proposal already exists for this observation (§8.3). */
   propose(input: ProposeCandidateInput): CandidateRow | null {

@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 
-import type { JsonValue } from '../lib/json-types.js';
-import type { ObjectValueType } from '../assistant/domain/enums.js';
-import { parseAssistantArgs } from './assistant-args.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
+import type { JsonValue } from '../lib/json-types.ts';
+import type { ObjectValueType } from '../assistant/domain/enums.ts';
+import { parseAssistantArgs } from './assistant-args.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
 
 interface RunAssistantOptions {
   readonly args: readonly string[];

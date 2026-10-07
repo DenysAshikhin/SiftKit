@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { ChatQuestionReply } from '@siftkit/contracts';
-import { getAbortError } from '../../lib/abort.js';
-import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.js';
-import { DEFAULT_DECISION_TIMEOUT_MS } from './approval-gate.js';
-import type { ChatQuestionRequestedEvidence, ChatQuestionResolvedEvidence } from './chat-run-evidence.js';
+import { getAbortError } from '../../lib/abort.ts';
+import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.ts';
+import { DEFAULT_DECISION_TIMEOUT_MS } from './approval-gate.ts';
+import type { ChatQuestionRequestedEvidence, ChatQuestionResolvedEvidence } from './chat-run-evidence.ts';
 
 /** What a question commits; the chat run recorder is the production implementation. */
 export interface QuestionEvidenceSink {
@@ -43,7 +43,13 @@ export function formatQuestionReply(choices: readonly string[], reply: ChatQuest
 export class QuestionGate {
   private pending: PendingQuestion | null = null;
 
-  constructor(private readonly sink: QuestionEvidenceSink, private readonly timeoutMs = DEFAULT_DECISION_TIMEOUT_MS) {}
+  private readonly sink: QuestionEvidenceSink;
+  private readonly timeoutMs: number;
+
+  constructor(sink: QuestionEvidenceSink, timeoutMs = DEFAULT_DECISION_TIMEOUT_MS) {
+    this.sink = sink;
+    this.timeoutMs = timeoutMs;
+  }
 
   get pendingQuestionId(): string | null {
     return this.pending?.questionId ?? null;

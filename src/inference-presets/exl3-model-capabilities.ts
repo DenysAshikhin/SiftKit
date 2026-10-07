@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { win32 } from 'node:path';
 import { z } from 'zod';
-import { parseJsonValueText } from '../lib/json.js';
+import { parseJsonValueText } from '../lib/json.ts';
 
 const ModelConfigSchema = z.object({
   vision_config: z.object({}).passthrough(),
@@ -79,9 +79,13 @@ export class InterpreterExl3PackageLocator implements Exl3PackageLocator {
 const DEVICE_RESIDENT_PAST_IDS_MARKER = 'pinned_ids_valid';
 
 export class Exl3ModelCapabilities {
+  private readonly packageLocator: Exl3PackageLocator;
+
   constructor(
-    private readonly packageLocator: Exl3PackageLocator = new InterpreterExl3PackageLocator(),
-  ) {}
+    packageLocator: Exl3PackageLocator = new InterpreterExl3PackageLocator(),
+  ) {
+    this.packageLocator = packageLocator;
+  }
 
   hasVisionTower(modelDirectory: string): boolean {
     try {

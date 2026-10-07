@@ -4,10 +4,10 @@ import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
-} from '../../src/repo-search/types.js';
-import { upsertRuntimeTextArtifact } from '../../src/state/runtime-artifacts.js';
-import { StatusEngineService } from '../../src/status-server/engine-service.js';
-import { buildUserContent } from '../../src/llm-protocol/image-attachments.js';
+} from '../../src/repo-search/types.ts';
+import { upsertRuntimeTextArtifact } from '../../src/state/runtime-artifacts.ts';
+import { StatusEngineService } from '../../src/status-server/engine-service.ts';
+import { buildUserContent } from '../../src/llm-protocol/image-attachments.ts';
 
 class DeferredNotification {
   readonly promise: Promise<void>;
@@ -48,8 +48,11 @@ export class StoppedChatEngineService extends StatusEngineService {
   private readonly aborted = new DeferredNotification();
   private readonly postAbortRelease = new DeferredNotification();
 
-  constructor(private readonly scenario: StoppedChatEngineScenario) {
+  private readonly scenario: StoppedChatEngineScenario;
+
+  constructor(scenario: StoppedChatEngineScenario) {
     super();
+    this.scenario = scenario;
   }
 
   waitUntilEntered(): Promise<void> {

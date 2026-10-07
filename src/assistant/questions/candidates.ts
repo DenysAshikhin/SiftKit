@@ -1,6 +1,6 @@
-import type { AssistantGraph } from '../assistant-graph.js';
-import type { QuestionType } from '../domain/enums.js';
-import type { CandidateRow, NodeRow } from '../storage/rows.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
+import type { QuestionType } from '../domain/enums.ts';
+import type { CandidateRow, NodeRow } from '../storage/rows.ts';
 
 export const SUPPORTED_QUESTION_GAP_TYPES = [
   'candidate_confirmation',
@@ -44,7 +44,11 @@ function sensitivityCost(sensitivity: CandidateRow['sensitivity'] | NodeRow['sen
 }
 
 export class GraphQuestionCandidateSource implements QuestionCandidateSource {
-  constructor(private readonly graph: AssistantGraph) {}
+  private readonly graph: AssistantGraph;
+
+  constructor(graph: AssistantGraph) {
+    this.graph = graph;
+  }
 
   list(ownerId: string): QuestionCandidate[] {
     const candidates = [

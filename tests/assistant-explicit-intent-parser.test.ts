@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ExplicitIntentParser } from '../src/assistant/retrieval/explicit-intent-parser.js';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { ExplicitIntentParser } from '../src/assistant/retrieval/explicit-intent-parser.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
 
 test('explicit intent parsing returns only a validated QueryIntent from text-only inference', async () => {
   const inference = new FakeAssistantInference([JSON.stringify({

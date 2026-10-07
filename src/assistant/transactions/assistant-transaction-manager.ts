@@ -1,4 +1,4 @@
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
 
 interface ScopeRecord {
   readonly name: string | null;
@@ -14,7 +14,11 @@ export class AssistantTransactionManager {
   private readonly stack: ScopeRecord[] = [];
   private counter = 0;
 
-  constructor(private readonly database: RuntimeDatabase) {}
+  private readonly database: RuntimeDatabase;
+
+  constructor(database: RuntimeDatabase) {
+    this.database = database;
+  }
 
   begin(): AssistantTransactionScope {
     const top = this.stack.at(-1);
@@ -34,11 +38,19 @@ export class AssistantTransactionManager {
 
 /** Single-use transaction scope. Only the current top scope may close. */
 export class AssistantTransactionScope {
+  private readonly database: RuntimeDatabase;
+  private readonly record: ScopeRecord;
+  private readonly stack: ScopeRecord[];
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly record: ScopeRecord,
-    private readonly stack: ScopeRecord[],
-  ) {}
+    database: RuntimeDatabase,
+    record: ScopeRecord,
+    stack: ScopeRecord[],
+  ) {
+    this.database = database;
+    this.record = record;
+    this.stack = stack;
+  }
 
   commit(): void {
     this.ensureOpenAndTop();

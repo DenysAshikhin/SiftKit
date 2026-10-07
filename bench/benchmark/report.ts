@@ -1,5 +1,5 @@
-import type { BenchmarkCaseResult, BenchmarkRunResult } from './types.js';
-import type { SummaryProviderId } from '../../src/summary/types.js';
+import type { BenchmarkCaseResult, BenchmarkRunResult } from './types.ts';
+import type { SummaryProviderId } from '../../src/summary/types.ts';
 
 export function roundDuration(durationMs: number): number {
   return Math.round(durationMs * 1000) / 1000;

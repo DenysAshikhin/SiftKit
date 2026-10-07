@@ -15,7 +15,7 @@ import {
   type DurableChatApproval,
   type DurableChatQuestion,
 } from '@siftkit/contracts';
-import { parseJsonValueText } from '../../../src/lib/json.js';
+import { parseJsonValueText } from '../../../src/lib/json.ts';
 
 type BeginRecord = Extract<ChatProjectionRecord, { kind: 'begin' }>;
 
@@ -66,7 +66,11 @@ export class ChatOperationProjection {
   private committed: { snapshot: ChatOperationSnapshot; cursor: ChatProjectionCursor } | null = null;
   private readonly finishedTransferIds = new Set<string>();
 
-  constructor(private readonly sessionId: string) {}
+  private readonly sessionId: string;
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
 
   /** The last committed view, or null before the first commit. */
   get snapshot(): ChatOperationSnapshot | null {

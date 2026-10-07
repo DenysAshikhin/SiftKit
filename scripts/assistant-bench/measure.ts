@@ -1,13 +1,13 @@
-import { hashBytes } from '../../src/assistant/domain/keys.js';
-import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.js';
-import { CaptureQueueStore } from '../../src/assistant/images/capture-queue-store.js';
-import { MemoryRetriever } from '../../src/assistant/retrieval/memory-retriever.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
-import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { hashBytes } from '../../src/assistant/domain/keys.ts';
+import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
+import { CaptureQueueStore } from '../../src/assistant/images/capture-queue-store.ts';
+import { MemoryRetriever } from '../../src/assistant/retrieval/memory-retriever.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
+import { closeRuntimeDatabase } from '../../src/state/runtime-db.ts';
 import {
   DEFAULT_BENCH_ROOT, OWNER_ID, activityEvent, openBench, readStringArg,
-} from './shared.js';
+} from './shared.ts';
 
 const WARMUP_ITERATIONS = 10;
 const DEFAULT_ITERATIONS = 1_000;

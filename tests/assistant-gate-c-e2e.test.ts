@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 const ANSWER_EXTRACTION = JSON.stringify({ statements: [{
   statementKind: 'direct_fact',

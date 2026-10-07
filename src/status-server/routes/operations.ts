@@ -1,30 +1,31 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { toError } from '../../lib/errors.js';
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { JsonObject, JsonSerializable, OptionalJsonValue } from '../../lib/json-types.js';
-import type { ServerContext } from '../server-types.js';
+import { toError } from '../../lib/errors.ts';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import type { JsonObject, JsonSerializable, OptionalJsonValue } from '../../lib/json-types.ts';
+import type { ServerContext } from '../server-types.ts';
 import {
   parseOptionalSummaryProvider,
   type SummaryPolicyProfile,
   type SummarySourceKind,
-} from '../../summary/types.js';
-import { readConfig } from '../config-store.js';
-import { sendJson } from '../http-utils.js';
-import { sendServerErrorJson } from '../error-response.js';
-import { requireRunnableCliPreset, StatusPresetRunner } from '../preset-runner.js';
+} from '../../summary/types.ts';
+import { readConfig } from '../config-store.ts';
+import { sendJson } from '../http-utils.ts';
+import { sendServerErrorJson } from '../error-response.ts';
+import { requireRunnableCliPreset, StatusPresetRunner } from '../preset-runner.ts';
 import {
   RepoSearchSseProgressWriter,
   SummarySseProgressWriter,
-} from '../operation-progress-writers.js';
-import { parseSummaryRequest } from '../route-request-normalizers.js';
+} from '../operation-progress-writers.ts';
+import { parseSummaryRequest } from '../route-request-normalizers.ts';
 import {
   StreamedOperationEndpoint,
   type ParsedStreamedRequest,
   type StreamedOperationContext,
-} from './streamed-operation-endpoint.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import { PresetCatalog } from '../../preset-catalog.js';
-import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
+} from './streamed-operation-endpoint.ts';
+import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
+import type { CommandOutputAnalyzeRequest } from '../../command-output/types.ts';
+import { PresetCatalog } from '../../preset-catalog.ts';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.ts';
 
 /** A summary-kind operation: its named preset, or the catalog's summary default. */
 function summaryIntent(ctx: ServerContext, presetId: string | undefined, model: string | undefined): ModelRequestIntent {
@@ -61,6 +62,25 @@ function normalizeCommandOutputReducerProfile(value: OptionalJsonValue): 'smart'
   return value === 'smart' || value === 'errors' || value === 'tail' || value === 'diff' || value === 'none' ? value : undefined;
 }
 
+/** The analyze wire body as an analyzer request; the route adds its admitted config and stream. */
+export function parseCommandOutputAnalyzeBody(parsedBody: JsonObject): CommandOutputAnalyzeRequest {
+  const reader = new JsonRecordReader(parsedBody);
+  return {
+    repoRoot: reader.string('repoRoot'),
+    outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
+    exitCode: reader.number('exitCode') ?? 1,
+    combinedText: typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '',
+    commandText: reader.optionalString('commandText'),
+    question: reader.optionalString('question'),
+    riskLevel: normalizeCommandOutputRiskLevel(parsedBody.riskLevel),
+    reducerProfile: normalizeCommandOutputReducerProfile(parsedBody.reducerProfile),
+    format: parsedBody.format === 'json' ? 'json' : 'text',
+    policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
+    provider: parseOptionalSummaryProvider(reader.optionalString('provider')),
+    noSummarize: parsedBody.noSummarize === true,
+  };
+}
+
 type ParsedCommandOutputRoute = { parsedBody: JsonObject };
 
 export class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<ParsedCommandOutputRoute> {
@@ -83,21 +103,8 @@ export class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<Pars
     parsed: ParsedCommandOutputRoute,
     stream: StreamedOperationContext,
   ): Promise<JsonSerializable> {
-    const { parsedBody } = parsed;
-    const reader = new JsonRecordReader(parsedBody);
     return ctx.engineService.analyzeCommandOutput({
-      repoRoot: reader.string('repoRoot'),
-      outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
-      exitCode: reader.number('exitCode') ?? 1,
-      combinedText: typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '',
-      commandText: reader.optionalString('commandText'),
-      question: reader.optionalString('question'),
-      riskLevel: normalizeCommandOutputRiskLevel(parsedBody.riskLevel),
-      reducerProfile: normalizeCommandOutputReducerProfile(parsedBody.reducerProfile),
-      format: parsedBody.format === 'json' ? 'json' : 'text',
-      policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
-      provider: parseOptionalSummaryProvider(reader.optionalString('provider')),
-      noSummarize: parsedBody.noSummarize === true,
+      ...parseCommandOutputAnalyzeBody(parsed.parsedBody),
       config: stream.model.config,
       abortSignal: stream.abortSignal,
       progressWriter: new SummarySseProgressWriter(stream),

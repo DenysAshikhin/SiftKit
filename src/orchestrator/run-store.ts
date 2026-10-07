@@ -20,11 +20,11 @@ import {
   type OrchestratorTaskState,
 } from '@siftkit/contracts';
 
-import { digestStableJson } from '../lib/json-digest.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { canonicalRepositoryKey } from '../lib/repository-key.js';
-import { z } from '../lib/zod.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
+import { digestStableJson } from '../lib/json-digest.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { canonicalRepositoryKey } from '../lib/repository-key.ts';
+import { z } from '../lib/zod.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
 
 /** The parent state as stored; attempts live in their own keyed table. */
 const StoredRunStateSchema = OrchestratorRunStateSchema.omit({ attempts: true });
@@ -54,7 +54,11 @@ export type OrchestratorEventInput = {
  * its event in one transaction, so a reconnect or duplicate caller can never reserve work twice.
  */
 export class OrchestratorRunStore {
-  constructor(private readonly database: RuntimeDatabase) {}
+  private readonly database: RuntimeDatabase;
+
+  constructor(database: RuntimeDatabase) {
+    this.database = database;
+  }
 
   create(input: OrchestratorStartRequest): OrchestratorRunState {
     const request = OrchestratorStartRequestSchema.parse(input);

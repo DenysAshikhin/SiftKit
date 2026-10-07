@@ -1,9 +1,9 @@
 import http from 'node:http';
 import { z } from 'zod';
-import { closeHttpServer, getAddressInfo } from './dashboard-http.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
-import { InferenceChatMessageSchema } from '../../src/llm-protocol/types.js';
-import { buildTabbyUsage } from './streaming-client.js';
+import { closeHttpServer, getAddressInfo } from './dashboard-http.ts';
+import type { JsonObject } from '../../src/lib/json-types.ts';
+import { InferenceChatMessageSchema } from '../../src/llm-protocol/types.ts';
+import { buildTabbyUsage } from './streaming-client.ts';
 
 const RequestSchema = z.object({ messages: z.array(InferenceChatMessageSchema) }).loose();
 const TokenRequestSchema = z.object({ text: z.string() });

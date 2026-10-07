@@ -1,15 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
-import { z } from '../lib/zod.js';
+import { z } from '../lib/zod.ts';
 import {
   ImageDataUrlSchema,
   SIFT_MAX_IMAGE_BYTES,
   type ImageMime,
 } from '@siftkit/contracts';
-import { InferenceContentPartSchema, type InferenceContentPart } from './types.js';
-import type { OptionalJsonValue } from '../lib/json-types.js';
-import type { ModelRuntimePreset } from '../config/types.js';
-import { admitImageBuffer, type AdmittedImage } from './image-admission.js';
+import { InferenceContentPartSchema, type InferenceContentPart } from './types.ts';
+import type { OptionalJsonValue } from '../lib/json-types.ts';
+import type { ModelRuntimePreset } from '../config/types.ts';
+import { admitImageBuffer, type AdmittedImage } from './image-admission.ts';
 import type { ImageTokenBudget } from '@siftkit/contracts';
 
 // ── MIME mapping ────────────────────────────────────────────────────────
@@ -70,10 +70,16 @@ export function readImageFileDataUrl(filePath: string): string {
 // ── Reader ──────────────────────────────────────────────────────────────
 
 export class ImageAttachmentReader {
+  private readonly budget: ImageTokenBudget;
+  private readonly visionMaxImagePixels: number;
+
   constructor(
-    private readonly budget: ImageTokenBudget,
-    private readonly visionMaxImagePixels = 0,
-  ) {}
+    budget: ImageTokenBudget,
+    visionMaxImagePixels = 0,
+  ) {
+    this.budget = budget;
+    this.visionMaxImagePixels = visionMaxImagePixels;
+  }
 
   read(filePath: string): string {
     return this.readAdmitted(filePath).dataUrl;

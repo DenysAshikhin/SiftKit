@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { AssistantConflictError, AssistantNotFoundError } from '../../assistant/errors.js';
+import { AssistantConflictError, AssistantNotFoundError } from '../../assistant/errors.ts';
 import {
   RequestBodyTooLargeError, sendJson,
-} from '../http-utils.js';
-import { RouteTable } from '../route-table.js';
-import type { ServerContext } from '../server-types.js';
+} from '../http-utils.ts';
+import { RouteTable } from '../route-table.ts';
+import type { ServerContext } from '../server-types.ts';
 import {
   backupEndpoint,
   backgroundDecisionsEndpoint,
@@ -24,14 +24,14 @@ import {
   restoreEndpoint,
   restorePreviewEndpoint,
   statusEndpoint,
-} from './assistant/admin-routes.js';
+} from './assistant/admin-routes.ts';
 import {
   activityEndpoint,
   captureEndpoint,
   environmentEndpoint,
   mobileEndpoint,
   suppressionEndpoint,
-} from './assistant/ingest-routes.js';
+} from './assistant/ingest-routes.ts';
 import {
   evidenceBlobEndpoint,
   explainAssertionEndpoint,
@@ -45,7 +45,7 @@ import {
   listProjectionsEndpoint,
   neighborhoodEndpoint,
   searchEndpoint,
-} from './assistant/graph-routes.js';
+} from './assistant/graph-routes.ts';
 import {
   claimOwnerEndpoint,
   confirmEndpoint,
@@ -58,7 +58,7 @@ import {
   topicForgetEndpoint,
   topicForgetPreviewEndpoint,
   demoteEndpoint,
-} from './assistant/mutation-routes.js';
+} from './assistant/mutation-routes.ts';
 import {
   answerEndpoint,
   blockTopicEndpoint,
@@ -68,7 +68,7 @@ import {
   markShownEndpoint,
   skipEndpoint,
   snoozeEndpoint,
-} from './assistant/question-routes.js';
+} from './assistant/question-routes.ts';
 import {
   blockPolicyTopicEndpoint,
   deletePolicyEndpoint,
@@ -78,8 +78,8 @@ import {
   patchPolicyEndpoint,
   resolveIdentityEndpoint,
   validationNotesEndpoint,
-} from './assistant/policy-routes.js';
-import { header, sendError } from './assistant/helpers.js';
+} from './assistant/policy-routes.ts';
+import { header, sendError } from './assistant/helpers.ts';
 
 const routes = new RouteTable([
   { method: 'GET', path: '/assistant/status', endpoint: statusEndpoint },

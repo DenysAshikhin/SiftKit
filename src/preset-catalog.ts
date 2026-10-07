@@ -9,7 +9,7 @@ import {
   type SiftPreset,
 } from '@siftkit/contracts';
 
-import type { OptionalJsonValue } from './lib/json-types.js';
+import type { OptionalJsonValue } from './lib/json-types.ts';
 
 const BUILTIN_PRESET_IDS = ['summary', 'repo-search', 'chat', 'plan', 'repo-agent', 'orchestrator'] as const;
 
@@ -153,7 +153,11 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
 ];
 
 export class PresetCatalog {
-  private constructor(private readonly presets: readonly SiftPreset[]) {}
+  private readonly presets: readonly SiftPreset[];
+
+  private constructor(presets: readonly SiftPreset[]) {
+    this.presets = presets;
+  }
 
   static createDefault(): PresetCatalog {
     return PresetCatalog.fromPresets(BUILTIN_PRESETS);

@@ -8,13 +8,13 @@ import {
   estimateVisionPeakVramBytes,
   resolveEffectiveImagePixelCeiling,
 } from '@siftkit/contracts';
-import { resolveImageTokenBudget, clearImageTokenBudgetCache } from '../src/llm-protocol/image-token-budget.js';
-import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../src/config/constants.js';
-import type { ModelRuntimePreset } from '../src/config/types.js';
-import type { JsonValue } from '../src/lib/json-types.js';
-import { INSTALLED_ENCODER } from './helpers/image-fixtures.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { makeTestPreset } from './helpers/model-presets.js';
+import { resolveImageTokenBudget, clearImageTokenBudgetCache } from '../src/llm-protocol/image-token-budget.ts';
+import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../src/config/constants.ts';
+import type { ModelRuntimePreset } from '../src/config/types.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
+import { INSTALLED_ENCODER } from './helpers/image-fixtures.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { makeTestPreset } from './helpers/model-presets.ts';
 
 function writePreprocessorConfig(directory: string, body: JsonValue): void {
   fs.writeFileSync(path.join(directory, 'preprocessor_config.json'), JSON.stringify(body));

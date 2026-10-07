@@ -1,10 +1,10 @@
 import { join, resolve } from 'node:path';
-import { ensureDirectory } from '../lib/fs.js';
-import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
+import { ensureDirectory } from '../lib/fs.ts';
+import { findNearestSiftKitRepoRoot } from '../lib/paths.ts';
 import {
   getRepoRuntimeRoot,
   getRuntimeDatabasePath as getRuntimeDatabasePathShared,
-} from '../state/runtime-db.js';
+} from '../state/runtime-db.ts';
 
 /**
  * Resolved runtime directory layout. Produced by `initializeRuntime()` and

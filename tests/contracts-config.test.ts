@@ -19,7 +19,7 @@ import {
   SiftPresetCollectionSchema,
   SiftPresetSchema,
 } from '@siftkit/contracts';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
 
 function completePreset(options: {
   id?: string;

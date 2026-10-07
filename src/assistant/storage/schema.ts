@@ -1,7 +1,7 @@
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import { NODE_TYPE_DEFINITIONS, NODE_TYPES } from '../domain/node-types.js';
-import { RELATION_DEFINITIONS, RELATION_TYPES } from '../domain/relation-types.js';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import { NODE_TYPE_DEFINITIONS, NODE_TYPES } from '../domain/node-types.ts';
+import { RELATION_DEFINITIONS, RELATION_TYPES } from '../domain/relation-types.ts';
 
 /** The single owner row id. One human user per installation (design: out of scope, multi-user). */
 export const LOCAL_OWNER_ID = 'own_local';

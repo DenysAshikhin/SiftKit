@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
 
 const CAPTURED_AT = '2026-08-10T14:03:11.000Z';
 

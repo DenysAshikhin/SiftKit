@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { overlayActivePreset } from '../src/config/overrides.js';
+import { overlayActivePreset } from '../src/config/overrides.ts';
 import {
   getActiveModelPreset,
   getConfiguredEngineNumCtx,
   getConfiguredReasoning,
-} from '../src/config/index.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+} from '../src/config/index.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
 
 // The getters read the active preset, so an overlay must land on that preset.
 test('overlayActivePreset writes NumCtx and Reasoning onto the active preset', () => {

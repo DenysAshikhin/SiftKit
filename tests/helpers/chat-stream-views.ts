@@ -1,6 +1,6 @@
 import { ChatProjectionFrameSchema, type ChatOperationSnapshot, type ChatProjectionTerminalRecord, type ChatStreamError } from '@siftkit/contracts';
-import { ChatOperationProjection } from '../../dashboard/src/lib/chat-operation-projection.js';
-import { requestJson, type Dict, type SseResponse } from './dashboard-http.js';
+import { ChatOperationProjection } from '../../dashboard/src/lib/chat-operation-projection.ts';
+import { requestJson, type Dict, type SseResponse } from './dashboard-http.ts';
 
 export type ChatStreamView = { snapshot: ChatOperationSnapshot; receivedAtMs: number };
 

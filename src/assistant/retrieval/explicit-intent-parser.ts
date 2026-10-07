@@ -1,5 +1,5 @@
-import type { StructuredOutputRunner } from '../inference/structured-runner.js';
-import { MemoryQueryIntentSchema, type MemoryQueryIntent } from './query-intent.js';
+import type { StructuredOutputRunner } from '../inference/structured-runner.ts';
+import { MemoryQueryIntentSchema, type MemoryQueryIntent } from './query-intent.ts';
 
 const INSTRUCTIONS = [
   'Parse the search request into normalized content terms, temporal intent, and task type.',
@@ -7,7 +7,11 @@ const INSTRUCTIONS = [
 ].join('\n');
 
 export class ExplicitIntentParser {
-  constructor(private readonly structuredOutput: StructuredOutputRunner) {}
+  private readonly structuredOutput: StructuredOutputRunner;
+
+  constructor(structuredOutput: StructuredOutputRunner) {
+    this.structuredOutput = structuredOutput;
+  }
 
   async parse(query: string, abortSignal: AbortSignal): Promise<MemoryQueryIntent> {
     const outcome = await this.structuredOutput.run({

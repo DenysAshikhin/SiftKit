@@ -6,7 +6,7 @@ import {
   CRC32_SEED, EOCD_SIZE, LOCAL_HEADER_SIZE, MAX_COMMENT_LENGTH,
   crc32, crc32Finish, crc32Update,
   decodeCentralHeader, findEocdOffset, localHeaderDataOffset,
-} from './zip.js';
+} from './zip.ts';
 
 const READ_CHUNK_BYTES = 1024 * 1024;
 
@@ -41,7 +41,11 @@ class HashChunkSink implements ChunkSink {
 class FileChunkSink implements ChunkSink {
   private written = 0;
 
-  constructor(private readonly handle: fs.promises.FileHandle) {}
+  private readonly handle: fs.promises.FileHandle;
+
+  constructor(handle: fs.promises.FileHandle) {
+    this.handle = handle;
+  }
 
   async write(chunk: Buffer): Promise<void> {
     await this.handle.write(chunk, 0, chunk.byteLength, this.written);
@@ -60,10 +64,16 @@ class FileChunkSink implements ChunkSink {
  * deflates `addBuffer` entries, so in a backup those are the manifest and the sealed key.
  */
 export class ZipFileReader {
+  private readonly handle: fs.promises.FileHandle;
+  private readonly directory: ReadonlyMap<string, DirectoryEntry>;
+
   private constructor(
-    private readonly handle: fs.promises.FileHandle,
-    private readonly directory: ReadonlyMap<string, DirectoryEntry>,
-  ) {}
+    handle: fs.promises.FileHandle,
+    directory: ReadonlyMap<string, DirectoryEntry>,
+  ) {
+    this.handle = handle;
+    this.directory = directory;
+  }
 
   static async open(archivePath: string): Promise<ZipFileReader> {
     const handle = await fs.promises.open(archivePath, 'r');

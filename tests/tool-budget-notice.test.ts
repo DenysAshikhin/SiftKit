@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildToolBudgetNotice, isToolBudgetSpent } from '../src/repo-search/engine/task-loop-support.js';
+import { buildToolBudgetNotice, isToolBudgetSpent } from '../src/repo-search/engine/task-loop-support.ts';
 
 test('percent notices fire exactly at 25/50/75% used', () => {
   assert.match(String(buildToolBudgetNotice(25, 100)), /25% of the tool-call budget used \(25\/100/u);

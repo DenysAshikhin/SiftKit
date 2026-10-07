@@ -2,23 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { ChatMemorySeam } from '../src/status-server/chat-memory-seam.js';
-import { buildChatSystemContent } from '../src/status-server/chat.js';
-import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
-import type { ChatSession } from '../src/state/chat-sessions.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
+import { AssistantService } from '../src/assistant/assistant-service.ts';
+import { FixedClock } from '../src/assistant/clock.ts';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
+import { SequentialIdGenerator } from '../src/assistant/ids.ts';
+import { ChatMemorySeam } from '../src/status-server/chat-memory-seam.ts';
+import { buildChatSystemContent } from '../src/status-server/chat.ts';
+import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.ts';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
+import { PresetCatalog } from '../src/preset-catalog.ts';
+import type { ChatSession } from '../src/state/chat-sessions.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
 
 function statement(kind: 'direct_fact' | 'correction', objectName: string): string {
   return JSON.stringify({

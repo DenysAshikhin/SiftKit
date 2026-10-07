@@ -1,12 +1,12 @@
 import { REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
-import type { RunToolArgs } from '../repo-tool-arguments.js';
-import type { RepoSearchLoopKind, RepoSearchTaskKind } from '../task-kind.js';
+import type { RunToolArgs } from '../repo-tool-arguments.ts';
+import type { RepoSearchLoopKind, RepoSearchTaskKind } from '../task-kind.ts';
 import {
   RUN_FULL_DOWNGRADE_NOTICE,
   RunFullOutputGate,
   type RunFullOutputDecision,
   ValidationCommandOutputPolicy,
-} from './validation-command-output-policy.js';
+} from './validation-command-output-policy.ts';
 
 export const REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT = 50;
 
@@ -16,7 +16,11 @@ export class RepoSearchRuntimeProfile {
   );
   private readonly runFullOutputGate = new RunFullOutputGate();
 
-  constructor(private readonly taskKind: RepoSearchTaskKind) {}
+  private readonly taskKind: RepoSearchTaskKind;
+
+  constructor(taskKind: RepoSearchTaskKind) {
+    this.taskKind = taskKind;
+  }
 
   resolveMaxTurns(
     requestedMaxTurns: number | undefined,

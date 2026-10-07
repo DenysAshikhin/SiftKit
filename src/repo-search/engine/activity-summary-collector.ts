@@ -1,7 +1,7 @@
-import { z } from '../../lib/zod.js';
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { AgentLoopToolAction } from '../../agent-loop/types.js';
-import type { TaskCommand } from '../prompts.js';
+import { z } from '../../lib/zod.ts';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import type { AgentLoopToolAction } from '../../agent-loop/types.ts';
+import type { TaskCommand } from '../prompts.ts';
 
 export const ActivitySummaryCategorySchema = z.enum([
   'read_files',
@@ -32,7 +32,7 @@ export type ActivitySummaryProgressEvent = z.infer<typeof ActivitySummaryProgres
 const TEST_COMMAND_PATTERNS = [
   /^npm\s+test(\s|$)/u,
   /^npm\s+run\s+test(\s|$)/u,
-  /^node\s+.*run-tests\.js/u,
+  /^node\s+.*run-tests\.[jt]s/u,
   /^npx\s+vitest(\s|$)/u,
   /^npx\s+jest(\s|$)/u,
   /^pytest(\s|$)/u,

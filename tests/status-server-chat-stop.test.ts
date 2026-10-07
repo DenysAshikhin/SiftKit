@@ -4,23 +4,23 @@ import { setTimeout as delay } from 'node:timers/promises';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { asObject, asObjectArray, requestJson, requestSse, type Dict, type SseResponse } from './helpers/dashboard-http.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
-import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
-import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
-import { StoppedChatEngineService } from './helpers/stopped-chat-engine-service.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
-import { buildUsageFrame } from '../dashboard/tests/usage-frame.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
+import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
+import { asObject, asObjectArray, requestJson, requestSse, type Dict, type SseResponse } from './helpers/dashboard-http.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
+import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.ts';
+import { RepoAgentRunStore } from '../src/repo-agent/run-store.ts';
+import { StoppedChatEngineService } from './helpers/stopped-chat-engine-service.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.ts';
+import { buildUsageFrame } from '../dashboard/tests/usage-frame.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
 import { ChatProjectionFrameSchema, type ChatOperationSnapshot } from '@siftkit/contracts';
-import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
-import { ChatOperationProjection } from '../dashboard/src/lib/chat-operation-projection.js';
-import { readChatStream, readSettledChatSession } from './helpers/chat-stream-views.js';
+import { SseFrameParser } from '../src/lib/sse-frame-parser.ts';
+import { ChatOperationProjection } from '../dashboard/src/lib/chat-operation-projection.ts';
+import { readChatStream, readSettledChatSession } from './helpers/chat-stream-views.ts';
 
 test('HTTP stop retains completed thinking usage and partial answer usage with a separate terminal outcome', async (t) => {
   const engineService = new StoppedChatEngineService({

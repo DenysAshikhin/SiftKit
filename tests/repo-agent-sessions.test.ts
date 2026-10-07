@@ -4,23 +4,23 @@ import path from 'node:path';
 import test, { after, type TestContext } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { getAbortError } from '../src/lib/abort.js';
-import type { ProgressWriter } from '../src/lib/progress-writer.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
-import { currentModelTarget } from './helpers/chat-run-recorder.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { buildMockScorecard } from './_test-helpers.js';
-import { parseRepoSearchRequest } from '../src/status-server/route-request-normalizers.js';
-import { createRepoSearchAdmissionRecord } from '../src/status-server/repo-search-admissions.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { getAbortError } from '../src/lib/abort.ts';
+import type { ProgressWriter } from '../src/lib/progress-writer.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
+import { currentModelTarget } from './helpers/chat-run-recorder.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { buildMockScorecard } from './_test-helpers.ts';
+import { parseRepoSearchRequest } from '../src/status-server/route-request-normalizers.ts';
+import { createRepoSearchAdmissionRecord } from '../src/status-server/repo-search-admissions.ts';
 import {
   RepoAgentRunRequestSchema,
   type RepoAgentRunState,
-} from '../src/repo-agent/run-schemas.js';
-import { RepoAgentDecideRequestSchema } from '../src/repo-agent/api-schemas.js';
-import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
+} from '../src/repo-agent/run-schemas.ts';
+import { RepoAgentDecideRequestSchema } from '../src/repo-agent/api-schemas.ts';
+import { RepoAgentRunStore } from '../src/repo-agent/run-store.ts';
 import {
   RepoAgentSessionManager,
   type RepoAgentApprovalDelivery,
@@ -31,12 +31,12 @@ import {
   type RepoAgentSession,
   type RepoAgentSessionOptions,
   type RepoAgentSessionSubscriber,
-} from '../src/status-server/repo-agent-sessions.js';
-import { RepositoryGate } from '../src/status-server/orchestrator-runs.js';
-import type { RepoSearchExecutionRequest, RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.js';
+} from '../src/status-server/repo-agent-sessions.ts';
+import { RepositoryGate } from '../src/status-server/orchestrator-runs.ts';
+import type { RepoSearchExecutionRequest, RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.ts';
 import type { ApprovalMode } from '@siftkit/contracts';
-import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
-import { ModeSwitchedApprovalRequester } from '../src/repo-search/engine/approval-mode-requester.js';
+import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.ts';
+import { ModeSwitchedApprovalRequester } from '../src/repo-search/engine/approval-mode-requester.ts';
 
 function makeEngineResult(finalOutput: string): RepoSearchExecutionResult {
   const scorecard = buildMockScorecard(finalOutput);
@@ -125,9 +125,12 @@ class TwoStepParkingEngine implements RepoAgentEngine {
   readonly firstCallDone = new Promise<void>((resolve) => { this.signalFirstCallDone = resolve; });
   private releaseSecondCall: () => void = () => {};
   private readonly secondCallGate = new Promise<void>((resolve) => { this.releaseSecondCall = resolve; });
+  private readonly holdBeforeSecondCall: boolean;
 
   /** When true the engine waits for `releaseSecond()` before its second gate call. */
-  constructor(private readonly holdBeforeSecondCall = false) {}
+  constructor(holdBeforeSecondCall = false) {
+    this.holdBeforeSecondCall = holdBeforeSecondCall;
+  }
 
   releaseSecond(): void {
     this.releaseSecondCall();
@@ -199,7 +202,10 @@ class ScriptedProgressEngine implements RepoAgentEngine {
   readonly writerReceived: Promise<ProgressWriter<RepoSearchProgressEvent>>;
   private announceWriter: ((writer: ProgressWriter<RepoSearchProgressEvent>) => void) | null = null;
 
-  constructor(private readonly events: readonly RepoSearchProgressEvent[]) {
+  private readonly events: readonly RepoSearchProgressEvent[];
+
+  constructor(events: readonly RepoSearchProgressEvent[]) {
+    this.events = events;
     this.writerReceived = new Promise((resolve) => {
       this.announceWriter = resolve;
     });

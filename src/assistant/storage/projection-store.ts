@@ -1,11 +1,11 @@
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import { isIndexableInPlaintext, type ProjectionStatus, type Sensitivity } from '../domain/enums.js';
-import type { IdGenerator } from '../ids.js';
-import { ProjectionRowSchema, type ProjectionRow } from './rows.js';
-import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import { isIndexableInPlaintext, type ProjectionStatus, type Sensitivity } from '../domain/enums.ts';
+import type { IdGenerator } from '../ids.ts';
+import { ProjectionRowSchema, type ProjectionRow } from './rows.ts';
+import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.ts';
 
 export interface UpsertProjectionInput {
   readonly ownerId: string;
@@ -29,11 +29,19 @@ const AssertionIdListSchema = z.array(z.string());
 
 /** Owns `memory_projections` and its FTS index. Callers supply their own transaction. */
 export class ProjectionStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   upsert(input: UpsertProjectionInput): ProjectionRow {
     const existing = this.findByTopic(input.ownerId, input.tier, input.topicKey);

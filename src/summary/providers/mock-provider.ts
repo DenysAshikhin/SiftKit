@@ -1,10 +1,10 @@
-import { sleep } from '../../lib/time.js';
-import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import { appendTestProviderEvent } from '../artifacts.js';
-import { buildMockDecision, toMockDecision } from '../mock.js';
-import type { ProviderSummaryMetrics } from '../provider-invoke.js';
-import { emptyInferenceThroughput } from '../../lib/inference-throughput.js';
-import type { SummaryPhase, SummaryProviderId } from '../types.js';
+import { sleep } from '../../lib/time.ts';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.ts';
+import { appendTestProviderEvent } from '../artifacts.ts';
+import { buildMockDecision, toMockDecision } from '../mock.ts';
+import type { ProviderSummaryMetrics } from '../provider-invoke.ts';
+import { emptyInferenceThroughput } from '../../lib/inference-throughput.ts';
+import type { SummaryPhase, SummaryProviderId } from '../types.ts';
 
 // Sole owner of the SIFTKIT_TEST_PROVIDER_* env seam: only the `mock` backend reads it.
 function getMockSummary(prompt: string, question: string, phase: SummaryPhase): string {

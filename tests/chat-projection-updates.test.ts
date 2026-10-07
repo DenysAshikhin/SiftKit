@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 
 import { ChatProjectionCaptureSchema, ChatTranscriptMessageSchema, type ChatProjectionCapture, type ChatProjectionRecord, type ChatStreamUsageEvent, type ChatTranscriptMessage } from '@siftkit/contracts';
-import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.js';
-import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
-import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.js';
-import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
-import { applyChatProjectionRecords, asWireView, chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.js';
+import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.ts';
+import { ChatMessageQueueStore } from '../src/state/chat-message-queue.ts';
+import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.ts';
+import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
+import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.ts';
+import { applyChatProjectionRecords, asWireView, chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.ts';
 
 const NO_LIVE_BINDING = { approval: null, question: null, controlOperationId: null, activeOperation: null };
 const TRANSFER_ID = 'e08682f5-9b0d-49ab-b4ef-cc0f027089ff';

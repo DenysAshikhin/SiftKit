@@ -1,13 +1,13 @@
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
-import { formatInteger, formatPromptTokensField, formatTimestamp } from '../lib/text-format.js';
-import { ActivitySummaryProgressEventSchema } from '../repo-search/engine/activity-summary-collector.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
+import { formatInteger, formatPromptTokensField, formatTimestamp } from '../lib/text-format.ts';
+import { ActivitySummaryProgressEventSchema } from '../repo-search/engine/activity-summary-collector.ts';
 import {
   LlmEndProgressEventSchema,
   LlmStartProgressEventSchema,
   ToolResultProgressEventSchema,
-} from '../repo-search/types.js';
+} from '../repo-search/types.ts';
 
 const SKIPPED_KINDS = new Set(['thinking', 'answer']);
 
@@ -16,10 +16,16 @@ const LlmProgressEventSchema = z.union([LlmStartProgressEventSchema, LlmEndProgr
 
 /** Renders one concise stderr line for each visible operation progress event. */
 export class CliProgressRenderer {
+  private readonly stderr: NodeJS.WritableStream;
+  private readonly opLabel: string;
+
   constructor(
-    private readonly stderr: NodeJS.WritableStream,
-    private readonly opLabel: string,
-  ) {}
+    stderr: NodeJS.WritableStream,
+    opLabel: string,
+  ) {
+    this.stderr = stderr;
+    this.opLabel = opLabel;
+  }
 
   /** Per-turn stderr telemetry is opt-in on the CLI; stays silent unless requested. */
   static forCli(stderr: NodeJS.WritableStream, opLabel: string, showProgress: boolean): CliProgressRenderer {

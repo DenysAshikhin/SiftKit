@@ -5,14 +5,14 @@ import fs from 'node:fs';
 import {
   loadConfig,
   getChunkThresholdCharacters,
-} from '../src/config/index.js';
-import { summarizeRequest } from '../src/summary.js';
+} from '../src/config/index.ts';
+import { summarizeRequest } from '../src/summary.ts';
 import {
   buildOversizedTransitionsInput,
   withStubServerCapturingPlannerDebugDump,
   withTempEnv,
-} from './_runtime-helpers.js';
-import type { JsonValue } from '../src/lib/json-types.js';
+} from './_runtime-helpers.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
 
 interface PlannerDebugEvent {
   kind?: string;

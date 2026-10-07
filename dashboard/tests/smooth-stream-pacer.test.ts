@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { SmoothStreamPacer } from '../src/lib/smooth-stream-pacer';
+import { SmoothStreamPacer } from '../src/lib/smooth-stream-pacer.ts';
 
 test('starts caught up at the initial length', () => {
   const pacer = new SmoothStreamPacer(10);

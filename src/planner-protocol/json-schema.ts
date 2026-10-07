@@ -1,7 +1,7 @@
-import type { AgentLoopFinishAction } from '../agent-loop/types.js';
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
-import type { InferenceToolDefinition } from '../llm-protocol/types.js';
-import { z } from '../lib/zod.js';
+import type { AgentLoopFinishAction } from '../agent-loop/types.ts';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.ts';
+import type { InferenceToolDefinition } from '../llm-protocol/types.ts';
+import { z } from '../lib/zod.ts';
 
 type PlannerToolDefinitionBase = {
   type: 'function';

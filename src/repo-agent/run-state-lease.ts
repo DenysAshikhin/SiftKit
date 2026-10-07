@@ -10,9 +10,9 @@ import {
 import {
   NodeProcessInspector,
   type ProcessInspector,
-} from '../lib/process-inspector.js';
-import { parseJsonText } from '../lib/json.js';
-import { z } from '../lib/zod.js';
+} from '../lib/process-inspector.ts';
+import { parseJsonText } from '../lib/json.ts';
+import { z } from '../lib/zod.ts';
 
 const RepoAgentRunStateLeaseOwnerSchema = z.strictObject({
   pid: z.number().int().positive(),

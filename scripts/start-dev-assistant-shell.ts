@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 
-import { z } from '../src/lib/zod.js';
+import { z } from '../src/lib/zod.ts';
 
 /** Minimal view of GET /config used by the dev-stack assistant shell watcher. */
 export const AssistantShellConfigSchema = z.object({

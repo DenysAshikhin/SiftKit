@@ -1,11 +1,11 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PresetsSection } from '../src/tabs/settings/PresetsSection';
-import type { SettingsPathPickerBusyTarget } from '../src/settings-flow';
-import type { DashboardPreset } from '../src/types';
-import { DASHBOARD_CONFIG, CUSTOM_PRESET, PRESET_ACTIONS } from './fixtures';
+import { PresetsSection } from '../src/tabs/settings/PresetsSection.tsx';
+import type { SettingsPathPickerBusyTarget } from '../src/settings-flow.ts';
+import type { DashboardPreset } from '../src/types.ts';
+import { DASHBOARD_CONFIG, CUSTOM_PRESET, PRESET_ACTIONS } from './fixtures.ts';
 
 const AUTOLOAD_PRESET: DashboardPreset = {
   ...CUSTOM_PRESET,

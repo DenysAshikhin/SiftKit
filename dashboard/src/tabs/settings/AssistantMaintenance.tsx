@@ -3,7 +3,7 @@ import type {
   AssistantFactoryResetPreview,
   AssistantRestorePreviewResponse,
   AssistantRestoreResult,
-} from '../../types.js';
+} from '../../types.ts';
 import {
   backupAssistant,
   confirmAssistantFactoryReset,
@@ -11,8 +11,8 @@ import {
   exportAssistant,
   previewAssistantFactoryReset,
   previewAssistantRestore,
-} from '../../assistant-api.js';
-import { SettingsSectionField } from '../../settings/SettingsFields';
+} from '../../assistant-api.ts';
+import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
 
 /** Typed verbatim before a factory reset can run (spec §16.5). Compared exactly, never trimmed. */
 const RESET_PHRASE = 'RESET ASSISTANT';

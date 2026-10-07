@@ -4,9 +4,9 @@ import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 
-import { TempArchiveBuilder, type TempArchive } from '../src/assistant/control/temp-archive.js';
-import { sendArchive } from '../src/status-server/routes/assistant/helpers.js';
-import { readArchiveEntriesFromBytes } from './helpers/archive-bytes.js';
+import { TempArchiveBuilder, type TempArchive } from '../src/assistant/control/temp-archive.ts';
+import { sendArchive } from '../src/status-server/routes/assistant/helpers.ts';
+import { readArchiveEntriesFromBytes } from './helpers/archive-bytes.ts';
 
 /** Large enough that the client gets a chance to hang up before the body finishes. */
 const PAYLOAD_BYTES = 8 * 1024 * 1024;

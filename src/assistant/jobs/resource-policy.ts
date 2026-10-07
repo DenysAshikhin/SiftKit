@@ -1,9 +1,9 @@
-import { z } from '../../lib/zod.js';
-import { parseJsonText } from '../../lib/json.js';
-import type { AssistantConfig } from '../../config/types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import { ASSISTANT_METADATA_PREFIX } from '../storage/schema.js';
+import { z } from '../../lib/zod.ts';
+import { parseJsonText } from '../../lib/json.ts';
+import type { AssistantConfig } from '../../config/types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import { ASSISTANT_METADATA_PREFIX } from '../storage/schema.ts';
 
 export const PowerStateSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -57,7 +57,10 @@ export interface ResourcePolicy {
 export class AssistantResourcePolicy implements ResourcePolicy {
   private background: AssistantConfig['Background'];
 
-  constructor(private readonly options: ResourcePolicyOptions) {
+  private readonly options: ResourcePolicyOptions;
+
+  constructor(options: ResourcePolicyOptions) {
+    this.options = options;
     this.background = options.background;
   }
 

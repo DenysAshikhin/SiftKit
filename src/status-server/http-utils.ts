@@ -6,9 +6,9 @@
  */
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import { parseJsonValueText } from '../lib/json.js';
-import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import type { JsonObject, JsonSerializable } from '../lib/json-types.ts';
 
 /**
  * Ceiling for a buffered request body. Summary input is legitimately large, so
@@ -69,10 +69,16 @@ class BufferBodySink implements BodySink {
 class FileBodySink implements BodySink {
   private written = 0;
 
+  private readonly handle: fs.promises.FileHandle;
+  private readonly destinationPath: string;
+
   private constructor(
-    private readonly handle: fs.promises.FileHandle,
-    private readonly destinationPath: string,
-  ) {}
+    handle: fs.promises.FileHandle,
+    destinationPath: string,
+  ) {
+    this.handle = handle;
+    this.destinationPath = destinationPath;
+  }
 
   static async open(destinationPath: string): Promise<FileBodySink> {
     return new FileBodySink(await fs.promises.open(destinationPath, 'w'), destinationPath);

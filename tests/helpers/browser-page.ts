@@ -2,10 +2,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { build } from 'esbuild';
+import { build } from 'vite';
 import { z } from 'zod';
-import { JsonValueSchema, type JsonObject, type JsonValue } from '../../src/lib/json-types.js';
-import { parseJsonText } from '../../src/lib/json.js';
+import { JsonValueSchema, type JsonObject, type JsonValue } from '../../src/lib/json-types.ts';
+import { parseJsonText } from '../../src/lib/json.ts';
 
 const CHROME_PATHS = [
   process.env.SIFTKIT_TEST_CHROME,
@@ -32,11 +32,20 @@ const PAGE_HTML = '<!doctype html><link rel="stylesheet" href="page.css"><div id
 /** A dashboard test page's script and stylesheet bundled in memory, keyed `page.js` and `page.css`. */
 export async function bundleBrowserPage(entry: string, nodeEnv: 'production' | 'development' = 'production'): Promise<Map<string, string>> {
   const result = await build({
-    entryPoints: { page: path.join(process.cwd(), entry) },
-    outdir: 'out', write: false, bundle: true, format: 'esm', platform: 'browser', jsx: 'automatic', logLevel: 'silent',
+    configFile: false, publicDir: false, logLevel: 'silent', mode: nodeEnv,
     define: { 'process.env.NODE_ENV': JSON.stringify(nodeEnv) },
+    esbuild: { jsx: 'automatic' },
+    build: {
+      write: false, minify: false, modulePreload: false,
+      rollupOptions: {
+        input: path.join(process.cwd(), entry),
+        output: { inlineDynamicImports: true, entryFileNames: 'page.js', assetFileNames: 'page[extname]' },
+      },
+    },
   });
-  return new Map(result.outputFiles.map((file) => [path.basename(file.path), file.text]));
+  if (!('output' in result)) throw new Error(`Vite returned no in-memory bundle for ${entry}.`);
+  return new Map(result.output.map((file) => [file.fileName,
+    file.type === 'chunk' ? file.code : typeof file.source === 'string' ? file.source : new TextDecoder().decode(file.source)]));
 }
 
 const CONTENT_TYPES = new Map([['', 'text/html'], ['page.js', 'text/javascript'], ['page.css', 'text/css']]);
@@ -63,7 +72,10 @@ class DevTools {
   private nextId = 0;
   private readonly pending = new Map<number, { resolve(result: JsonValue): void; reject(error: Error): void }>();
 
-  private constructor(private readonly socket: WebSocket) {
+  private readonly socket: WebSocket;
+
+  private constructor(socket: WebSocket) {
+    this.socket = socket;
     socket.addEventListener('message', (event) => {
       if (typeof event.data !== 'string') throw new Error('DevTools sent a binary message.');
       const message = parseJsonText(event.data, CdpMessageSchema);
@@ -100,7 +112,15 @@ class DevTools {
 
 /** One open tab, driven through its DevTools session. */
 export class BrowserPage {
-  constructor(private readonly devTools: DevTools, private readonly sessionId: string, private readonly targetId: string) {}
+  private readonly devTools: DevTools;
+  private readonly sessionId: string;
+  private readonly targetId: string;
+
+  constructor(devTools: DevTools, sessionId: string, targetId: string) {
+    this.devTools = devTools;
+    this.sessionId = sessionId;
+    this.targetId = targetId;
+  }
 
   send<T>(method: string, params: JsonObject, schema: z.ZodType<T>): Promise<T> {
     return this.devTools.send(method, params, schema, this.sessionId);
@@ -120,7 +140,13 @@ export class BrowserPage {
 
 /** Headless Chrome with one flag list for every browser test; its default headless profile is temporary and removed on close. */
 export class HeadlessChrome {
-  private constructor(readonly devTools: DevTools, private readonly exited: Promise<void>) {}
+  readonly devTools: DevTools;
+  private readonly exited: Promise<void>;
+
+  private constructor(devTools: DevTools, exited: Promise<void>) {
+    this.devTools = devTools;
+    this.exited = exited;
+  }
 
   static async launch(): Promise<HeadlessChrome> {
     const chrome = spawn(findChrome(), CHROME_FLAGS);

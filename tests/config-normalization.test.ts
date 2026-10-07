@@ -2,19 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ModelPresetFieldSchema, ModelRuntimePresetSchema } from '@siftkit/contracts';
-import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store.js';
-import { isReadExpansionEnabled } from '../src/config/index.js';
-import { normalizeModelRuntimePresetRecord } from '../src/config/normalization.js';
-import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_ENGINE_CACHE_RAM } from '../src/config/constants.js';
-import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
-import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
-import { asObject, asObjectArray } from './helpers/dashboard-http.js';
-import { makeTestPreset } from './helpers/model-presets.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store.ts';
+import { isReadExpansionEnabled } from '../src/config/index.ts';
+import { normalizeModelRuntimePresetRecord } from '../src/config/normalization.ts';
+import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_ENGINE_CACHE_RAM } from '../src/config/constants.ts';
+import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.ts';
+import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.ts';
+import { asObject, asObjectArray } from './helpers/dashboard-http.ts';
+import { makeTestPreset } from './helpers/model-presets.ts';
+import { mockSiftConfig } from './helpers/mock-config.ts';
 import {
   REMOVED_BACKEND_ENGINE_CONFIG_KEY,
   REMOVED_BACKEND_ID,
-} from './helpers/legacy-backend-fixtures.js';
+} from './helpers/legacy-backend-fixtures.ts';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
   const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });

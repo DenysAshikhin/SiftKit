@@ -9,41 +9,41 @@ import type {
   ChatApprovalReviewedEvidence,
   ChatQuestionRequestedEvidence,
   ChatQuestionResolvedEvidence,
-} from '../repo-search/engine/chat-run-evidence.js';
-import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-chat-message.js';
+} from '../repo-search/engine/chat-run-evidence.ts';
+import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-chat-message.ts';
 import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent, type ThroughputAuditOperation } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { toError } from '../lib/errors.js';
-import { getChatSessionPath, readChatSessionFromPath, recordChatSessionModel, type ChatSession, estimateTokenCount } from '../state/chat-sessions.js';
-import type { ModelRuntimePreset } from '../config/types.js';
-import type { ModelRequestContext } from './model-request-context.js';
-import { getConfiguredEngineNumCtx } from '../config/getters.js';
-import { ChatJournalStore } from '../state/chat-journal.js';
+import { z } from '../lib/zod.ts';
+import { toError } from '../lib/errors.ts';
+import { getChatSessionPath, readChatSessionFromPath, recordChatSessionModel, type ChatSession, estimateTokenCount } from '../state/chat-sessions.ts';
+import type { ModelRuntimePreset } from '../config/types.ts';
+import type { ModelRequestContext } from './model-request-context.ts';
+import { getConfiguredEngineNumCtx } from '../config/getters.ts';
+import { ChatJournalStore } from '../state/chat-journal.ts';
 import {
   ChatEngineBindingSchema,
   ChatRunStartedEventSchema,
   type ChatJournalAppend,
   type ChatJournalEnvelope,
   type ChatJournalEvent,
-} from '../state/chat-journal-schema.js';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import { isStorageFailure } from '../state/database-handle.js';
-import { ChatMessageQueueStore, type ChatQueueClaimInput } from '../state/chat-message-queue.js';
+} from '../state/chat-journal-schema.ts';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import { isStorageFailure } from '../state/database-handle.ts';
+import { ChatMessageQueueStore, type ChatQueueClaimInput } from '../state/chat-message-queue.ts';
 import { dirname } from 'node:path';
-import { getRuntimeDatabaseFilePath } from '../state/runtime-db.js';
-import { reconcileChatRun } from './chat-run-projection.js';
-import type { RepoSearchExecutionResult } from '../repo-search/types.js';
-import { foldTurnTokenRecords } from '../repo-search/engine/turn-token-record.js';
-import { getScorecardTotal } from './chat.js';
-import type { ChatStreamProgressWriter } from './chat-stream-progress-writer.js';
-import { buildRecoveredChatHistory } from './chat-context-replay.js';
-import { calculateThroughputRates } from '../lib/inference-throughput.js';
-import { auditInferenceThroughput } from './inference-throughput-audit.js';
-import { getAbortError, throwIfAborted } from '../lib/abort.js';
-import { admitChatImages } from '../llm-protocol/preset-image-admission.js';
-import { readChatHistoryRevisions } from '../state/chat-history-revisions.js';
-import { sanitizeChatContextImages } from '../state/chat-context-images.js';
-import { ChatSubmissionReceiptSchema, ChatSubmissionStore } from '../state/chat-submissions.js';
+import { getRuntimeDatabaseFilePath } from '../state/runtime-db.ts';
+import { reconcileChatRun } from './chat-run-projection.ts';
+import type { RepoSearchExecutionResult } from '../repo-search/types.ts';
+import { foldTurnTokenRecords } from '../repo-search/engine/turn-token-record.ts';
+import { getScorecardTotal } from './chat.ts';
+import type { ChatStreamProgressWriter } from './chat-stream-progress-writer.ts';
+import { buildRecoveredChatHistory } from './chat-context-replay.ts';
+import { calculateThroughputRates } from '../lib/inference-throughput.ts';
+import { auditInferenceThroughput } from './inference-throughput-audit.ts';
+import { getAbortError, throwIfAborted } from '../lib/abort.ts';
+import { admitChatImages } from '../llm-protocol/preset-image-admission.ts';
+import { readChatHistoryRevisions } from '../state/chat-history-revisions.ts';
+import { sanitizeChatContextImages } from '../state/chat-context-images.ts';
+import { ChatSubmissionReceiptSchema, ChatSubmissionStore } from '../state/chat-submissions.ts';
 
 /** The submission, minus the ordering the store assigns and the discriminator the recorder stamps. */
 export const ChatRunRecorderStartSchema = ChatRunStartedEventSchema
@@ -65,6 +65,12 @@ export type ChatRunEngineBinding = z.infer<typeof ChatRunEngineBindingSchema>;
  * back from the recorder may act, and a caller that got an exception must not.
  */
 export class ChatRunRecorder implements ChatRunEvidenceRecorder {
+  private readonly database: RuntimeDatabase;
+  readonly operationId: string;
+  private readonly ownerEpoch: string;
+  readonly sessionId: string;
+  /** The admitted settings; execution reads them here instead of re-deriving them from the request. */
+  readonly settings: ChatRunEffectiveSettings;
   private latestSequence: number;
   private readonly storageAbort = new AbortController();
   private readonly userStop = new AbortController();
@@ -102,13 +108,17 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   }
 
   private constructor(
-    private readonly database: RuntimeDatabase,
-    readonly operationId: string,
-    private readonly ownerEpoch: string,
-    readonly sessionId: string,
-    /** The admitted settings; execution reads them here instead of re-deriving them from the request. */
-    readonly settings: ChatRunEffectiveSettings,
+    database: RuntimeDatabase,
+    operationId: string,
+    ownerEpoch: string,
+    sessionId: string,
+    settings: ChatRunEffectiveSettings,
   ) {
+    this.database = database;
+    this.operationId = operationId;
+    this.ownerEpoch = ownerEpoch;
+    this.sessionId = sessionId;
+    this.settings = settings;
     this.latestSequence = 0;
     this.store = new ChatJournalStore(database);
   }

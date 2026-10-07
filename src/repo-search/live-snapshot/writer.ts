@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs';
-import { saveContentAtomically } from '../../lib/fs.js';
-import type { BufferedJsonLogger } from '../logging.js';
-import { LiveRunSnapshotCollector } from './collector.js';
+import { saveContentAtomically } from '../../lib/fs.ts';
+import type { BufferedJsonLogger } from '../logging.ts';
+import { LiveRunSnapshotCollector } from './collector.ts';
 
 const DEFAULT_MIN_INTERVAL_MS = 200;
 

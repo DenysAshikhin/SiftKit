@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readChatHistoryArchive, reconstructChatArchiveContext } from '../src/status-server/chat-history-archive.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import { chatArchiveSource, createChatHistoryArchiveFixture, repairInput, seedRepairArchive } from './helpers/chat-history-archive-fixture.js';
-import { linkChatArchiveContext, projectChatHistoryArchive } from '../src/status-server/chat-history-archive-projection.js';
-import { applyChatHistoryRepair, prepareChatHistoryRepair } from '../src/status-server/chat-history-repair.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { createTestChatSession } from './helpers/chat-sessions.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { saveChatSession, readChatSessionFromDatabase } from '../src/state/chat-sessions.js';
-import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.js';
+import { readChatHistoryArchive, reconstructChatArchiveContext } from '../src/status-server/chat-history-archive.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { chatArchiveSource, createChatHistoryArchiveFixture, repairInput, seedRepairArchive } from './helpers/chat-history-archive-fixture.ts';
+import { linkChatArchiveContext, projectChatHistoryArchive } from '../src/status-server/chat-history-archive-projection.ts';
+import { applyChatHistoryRepair, prepareChatHistoryRepair } from '../src/status-server/chat-history-repair.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { saveChatSession, readChatSessionFromDatabase } from '../src/state/chat-sessions.ts';
+import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.ts';
 import { join } from 'node:path';
-import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
+import { ChatMessageQueueStore } from '../src/state/chat-message-queue.ts';
 
 const at = '2026-09-10T11:00:00.000Z';
 function archive(extra: readonly JsonObject[] = []) {

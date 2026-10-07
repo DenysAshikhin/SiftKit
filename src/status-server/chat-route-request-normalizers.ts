@@ -1,8 +1,8 @@
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject } from '../lib/json-types.js';
-import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
+import { JsonRecordReader } from '../lib/json-record-reader.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import { parseImageDataUrls } from '../llm-protocol/image-attachments.ts';
 import { ChatWebSearchOverrideSchema, type ChatWebSearchOverride } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
+import { z } from '../lib/zod.ts';
 
 export type ChatSessionCreateRequest = {
   presetId: string;

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ChatTurnTokenRecord } from '@siftkit/contracts';
-import { buildContextUsage } from '../src/status-server/chat.js';
-import type { ChatSession } from '../src/state/chat-sessions.js';
-import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
+import { buildContextUsage } from '../src/status-server/chat.ts';
+import type { ChatSession } from '../src/state/chat-sessions.ts';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
 
 const MEASURED: ChatTurnTokenRecord = {
   turn: 2, promptTokens: 9_000, thinkingTokens: 400, outputTokens: 120, toolTokens: 0,

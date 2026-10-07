@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RepeatSuppressor } from '../src/status-server/repeat-suppressor.js';
+import { RepeatSuppressor } from '../src/status-server/repeat-suppressor.ts';
 
 test('an unbroken run of identical events logs once on entry and once on release', () => {
   const lines: string[] = [];

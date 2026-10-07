@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { TurnCommandResultEventSchema } from '../src/repo-search/live-snapshot/schemas.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { parseLoggedEvent } from './helpers/logged-events.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { TurnCommandResultEventSchema } from '../src/repo-search/live-snapshot/schemas.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import { parseLoggedEvent } from './helpers/logged-events.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 test('TurnCommandResultEventSchema accepts a rejected command with a null exit code', () => {
   const parsed = TurnCommandResultEventSchema.safeParse({

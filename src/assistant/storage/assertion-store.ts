@@ -1,21 +1,21 @@
-import { z } from '../../lib/zod.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
+import { z } from '../../lib/zod.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
 import {
   EvidenceSourceTypeSchema, isIndexableInPlaintext,
   type AssertionBasis, type AssertionStatus, type EvidenceStance, type Sensitivity,
-} from '../domain/enums.js';
+} from '../domain/enums.ts';
 import {
   buildAssertionKey, normalizeLiteralValue, type AssertionObjectRef,
-} from '../domain/keys.js';
-import type { RelationType } from '../domain/relation-types.js';
-import type { IdGenerator } from '../ids.js';
+} from '../domain/keys.ts';
+import type { RelationType } from '../domain/relation-types.ts';
+import type { IdGenerator } from '../ids.ts';
 import {
   AssertionEvidenceRowSchema, AssertionRowSchema, CountRowSchema,
   type AssertionEvidenceRow, type AssertionRow,
-} from './rows.js';
-import { chunkIds, dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
+} from './rows.ts';
+import { chunkIds, dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.ts';
 
 const SupportingEvidenceSchema = z.object({
   weight: z.number(),
@@ -54,11 +54,19 @@ export interface CreateAssertionInput {
 export const LIVE_ASSERTION_STATUSES: readonly AssertionStatus[] = ['active', 'disputed'];
 
 export class AssertionStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   createAssertion(input: CreateAssertionInput): AssertionRow {
     const id = this.ids.next('ast');

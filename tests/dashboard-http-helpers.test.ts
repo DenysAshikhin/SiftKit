@@ -12,12 +12,12 @@ import {
   getAddressInfo,
   requestSse,
   writeJson,
-} from './helpers/dashboard-http.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+} from './helpers/dashboard-http.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 import {
   createDeadHttpEndpoint,
   listenOnEphemeralPort,
-} from './helpers/test-endpoints.js';
+} from './helpers/test-endpoints.ts';
 
 test('test endpoints assign distinct ports to concurrent listeners', async () => {
   const first = http.createServer();

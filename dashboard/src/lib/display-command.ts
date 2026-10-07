@@ -1,4 +1,4 @@
-import type { OptionalJsonValue } from '../../../src/lib/json-types.js';
+import type { OptionalJsonValue } from '../../../src/lib/json-types.ts';
 
 type ToolCommandRecord = {
   modelVisibleCommand?: OptionalJsonValue;

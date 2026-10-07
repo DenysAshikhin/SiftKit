@@ -3,17 +3,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getLiveRunSnapshotPath, getLiveRunsDirectory } from '../src/config/paths.js';
-import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { LiveRunSnapshotCollector } from '../src/repo-search/live-snapshot/collector.js';
-import { LiveRunSnapshotSchema } from '../src/repo-search/live-snapshot/schemas.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { parseLoggedEvent } from './helpers/logged-events.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { getLiveRunSnapshotPath, getLiveRunsDirectory } from '../src/config/paths.ts';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.ts';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
+import { LiveRunSnapshotCollector } from '../src/repo-search/live-snapshot/collector.ts';
+import { LiveRunSnapshotSchema } from '../src/repo-search/live-snapshot/schemas.ts';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import { parseLoggedEvent } from './helpers/logged-events.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-live-collector-');
 

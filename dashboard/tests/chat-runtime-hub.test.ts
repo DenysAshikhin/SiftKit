@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
+import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
 
 test('apply replaces the store and notifies each subscriber once', () => {
   const hub = new ChatRuntimeHub(new ChatSessionRuntimeStore().ensureSession('s1', ''));

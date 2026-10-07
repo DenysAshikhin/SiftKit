@@ -1,8 +1,8 @@
-import type { RepoToolContext } from '../../src/repo-search/engine/repo-tools.js';
-import { buildIgnorePolicy } from '../../src/repo-search/command-safety.js';
-import { resolveImageTokenBudget } from '../../src/llm-protocol/image-token-budget.js';
-import { makeMockWebTools } from './mock-web-tools.js';
-import { makeTestPreset } from './model-presets.js';
+import type { RepoToolContext } from '../../src/repo-search/engine/repo-tools.ts';
+import { buildIgnorePolicy } from '../../src/repo-search/command-safety.ts';
+import { resolveImageTokenBudget } from '../../src/llm-protocol/image-token-budget.ts';
+import { makeMockWebTools } from './mock-web-tools.ts';
+import { makeTestPreset } from './model-presets.ts';
 
 export function makeRepoToolContext(overrides: {
   repoRoot: string;

@@ -96,6 +96,6 @@ export class SummaryProgressReporter {
     this.progressWriter.write(event);
   }
 }
-import { contextWarningEvent } from '../lib/operation-stream.js';
-import type { ProgressWriter } from '../lib/progress-writer.js';
-import type { SummaryProviderId } from './types.js';
+import { contextWarningEvent } from '../lib/operation-stream.ts';
+import type { ProgressWriter } from '../lib/progress-writer.ts';
+import type { SummaryProviderId } from './types.ts';

@@ -1,5 +1,5 @@
 import type { ChatStreamPromptEvent } from '@siftkit/contracts';
-import type { ContextUsage } from '../types';
+import type { ContextUsage } from '../types.ts';
 
 export type LiveContextUsage = {
   usedTokens: number;

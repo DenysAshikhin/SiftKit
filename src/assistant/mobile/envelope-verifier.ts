@@ -1,7 +1,7 @@
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
 
 import type { MobileEnvelope } from '@siftkit/contracts';
-import type { DeviceStore } from '../storage/device-store.js';
+import type { DeviceStore } from '../storage/device-store.ts';
 
 /**
  * The exact bytes a device signs. Field order is fixed here and nowhere else: any change to it
@@ -34,7 +34,11 @@ function rejected(reason: EnvelopeRejection): EnvelopeVerdict {
  * caller can never write a nonce row.
  */
 export class EnvelopeVerifier {
-  constructor(private readonly devices: DeviceStore) {}
+  private readonly devices: DeviceStore;
+
+  constructor(devices: DeviceStore) {
+    this.devices = devices;
+  }
 
   verify(envelope: MobileEnvelope): EnvelopeVerdict {
     const device = this.devices.getDevice(envelope.deviceId);

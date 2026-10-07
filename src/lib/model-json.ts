@@ -1,17 +1,17 @@
 import { jsonrepair } from 'jsonrepair';
 
-import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.js';
-import type { StructuredModelDecision } from '../summary/types.js';
-import { getErrorMessage } from './errors.js';
-import type { z } from './zod.js';
-import { JsonRecordReader } from './json-record-reader.js';
+import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.ts';
+import type { StructuredModelDecision } from '../summary/types.ts';
+import { getErrorMessage } from './errors.ts';
+import type { z } from './zod.ts';
+import { JsonRecordReader } from './json-record-reader.ts';
 import {
   JsonValueSchema,
   type JsonObject,
   type JsonValue,
   type OptionalJsonValue,
-} from './json-types.js';
-import { stripCodeFence } from './text-format.js';
+} from './json-types.ts';
+import { stripCodeFence } from './text-format.ts';
 
 type ParsedJsonValue = {
   value: JsonValue;

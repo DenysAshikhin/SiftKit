@@ -1,5 +1,5 @@
-import { type AssertionBasis, isExplicitBasis } from './enums.js';
-import { stalenessFactor, type StalenessClass } from './staleness.js';
+import { type AssertionBasis, isExplicitBasis } from './enums.ts';
+import { stalenessFactor, type StalenessClass } from './staleness.ts';
 
 /** Maximum automatic confidence per basis (§4.6). Confidence never substitutes for basis. */
 export const BASIS_CONFIDENCE_CEILING = {

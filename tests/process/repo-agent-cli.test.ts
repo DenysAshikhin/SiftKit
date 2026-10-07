@@ -7,19 +7,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test, { after, before } from 'node:test';
-import { runCli } from '../../src/cli/index.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
+import { runCli } from '../../src/cli/index.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import type { JsonObject } from '../../src/lib/json-types.ts';
 import {
   buildRepoAgentDecideCommands,
   RepoAgentRunResultSchema,
-} from '../../src/repo-agent/run-schemas.js';
-import { RepoAgentStartRequestSchema } from '../../src/repo-agent/api-schemas.js';
-import { makeCaptureStream, readBody } from '../_test-helpers.js';
-import { asObject, getAddressInfo } from '../helpers/dashboard-http.js';
+} from '../../src/repo-agent/run-schemas.ts';
+import { RepoAgentStartRequestSchema } from '../../src/repo-agent/api-schemas.ts';
+import { makeCaptureStream, readBody } from '../_test-helpers.ts';
+import { asObject, getAddressInfo } from '../helpers/dashboard-http.ts';
 
 const TEMP_ROOT = join(tmpdir(), `siftkit-repo-agent-cli-tests-${process.pid}`);
-const BIN_PATH = join(process.cwd(), 'dist', 'cli', 'main.js');
+const BIN_PATH = join(process.cwd(), 'src', 'cli', 'main.ts');
 
 type ServerMode = 'approval' | 'complete';
 
@@ -39,7 +39,10 @@ class RepoAgentTestServer {
   private readonly server: http.Server;
   private interactiveResponse: http.ServerResponse | null = null;
 
-  constructor(private readonly mode: ServerMode) {
+  private readonly mode: ServerMode;
+
+  constructor(mode: ServerMode) {
+    this.mode = mode;
     this.server = http.createServer((request, response) => {
       void this.handle(request, response);
     });
@@ -156,7 +159,11 @@ class RepoAgentTestServer {
 }
 
 class CliProcessRunner {
-  constructor(private readonly environment: NodeJS.ProcessEnv) {}
+  private readonly environment: NodeJS.ProcessEnv;
+
+  constructor(environment: NodeJS.ProcessEnv) {
+    this.environment = environment;
+  }
 
   run(args: string[]): Promise<CliProcessResult> {
     return new Promise((resolve, reject) => {

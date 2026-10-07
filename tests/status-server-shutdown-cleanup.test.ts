@@ -10,24 +10,24 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.js';
-import { getChatSessionPath, readChatSessionFromPath, type ChatSession } from '../src/state/chat-sessions.js';
-import { writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
-import { getRuntimeRoot } from '../src/status-server/paths.js';
-import { buildChatRunSettings, ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
-import { currentModelTarget } from './helpers/chat-run-recorder.js';
-import { serverLogger } from '../src/status-server/server-logger.js';
-import type { ChatOwnerTickOutcome, ExtendedServer } from '../src/status-server/server-types.js';
-import { IsolatedRuntime } from './helpers/isolated-runtime.js';
-import { getDefaultServerConfig } from './helpers/mock-config.js';
-import { getAddressInfo, asObject, requestJson } from './helpers/dashboard-http.js';
-import { countRunLogs, installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
-import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.ts';
+import { getChatSessionPath, readChatSessionFromPath, type ChatSession } from '../src/state/chat-sessions.ts';
+import { writeConfig } from '../src/status-server/config-store.ts';
+import { startStatusServer } from '../src/status-server/index.ts';
+import { getRuntimeRoot } from '../src/status-server/paths.ts';
+import { buildChatRunSettings, ChatRunRecorder } from '../src/status-server/chat-run-recorder.ts';
+import { currentModelTarget } from './helpers/chat-run-recorder.ts';
+import { serverLogger } from '../src/status-server/server-logger.ts';
+import type { ChatOwnerTickOutcome, ExtendedServer } from '../src/status-server/server-types.ts';
+import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
+import { getDefaultServerConfig } from './helpers/mock-config.ts';
+import { getAddressInfo, asObject, requestJson } from './helpers/dashboard-http.ts';
+import { countRunLogs, installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
+import { removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
 
 // The server defers its history prune to an immediate, which can land after a test has restored
 // the working directory — and a prune that then resolves the repo's own runtime database trips the

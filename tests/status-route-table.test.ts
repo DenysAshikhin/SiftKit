@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { z } from '../src/lib/zod.js';
-import { RouteTable, type RouteEndpoint, type RouteMatch } from '../src/status-server/route-table.js';
-import type { ServerContext } from '../src/status-server/server-types.js';
+import { z } from '../src/lib/zod.ts';
+import { RouteTable, type RouteEndpoint, type RouteMatch } from '../src/status-server/route-table.ts';
+import type { ServerContext } from '../src/status-server/server-types.ts';
 
 class RecordingEndpoint implements RouteEndpoint {
   matches: RouteMatch[] = [];

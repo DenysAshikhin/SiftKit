@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
+import { buildIgnorePolicy } from '../src/repo-search/command-safety.ts';
 import {
   buildRepoToolRequestedCommand,
   buildEffectiveTranscriptAction,
@@ -14,15 +14,15 @@ import {
   executeRepoTool,
   isFailedReadPlan,
   planRead,
-} from '../src/repo-search/engine/repo-tools.js';
-import { buildReadPathKeyForCaseSensitivity, type FileReadState } from '../src/repo-search/engine/read-overlap.js';
+} from '../src/repo-search/engine/repo-tools.ts';
+import { buildReadPathKeyForCaseSensitivity, type FileReadState } from '../src/repo-search/engine/read-overlap.ts';
 import {
   RunFullOutputGate,
-} from '../src/repo-search/engine/validation-command-output-policy.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { makeContext, makeRepo, nativeCall } from './helpers/repo-tools-fixtures.js';
-import { makeRepoToolContext } from './helpers/repo-tool-context.js';
-import { rasterBuffer } from './helpers/image-fixtures.js';
+} from '../src/repo-search/engine/validation-command-output-policy.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { makeContext, makeRepo, nativeCall } from './helpers/repo-tools-fixtures.ts';
+import { makeRepoToolContext } from './helpers/repo-tool-context.ts';
+import { rasterBuffer } from './helpers/image-fixtures.ts';
 
 // ---------------------------------------------------------------------------
 // Synthetic command strings — these are the dedup / transcript / progress key

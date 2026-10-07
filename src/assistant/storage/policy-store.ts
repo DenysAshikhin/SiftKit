@@ -1,11 +1,11 @@
-import { z } from '../../lib/zod.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
-import type { PolicySource, PolicyType } from '../domain/enums.js';
-import { normalizeAliasText } from '../domain/keys.js';
-import type { IdGenerator } from '../ids.js';
-import { PolicyRowSchema, type PolicyRow } from './rows.js';
+import { z } from '../../lib/zod.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import type { Clock } from '../clock.ts';
+import type { PolicySource, PolicyType } from '../domain/enums.ts';
+import { normalizeAliasText } from '../domain/keys.ts';
+import type { IdGenerator } from '../ids.ts';
+import { PolicyRowSchema, type PolicyRow } from './rows.ts';
 
 export interface UpsertPolicyInput {
   readonly ownerId: string;
@@ -22,11 +22,19 @@ function mergePairKey(firstNodeId: string, secondNodeId: string): string {
 }
 
 export class PolicyStore {
+  private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
+  private readonly ids: IdGenerator;
+
   constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-    private readonly ids: IdGenerator,
-  ) {}
+    database: RuntimeDatabase,
+    clock: Clock,
+    ids: IdGenerator,
+  ) {
+    this.database = database;
+    this.clock = clock;
+    this.ids = ids;
+  }
 
   upsertPolicy(input: UpsertPolicyInput): PolicyRow {
     const normalizedKey = normalizeAliasText(input.key);

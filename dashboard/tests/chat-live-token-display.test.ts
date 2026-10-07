@@ -1,11 +1,11 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { buildLiveTokenDisplays } from '../src/lib/chat-live-token-display';
-import { formatLiveMessageTokenLabel, getTurnTokenDisplay } from '../src/lib/format';
-import { groupMessagesIntoTurns } from '../src/lib/chatTurns';
-import { buildUsageFrame } from './usage-frame';
-import { applyLiveTranscript, liveRowId, type LiveTranscriptStep } from './live-transcript-fixture.js';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store.ts';
+import { buildLiveTokenDisplays } from '../src/lib/chat-live-token-display.ts';
+import { formatLiveMessageTokenLabel, getTurnTokenDisplay } from '../src/lib/format.ts';
+import { groupMessagesIntoTurns } from '../src/lib/chatTurns.ts';
+import { buildUsageFrame } from './usage-frame.ts';
+import { applyLiveTranscript, liveRowId, type LiveTranscriptStep } from './live-transcript-fixture.ts';
 
 const PROMPT_1: LiveTranscriptStep = { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 50, charsPerToken: 4 } };
 const store = () => new ChatSessionRuntimeStore().ensureSession('s', '').ensureSession('other', '');

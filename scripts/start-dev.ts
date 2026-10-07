@@ -1,16 +1,16 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-import { httpClient } from '../src/lib/http-client.js';
+import { httpClient } from '../src/lib/http-client.ts';
 import {
   AssistantShellConfigSchema,
   decideAssistantShellAction,
   getAssistantShellPath,
-} from './start-dev-assistant-shell.js';
-import { resolveDashboardLaunch } from './start-dev-dashboard.js';
-import { isBackendReadyStatusCode } from './start-dev-health.js';
-import { buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse } from './start-dev-ports.js';
-import { stopChildProcessTree } from './start-dev-process.js';
+} from './start-dev-assistant-shell.ts';
+import { resolveDashboardLaunch } from './start-dev-dashboard.ts';
+import { isBackendReadyStatusCode } from './start-dev-health.ts';
+import { buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse } from './start-dev-ports.ts';
+import { stopChildProcessTree } from './start-dev-process.ts';
 
 type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
 

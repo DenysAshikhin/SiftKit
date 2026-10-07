@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import {
@@ -8,13 +8,13 @@ import {
   type ChatTranscriptMetadata,
 } from '@siftkit/contracts';
 
-import { buildUsageFrame } from '../usage-frame';
+import { buildUsageFrame } from '../usage-frame.ts';
 
-import { getTurnTokenDisplay } from '../../src/lib/format';
-import { buildLiveTokenDisplays } from '../../src/lib/chat-live-token-display';
-import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
-import type { ChatMessage } from '../../src/types';
-import type { ChatTurn } from '../../src/lib/chatTurns';
+import { getTurnTokenDisplay } from '../../src/lib/format.ts';
+import { buildLiveTokenDisplays } from '../../src/lib/chat-live-token-display.ts';
+import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store.ts';
+import type { ChatMessage } from '../../src/types.ts';
+import type { ChatTurn } from '../../src/lib/chatTurns.ts';
 
 function thinkingMessage(id: string, tokens: number): ChatMessage {
   return {

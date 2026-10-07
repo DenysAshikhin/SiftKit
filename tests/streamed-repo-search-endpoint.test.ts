@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
-import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.js';
-import { requestSse } from './helpers/sse-http.js';
-import { startHarness } from './helpers/streamed-op-harness.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
+import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.ts';
+import { requestSse } from './helpers/sse-http.ts';
+import { startHarness } from './helpers/streamed-op-harness.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
 
 const REPO_SEARCH_BODY = {
   prompt: 'find x',

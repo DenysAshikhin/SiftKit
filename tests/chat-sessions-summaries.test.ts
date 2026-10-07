@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readChatSessionSummaries, readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { readChatSessionSummaries, readChatSessions, saveChatSession } from '../src/state/chat-sessions.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
 
 test('readChatSessionSummaries returns metadata plus the last tool exit code, without messages', () => {
   const runtimeRoot = createManagedTempDir('siftkit-chat-summaries-');

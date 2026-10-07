@@ -19,18 +19,18 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { toError } from '../../src/lib/errors.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import { isJsonObject } from '../../src/lib/json-types.js';
-import { findNearestSiftKitRepoRoot, moduleDirname } from '../../src/lib/paths.js';
+import { toError } from '../../src/lib/errors.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import { isJsonObject } from '../../src/lib/json-types.ts';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../../src/lib/paths.ts';
 import {
   SHUTDOWN_CLOSE_FLUSH_WAIT_MS,
   SHUTDOWN_FORCED_EXIT_TIMEOUT_MS,
   SHUTDOWN_PERSISTENCE_STAGE_COUNT,
   SHUTDOWN_PERSISTENCE_TIMEOUT_MS,
-} from '../../src/status-server/shutdown-budget.js';
-import { countRunLogs, installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from '../helpers/runtime-database-probe.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.js';
+} from '../../src/status-server/shutdown-budget.ts';
+import { countRunLogs, installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from '../helpers/runtime-database-probe.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.ts';
 
 const READY_TIMEOUT_MS = 20_000;
 const EXIT_TIMEOUT_MS = 60_000;
@@ -49,7 +49,7 @@ function getStatusServerEntrypoint(): string {
   if (packageRoot === null) {
     throw new Error('Unable to locate the SiftKit package root for the status-server entrypoint.');
   }
-  return pathToFileURL(path.join(packageRoot, 'dist', 'status-server', 'main.js')).href;
+  return pathToFileURL(path.join(packageRoot, 'src', 'status-server', 'main.ts')).href;
 }
 
 async function waitFor(check: () => boolean, timeoutMs: number, description: string): Promise<void> {
@@ -70,7 +70,12 @@ class StatusServerProcess {
   private port: number | null = null;
   private readonly exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
 
-  private constructor(readonly child: ChildProcess, readonly tempRoot: string) {
+  readonly child: ChildProcess;
+  readonly tempRoot: string;
+
+  private constructor(child: ChildProcess, tempRoot: string) {
+    this.child = child;
+    this.tempRoot = tempRoot;
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {

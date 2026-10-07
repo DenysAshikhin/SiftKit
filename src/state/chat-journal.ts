@@ -1,5 +1,5 @@
-import { JsonValueSchema, type JsonValue } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
+import { JsonValueSchema, type JsonValue } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
 import {
   ChatEngineBindingSchema,
   ChatJournalAppendSchema,
@@ -14,11 +14,11 @@ import {
   type ChatJournalEvent,
   type ChatRun,
   type ChatRunStart,
-} from './chat-journal-schema.js';
-import { digestStableJson } from '../lib/json-digest.js';
+} from './chat-journal-schema.ts';
+import { digestStableJson } from '../lib/json-digest.ts';
 import { ChatRunTerminalCauseSchema, type ChatRecoveryIssueCode, type ChatStreamUsageEvent } from '@siftkit/contracts';
-import type { RuntimeDatabase } from './database-handle.js';
-import { ChatRuntimeOwnerSchema } from './chat-runtime-owner.js';
+import type { RuntimeDatabase } from './database-handle.ts';
+import { ChatRuntimeOwnerSchema } from './chat-runtime-owner.ts';
 
 const RunRowSchema = z.object({
   operation_id: z.string(),
@@ -62,17 +62,31 @@ export const CHAT_JOURNAL_READ_PAGE_BYTES = 1024 * 1024;
 const PageRowsSchema = z.array(z.object({ sequence: z.number().int(), body_bytes: z.number().int() }));
 
 export class ChatJournalIntegrityError extends Error {
-  constructor(readonly code: ChatRecoveryIssueCode, readonly operationId: string, readonly eventId: string,
-    readonly sequence: number, detail: string) {
+  readonly code: ChatRecoveryIssueCode;
+  readonly operationId: string;
+  readonly eventId: string;
+  readonly sequence: number;
+
+  constructor(code: ChatRecoveryIssueCode, operationId: string, eventId: string,
+    sequence: number, detail: string) {
     super(`Chat journal event ${eventId} in run ${operationId}: ${detail}`);
+    this.code = code;
+    this.operationId = operationId;
+    this.eventId = eventId;
+    this.sequence = sequence;
     this.name = 'ChatJournalIntegrityError';
   }
 }
 
 /** A validated recovery invariant with no individual source-event identity to attach. */
 export class ChatRecoveryInvariantError extends Error {
-  constructor(readonly code: ChatRecoveryIssueCode, readonly operationId: string, detail: string) {
+  readonly code: ChatRecoveryIssueCode;
+  readonly operationId: string;
+
+  constructor(code: ChatRecoveryIssueCode, operationId: string, detail: string) {
     super(detail);
+    this.code = code;
+    this.operationId = operationId;
     this.name = 'ChatRecoveryInvariantError';
   }
 }
@@ -176,7 +190,11 @@ function toEnvelope(row: z.infer<typeof EventRowSchema>): ChatJournalEnvelope {
  * cannot take the evidence down with it, and the store never takes a callback to invoke.
  */
 export class ChatJournalStore {
-  constructor(private readonly database: RuntimeDatabase) {}
+  private readonly database: RuntimeDatabase;
+
+  constructor(database: RuntimeDatabase) {
+    this.database = database;
+  }
 
   begin(input: ChatRunStart): ChatRun {
     const start = ChatRunStartSchema.parse(input);

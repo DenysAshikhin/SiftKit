@@ -1,18 +1,18 @@
 import { CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, ChatRecoveryReportSchema, type ChatRecoveryIssue, type ChatRecoveryReport } from '@siftkit/contracts';
-import type { RuntimeDatabase } from '../state/database-handle.js';
-import { z } from '../lib/zod.js';
+import type { RuntimeDatabase } from '../state/database-handle.ts';
+import { z } from '../lib/zod.ts';
 import { randomUUID } from 'node:crypto';
-import { ChatRuntimeOwner, ChatRuntimeOwnerSchema } from '../state/chat-runtime-owner.js';
-import type { ServerContext } from './server-types.js';
-import { ChatJournalIntegrityError, ChatRecoveryInvariantError, ChatJournalStore } from '../state/chat-journal.js';
-import type { ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.js';
-import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
-import { ChatRunRecorder } from './chat-run-recorder.js';
-import { buildRecoveredChatHistory, ChatContextReplay } from './chat-context-replay.js';
-import { reconcileChatRun, rebuildChatRun } from './chat-run-projection.js';
-import { buildUserContent } from '../llm-protocol/image-attachments.js';
-import { serverLogger } from './server-logger.js';
-import { toError } from '../lib/errors.js';
+import { ChatRuntimeOwner, ChatRuntimeOwnerSchema } from '../state/chat-runtime-owner.ts';
+import type { ServerContext } from './server-types.ts';
+import { ChatJournalIntegrityError, ChatRecoveryInvariantError, ChatJournalStore } from '../state/chat-journal.ts';
+import type { ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.ts';
+import { ChatMessageQueueStore } from '../state/chat-message-queue.ts';
+import { ChatRunRecorder } from './chat-run-recorder.ts';
+import { buildRecoveredChatHistory, ChatContextReplay } from './chat-context-replay.ts';
+import { reconcileChatRun, rebuildChatRun } from './chat-run-projection.ts';
+import { buildUserContent } from '../llm-protocol/image-attachments.ts';
+import { serverLogger } from './server-logger.ts';
+import { toError } from '../lib/errors.ts';
 
 export type ChatOwnerHeartbeatOutcome = 'renewed' | 'reacquired' | 'fenced';
 

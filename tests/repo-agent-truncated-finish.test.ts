@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { StreamStop } from '../src/llm-protocol/types.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import { TRUNCATED_FINISH_MESSAGE, TaskResultSchema, buildStreamStopNotice } from '../src/repo-search/engine/task-loop-support.js';
-import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/schemas.js';
-import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
-import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { parseLoggedEvent, plannerLogMessages, userMessagesOfTurn } from './helpers/logged-events.js';
-import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import type { StreamStop } from '../src/llm-protocol/types.ts';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.ts';
+import { runTaskLoop } from '../src/repo-search/engine.ts';
+import { TRUNCATED_FINISH_MESSAGE, TaskResultSchema, buildStreamStopNotice } from '../src/repo-search/engine/task-loop-support.ts';
+import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/schemas.ts';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.ts';
+import { parseLoggedEvent, plannerLogMessages, userMessagesOfTurn } from './helpers/logged-events.ts';
+import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-truncated-finish-');
 const AGENT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-agent');

@@ -19,14 +19,14 @@ import {
   RepoAgentRunRequestSchema,
   type RepoAgentRunRequest,
   type RepoAgentRunState,
-} from '../src/repo-agent/run-schemas.js';
-import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
-import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
-import { classifyRepoAgentExecutionResult } from '../src/repo-agent/run-output.js';
-import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import { buildScorecard } from '../src/repo-search/engine.js';
-import type { TaskEndReason } from '../src/repo-search/engine/task-loop-support.js';
-import { buildMockScorecard } from './_test-helpers.js';
+} from '../src/repo-agent/run-schemas.ts';
+import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.ts';
+import { RepoAgentRunStore } from '../src/repo-agent/run-store.ts';
+import { classifyRepoAgentExecutionResult } from '../src/repo-agent/run-output.ts';
+import type { RepoSearchExecutionResult } from '../src/repo-search/types.ts';
+import { buildScorecard } from '../src/repo-search/engine.ts';
+import type { TaskEndReason } from '../src/repo-search/engine/task-loop-support.ts';
+import { buildMockScorecard } from './_test-helpers.ts';
 
 const TEMP_ROOT = join(tmpdir(), `siftkit-repo-agent-run-store-tests-${process.pid}`);
 
@@ -151,11 +151,14 @@ function publishBoundary(
 }
 
 class TransitionFailureStore extends RepoAgentRunStore {
+  private readonly advanceBeforeFailure: boolean;
+
   constructor(
     runsRoot: string,
-    private readonly advanceBeforeFailure: boolean,
+    advanceBeforeFailure: boolean,
   ) {
     super(runsRoot);
+    this.advanceBeforeFailure = advanceBeforeFailure;
   }
 
   override transition(

@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { runCli } from '../src/cli/index.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import { makeCaptureStream } from './_test-helpers.js';
-import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
-import { writeSseResult } from './helpers/sse-http.js';
+import { runCli } from '../src/cli/index.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { makeCaptureStream } from './_test-helpers.ts';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
+import { writeSseResult } from './helpers/sse-http.ts';
 
 test('summary delegates non-deterministic execution to status server', async () => {
   const received: JsonObject[] = [];

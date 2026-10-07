@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getActiveModelPreset } from '../src/config/getters.js';
-import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.ts';
 import {
   resolveModelRequestContext,
-} from '../src/status-server/model-request-context.js';
+} from '../src/status-server/model-request-context.ts';
 import {
   createPresetRoutingConfig,
   PRESET_ROUTING_MODEL_A,
   PRESET_ROUTING_MODEL_B,
   PRESET_ROUTING_MODEL_C,
-} from './helpers/preset-routing-config.js';
+} from './helpers/preset-routing-config.ts';
 
 function findModelPreset(config: SiftConfig, id: string): ModelRuntimePreset {
   const preset = config.Server.ModelPresets.Presets.find((entry) => entry.id === id);

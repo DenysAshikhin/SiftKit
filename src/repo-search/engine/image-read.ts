@@ -2,14 +2,14 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 
 import { SIFT_MAX_IMAGE_BYTES } from '@siftkit/contracts';
 
-import { admitImageBuffer } from '../../llm-protocol/image-admission.js';
+import { admitImageBuffer } from '../../llm-protocol/image-admission.ts';
 import {
   IMAGE_RETENTION_DISABLED_REASON,
   imageMimeForPath,
-} from '../../llm-protocol/image-attachments.js';
-import { buildReadPathKey } from './read-overlap.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { RepoToolContext, RepoToolExecution } from './repo-tools.js';
+} from '../../llm-protocol/image-attachments.ts';
+import { buildReadPathKey } from './read-overlap.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { RepoToolContext, RepoToolExecution } from './repo-tools.ts';
 
 export const VISION_DISABLED_READ_REASON =
   'reading images requires an exl3 preset with VisionEnabled; this preset is text-only';

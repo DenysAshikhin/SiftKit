@@ -1,31 +1,31 @@
-import { getActiveModelPreset, type SiftConfig } from '../../config/index.js';
-import { z } from '../../lib/zod.js';
-import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import { LENGTH_FINISH_REASON, LOOP_DETECTED_EOS_REASON, type StreamStop } from '../../llm-protocol/types.js';
-import type { PresetSystemContext } from '../../preset-system-context.js';
-import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
-import { type PlannerActionResponse, type PlannerThinkingFlags } from '../planner-protocol.js';
-import type { ChatMessage } from '../planner-chat-message.js';
-import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
-import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
-import { ReadOverlapSummarySchema } from './read-overlap.js';
-import { TaskCommandSchema } from '../prompts.js';
-import { ChatGroundingStatusSchema } from '../chat-grounding-policy.js';
+import { getActiveModelPreset, type SiftConfig } from '../../config/index.ts';
+import { z } from '../../lib/zod.ts';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.ts';
+import { LENGTH_FINISH_REASON, LOOP_DETECTED_EOS_REASON, type StreamStop } from '../../llm-protocol/types.ts';
+import type { PresetSystemContext } from '../../preset-system-context.ts';
+import { ToolTypeStatsSchema } from '../../status-server/metrics.ts';
+import { type PlannerActionResponse, type PlannerThinkingFlags } from '../planner-protocol.ts';
+import type { ChatMessage } from '../planner-chat-message.ts';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.ts';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.ts';
+import { ReadOverlapSummarySchema } from './read-overlap.ts';
+import { TaskCommandSchema } from '../prompts.ts';
+import { ChatGroundingStatusSchema } from '../chat-grounding-policy.ts';
 import type {
   JsonLogger,
   RetainedWebToolCall,
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
-} from '../types.js';
-import { detectRecentTokenRepetition, type TokenRepetitionDetection } from '../repetition-guard.js';
-import { WebResearchTools } from '../../web-search/web-research-tools.js';
-import type { WebSearchConfig } from '../../web-search/types.js';
-import type { ProgressWriter } from '../../lib/progress-writer.js';
-import type { ApprovalGate } from './approval-gate.js';
-import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
-import type { ChatMessageQueueDelivery } from './queue-delivery.js';
-import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
-import type { QuestionGate } from './question-gate.js';
+} from '../types.ts';
+import { detectRecentTokenRepetition, type TokenRepetitionDetection } from '../repetition-guard.ts';
+import { WebResearchTools } from '../../web-search/web-research-tools.ts';
+import type { WebSearchConfig } from '../../web-search/types.ts';
+import type { ProgressWriter } from '../../lib/progress-writer.ts';
+import type { ApprovalGate } from './approval-gate.ts';
+import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
+import type { ChatMessageQueueDelivery } from './queue-delivery.ts';
+import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
+import type { QuestionGate } from './question-gate.ts';
 import { InferenceThroughputSchema, type ThroughputAuditOperation } from '@siftkit/contracts';
 
 // ---------------------------------------------------------------------------

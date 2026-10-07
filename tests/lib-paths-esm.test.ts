@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { moduleDirname, moduleFilename, isMainModule } from '../src/lib/paths.js';
+import { moduleDirname, moduleFilename, isMainModule } from '../src/lib/paths.ts';
 
 // Use the stable source-tree location so this test has the same identity when it
 // runs from the generated ESM test tree.

@@ -3,19 +3,19 @@ import {
   type CaptureSubmissionDto, type ImageMime, type SuppressionAuditDto,
 } from '@siftkit/contracts';
 
-import type { AssistantConfig } from '../../config/types.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import type { Clock } from '../clock.js';
-import type { CaptureQueueState } from '../domain/enums.js';
+import type { AssistantConfig } from '../../config/types.ts';
+import type { JsonObject } from '../../lib/json-types.ts';
+import type { Clock } from '../clock.ts';
+import type { CaptureQueueState } from '../domain/enums.ts';
 import {
   isUsableCapability, type AssistantImageCapabilityProvider,
-} from '../images/image-capability.js';
-import type { CaptureQueueStore } from '../images/capture-queue-store.js';
-import { rawStorageLimitBytes } from '../images/capture-retention.js';
-import type { AuditStore } from '../storage/audit-store.js';
-import type { EvidenceStore } from '../storage/evidence-store.js';
-import type { JobStore } from '../storage/job-store.js';
-import { requireObservationAllowed } from './observation-gate.js';
+} from '../images/image-capability.ts';
+import type { CaptureQueueStore } from '../images/capture-queue-store.ts';
+import { rawStorageLimitBytes } from '../images/capture-retention.ts';
+import type { AuditStore } from '../storage/audit-store.ts';
+import type { EvidenceStore } from '../storage/evidence-store.ts';
+import type { JobStore } from '../storage/job-store.ts';
+import { requireObservationAllowed } from './observation-gate.ts';
 
 /** The shell ships a 64-bit dHash; `PerceptualHashSchema` guarantees the 16 hex characters. */
 const PERCEPTUAL_HASH_BITS = 64;

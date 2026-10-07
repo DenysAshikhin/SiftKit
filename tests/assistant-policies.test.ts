@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PolicyStore } from '../src/assistant/storage/policy-store.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { PolicyStore } from '../src/assistant/storage/policy-store.ts';
+import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.ts';
 
 function newPolicyStore(context: AssistantTestContext): PolicyStore {
   return new PolicyStore(context.database, context.clock, context.ids);

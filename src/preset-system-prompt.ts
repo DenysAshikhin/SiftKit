@@ -1,10 +1,16 @@
-import type { PresetSystemContext } from './preset-system-context.js';
+import type { PresetSystemContext } from './preset-system-context.ts';
 
 export class PresetSystemPromptComposer {
+  private readonly presetPromptPrefix: string;
+  private readonly systemContext: PresetSystemContext;
+
   constructor(
-    private readonly presetPromptPrefix: string,
-    private readonly systemContext: PresetSystemContext,
-  ) {}
+    presetPromptPrefix: string,
+    systemContext: PresetSystemContext,
+  ) {
+    this.presetPromptPrefix = presetPromptPrefix;
+    this.systemContext = systemContext;
+  }
 
   // Ordered stable-to-volatile so the inference engine can reuse the largest possible KV
   // prefix across runs: the repo context block is the bulk of the tokens and changes only

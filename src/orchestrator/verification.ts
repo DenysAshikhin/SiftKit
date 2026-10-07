@@ -10,10 +10,10 @@ import {
   type OrchestratorWorkerStatus,
 } from '@siftkit/contracts';
 
-import { AGENT_RUN_ID_ENV } from '../lib/agent-run-marker.js';
-import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.js';
-import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../lib/powershell.js';
-import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.js';
+import { AGENT_RUN_ID_ENV } from '../lib/agent-run-marker.ts';
+import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.ts';
+import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../lib/powershell.ts';
+import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
 
 const CHECK_OUTPUT_MAX_CHARS = 20_000;
 const SNIPPET_LINE_TOLERANCE = 2;

@@ -1,8 +1,8 @@
 import type { ImageMetadata } from '@siftkit/contracts';
-import type { ModelRuntimePreset } from '../config/types.js';
-import { admitImageDataUrls, type AdmittedImage } from './image-admission.js';
-import { assertPresetAcceptsImages } from './image-attachments.js';
-import { resolveImageTokenBudget } from './image-token-budget.js';
+import type { ModelRuntimePreset } from '../config/types.ts';
+import { admitImageDataUrls, type AdmittedImage } from './image-admission.ts';
+import { assertPresetAcceptsImages } from './image-attachments.ts';
+import { resolveImageTokenBudget } from './image-token-budget.ts';
 
 export function admitImagesForPreset(
   preset: ModelRuntimePreset,

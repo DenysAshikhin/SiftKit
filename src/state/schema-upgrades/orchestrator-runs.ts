@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
 
-import { parseJsonValueText } from '../../lib/json.js';
-import { canonicalRepositoryKey } from '../../lib/repository-key.js';
-import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../database-handle.js';
+import { parseJsonValueText } from '../../lib/json.ts';
+import { canonicalRepositoryKey } from '../../lib/repository-key.ts';
+import { z } from '../../lib/zod.ts';
+import type { RuntimeDatabase } from '../database-handle.ts';
 
 const ExistingTableSchema = z.object({ name: z.string() }).nullable();
 

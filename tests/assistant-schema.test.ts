@@ -4,21 +4,21 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import { z } from 'zod';
 
-import { RELATION_TYPES } from '../src/assistant/domain/relation-types.js';
-import { NODE_TYPES } from '../src/assistant/domain/node-types.js';
-import { JobRowSchema, ProjectionRowSchema } from '../src/assistant/storage/rows.js';
+import { RELATION_TYPES } from '../src/assistant/domain/relation-types.ts';
+import { NODE_TYPES } from '../src/assistant/domain/node-types.ts';
+import { JobRowSchema, ProjectionRowSchema } from '../src/assistant/storage/rows.ts';
 import {
   LOCAL_OWNER_ID,
-} from '../src/assistant/storage/schema.js';
+} from '../src/assistant/storage/schema.ts';
 import {
   CURRENT_SCHEMA_VERSION,
   closeAllRuntimeDatabases,
   getRuntimeDatabase,
   getSchemaVersion,
-} from '../src/state/runtime-db.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+} from '../src/state/runtime-db.ts';
+import { withAssistantContext } from './helpers/assistant-fixture.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 
 const NameRowSchema = z.array(z.object({ name: z.string() }));
 const CountRowSchema = z.object({ count: z.number() });

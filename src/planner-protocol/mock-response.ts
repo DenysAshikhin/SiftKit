@@ -1,6 +1,6 @@
-import { JsonObjectSchema } from '../lib/json-types.js';
-import { z } from '../lib/zod.js';
-import { StreamStopSchema, type InferenceToolCall, type StreamStop } from '../llm-protocol/types.js';
+import { JsonObjectSchema } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
+import { StreamStopSchema, type InferenceToolCall, type StreamStop } from '../llm-protocol/types.ts';
 
 export const MockPlannerToolCallSchema = z.strictObject({
   id: z.string().trim().min(1).optional(),

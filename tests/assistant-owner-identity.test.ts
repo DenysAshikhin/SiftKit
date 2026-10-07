@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { AssistantService } from '../src/assistant/assistant-service.js';
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
-import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.js';
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
+import type { AssistantService } from '../src/assistant/assistant-service.ts';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
+import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.ts';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
 import {
   buildAssistantService, proposePersonUses,
-} from './helpers/assistant-fixture.js';
+} from './helpers/assistant-fixture.ts';
 
 const OBSERVED_AT = '2026-08-05T09:00:00.000Z';
 

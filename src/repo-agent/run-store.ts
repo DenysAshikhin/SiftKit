@@ -7,13 +7,13 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
-import { ensureDirectory, saveContentAtomically } from '../lib/fs.js';
-import { parseJsonText } from '../lib/json.js';
-import { z } from '../lib/zod.js';
+import { ensureDirectory, saveContentAtomically } from '../lib/fs.ts';
+import { parseJsonText } from '../lib/json.ts';
+import { z } from '../lib/zod.ts';
 import {
   NodeProcessInspector,
   type ProcessInspector,
-} from '../lib/process-inspector.js';
+} from '../lib/process-inspector.ts';
 import { RepoAgentApprovalSchema, type RepoAgentApproval } from '@siftkit/contracts';
 import {
   RepoAgentRunIdSchema,
@@ -23,8 +23,8 @@ import {
   isTerminalStatus,
   type RepoAgentRunRequest,
   type RepoAgentRunState,
-} from './run-schemas.js';
-import { RepoAgentRunStateLease } from './run-state-lease.js';
+} from './run-schemas.ts';
+import { RepoAgentRunStateLease } from './run-state-lease.ts';
 
 const RevisionSchema = z.number().int().nonnegative();
 

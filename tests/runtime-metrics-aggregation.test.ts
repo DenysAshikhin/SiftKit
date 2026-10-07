@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { executeRepoSearchRequest } from '../src/repo-search/index.js';
+import { executeRepoSearchRequest } from '../src/repo-search/index.ts';
 import {
   summarizeRequest,
   buildIdleSummarySnapshot,
@@ -12,10 +12,10 @@ import {
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
-} from './_runtime-helpers.js';
-import { asObject } from './helpers/dashboard-http.js';
-import { buildTabbyUsage } from './helpers/streaming-client.js';
-import { emptyInferenceThroughput, readTabbyThroughput } from '../src/lib/inference-throughput.js';
+} from './_runtime-helpers.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { buildTabbyUsage } from './helpers/streaming-client.ts';
+import { emptyInferenceThroughput, readTabbyThroughput } from '../src/lib/inference-throughput.ts';
 
 // The summary prompt and the stub's answer are fixed fixtures, so their local
 // (characters-per-token) counts are constants; the prompt's repo listing holds no database files.

@@ -1,17 +1,17 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
-import { z } from '../lib/zod.js';
-import { RUN_SHELL_LABEL } from '../lib/powershell.js';
+import { z } from '../lib/zod.ts';
+import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
 import {
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
   WEB_CHAT_TOOL_NAMES,
-} from '../planner-protocol/repo-search.js';
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
-import type { IgnorePolicy } from './command-safety.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
-import type { PresetSystemContext } from '../preset-system-context.js';
+} from '../planner-protocol/repo-search.ts';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
+import type { IgnorePolicy } from './command-safety.ts';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
 
 // ---------------------------------------------------------------------------
 // Repo file scanner (gitignore-aware, no external dependencies)

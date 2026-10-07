@@ -15,7 +15,7 @@ import {
   ChatToolExecutionStateSchema,
   ChatTranscriptMessageSchema,
   ToolCallStatusSchema,
-} from './chat.js';
+} from './chat.ts';
 
 /**
  * One approval waits ten minutes from the moment it was requested. Refreshing the page, reattaching

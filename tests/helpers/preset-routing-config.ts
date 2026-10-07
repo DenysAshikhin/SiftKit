@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ModelRuntimePresetSchema, SiftConfigSchema } from '@siftkit/contracts';
-import { getDefaultConfigObject } from '../../src/config/defaults.js';
-import type { SiftConfig } from '../../src/config/types.js';
-import { createManagedTempDir } from './temp-dirs.js';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import type { SiftConfig } from '../../src/config/types.ts';
+import { createManagedTempDir } from './temp-dirs.ts';
 
 /** The three validated model profile IDs used by preset routing tests. */
 export const PRESET_ROUTING_MODEL_A = 'model-a';

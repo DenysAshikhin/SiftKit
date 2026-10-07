@@ -8,7 +8,7 @@ import {
   getTimingUsageFromResponseBody,
   isTransientProviderError,
   retryProviderRequest,
-} from '../src/lib/provider-helpers.js';
+} from '../src/lib/provider-helpers.ts';
 
 test('provider helpers ignore removed legacy timing payloads', () => {
   const body = {

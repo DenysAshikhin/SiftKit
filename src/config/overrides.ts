@@ -1,5 +1,5 @@
-import { getActiveModelPreset } from './getters.js';
-import type { ModelRuntimePreset, SiftConfig } from './types.js';
+import { getActiveModelPreset } from './getters.ts';
+import type { ModelRuntimePreset, SiftConfig } from './types.ts';
 
 /**
  * Rewrites the active preset — the one `getActiveModelPreset` resolves — with the

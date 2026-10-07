@@ -1,9 +1,9 @@
-import type { Sensitivity } from '../domain/enums.js';
-import { normalizeAliasText } from '../domain/keys.js';
-import type { NodeType } from '../domain/node-types.js';
-import type { AuditStore } from '../storage/audit-store.js';
-import type { NodeStore } from '../storage/node-store.js';
-import type { NodeRow } from '../storage/rows.js';
+import type { Sensitivity } from '../domain/enums.ts';
+import { normalizeAliasText } from '../domain/keys.ts';
+import type { NodeType } from '../domain/node-types.ts';
+import type { AuditStore } from '../storage/audit-store.ts';
+import type { NodeStore } from '../storage/node-store.ts';
+import type { NodeRow } from '../storage/rows.ts';
 
 export type ResolutionStep =
   | 'canonical_key' | 'user_alias' | 'normalized_alias' | 'model_suggested' | 'context_match';
@@ -48,10 +48,16 @@ const RESOLVED_NODE_SENSITIVITY: Sensitivity = 'personal';
  * resolver either matches an exact normalized alias, creates a node, or asks for confirmation.
  */
 export class EntityResolver {
+  private readonly nodes: NodeStore;
+  private readonly audit: AuditStore;
+
   constructor(
-    private readonly nodes: NodeStore,
-    private readonly audit: AuditStore,
-  ) {}
+    nodes: NodeStore,
+    audit: AuditStore,
+  ) {
+    this.nodes = nodes;
+    this.audit = audit;
+  }
 
   resolve(request: ResolveRequest): ResolutionOutcome {
     if (request.canonicalKey !== null) {

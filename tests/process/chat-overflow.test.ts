@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
 import { OrchestratorRunStateSchema } from '@siftkit/contracts';
-import { HeadlessChrome, bundleBrowserPage, bundleResponse } from '../helpers/browser-page.js';
-import { HOSTILE_PATH, OVERFLOW_PRESENT, OverflowReportSchema, UNBROKEN } from '../../dashboard/tests/chat-overflow-content.js';
+import { HeadlessChrome, bundleBrowserPage, bundleResponse } from '../helpers/browser-page.ts';
+import { HOSTILE_PATH, OVERFLOW_PRESENT, OverflowReportSchema, UNBROKEN } from '../../dashboard/tests/chat-overflow-content.ts';
 
 const AT = '2026-09-23T12:00:00.000Z';
 const CHECK = { kind: 'command', command: `npm test -- ${UNBROKEN}`, cwd: '.', expectedExitCode: 0 } as const;

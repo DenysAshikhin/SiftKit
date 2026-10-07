@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
 import { z } from 'zod';
-import { writeConfig } from '../src/status-server/config-store.js';
+import { writeConfig } from '../src/status-server/config-store.ts';
 
 import {
   applyManagedScriptConfig,
@@ -14,9 +14,9 @@ import {
   withRealStatusServer,
   withTempEnv,
   writeManagedEngineHost,
-} from './_runtime-helpers.js';
-import { testHttpAgent } from './helpers/http-agent.js';
-import { launchEngineVariables } from './helpers/in-process-tabby.js';
+} from './_runtime-helpers.ts';
+import { testHttpAgent } from './helpers/http-agent.ts';
+import { launchEngineVariables } from './helpers/in-process-tabby.ts';
 
 interface ModelsResponse {
   data: { id: string }[];

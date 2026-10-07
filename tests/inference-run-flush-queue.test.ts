@@ -4,18 +4,18 @@ import assert from 'node:assert/strict';
 import {
   InferenceRunFlushQueue,
   PENDING_FLUSH_HIGH_WATER_CHARACTERS,
-} from '../src/status-server/inference-run-flush-queue.js';
+} from '../src/status-server/inference-run-flush-queue.ts';
 import {
   bufferInferenceRunLogChunk,
   consumeInferenceRunPendingLogChunks,
   createInferenceRun,
   getInferenceRunPendingLogChunkStats,
   readInferenceRunLogTextByStream,
-} from '../src/state/inference-runs.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { waitForCondition } from './helpers/deferred-shutdown-fixture.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { failReportingOn, committedRows } from './helpers/inference-run-flush-queue-fixtures.js';
+} from '../src/state/inference-runs.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { waitForCondition } from './helpers/deferred-shutdown-fixture.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { failReportingOn, committedRows } from './helpers/inference-run-flush-queue-fixtures.ts';
 
 // An empty batch has nothing to write, so starting the flush flow would only contend for the
 // journal. Whitespace is real log data and must still flush.

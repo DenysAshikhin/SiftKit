@@ -1,9 +1,9 @@
-import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AgentLoopActionParser } from '../src/agent-loop/action-parser.js';
-import { AgentLoop } from '../src/agent-loop/agent-loop.js';
+import { AgentLoopActionParser } from '../src/agent-loop/action-parser.ts';
+import { AgentLoop } from '../src/agent-loop/agent-loop.ts';
 import type {
   AgentLoopAction,
   AgentLoopActionAdapter,
@@ -18,14 +18,14 @@ import type {
   AgentLoopToolAdapter,
   AgentLoopToolExecution,
   AgentLoopToolResult,
-} from '../src/agent-loop/types.js';
+} from '../src/agent-loop/types.ts';
 import {
   CLEAN_STREAM_STOP,
   type InferenceUsage,
   type NormalizedInferenceChatResponse,
-} from '../src/llm-protocol/types.js';
-import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+} from '../src/llm-protocol/types.ts';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
 
 const SUMMARY_PARSE_OPTIONS = {
   toolDefinitions: buildSummaryPlannerToolDefinitions(undefined, false),

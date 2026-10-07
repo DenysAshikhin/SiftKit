@@ -1,4 +1,4 @@
-import type { IngestionPipeline } from './pipeline.js';
+import type { IngestionPipeline } from './pipeline.ts';
 
 export interface ChatTurnInput {
   readonly ownerId: string;
@@ -25,7 +25,11 @@ const SUPPRESSION_PATTERN =
  * writes no graph rows — every persistence decision belongs to the pipeline.
  */
 export class ConversationIngestor {
-  constructor(private readonly pipeline: IngestionPipeline) {}
+  private readonly pipeline: IngestionPipeline;
+
+  constructor(pipeline: IngestionPipeline) {
+    this.pipeline = pipeline;
+  }
 
   ingestTurn(input: ChatTurnInput): ChatTurnIngestResult {
     if (SUPPRESSION_PATTERN.test(input.userText)) {

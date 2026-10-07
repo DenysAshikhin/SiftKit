@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCommand } from '../helpers/run-command-for-test.js';
-import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../../src/state/runtime-artifacts.js';
+import { runCommand } from '../helpers/run-command-for-test.ts';
+import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../../src/state/runtime-artifacts.ts';
 
 import {
   withTempEnv,
   withStubServer,
-} from '../_runtime-helpers.js';
+} from '../_runtime-helpers.ts';
 
 test('runCommand saves a raw log and respects no-summarize mode when the external server is available', async () => {
   await withTempEnv(async () => {

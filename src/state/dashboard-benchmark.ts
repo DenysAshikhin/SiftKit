@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { z } from '../lib/zod.js';
-import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
-import { parseJsonValueText } from '../lib/json.js';
-import { JsonObjectSchema, type JsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
+import { z } from '../lib/zod.ts';
+import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.ts';
+import { parseJsonValueText } from '../lib/json.ts';
+import { JsonObjectSchema, type JsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.ts';
 import {
   InferenceThroughputSchema,
   MIXED_MODEL_PRESET_LABEL,
@@ -11,7 +11,7 @@ import {
   type ThroughputRates,
   type InferenceThroughput,
 } from '@siftkit/contracts';
-import { calculateThroughputRates, mergeInferenceThroughput } from '../lib/inference-throughput.js';
+import { calculateThroughputRates, mergeInferenceThroughput } from '../lib/inference-throughput.ts';
 
 const BenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 export type BenchmarkTaskKind = z.infer<typeof BenchmarkTaskKindSchema>;

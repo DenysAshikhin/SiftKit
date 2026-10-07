@@ -3,8 +3,8 @@ import {
   type ChatMessageQueueState, type ChatOperationSnapshot, type ChatProjectionCapture, type ChatProjectionCursor,
   type ChatProjectionFrame, type ChatProjectionRecord, type ChatRunTerminalCause, type ChatStreamError,
 } from '@siftkit/contracts';
-import { createChatSnapshotRecords, encodeChatProjectionRecords, serializeChatProjectionFrame } from '../../src/status-server/chat-projection-encoder.js';
-import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
+import { createChatSnapshotRecords, encodeChatProjectionRecords, serializeChatProjectionFrame } from '../../src/status-server/chat-projection-encoder.ts';
+import type { ChatStreamEvent } from '../src/lib/chat-stream-parser.ts';
 
 export const FIXTURE_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 let transferCounter = 0;

@@ -2,16 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
-import { JsonValueSchema } from '../../src/lib/json-types.js';
+import { JsonValueSchema } from '../../src/lib/json-types.ts';
 
-// The repo root package.json is read by several E2E tests that assert on packed
-// files and script wiring. Validating through a schema yields an inferred DTO so
-// callers read `manifest.scripts`/`manifest.files` without a boundary cast.
+// The repo root package.json is read by E2E tests that assert on script wiring;
+// the schema yields an inferred DTO so callers read `manifest.scripts` without a cast.
 const PackageManifestSchema = z
   .object({
     name: z.string().optional(),
     version: z.string().optional(),
-    files: z.array(z.string()),
     scripts: z.record(z.string(), z.string()),
   })
   .catchall(JsonValueSchema);

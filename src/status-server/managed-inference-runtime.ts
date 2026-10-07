@@ -3,14 +3,18 @@ import type {
   InferenceModelState,
   InferenceProcessState,
   ModelRuntimePreset,
-} from '../config/types.js';
+} from '../config/types.ts';
 
 export abstract class ManagedInferenceRuntime {
   private processState: InferenceProcessState = 'stopped';
   private modelState: InferenceModelState = 'unloaded';
   private generation = 0;
 
-  protected constructor(readonly id: InferenceBackendId) {}
+  readonly id: InferenceBackendId;
+
+  protected constructor(id: InferenceBackendId) {
+    this.id = id;
+  }
 
   abstract stopProcess(): Promise<void>;
   abstract ensurePresetReady(preset: ModelRuntimePreset): Promise<void>;

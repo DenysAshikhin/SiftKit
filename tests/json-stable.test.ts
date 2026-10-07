@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { stableStringify, writeStableJson } from '../src/lib/json.js';
-import { digestStableJson } from '../src/lib/json-digest.js';
-import type { JsonValue } from '../src/lib/json-types.js';
+import { stableStringify, writeStableJson } from '../src/lib/json.ts';
+import { digestStableJson } from '../src/lib/json-digest.ts';
+import type { JsonValue } from '../src/lib/json-types.ts';
 
 const CASES: JsonValue[] = [
   null, 0, -1.5, true, '', 'quote " backslash \ newline \n unicode ☃',

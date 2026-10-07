@@ -1,16 +1,16 @@
-import { getActiveModelPreset } from '../src/config/getters.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
+import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.ts';
 import {
   requestJson,
   withRealStatusServer,
   withTempEnv,
-} from './_runtime-helpers.js';
-import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+} from './_runtime-helpers.ts';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
 interface MetricsTimeseriesResponse {
   days: JsonValue[];

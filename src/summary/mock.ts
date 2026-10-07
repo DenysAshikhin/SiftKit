@@ -1,6 +1,6 @@
-import { UNSUPPORTED_INPUT_MESSAGE } from './measure.js';
-import { extractPromptSection } from './prompt.js';
-import type { StructuredModelDecision, SummaryPhase } from './types.js';
+import { UNSUPPORTED_INPUT_MESSAGE } from './measure.ts';
+import { extractPromptSection } from './prompt.ts';
+import type { StructuredModelDecision, SummaryPhase } from './types.ts';
 
 // SIFTKIT_TEST_PROVIDER_* env reads live in ./providers/mock-provider.ts; this module
 // holds only the pure decision builders.

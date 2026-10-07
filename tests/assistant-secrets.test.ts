@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SecretScanner } from '../src/assistant/domain/secrets.js';
+import { SecretScanner } from '../src/assistant/domain/secrets.ts';
 
 const scanner = new SecretScanner();
 

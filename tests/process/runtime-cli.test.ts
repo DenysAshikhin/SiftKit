@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ActiveStatusRunSchema } from '@siftkit/contracts';
-import { z } from '../../src/lib/zod.js';
-import type { JsonValue } from '../../src/lib/json-types.js';
+import { z } from '../../src/lib/zod.ts';
+import type { JsonValue } from '../../src/lib/json-types.ts';
 import {
   fs,
   path,
@@ -13,7 +13,7 @@ import {
   postStatusComplete,
   withTempEnv,
   withSummaryTestServer,
-} from '../_runtime-helpers.js';
+} from '../_runtime-helpers.ts';
 
 const repoRoot = process.cwd();
 
@@ -34,7 +34,7 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       fs.writeFileSync(firstInputPath, 'A'.repeat(300_001), 'utf8');
       fs.writeFileSync(secondInputPath, 'B'.repeat(300_001), 'utf8');
 
-      const cliPath = path.join(repoRoot, 'dist', 'cli', 'main.js');
+      const cliPath = path.join(repoRoot, 'src', 'cli', 'main.ts');
       const childEnv = {
         ...process.env,
         SIFTKIT_TEST_PROVIDER: 'mock',

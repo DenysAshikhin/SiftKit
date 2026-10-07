@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addToast, removeToast, type ToastState } from '../dashboard/src/hooks/useToasts.js';
+import { addToast, removeToast, type ToastState } from '../dashboard/src/hooks/useToasts.ts';
 
 const empty: ToastState = { toasts: [], nextSeq: 0 };
 

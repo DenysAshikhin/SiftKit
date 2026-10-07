@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { invokeShellProcess } from '../../src/capture/process.js';
+import { invokeShellProcess } from '../../src/capture/process.ts';
 
 test('invokeShellProcess captures stdout from auto-detected shell', () => {
   const script = process.platform === 'win32'

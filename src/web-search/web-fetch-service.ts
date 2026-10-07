@@ -1,6 +1,6 @@
-import { httpClient, type HttpClient } from '../lib/http-client.js';
-import type { WebFetchResult, WebFetchToolArgs, WebSearchConfig } from './types.js';
-import { assertPublicHttpUrl } from './url-safety.js';
+import { httpClient, type HttpClient } from '../lib/http-client.ts';
+import type { WebFetchResult, WebFetchToolArgs, WebSearchConfig } from './types.ts';
+import { assertPublicHttpUrl } from './url-safety.ts';
 
 // Loaded on first conversion: the toolchain costs ~0.5s, and most processes never fetch a page.
 async function htmlToMarkdown(html: string, finalUrl: string): Promise<{ title: string; markdown: string }> {
@@ -30,10 +30,16 @@ async function extractContent(rawText: string, contentType: string, finalUrl: st
 }
 
 export class WebFetchService {
+  private readonly config: WebSearchConfig;
+  private readonly client: HttpClient;
+
   constructor(
-    private readonly config: WebSearchConfig,
-    private readonly client: HttpClient = httpClient,
-  ) {}
+    config: WebSearchConfig,
+    client: HttpClient = httpClient,
+  ) {
+    this.config = config;
+    this.client = client;
+  }
 
   async fetch(args: WebFetchToolArgs): Promise<WebFetchResult> {
     const originalUrl = assertPublicHttpUrl(String(args.url || '').trim());

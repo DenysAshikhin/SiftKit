@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getActiveModelPreset } from '../src/config/getters.js';
-import type { ModelRuntimePreset } from '../src/config/types.js';
-import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
-import { ManagedRuntimeImageCapabilityProvider } from '../src/status-server/runtime-image-capability.js';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import type { ModelRuntimePreset } from '../src/config/types.ts';
+import { getDefaultConfig } from '../src/status-server/config-store.ts';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.ts';
+import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.ts';
+import { ManagedRuntimeImageCapabilityProvider } from '../src/status-server/runtime-image-capability.ts';
 
 /** Records lifecycle calls so a read can be proven never to start or switch a model. */
 class FakeRuntime extends ManagedInferenceRuntime {
@@ -38,7 +38,11 @@ class FakeRuntime extends ManagedInferenceRuntime {
 }
 
 class FixedRuntimeSource {
-  constructor(private readonly runtime: ManagedInferenceRuntime) {}
+  private readonly runtime: ManagedInferenceRuntime;
+
+  constructor(runtime: ManagedInferenceRuntime) {
+    this.runtime = runtime;
+  }
 
   getActiveRuntime(): ManagedInferenceRuntime {
     return this.runtime;

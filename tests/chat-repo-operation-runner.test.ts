@@ -3,40 +3,40 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { getConfiguredEngineNumCtx, getConfiguredModel } from '../src/config/getters.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { ProgressWriter } from '../src/lib/progress-writer.js';
+import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { getConfiguredEngineNumCtx, getConfiguredModel } from '../src/config/getters.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
+import { ProgressWriter } from '../src/lib/progress-writer.ts';
 import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
-} from '../src/repo-search/types.js';
+} from '../src/repo-search/types.ts';
 import {
   ChatRepoOperationRunner,
   type ChatRepoOperationRequest,
-} from '../src/status-server/chat-repo-operation-runner.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
+} from '../src/status-server/chat-repo-operation-runner.ts';
+import { StatusEngineService } from '../src/status-server/engine-service.ts';
 import {
   closeAllRuntimeDatabases,
-} from '../src/state/runtime-db.js';
-import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
-import { buildMockScorecard } from './_test-helpers.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
-import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
-import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
-import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
-import { QuestionGate } from '../src/repo-search/engine/question-gate.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { admitImagesForPreset } from '../src/llm-protocol/preset-image-admission.js';
-import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
-import { ChatOperationBroadcast } from '../src/status-server/chat-operation-broadcast.js';
-import { CompositeRepoSearchProgressWriter } from '../src/status-server/operation-progress-writers.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
+} from '../src/state/runtime-db.ts';
+import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.ts';
+import { buildMockScorecard } from './_test-helpers.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
+import { readImageDimensions } from '../src/llm-protocol/image-admission.ts';
+import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.ts';
+import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.ts';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.ts';
+import { QuestionGate } from '../src/repo-search/engine/question-gate.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
+import { admitImagesForPreset } from '../src/llm-protocol/preset-image-admission.ts';
+import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.ts';
+import { ChatOperationBroadcast } from '../src/status-server/chat-operation-broadcast.ts';
+import { CompositeRepoSearchProgressWriter } from '../src/status-server/operation-progress-writers.ts';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.ts';
 
 class RecordingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   readonly events: RepoSearchProgressEvent[] = [];
@@ -53,11 +53,16 @@ class RecordingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 class StubStatusEngineService extends StatusEngineService {
   request: RepoSearchExecutionRequest | null = null;
 
+  private readonly result: RepoSearchExecutionResult;
+  private readonly failure: Error | null;
+
   constructor(
-    private readonly result: RepoSearchExecutionResult,
-    private readonly failure: Error | null = null,
+    result: RepoSearchExecutionResult,
+    failure: Error | null = null,
   ) {
     super();
+    this.result = result;
+    this.failure = failure;
   }
 
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {

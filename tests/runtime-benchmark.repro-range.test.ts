@@ -7,11 +7,11 @@ import {
   runFixture60MalformedJsonRepro,
   withTempEnv,
   withStubServer,
-} from './_runtime-helpers.js';
+} from './_runtime-helpers.ts';
 import {
   STABLE_CHUNK_BUDGET_METRICS,
   saveFixture60ChunkingConfig,
-} from './helpers/runtime-benchmark-repro.js';
+} from './helpers/runtime-benchmark-repro.ts';
 
 test('repro-fixture60-malformed-json can run a fixture range and repair later malformed fixture output', async () => {
   await withTempEnv(async (tempRoot) => {

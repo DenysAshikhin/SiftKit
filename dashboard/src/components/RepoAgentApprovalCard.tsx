@@ -1,9 +1,9 @@
 import React from 'react';
 
 import type { DurableChatApproval } from '@siftkit/contracts';
-import type { RepoAgentDecision } from '../api';
-import { formatDate } from '../lib/format';
-import { useExpired } from '../hooks/useExpired';
+import type { RepoAgentDecision } from '../api.ts';
+import { formatDate } from '../lib/format.ts';
+import { useExpired } from '../hooks/useExpired.ts';
 
 export function RepoAgentApprovalCard({ approval, onDecide }: {
   approval: DurableChatApproval;

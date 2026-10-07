@@ -1,6 +1,6 @@
 import { buildChatMessageId } from '@siftkit/contracts';
-import { getChatRunFailure } from '../chat.js';
-import { ChatMessageQueueEndpoint,ChatMessageQueueForceEndpoint,ChatMessageQueueStreamEndpoint } from './chat-message-queue.js';
+import { getChatRunFailure } from '../chat.ts';
+import { ChatMessageQueueEndpoint,ChatMessageQueueForceEndpoint,ChatMessageQueueStreamEndpoint } from './chat-message-queue.ts';
 /**
  * Dashboard chat session routes: CRUD, message generation, streaming,
  * plan/repo-search execution, condensation, and tool-context management.
@@ -19,106 +19,106 @@ getActiveModelPreset,
 getConfiguredReasoning,
 notifyStatusBackend,
 type SiftConfig
-} from '../../config/index.js';
-import { toError } from '../../lib/errors.js';
-import { throwIfAborted } from '../../lib/abort.js';
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { JsonObject,OptionalJsonValue } from '../../lib/json-types.js';
-import { ProgressWriter } from '../../lib/progress-writer.js';
-import { buildUserContent } from '../../llm-protocol/image-attachments.js';
-import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
-import { MockPlannerResponsesSchema,type MockPlannerResponse } from '../../planner-protocol/mock-response.js';
-import { PresetCatalog } from '../../preset-catalog.js';
-import type { SiftPreset } from '../../presets.js';
-import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
-import type { ChatMessageQueueDelivery } from '../../repo-search/engine/queue-delivery.js';
-import type { ChatMessage as PersistedChatTranscriptMessage } from '../../state/chat-sessions.js';
+} from '../../config/index.ts';
+import { toError } from '../../lib/errors.ts';
+import { throwIfAborted } from '../../lib/abort.ts';
+import { JsonRecordReader } from '../../lib/json-record-reader.ts';
+import type { JsonObject,OptionalJsonValue } from '../../lib/json-types.ts';
+import { ProgressWriter } from '../../lib/progress-writer.ts';
+import { buildUserContent } from '../../llm-protocol/image-attachments.ts';
+import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.ts';
+import { MockPlannerResponsesSchema,type MockPlannerResponse } from '../../planner-protocol/mock-response.ts';
+import { PresetCatalog } from '../../preset-catalog.ts';
+import type { SiftPreset } from '../../presets.ts';
+import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.ts';
+import type { ChatMessageQueueDelivery } from '../../repo-search/engine/queue-delivery.ts';
+import type { ChatMessage as PersistedChatTranscriptMessage } from '../../state/chat-sessions.ts';
 import {
 ChatMessageImageNotFoundError,deleteChatMessage,
 deleteChatMessageImage,deleteChatSession,estimateTokenCount,getChatSessionPath,readChatSessionFromPath,
 readChatSessionSummaries,saveChatSessionMetadata,type ChatSession
-} from '../../state/chat-sessions.js';
-import { ChatMemorySeam } from '../chat-memory-seam.js';
-import { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
+} from '../../state/chat-sessions.ts';
+import { ChatMemorySeam } from '../chat-memory-seam.ts';
+import { ChatOperationBroadcast } from '../chat-operation-broadcast.ts';
 import {
 ChatOperationPresetSelector,
 resolveChatRunAllowedTools,
 type SelectedChatOperationPreset,
-} from '../chat-operation-preset.js';
-import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
-import { buildChatSessionResponse, toWireChatSessionSummary } from '../chat-session-response.js';
+} from '../chat-operation-preset.ts';
+import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.ts';
+import { buildChatSessionResponse, toWireChatSessionSummary } from '../chat-session-response.ts';
 import {
 ChatRepoOperationRunner,
 type ChatRepoOperationRequest,
-} from '../chat-repo-operation-runner.js';
-import type { ChatMessageRequest } from '../chat-route-request-normalizers.js';
+} from '../chat-repo-operation-runner.ts';
+import type { ChatMessageRequest } from '../chat-route-request-normalizers.ts';
 import {
 parseChatSessionCreateRequest,
 parseChatSessionUpdateRequest,
-} from '../chat-route-request-normalizers.js';
-import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.js';
-import type { QuestionGate } from '../../repo-search/engine/question-gate.js';
+} from '../chat-route-request-normalizers.ts';
+import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.ts';
+import type { QuestionGate } from '../../repo-search/engine/question-gate.ts';
 import {
 ChatStreamProgressWriter,
-} from '../chat-stream-progress-writer.js';
-import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.js';
-import { auditCompletedChatSessionThroughput, countChatInputTokens, getLocalTokenConfig, getMockTokenConfig } from '../chat-turn-telemetry.js';
+} from '../chat-stream-progress-writer.ts';
+import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.ts';
+import { auditCompletedChatSessionThroughput, countChatInputTokens, getLocalTokenConfig, getMockTokenConfig } from '../chat-turn-telemetry.ts';
 import {
 buildChatSystemContent,
 buildRetainedWebToolCalls,
 condenseChatSession,
-} from '../chat.js';
-import { readConfig } from '../config-store.js';
-import { getConfiguredEngineNumCtx } from '../../config/getters.js';
-import { applyHostEngineRuntimeSettings } from '../../config/host-sync.js';
+} from '../chat.ts';
+import { readConfig } from '../config-store.ts';
+import { getConfiguredEngineNumCtx } from '../../config/getters.ts';
+import { applyHostEngineRuntimeSettings } from '../../config/host-sync.ts';
 import {
 removeDashboardRunCommandFromLogs,
 type RepoSearchProgressEvent,
-} from '../dashboard-runs.js';
+} from '../dashboard-runs.ts';
 import {
 parseJsonBody,
 readBody,
 sendBodyReadError,
 sendJson,
-} from '../http-utils.js';
+} from '../http-utils.ts';
 import {
 CompositeRepoSearchProgressWriter,
 RepoSearchToolLogProgressWriter,
-} from '../operation-progress-writers.js';
-import { getRuntimeRoot } from '../paths.js';
-import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
-import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js';
-import { RouteTable,type RouteEndpoint,type RouteMatch } from '../route-table.js';
-import { createServerJsonLogger,serverLogger } from '../server-logger.js';
+} from '../operation-progress-writers.ts';
+import { getRuntimeRoot } from '../paths.ts';
+import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.ts';
+import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.ts';
+import { RouteTable,type RouteEndpoint,type RouteMatch } from '../route-table.ts';
+import { createServerJsonLogger,serverLogger } from '../server-logger.ts';
 import {
 ModelRequestTargetError,
 UncancelledModelWaitError,
 acquireWebUiModelRequest,
 releaseModelRequest,
-} from '../server-ops.js';
-import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
-import type { ModelRequestLock,ServerContext } from '../server-types.js';
-import { SseResponseWriter } from '../sse-response-writer.js';
-import { ChatImageCaptionEndpoint } from './chat-image-caption.js';
+} from '../server-ops.ts';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.ts';
+import type { ModelRequestLock,ServerContext } from '../server-types.ts';
+import { SseResponseWriter } from '../sse-response-writer.ts';
+import { ChatImageCaptionEndpoint } from './chat-image-caption.ts';
 import {
 GetActiveChatOperationsEndpoint,
 GetChatOperationStreamEndpoint,
-} from './chat-operation-attach.js';
+} from './chat-operation-attach.ts';
 import {
 ChatRepoAgentApprovalModeEndpoint,
 ChatRepoAgentDecideEndpoint,
 GetChatRepoAgentActiveEndpoint,
 StreamChatRepoAgentEndpoint,
-} from './chat-repo-agent.js';
-import { ChatQuestionAnswerEndpoint } from './chat-question.js';
-import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-operation-endpoint.js';
+} from './chat-repo-agent.ts';
+import { ChatQuestionAnswerEndpoint } from './chat-question.ts';
+import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-operation-endpoint.ts';
 import {
 ChatRepoRootOperationEndpoint,
 ChatSessionOperationEndpoint,
 parseChatMessageOperationRequest,
 parseChatRepoOperationRequest,previewChatOperationTarget,requireChatRunRecorder,requireQuestionGate,type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest
-} from './chat-session-operation-endpoint.js';
+} from './chat-session-operation-endpoint.ts';
 
 function normalizeChatGroundingStatus(value: ChatGroundingStatus | null | undefined): ChatGroundingStatus | null {
   if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
@@ -714,19 +714,42 @@ class ChatMessageTurn {
   private readonly startedAt = Date.now();
   private readonly memory: ChatMemorySeam;
 
+  private readonly ctx: ServerContext;
+  private readonly runtimeRoot: string;
+  private readonly res: ServerResponse;
+  private readonly session: ChatSession;
+  private readonly config: SiftConfig;
+  private readonly preset: SiftPreset;
+  private readonly userContent: string;
+  private readonly userImages: string[];
+  private readonly parsedBody: JsonObject;
+  private readonly recorder: ChatRunRecorder;
+  private readonly questionGate: QuestionGate;
+
   constructor(
-    private readonly ctx: ServerContext,
-    private readonly runtimeRoot: string,
-    private readonly res: ServerResponse,
-    private readonly session: ChatSession,
-    private readonly config: SiftConfig,
-    private readonly preset: SiftPreset,
-    private readonly userContent: string,
-    private readonly userImages: string[],
-    private readonly parsedBody: JsonObject,
-    private readonly recorder: ChatRunRecorder,
-    private readonly questionGate: QuestionGate,
+    ctx: ServerContext,
+    runtimeRoot: string,
+    res: ServerResponse,
+    session: ChatSession,
+    config: SiftConfig,
+    preset: SiftPreset,
+    userContent: string,
+    userImages: string[],
+    parsedBody: JsonObject,
+    recorder: ChatRunRecorder,
+    questionGate: QuestionGate,
   ) {
+    this.ctx = ctx;
+    this.runtimeRoot = runtimeRoot;
+    this.res = res;
+    this.session = session;
+    this.config = config;
+    this.preset = preset;
+    this.userContent = userContent;
+    this.userImages = userImages;
+    this.parsedBody = parsedBody;
+    this.recorder = recorder;
+    this.questionGate = questionGate;
     this.memory = new ChatMemorySeam(ctx.assistant);
   }
 
@@ -983,7 +1006,10 @@ const CHAT_REPO_OPERATION_SETTINGS = {
 } as const;
 
 abstract class ChatRepoOperationEndpoint extends ChatRepoRootOperationEndpoint<ResolvedChatRepoRequest> {
-  constructor(protected readonly operationKind: 'plan' | 'repo-search') { super(); }
+  protected readonly operationKind: 'plan' | 'repo-search';
+
+  constructor(operationKind: 'plan' | 'repo-search') { super();
+    this.operationKind = operationKind; }
 
   /** A repository operation records the root it ran against and the turn limit the engine gets. */
   protected describeRun(ctx: ServerContext, session: ChatSession, value: ResolvedChatRepoRequest): ChatRunSubmission {

@@ -9,8 +9,8 @@ import {
   mergeInferenceThroughput,
   observeTabbyThroughput,
   readTabbyThroughput,
-} from '../src/lib/inference-throughput.js';
-import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
+} from '../src/lib/inference-throughput.ts';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
 
 function usageBody(usage: JsonObject): JsonObject {
   return { usage };

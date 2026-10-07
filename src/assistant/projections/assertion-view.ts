@@ -1,6 +1,6 @@
-import { isExplicitBasis } from '../domain/enums.js';
-import type { AssertionBasis, AssertionStatus, Sensitivity } from '../domain/enums.js';
-import type { RelationType } from '../domain/relation-types.js';
+import { isExplicitBasis } from '../domain/enums.ts';
+import type { AssertionBasis, AssertionStatus, Sensitivity } from '../domain/enums.ts';
+import type { RelationType } from '../domain/relation-types.ts';
 
 /**
  * An assertion with its node references already resolved to display text. Built once and shared

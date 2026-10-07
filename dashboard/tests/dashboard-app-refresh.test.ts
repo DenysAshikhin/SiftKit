@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type ReactType from 'react';
 import type { renderToStaticMarkup as RenderToStaticMarkupType } from 'react-dom/server';
 
-import { App } from '../dashboard/src/App.js';
+import { App } from '../src/App.tsx';
 
 const dashboardRequire = createRequire(path.resolve('dashboard/package.json'));
 // React/react-dom are resolved from the dashboard's own node_modules without

@@ -1,9 +1,9 @@
 import { createInterface } from 'node:readline';
-import type { ApprovalRequestProgressEvent } from '../repo-search/types.js';
+import type { ApprovalRequestProgressEvent } from '../repo-search/types.ts';
 import {
   CLIENT_ABORT_MESSAGE,
   type ApprovalDecision,
-} from '../repo-search/engine/approval-gate.js';
+} from '../repo-search/engine/approval-gate.ts';
 
 /** Anything that can answer an approval request: TTY prompter or store-backed prompter. */
 export type ApprovalPrompter = {

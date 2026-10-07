@@ -1,12 +1,12 @@
-import { JsonValueSchema, isJsonObject, type JsonValue, type OptionalJsonValue } from '../../src/lib/json-types.js';
+import { JsonValueSchema, isJsonObject, type JsonValue, type OptionalJsonValue } from '../../src/lib/json-types.ts';
 import { SiftConfigSchema } from '@siftkit/contracts';
-import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.js';
-import type { WebSearchConfig } from '../../src/web-search/types.js';
-import { getDefaultConfigObject } from '../../src/config/defaults.js';
-import { getActiveModelPreset } from '../../src/config/getters.js';
-import { getDefaultConfig } from '../../src/status-server/config-store.js';
-import { mergeConfig, normalizeConfigObject } from '../../src/config/normalization.js';
-import { DEAD_BASE_URL } from './dead-endpoints.js';
+import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.ts';
+import type { WebSearchConfig } from '../../src/web-search/types.ts';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
+import { getActiveModelPreset } from '../../src/config/getters.ts';
+import { getDefaultConfig } from '../../src/status-server/config-store.ts';
+import { mergeConfig, normalizeConfigObject } from '../../src/config/normalization.ts';
+import { DEAD_BASE_URL } from './dead-endpoints.ts';
 
 // Partial fixture inputs are completed with defaults and validated at runtime.
 type DeepPartial<T> = T extends (infer U)[]

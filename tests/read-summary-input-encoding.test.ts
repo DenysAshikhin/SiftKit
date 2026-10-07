@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { readSummaryInput } from '../src/summary.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { readSummaryInput } from '../src/summary.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function toUtf16BeBuffer(text: string, withBom = true): Buffer {
   const le = Buffer.from(text, 'utf16le');

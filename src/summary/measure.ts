@@ -1,4 +1,4 @@
-import type { QuestionAnalysis } from './types.js';
+import type { QuestionAnalysis } from './types.ts';
 
 export const UNSUPPORTED_INPUT_MESSAGE =
   'The command/input is either unsupported or failed. Please verify the command that it is supported in the current environment and returns proper input. If it does, raise an explicit error to the user and stop futher processing.';

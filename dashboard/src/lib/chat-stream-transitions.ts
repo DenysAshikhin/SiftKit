@@ -1,9 +1,9 @@
-import { getErrorMessage } from '../../../src/lib/errors.js';
-import { ChatOperationIdleError, ChatSessionBusyError, ChatStreamHttpError } from '../api';
-import type { ChatSessionRuntimeTransition } from './chat-session-runtime-store';
-import type { ChatStreamEvent } from './chat-stream-parser';
-import type { ChatSessionOperationKind } from '../types';
-import { ChatOperationProjection } from './chat-operation-projection';
+import { getErrorMessage } from '../../../src/lib/errors.ts';
+import { ChatOperationIdleError, ChatSessionBusyError, ChatStreamHttpError } from '../api.ts';
+import type { ChatSessionRuntimeTransition } from './chat-session-runtime-store.ts';
+import type { ChatStreamEvent } from './chat-stream-parser.ts';
+import type { ChatSessionOperationKind } from '../types.ts';
+import { ChatOperationProjection } from './chat-operation-projection.ts';
 
 /** How this stream came to be: a turn this client started, or a run it latched onto. */
 export type ChatStreamStart =

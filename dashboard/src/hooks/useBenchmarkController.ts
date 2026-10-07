@@ -7,8 +7,8 @@ import {
   openBenchmarkSessionEvents,
   startBenchmarkSession,
   updateBenchmarkAttemptGrade,
-} from '../api';
-import { readSearchParams } from '../lib/format';
+} from '../api.ts';
+import { readSearchParams } from '../lib/format.ts';
 import type {
   DashboardBenchmarkAttempt,
   DashboardBenchmarkQuestionPreset,
@@ -18,9 +18,9 @@ import type {
   DashboardModelRuntimePreset,
   JsonObject,
   ThroughputRates,
-} from '../types';
-import type { BenchmarkTabProps } from '../tabs/BenchmarkTab';
-import type { ToastLevel } from './useToasts';
+} from '../types.ts';
+import type { BenchmarkTabProps } from '../tabs/BenchmarkTab.tsx';
+import type { ToastLevel } from './useToasts.ts';
 
 export type DashboardBenchmarkManagedPresetSelectionInput = {
   questionPresetIds: string[];

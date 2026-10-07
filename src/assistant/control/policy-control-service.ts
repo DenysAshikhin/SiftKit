@@ -1,9 +1,15 @@
 import type { AssistantPolicyDto } from '@siftkit/contracts';
-import type { AssistantGraph } from '../assistant-graph.js';
+import type { AssistantGraph } from '../assistant-graph.ts';
 
 /** User-facing policy toggles. Callers gate on `enabled` before invoking, same as the facade did. */
 export class PolicyControlService {
-  constructor(private readonly graph: AssistantGraph, private readonly ownerId: string) {}
+  private readonly graph: AssistantGraph;
+  private readonly ownerId: string;
+
+  constructor(graph: AssistantGraph, ownerId: string) {
+    this.graph = graph;
+    this.ownerId = ownerId;
+  }
 
   list(): AssistantPolicyDto[] {
     return this.graph.policies.listPolicies(this.ownerId).map((row) => ({

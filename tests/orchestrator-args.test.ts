@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseOrchestratorInvocation } from '../src/cli/orchestrator-args.js';
+import { parseOrchestratorInvocation } from '../src/cli/orchestrator-args.ts';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const APPROVAL_ID = '00000000-0000-4000-8000-000000000002';

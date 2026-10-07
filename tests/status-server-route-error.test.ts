@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { z } from '../src/lib/zod.js';
-import { JsonValueSchema } from '../src/lib/json-types.js';
-import { saveChatSession } from '../src/state/chat-sessions.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { requestJson } from './helpers/dashboard-http.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { z } from '../src/lib/zod.ts';
+import { JsonValueSchema } from '../src/lib/json-types.ts';
+import { saveChatSession } from '../src/state/chat-sessions.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { DashboardTestServer } from './helpers/dashboard-server-fixture.ts';
+import { requestJson } from './helpers/dashboard-http.ts';
+import { mockModelPreset } from './helpers/mock-config.ts';
 
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 

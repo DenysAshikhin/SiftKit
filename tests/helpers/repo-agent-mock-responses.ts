@@ -1,4 +1,4 @@
-import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.js';
+import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.ts';
 
 export function repoAgentFinishResponses(output: string): MockPlannerResponseInput[] {
   const response = { content: output };

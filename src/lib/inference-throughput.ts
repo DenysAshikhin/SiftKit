@@ -15,8 +15,8 @@ import {
   type ThroughputMetric,
   type ThroughputRates,
 } from '@siftkit/contracts';
-import { z } from './zod.js';
-import type { JsonValue } from './json-types.js';
+import { z } from './zod.ts';
+import type { JsonValue } from './json-types.ts';
 
 /** Only the throughput-relevant part of a Tabby/OpenAI-compatible `usage` object. */
 const RawTabbyUsageSchema = z.object({

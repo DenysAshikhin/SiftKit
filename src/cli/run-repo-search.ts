@@ -1,16 +1,16 @@
-import { CliApprovalPrompter } from './approval-prompter.js';
+import { CliApprovalPrompter } from './approval-prompter.ts';
 import {
   parseArguments,
   REPO_SEARCH_SYNOPSIS,
   type ResolvedCliArgs,
-} from './args.js';
-import { CliProgressRenderer } from './progress-renderer.js';
-import { formatRepoTaskOutput } from '../repo-agent/run-output.js';
-import { StatusServerApiClient } from './status-server-api-client.js';
-import { assertStdinIsTty } from './tty.js';
-import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
-import { getActiveModelPreset, loadConfig } from '../config/index.js';
-import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
+} from './args.ts';
+import { CliProgressRenderer } from './progress-renderer.ts';
+import { formatRepoTaskOutput } from '../repo-agent/run-output.ts';
+import { StatusServerApiClient } from './status-server-api-client.ts';
+import { assertStdinIsTty } from './tty.ts';
+import { ImageAttachmentReader } from '../llm-protocol/image-attachments.ts';
+import { getActiveModelPreset, loadConfig } from '../config/index.ts';
+import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.ts';
 
 export async function runRepoSearchCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;

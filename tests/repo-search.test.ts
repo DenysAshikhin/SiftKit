@@ -5,25 +5,25 @@ import http from 'node:http';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { executeRepoSearchRequest } from '../src/repo-search/index.js';
+import { executeRepoSearchRequest } from '../src/repo-search/index.ts';
 import {
   listRuntimeArtifacts,
   parseRuntimeArtifactUri,
   readRuntimeArtifact,
-} from '../src/state/runtime-artifacts.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { getErrorMessage } from '../src/lib/errors.js';
-import type { JsonObject } from '../src/lib/json-types.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
-import { asRuntimeSiftConfig } from './helpers/mock-config.js';
-import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+} from '../src/state/runtime-artifacts.ts';
+import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { getErrorMessage } from '../src/lib/errors.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { withTestEnvAndServer } from './_test-helpers.ts';
+import { asRuntimeSiftConfig } from './helpers/mock-config.ts';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
 import { z } from 'zod';
-import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { getActiveModelPreset } from '../src/config/index.js';
-import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { getActiveModelPreset } from '../src/config/index.ts';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 
 const IMAGES_ONLY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
@@ -45,7 +45,10 @@ class ArtifactCountProgressWriter extends ProgressWriter<RepoSearchProgressEvent
 
 class FirstProgressTimingWriter extends ProgressWriter<RepoSearchProgressEvent> {
   public firstProgressMs: number | null = null;
-  constructor(private readonly startedAt: number) { super(); }
+  private readonly startedAt: number;
+
+  constructor(startedAt: number) { super();
+    this.startedAt = startedAt; }
   get enabled(): boolean { return true; }
   write(_event: RepoSearchProgressEvent): void {
     this.firstProgressMs ??= Date.now() - this.startedAt;

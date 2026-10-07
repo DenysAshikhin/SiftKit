@@ -2,8 +2,8 @@ import {
   buildLiveUserMessage,
   LIVE_USER_MESSAGE_ID,
   upsertLiveMessageInto,
-} from './chat-live-messages';
-import type { ChatMessage, ChatSessionOperationKind, ContextUsage } from '../types';
+} from './chat-live-messages.ts';
+import type { ChatMessage, ChatSessionOperationKind, ContextUsage } from '../types.ts';
 import {
   DEFAULT_APPROVAL_MODE,
   type ApprovalMode,
@@ -19,7 +19,7 @@ import {
   type ChatSubmissionPhase,
   type ChatSubmissionId,
 } from '@siftkit/contracts';
-import type { PendingImage } from './downscale-image';
+import type { PendingImage } from './downscale-image.ts';
 
 export type ChatSessionActivity =
   | { kind: 'idle' }

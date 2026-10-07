@@ -1,4 +1,4 @@
-import { getEffectiveInputCharactersPerContextToken, type SiftConfig } from '../config/index.js';
+import { getEffectiveInputCharactersPerContextToken, type SiftConfig } from '../config/index.ts';
 
 /**
  * The local characters-per-token fallback used wherever a server tokenizer is

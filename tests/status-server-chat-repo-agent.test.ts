@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.js';
+import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.ts';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
@@ -12,25 +12,25 @@ import {
   ChatSessionResponseSchema,
 } from '@siftkit/contracts';
 
-import type { JsonObject } from '../src/lib/json-types.js';
-import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
-import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { ProgressWriter } from '../src/lib/progress-writer.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
-import { getActiveModelPreset, readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
-import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
-import { asObject, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
-import { requestSse as requestOperationSse } from './helpers/sse-http.js';
-import { OutputCapture } from './helpers/stdout-capture.js';
-import { startHarness, waitForActiveModelRequestOwner, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
-import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
-import { replayChatContext } from '../src/status-server/chat-context-replay.js';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.ts';
+import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.ts';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.ts';
+import { ProgressWriter } from '../src/lib/progress-writer.ts';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
+import { StatusEngineService } from '../src/status-server/engine-service.ts';
+import { getActiveModelPreset, readConfig, writeConfig } from '../src/status-server/config-store.ts';
+import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.ts';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
+import { asObject, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.ts';
+import { requestSse as requestOperationSse } from './helpers/sse-http.ts';
+import { OutputCapture } from './helpers/stdout-capture.ts';
+import { startHarness, waitForActiveModelRequestOwner, type StreamedOperationHarness } from './helpers/streamed-op-harness.ts';
+import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.ts';
+import { ChatJournalStore } from '../src/state/chat-journal.ts';
+import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.ts';
+import { replayChatContext } from '../src/status-server/chat-context-replay.ts';
 
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -73,8 +73,11 @@ class CapturingEngineService extends StatusEngineService {
 }
 
 class GatedEngineService extends StatusEngineService {
-  constructor(private readonly gate: EngineGate) {
+  private readonly gate: EngineGate;
+
+  constructor(gate: EngineGate) {
     super();
+    this.gate = gate;
   }
 
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
@@ -1392,7 +1395,10 @@ test('verified chat evidence survives removal of every run transcript and a rest
 });
 
 class FailAfterReadProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  constructor(private readonly inner: ProgressWriter<RepoSearchProgressEvent>) { super(); }
+  private readonly inner: ProgressWriter<RepoSearchProgressEvent>;
+
+  constructor(inner: ProgressWriter<RepoSearchProgressEvent>) { super();
+    this.inner = inner; }
   get enabled(): boolean { return this.inner.enabled; }
   override get wantsLiveText(): boolean { return this.inner.wantsLiveText; }
   write(event: RepoSearchProgressEvent): void {

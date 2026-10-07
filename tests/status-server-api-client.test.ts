@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HttpClient, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.js';
-import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { StatusServerApiClient } from '../src/cli/status-server-api-client.js';
-import { StatusServerOperationError } from '../src/lib/operation-stream.js';
-import { SilentProgressRenderer } from '../src/cli/progress-renderer.js';
-import { z } from '../src/lib/zod.js';
+import { HttpClient, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.ts';
+import type { SseFrame } from '../src/lib/sse-frame-parser.ts';
+import { StatusServerApiClient } from '../src/cli/status-server-api-client.ts';
+import { StatusServerOperationError } from '../src/lib/operation-stream.ts';
+import { SilentProgressRenderer } from '../src/cli/progress-renderer.ts';
+import { z } from '../src/lib/zod.ts';
 import {
   RepoAgentRunStateSchema,
   type RepoAgentRunState,
-} from '../src/repo-agent/run-schemas.js';
+} from '../src/repo-agent/run-schemas.ts';
 
 const streamedError = {
   error: 'stream failed',
@@ -76,8 +76,11 @@ class ResultStreamHttpClient extends HttpClient {
 class StatusHttpClient extends HttpClient {
   public readonly requests: RequestJsonOptions[] = [];
 
-  constructor(private readonly state: RepoAgentRunState) {
+  private readonly state: RepoAgentRunState;
+
+  constructor(state: RepoAgentRunState) {
     super();
+    this.state = state;
   }
 
   override requestJson<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<T> {

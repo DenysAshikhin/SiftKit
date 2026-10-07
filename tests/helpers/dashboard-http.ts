@@ -3,10 +3,10 @@ import http from 'node:http';
 import path from 'node:path';
 import type { AddressInfo, Socket } from 'node:net';
 
-import { getErrorMessage } from '../../src/lib/errors.js';
-import { parseJsonValueText } from '../../src/lib/json.js';
-import { isJsonObject, type JsonObject, type JsonValue, type JsonSerializable, type OptionalJsonValue } from '../../src/lib/json-types.js';
-import { testHttpAgent } from './http-agent.js';
+import { getErrorMessage } from '../../src/lib/errors.ts';
+import { parseJsonValueText } from '../../src/lib/json.ts';
+import { isJsonObject, type JsonObject, type JsonValue, type JsonSerializable, type OptionalJsonValue } from '../../src/lib/json-types.ts';
+import { testHttpAgent } from './http-agent.ts';
 
 export type Dict = JsonObject;
 export type JsonResponse = { statusCode: number; body: Dict };

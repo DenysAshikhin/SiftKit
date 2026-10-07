@@ -1,5 +1,5 @@
-import { formatElapsed } from '../../src/lib/time.js';
-import { BENCHMARK_HEARTBEAT_MS, FatalBenchmarkError } from './types.js';
+import { formatElapsed } from '../../src/lib/time.ts';
+import { BENCHMARK_HEARTBEAT_MS, FatalBenchmarkError } from './types.ts';
 
 export function createInterruptSignal(): {
   interrupted: Promise<never>;

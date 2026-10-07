@@ -1,23 +1,23 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
-import { parseFloatInput, parseIntegerInput } from '../../lib/format';
-import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
-import { SettingsSectionField } from '../../settings/SettingsFields';
-import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.js';
-import { NGRAM_RAM_LABEL } from '../../settings-sections';
-import { getModelPresetAssignments } from '../../model-runtime-presets';
+import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
+import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups.ts';
+import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
+import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.tsx';
+import { NGRAM_RAM_LABEL } from '../../settings-sections.ts';
+import { getModelPresetAssignments } from '../../model-runtime-presets.ts';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema } from '@siftkit/contracts';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
-} from '../../types';
+} from '../../types.ts';
 import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
-import type { ModelPresetSettingsActions } from '../../settings-action-groups';
+import type { ModelPresetSettingsActions } from '../../settings-action-groups.ts';
 import {
   isModelPresetPickerBusy,
   type SettingsPathPickerBusyTarget,
-} from '../../settings-flow';
+} from '../../settings-flow.ts';
 
 type ModelPresetsSectionProps = {
   dashboardConfig: DashboardConfig | null;
