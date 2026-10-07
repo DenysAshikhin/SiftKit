@@ -15,6 +15,8 @@ test('global refresh links this checkout as the global package instead of packin
   assert.doesNotMatch(script, /'pack'|tarball/iu);
   // A link copies no package files, so a lock retry could only mask a real failure.
   assert.match(script, /@\('i', '-g', \$script:RepoRoot,[^\r\n]*-MaxAttempts 1\r?$/mu);
+  // postinstall rewrites the global siftkit shims, which npm then refuses to replace without --force.
+  assert.match(script, /@\('i', '-g', \$script:RepoRoot,[^\r\n]*'--force'/u);
 });
 
 test('global refresh never resolves packages or crates from the network', () => {

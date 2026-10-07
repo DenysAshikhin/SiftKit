@@ -185,7 +185,8 @@ finally {
 Write-Host 'Linking the repo as the global siftkit package...'
 # Node refuses to strip types under node_modules; a linked install resolves to this checkout's realpath.
 # `npm i -g` ignores the repo .npmrc, so --no-audit must be explicit or the audit POST can hang.
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $script:RepoRoot, '--no-audit', '--offline', '--loglevel', 'error') -Description 'Linking repo globally' -MaxAttempts 1
+# --force: postinstall writes custom global siftkit shims, which npm otherwise refuses to replace (EEXIST).
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $script:RepoRoot, '--force', '--no-audit', '--offline', '--loglevel', 'error') -Description 'Linking repo globally' -MaxAttempts 1
 
 Write-Host 'Resolving freshly installed global siftkit command...'
 $globalSiftKit = Get-GlobalSiftKitCommandPath
