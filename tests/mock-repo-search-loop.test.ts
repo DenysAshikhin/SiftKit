@@ -750,6 +750,7 @@ test('runTaskLoop rejects a read whose whole range was already returned', async 
   assert.equal(commandEvents.length, 2);
   assert.equal(commandEvents[1].rejectionKind, 'duplicate');
   assert.equal(commandEvents[1].exitCode, null);
+  assert.deepEqual(commandEvents[1].args, { path: 'target.ts', offset: 1, limit: 3 });
   assert.equal(result.rejectedCalls, 1);
   const rejected = result.commands.filter((command) => command.safe === false);
   assert.equal(rejected.length, 1);

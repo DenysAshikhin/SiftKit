@@ -557,7 +557,7 @@ test('edit rejects a missing oldText and overlapping edits', async () => {
     edits: [{ oldText: 'line1\nalpha', newText: 'x' }, { oldText: 'alpha\nline3', newText: 'y' }],
   }), makeContext(root));
   assert.ok(!overlapping.ok);
-  assert.match(overlapping.reason, /^edits\[0\] and edits\[1\] overlap; merge nearby changes into one edit$/u);
+  assert.equal(overlapping.reason, 'edits[0] (file lines 1-2) and edits[1] (file lines 2-3) overlap; merge them into one edit');
 });
 
 test('edit failure names the failing edit index', async () => {
@@ -627,7 +627,19 @@ test('edit overlap names the edits in file order using their original indices', 
     edits: [{ oldText: 'alpha\nline3', newText: 'y' }, { oldText: 'line1\nalpha', newText: 'x' }],
   }), makeContext(root));
   assert.ok(!result.ok);
-  assert.match(result.reason, /^edits\[1\] and edits\[0\] overlap; merge nearby changes into one edit$/u);
+  assert.equal(result.reason, 'edits[1] (file lines 1-2) and edits[0] (file lines 2-3) overlap; merge them into one edit');
+});
+
+test('edit overlap reports an edit nested inside another edit\'s range', async () => {
+  const root = makeRepo();
+  const before = fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8');
+  const result = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'line1\nalpha\nline3', newText: 'x' }, { oldText: 'line1\nalpha', newText: 'y' }],
+  }), makeContext(root));
+  assert.ok(!result.ok);
+  assert.equal(result.reason, 'edits[0] (file lines 1-3) and edits[1] (file lines 1-2) overlap; merge them into one edit');
+  assert.equal(fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8'), before);
 });
 
 test('a different run call between downgrade and retry forfeits the full grant', () => {

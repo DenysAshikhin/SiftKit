@@ -837,7 +837,10 @@ function resolveEdits(originalText: string, rawEdits: EditToolArgs['edits']): Re
   const ordered = [...resolved].sort((left, right) => left.start - right.start);
   for (let position = 1; position < ordered.length; position += 1) {
     if (ordered[position].start < ordered[position - 1].end) {
-      return `edits[${ordered[position - 1].index}] and edits[${ordered[position].index}] overlap; merge nearby changes into one edit`;
+      const first = ordered[position - 1];
+      const second = ordered[position];
+      const range = (edit: ResolvedEdit) => `${lineNumberAt(originalText, edit.start)}-${lineNumberAt(originalText, Math.max(edit.start, edit.end - 1))}`;
+      return `edits[${first.index}] (file lines ${range(first)}) and edits[${second.index}] (file lines ${range(second)}) overlap; merge them into one edit`;
     }
   }
   return ordered;

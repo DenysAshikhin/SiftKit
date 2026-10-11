@@ -117,7 +117,48 @@ test('a rejected read writes a turn_command_result with rejected=true', async ()
   assert.equal(results[0].exitCode, null);
   assert.equal(results[0].toolName, 'read');
   assert.equal(String(results[0].output).startsWith('Rejected command: '), true);
+  assert.deepEqual(results[0].args, { path: 'absent.ts', offset: 1, limit: 5 });
   // Nothing executed: rejection events must not fake the executed-event mirror fields.
   assert.equal('requestedCommand' in results[0], false);
   assert.equal('executedCommand' in results[0], false);
+});
+
+test('a rejected oversized edit keeps its full arguments in the transcript', async () => {
+  const repoRoot = createManagedTempDir('siftkit-rejection-repo-');
+  const oversizedArgs = { path: 'absent.ts', edits: [{ oldText: 'a', newText: 'x'.repeat(2000) }] };
+  const events: JsonObject[] = [];
+
+  const result = await runTaskLoop(
+    {
+      id: 'task-rejected-oversized-edit',
+      question: 'Edit a file that does not exist.',
+    },
+    {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+      ...REJECTION_LOOP_DEFAULTS,
+      repoRoot,
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['edit']),
+      mockResponses: [
+        { toolCalls: [{ name: 'edit', arguments: oversizedArgs }] },
+        { content: 'done' },
+      ],
+      mockCommandResults: {},
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    },
+  );
+
+  assert.equal(result.reason, 'finish');
+  const results = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].rejectionKind, 'safety');
+  assert.deepEqual(results[0].args, oversizedArgs);
 });

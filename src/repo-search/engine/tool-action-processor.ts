@@ -523,6 +523,7 @@ export class ToolActionProcessor {
     reason: string | null;
     output: string;
     rejectionKind: RejectionKind;
+    args: JsonObject;
   }): void {
     this.deps.logger?.write({
       kind: 'turn_command_result',
@@ -535,6 +536,7 @@ export class ToolActionProcessor {
       output: options.output,
       rejectionKind: options.rejectionKind,
       rejectionReason: options.reason,
+      args: options.args,
     });
   }
 
@@ -579,6 +581,7 @@ export class ToolActionProcessor {
       reason: rejection.reason,
       output,
       rejectionKind: rejection.rejectionKind,
+      args: rejection.rawArgs,
     });
     state.batchOutcomes.push({
       call: this.callIdentity(turn, state, rejection.progressToolCallId),
@@ -696,6 +699,7 @@ export class ToolActionProcessor {
       reason: 'invalid action',
       output: message,
       rejectionKind: 'invalid',
+      args,
     });
     return { call, action: { toolName: displayToolName, args }, toolCallId: call.toolCallId, toolContent: message };
   }
@@ -829,6 +833,7 @@ export class ToolActionProcessor {
       reason,
       output: duplicateMessage,
       rejectionKind: 'duplicate',
+      args: toolAction.args,
     });
     if (registration.activeReplayToolCallId !== null) {
       // The current call is durably rejected; its context representation is the replaced anchor result.
