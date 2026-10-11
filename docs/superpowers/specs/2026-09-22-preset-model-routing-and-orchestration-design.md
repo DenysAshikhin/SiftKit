@@ -9,7 +9,7 @@ Status: implemented on 2026-09-23 and uncommitted. Sections A–C are delivered.
 3. After a request finishes, prefer waiting requests for the resident model, even when they arrived later. Continue until there are no matches. There is **no fairness override or aging threshold**.
 4. Existing chat sessions also use the current model for each new operation when their operation preset inherits it.
 5. Add an `orchestrator` preset. It accepts a task or implementation plan, validates an existing plan, writes a Markdown implementation plan when needed, delegates tasks to `repo-agent` or `repo-search`, verifies each result, and cleans up owned temporary artifacts.
-6. `maxSubagents` is the maximum concurrent children, default **1**. Serialize modifications in the shared checkout; independent read-only children can run concurrently.
+6. Concurrent tasks are bounded by the `ParallelSlots` of each task's worker model (revised 2026-10-11; `maxSubagents` was removed). At most one task that modifies the checkout runs at a time, and read-only tasks may overlap it. The planner is told the limit but is not required to parallelize.
 7. Each executable task has at most **2 implementation attempts**. After the first implementation failure, update instructions from the failure evidence and dispatch once more. After the second implementation failure, stop. An approval continuation remains the same attempt; drift corrections have the independent budget in requirement 10.
 8. After every completed delegated step that changes code, the orchestrator performs a critical `reflect-session-drift` review before advancing. Report and address only confirmed issues with concrete impact or lasting architectural/maintainability consequences.
 9. Delegate actionable drift corrections to `repo-agent`. A bounded bullet prompt containing the findings and how to fix them is sufficient; no additional Markdown implementation plan is required for that correction.
@@ -114,7 +114,7 @@ The user intentionally accepts starvation of other models under a continuous mat
 
 ### Scope and interface
 
-Add the built-in operation preset `orchestrator`, kind `orchestrator`, operation mode `full`, CLI and Web surfaces, `modelPresetId: null`, and `orchestrator: { maxSubagents: 1 }`. Other presets carry `orchestrator: null`; reject invalid combinations. Custom orchestrator presets may select their own model and concurrency.
+Add the built-in operation preset `orchestrator`, kind `orchestrator`, operation mode `full`, CLI and Web surfaces, `modelPresetId: null`, and no orchestrator-specific options. Custom orchestrator presets may select their own model. Concurrency comes from the worker models' parallel slots.
 
 Use one server-owned `OrchestratorRun` implementation behind a dedicated HTTP lifecycle and both entry surfaces:
 
@@ -144,7 +144,7 @@ The host scheduler creates children directly; the model cannot forge ancestry or
 
 ### Concurrency and verification
 
-Count dispatched, queued, running, and approval-paused children toward `maxSubagents`, including drift-fix workers; a child slot is released at its terminal state. Independent read-only tasks may overlap. A mutating task has exclusive repository ownership: it runs without other children reading or modifying that checkout. Hold that ownership through independent verification, drift review/correction, and cleanup. Repository-mutating validation commands also require exclusive ownership. The server registry owns this gate per canonical repository root across parent runs; a second orchestrator cannot acquire a separate writer gate for the same checkout. Server-owned standalone mutating workers also respect it. Acquire repository ownership before model admission to avoid holding a model while waiting for a writer's verification.
+Each running task, including its drift-fix workers, takes one parallel slot of its worker model until the task settles. Independent read-only tasks may overlap. A mutating task takes run-owned write ownership: only that run's readers overlap it, and no second writer starts. A reader is never charged with the writer's changes; its workspace diff excludes them. Hold write ownership through independent verification, drift review/correction, and cleanup. Approvals from parallel tasks take turns, so one is pending at a time. Plan writing and global validation commands require exclusive ownership. The server registry owns this gate per canonical repository root across parent runs; a second orchestrator cannot acquire a separate writer gate for the same checkout. Server-owned standalone mutating workers also respect it. Acquire repository ownership before model admission to avoid holding a model while waiting for a writer's verification.
 
 Treat both the child terminal status and independent verification as authoritative inputs. A process exit code or prose claim of success cannot complete a task. The parent reviews changed files/diff against the pre-attempt baseline, executes the plan's verification, checks acceptance criteria, and clears the code-drift gate before releasing dependencies. Read-only tasks require cited, checked repository evidence rather than a fabricated test command.
 

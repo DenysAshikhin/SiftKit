@@ -13,6 +13,7 @@
   - The parent's own bad answers and bad citations are retried on the parent's side and never use up a worker attempt (F6, F10).
 - **Plan checks.** Check commands are preflighted in the real check shell (F14).
 - **Terminal runs.** A terminal run closes its open tasks, attempts and children (F15) and cleans `scratch/` (F12).
+- **Parallel tasks (user requirement, Task 15).** Tasks run up to the worker model's `ParallelSlots` at once, with at most one writer. `maxSubagents` is removed, and the planner is told the limit without being forced to use it.
 - **Smaller fixes:** F2, F3, F8 and F9. F11 only needs a design-doc correction: `tests/process/orchestrator-run.e2e.test.ts:140` already shows that in `auto` mode a child's `unsure` verdict reaches the parent.
 
 **Tech Stack:** TypeScript, zod 4, node:test, the SiftKit status server, and PowerShell 5.1 (`powershell.exe`) for checks.
@@ -24,11 +25,26 @@
 - Do not create temporary files outside the OS temp dir.
 - Do not touch other tasks.
 
-**Test commands:**
-- **Build:** `npm run build:test`. Always run it before any run below.
-- **Single node-suite file:** `node .\dist\test-runner\run-tests.js tests/<file>.test.ts`.
-- **Process suite file:** `node .\dist\test-runner\run-tests.js tests/process/<file>.test.ts`.
-- **Narrow to one test:** append `--test-name-pattern="<regex>"`.
+**Test commands** (Node 26 runs the TypeScript directly since 2026-10-07; there is no build step, so `npm run build:test` and `dist\` in the steps below are stale):
+- **Typecheck tests:** `npm run typecheck:test`.
+- **Single node-suite file:** `node .\src\test-runner\run-tests.ts tests/<file>.test.ts`.
+- **Process suite file:** `node .\src\test-runner\run-tests.ts tests/process/<file>.test.ts`.
+- **Import paths** in test snippets end in `.ts`, not `.js`.
+
+**Progress (2026-10-11):** Tasks 1–15 are implemented and their tests pass. Deviations from the steps as written:
+- Task 2: `ScriptedGpuMemory` uses an explicit field, because Node rejects constructor parameter properties.
+- Task 7: the preflight test spawns `powershell.exe`, so it lives in `tests/process/orchestrator-check-preflight.test.ts`. The default suite forbids spawning.
+- Task 15: approvals from parallel tasks take turns (`answerApproval` chains on `approvalTurn`). Without that, two concurrent approvals overwrote each other and an interactive run hung. This is covered by the e2e test `'parallel tasks take turns with their approvals …'`.
+- Task 15: the schema-77/78 rewind tests now store a faithful 77-era catalog (`CATALOG_77`), and the pinned `CURRENT_SCHEMA_VERSION` assertions moved to 80.
+
+**Drift cleanup (2026-10-11), superseding parts of the steps below:**
+- **Parent retries (Tasks 4–6, 9):** `OrchestratorPhaseLog` is gone, and `OrchestratorPhaseRunner.infer` makes exactly one inference. `OrchestratorRun.askParent` commits each phase, retries an infrastructure failure once, and returns unusable answers as problems. Every phase uses one `PARENT_PHASE_ATTEMPTS`. Rejection lines come from `describeRejection`. An unusable final review fails as `final_review_invalid`.
+- **Repository gate (Task 15):** the gate has two levels. `exclusive` with an owner admits only that owner's `shared` readers; there is no `write`.
+- **Reader charging (Task 15):** a reader is excluded only from paths a writer changed while both were running (`RunningTask.writerPaths`). A reader that starts later is charged in full; see the e2e test `'a reader that starts after the writer finished …'`.
+- **Pre-existing changes (F16):** the evidence review lists paths that were dirty before the task started, from its baseline. The wording is now "predate this work".
+- **Model JSON (Task 3):** one extraction path, `answerObjectText`, serves every model object; `stripCodeFence` is removed. A single parse removes unrecognized keys, because zod reports every depth at once.
+- **VRAM release (Task 2):** one deadline covers both the exit and the VRAM release. The engine host's probe reads uncached (`NvidiaSmiGpuMemoryProbe(0)`). A reading that turns unreadable after a measured baseline fails the stop.
+- **Contracts:** `OrchestratorFailureSchema.code` is the `OrchestratorFailureCodeSchema` enum. `.siftkit` is `RUNTIME_DIR_NAME`.
 
 ---
 
@@ -69,7 +85,7 @@
 - Modify: `src/status-server/preset-runtime-coordinator.ts`
 - Test: `tests/preset-runtime-coordinator.test.ts`
 
-- [ ] **Step 1: Write the failing test.** Add it after the test `'a settings save landing while a requested switch is blocked is preserved'`:
+- [x] **Step 1: Write the failing test.** Add it after the test `'a settings save landing while a requested switch is blocked is preserved'`:
 
 ```ts
 test('a readiness check joining a requested switch sees the new selection and never switches back', async () => {
@@ -98,11 +114,11 @@ test('a readiness check joining a requested switch sees the new selection and ne
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/preset-runtime-coordinator.test.ts --test-name-pattern="never switches back"`
   - Expected: FAIL. `events` is `['unload:exl3','load:exl3-alt','unload:exl3','load:exl3-main','unload:exl3','load:exl3-alt']`.
 
-- [ ] **Step 3: Implement.** In `preset-runtime-coordinator.ts`:
+- [x] **Step 3: Implement.** In `preset-runtime-coordinator.ts`:
   - Add this type above the class:
 
 ```ts
@@ -176,7 +192,7 @@ type SwitchKind = 'administrative' | 'requested' | 'restart';
   - Remove the now-unused `return expected;` and any `SiftConfig` return plumbing.
   - `onModelRequestReleased`, `ensureActivePresetReady` and `shutdown` keep awaiting `switchPromise` unchanged.
 
-- [ ] **Step 4: Run the whole coordinator file and confirm it passes.**
+- [x] **Step 4: Run the whole coordinator file and confirm it passes.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/preset-runtime-coordinator.test.ts`
   - Expected: every test passes, including `'a settings save landing while a requested switch is blocked is preserved'`. That test proves the compare-and-set still keeps a newer save.
 
@@ -200,7 +216,7 @@ type SwitchKind = 'administrative' | 'requested' | 'restart';
 - Modify test helpers: `tests/helpers/tabby-fake.ts`, `tests/helpers/in-process-tabby.ts`, `tests/helpers/managed-engine-fixtures.ts`
 - Test: `tests/managed-tabby.test.ts`
 
-- [ ] **Step 1: Write the failing tests** in `tests/managed-tabby.test.ts`.
+- [x] **Step 1: Write the failing tests** in `tests/managed-tabby.test.ts`.
   - First give `createManagedTabbyFixture` a fifth parameter, `hostOptions: { gpuMemory?: GpuMemoryProbe; shutdownTimeoutMs?: number } = {}`.
   - Use `hostOptions.shutdownTimeoutMs ?? 5_000` for `ShutdownTimeoutMs`.
   - Pass `hostOptions.gpuMemory` into `writeFakeEngineHost(root, { port, ...fakeOptions }, hostOptions.gpuMemory)`.
@@ -255,11 +271,11 @@ test('managed Tabby fails the stop loudly when VRAM is never released', async ()
 
 Import `type GpuMemory, type GpuMemoryProbe` from `../src/status-server/gpu-memory.js`. If `createManagedTabbyFixture`'s `fakeOptions` default makes passing `undefined` awkward, keep its default through a named constant.
 
-- [ ] **Step 2: Confirm the tests fail.**
+- [x] **Step 2: Confirm the tests fail.**
   - Run: `npm run build:test`
   - Expected: a compile failure, because `ManagedEngineHost` has no `gpuMemory` and `writeFakeEngineHost` takes no third argument. That compile failure is the failing state.
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - In `src/status-server/engine-process.ts`:
     - Import `NvidiaSmiGpuMemoryProbe, type GpuMemoryProbe` from `./gpu-memory.js`.
     - Add this field to `ManagedEngineHost`:
@@ -345,7 +361,7 @@ const VRAM_RELEASE_POLL_MS = 250;
     - `tests/helpers/managed-engine-fixtures.ts`: every `ManagedEngineHost` it builds gets `gpuMemory: NO_GPU_MEMORY`.
     - Use `npm run typecheck:test` to find every other construction site.
 
-- [ ] **Step 4: Run the tests and confirm they pass.**
+- [x] **Step 4: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/managed-tabby.test.ts tests/managed-tabby-run-history.test.ts tests/preset-runtime-coordinator.test.ts`
   - Expected: PASS.
 
@@ -369,7 +385,7 @@ The contents were valid. The fix: extract the object from surrounding prose or a
 - Modify: `src/lib/model-json.ts` (only `ModelJson.parseObject` changes; its only caller is `src/orchestrator/phase-runner.ts`)
 - Test: `tests/model-json.test.ts`
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/model-json.test.ts`):
+- [x] **Step 1: Write the failing tests** (append to `tests/model-json.test.ts`):
 
 ```ts
 import { OrchestratorApprovalDecisionSchema, OrchestratorPlanPreparationSchema } from '@siftkit/contracts';
@@ -395,11 +411,11 @@ test('ModelJson drops keys the schema does not define, at any depth, and keeps v
 });
 ```
 
-- [ ] **Step 2: Run them and confirm they fail.**
+- [x] **Step 2: Run them and confirm they fail.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/model-json.test.ts`
   - Expected: FAIL. The first test gets "expected JSON object" or a jsonrepair error. The second gets `Unrecognized key`.
 
-- [ ] **Step 3: Implement** in `src/lib/model-json.ts`:
+- [x] **Step 3: Implement** in `src/lib/model-json.ts`:
   - Replace `parseObject` with:
 
 ```ts
@@ -464,7 +480,7 @@ function removeKeys(value: JsonValue, path: readonly PropertyKey[], keys: readon
 
 If `JsonObject` entries are typed as optional, filter out `undefined` inside `removeKeys` rather than asserting.
 
-- [ ] **Step 4: Run the tests and confirm they pass.**
+- [x] **Step 4: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/model-json.test.ts`
   - Expected: PASS, including the existing `'ModelJson parses a fenced typed object …'` test, whose `'I approve this.'` case is still rejected.
 
@@ -490,7 +506,7 @@ The changes:
 - Modify test helper: `tests/helpers/scripted-engine-service.ts`
 - Test: `tests/process/orchestrator-run.e2e.test.ts`
 
-- [ ] **Step 1: Let the scripted engine fail a call.** In `tests/helpers/scripted-engine-service.ts`:
+- [x] **Step 1: Let the scripted engine fail a call.** In `tests/helpers/scripted-engine-service.ts`:
   - Change the type to:
 
 ```ts
@@ -500,7 +516,7 @@ export type ScriptedCall = MockPlannerResponseInput[] | ((request: RepoSearchExe
 
   - In `executeRepoSearch`, add `if (next instanceof Error) return Promise.reject(next);` right after the `undefined` check.
 
-- [ ] **Step 2: Write the failing e2e tests** (append to `tests/process/orchestrator-run.e2e.test.ts`):
+- [x] **Step 2: Write the failing e2e tests** (append to `tests/process/orchestrator-run.e2e.test.ts`):
 
 ```ts
 const ENGINE_CRASH = 'TabbyAPI exited unexpectedly (code=1, signal=null).';
@@ -551,11 +567,11 @@ test('an engine failure twice in one approval decision fails the run as infrastr
     .test(event.message)));
 ```
 
-- [ ] **Step 3: Run the tests and confirm they fail.**
+- [x] **Step 3: Run the tests and confirm they fail.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts --test-name-pattern="engine failure|malformed parent output"`
   - Expected: FAIL. The events only say "Parent phase started.", and the second run fails with `implementation_failed` ("never ran").
 
-- [ ] **Step 4: Rewrite `src/orchestrator/phase-runner.ts`.**
+- [x] **Step 4: Rewrite `src/orchestrator/phase-runner.ts`.**
   - Keep `PhaseLeaseWriter` and the imports, and add `import { toError } from '../lib/errors.js';`.
   - Replace the rest from `OrchestratorPhaseRequest` down with:
 
@@ -674,7 +690,7 @@ export class OrchestratorPhaseRunner {
 
   If `let lock;` / `let result;` infer as implicit `any`, type them with `Awaited<ReturnType<typeof acquireModelRequestWithWait>>` and `Awaited<ReturnType<ServerContext['engineService']['executeRepoSearch']>>`.
 
-- [ ] **Step 5: Wire `run.ts`.**
+- [x] **Step 5: Wire `run.ts`.**
 
   1. Imports: add `OrchestratorInfrastructureError`, `type OrchestratorPhaseLabel` and `type OrchestratorPhaseLog` from `./phase-runner.js`. Change the class line to `export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorPhaseLog {`.
 
@@ -713,7 +729,7 @@ export class OrchestratorPhaseRunner {
      - `reviewEvidence`: `this.phases.reviewAttempt({ task, result: { … } }, null)`. Its `catch` uses `this.rethrowFatal(error);` before building the error text. Task 6 rewrites this method.
      - `decideOnParentModel`: `this.phases.decideApproval(prompt, null)`. Its `catch` calls `this.rethrowFatal(error);` before returning the deny. Task 5 rewrites this method.
 
-- [ ] **Step 6: Run the tests and confirm they pass.**
+- [x] **Step 6: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts`
   - Expected: all pass, the new tests included.
 
@@ -730,7 +746,7 @@ export class OrchestratorPhaseRunner {
 - Modify: `src/orchestrator/run.ts`
 - Test: `tests/process/orchestrator-run.e2e.test.ts`
 
-- [ ] **Step 1: Write the failing tests** (append; they reuse `readOnlyPlan` from Task 4):
+- [x] **Step 1: Write the failing tests** (append; they reuse `readOnlyPlan` from Task 4):
 
 ```ts
 test('an approval decision after prose is accepted and the decision is recorded', async (t) => {
@@ -765,11 +781,11 @@ test('an unusable approval decision is retried once, then fails the run instead 
 });
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail.**
+- [x] **Step 2: Run the tests and confirm they fail.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts --test-name-pattern="approval decision"`
   - Expected: FAIL. The event reads "Approval resolved.", and the second run ends `implementation_failed`.
 
-- [ ] **Step 3: Implement** in `run.ts`:
+- [x] **Step 3: Implement** in `run.ts`:
   - Add `const APPROVAL_DECISION_ATTEMPTS = 2;` next to `DRIFT_REVIEW_ATTEMPTS`.
   - Replace `decideOnParentModel` with:
 
@@ -813,7 +829,7 @@ function describeApprovalDecision(decision: RepoAgentDecision): string {
 }
 ```
 
-- [ ] **Step 4: Run the whole e2e file and confirm it passes.**
+- [x] **Step 4: Run the whole e2e file and confirm it passes.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts`
   - Expected: PASS, including `'an auto run asks the parent before each check command and never runs a denied one'`, whose denies still produce "never ran".
 
@@ -830,7 +846,7 @@ function describeApprovalDecision(decision: RepoAgentDecision): string {
 - Modify: `src/orchestrator/verification.ts`, `src/orchestrator/prompts.ts`, `src/orchestrator/run.ts`
 - Test: `tests/process/orchestrator-run.e2e.test.ts`
 
-- [ ] **Step 1: Write the failing test** (append):
+- [x] **Step 1: Write the failing test** (append):
 
 ```ts
 test('a review citing a snippet that is not in the file is re-asked, and the worker keeps its attempt', async (t) => {
@@ -854,11 +870,11 @@ test('a review citing a snippet that is not in the file is re-asked, and the wor
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts --test-name-pattern="cited snippet"`
   - Expected: FAIL. Attempt 1 is marked failed and a second child is requested (which is unscripted).
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - In `verification.ts`, add the following, and in `evaluateAttempt` replace the `if (input.review?.status === 'pass') { … }` block with `if (input.review !== null) findings.push(...findReviewEvidenceProblems(input.repoRoot, input.review));`:
 
 ```ts
@@ -917,7 +933,7 @@ export function findReviewEvidenceProblems(repoRoot: string, review: Orchestrato
   - Import `type OrchestratorTaskReview` from `@siftkit/contracts`.
   - `verifyFinal` is unchanged: it still fails final verification when a citation is bad, because no worker attempt is involved there.
 
-- [ ] **Step 4: Run the tests and confirm they pass.**
+- [x] **Step 4: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts tests/orchestrator-verification.test.ts`
   - Expected: PASS.
 
@@ -935,7 +951,7 @@ export function findReviewEvidenceProblems(repoRoot: string, review: Orchestrato
 - Modify: `src/orchestrator/prompts.ts`, `src/orchestrator/run.ts`
 - Test: `tests/orchestrator-check-preflight.test.ts` (new), `tests/process/orchestrator-run.e2e.test.ts`
 
-- [ ] **Step 1: Write the failing unit test** in `tests/orchestrator-check-preflight.test.ts`:
+- [x] **Step 1: Write the failing unit test** in `tests/orchestrator-check-preflight.test.ts`:
 
 ```ts
 import assert from 'node:assert/strict';
@@ -973,11 +989,11 @@ test('the preflight skips the shell entirely when no check is a command', async 
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
   - Run: `npm run build:test`
   - Expected: FAIL (compile), because `check-preflight.js` doesn't exist.
 
-- [ ] **Step 3: Create `src/orchestrator/check-preflight.ts`:**
+- [x] **Step 3: Create `src/orchestrator/check-preflight.ts`:**
 
 ```ts
 import type { OrchestratorVerificationCheck } from '@siftkit/contracts';
@@ -1029,11 +1045,11 @@ export async function findUnrunnableChecks(repoRoot: string, checks: readonly Or
 
   - Verify that `buildPowerShellInvocation` in `src/lib/powershell.ts` pipes stdin into the script block as `$input`: `[Console]::In.ReadToEnd() | & ([ScriptBlock]::Create(...))`. It does as of this plan.
 
-- [ ] **Step 4: Run the unit test and confirm it passes.**
+- [x] **Step 4: Run the unit test and confirm it passes.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/orchestrator-check-preflight.test.ts`
   - Expected: PASS.
 
-- [ ] **Step 5: Write the failing e2e test** (append to `tests/process/orchestrator-run.e2e.test.ts`):
+- [x] **Step 5: Write the failing e2e test** (append to `tests/process/orchestrator-run.e2e.test.ts`):
 
 ```ts
 test('a plan whose check cannot run in the check shell is rejected and re-planned before any child starts', async (t) => {
@@ -1058,11 +1074,11 @@ test('a plan whose check cannot run in the check shell is rejected and re-planne
 });
 ```
 
-- [ ] **Step 6: Run it and confirm it fails.**
+- [x] **Step 6: Run it and confirm it fails.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts --test-name-pattern="check shell"`
   - Expected: FAIL. The first plan is accepted and the run fails `implementation_failed`.
 
-- [ ] **Step 7: Implement.**
+- [x] **Step 7: Implement.**
   - In `prompts.ts`:
     - Import `RUN_SHELL_LABEL` from `../lib/powershell.js` and add:
 
@@ -1099,7 +1115,7 @@ const CHECK_SHELL_RULE = `Command checks run in ${RUN_SHELL_LABEL} from their cw
       if (rejectedProblems.length === 0) return review;
 ```
 
-- [ ] **Step 8: Run the tests and confirm they pass.**
+- [x] **Step 8: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts tests/orchestrator-check-preflight.test.ts`
   - Expected: PASS.
 
@@ -1115,7 +1131,7 @@ const CHECK_SHELL_RULE = `Command checks run in ${RUN_SHELL_LABEL} from their cw
 - Modify: `packages/contracts/src/orchestrator.ts`, `src/orchestrator/run-store.ts`, `src/status-server/orchestrator-runs.ts`, `src/status-server/index.ts`
 - Test: `tests/orchestrator-run-store.test.ts`, `tests/orchestrator-runs.test.ts`
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - In `tests/orchestrator-run-store.test.ts`:
 
 ```ts
@@ -1160,11 +1176,11 @@ test('startup marks the running children of an interrupted parent not resumable'
 
     - Import `makeOrchestratorPlan, makeOrchestratorTask` from `./helpers/orchestrator-plan.js`.
 
-- [ ] **Step 2: Run the tests and confirm they fail.**
+- [x] **Step 2: Run the tests and confirm they fail.**
   - Run: `npm run build:test`
   - Expected: FAIL. It fails to compile first (`reconcileOnStartup` takes no argument, and `'abandoned'` isn't a status). Once that compiles, the assertions fail.
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - In `packages/contracts/src/orchestrator.ts`, the attempt `status` becomes `z.enum(['reserved', 'running', 'settled', 'abandoned'])`.
   - In `run-store.ts`:
     - Import `type OrchestratorTaskStatus`.
@@ -1212,7 +1228,7 @@ const OPEN_TASK_STATUSES: readonly OrchestratorTaskStatus[] = ['running', 'verif
   - In `src/status-server/index.ts:264`, use `orchestratorRuns.reconcileOnStartup(repoAgentRunStore);`.
   - Run `npm run typecheck` and fix every exhaustive use of the attempt status, for example the dashboard `OrchestratorRunPanel`, by rendering `abandoned` like a failed attempt.
 
-- [ ] **Step 4: Run the tests and confirm they pass.**
+- [x] **Step 4: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/orchestrator-run-store.test.ts tests/orchestrator-runs.test.ts tests/contracts-orchestrator.test.ts tests/runtime-db-schema-orchestrator.test.ts; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts`
   - Expected: PASS.
 
@@ -1228,7 +1244,7 @@ const OPEN_TASK_STATUSES: readonly OrchestratorTaskStatus[] = ['running', 'verif
 - Modify: `src/orchestrator/run.ts`
 - Test: `tests/process/orchestrator-run.e2e.test.ts`
 
-- [ ] **Step 1: Write the failing test.**
+- [x] **Step 1: Write the failing test.**
   - In the existing test `'a task that fails verification twice stops after two implementation children and never starts its dependent'`, change the children so each attempt also writes a scratch file:
 
 ```ts
@@ -1256,11 +1272,11 @@ function scratchNote(request: RepoSearchExecutionRequest) {
 }
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts --test-name-pattern="fails verification twice"`
   - Expected: FAIL, because `['note.txt']` remains.
 
-- [ ] **Step 3: Implement** in `run.ts`:
+- [x] **Step 3: Implement** in `run.ts`:
   - Replace `execute`'s `catch` and `finally` with:
 
 ```ts
@@ -1294,7 +1310,7 @@ function scratchNote(request: RepoSearchExecutionRequest) {
 
   - Change `settleFailure(error: Error, cleanupProblem: string | null)`. Build each message as `[message, cleanupProblem].filter((part) => part !== null).join(' ')`, both for the `aborted` message and for `failure.message`.
 
-- [ ] **Step 4: Run the tests and confirm they pass.**
+- [x] **Step 4: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts`
   - Expected: PASS.
 
@@ -1308,7 +1324,7 @@ function scratchNote(request: RepoSearchExecutionRequest) {
 - Modify: `src/cli/run-orchestrator.ts`
 - Test: `tests/process/orchestrator-run.e2e.test.ts`
 
-- [ ] **Step 1: Write the failing test.** In the test `'the CLI starts a run, streams committed events, and prints the typed result with a completion exit code'`, replace the `result` parse with:
+- [x] **Step 1: Write the failing test.** In the test `'the CLI starts a run, streams committed events, and prints the typed result with a completion exit code'`, replace the `result` parse with:
 
 ```ts
   const result = z.object({ runId: z.string().uuid(), status: z.string(),
@@ -1318,11 +1334,11 @@ function scratchNote(request: RepoSearchExecutionRequest) {
   assert.match(result.tasks[0]?.output ?? '', /Created\./u, 'the caller sees the worker answer');
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts --test-name-pattern="CLI starts a run"`
   - Expected: FAIL (a zod error: `output` is missing).
 
-- [ ] **Step 3: Implement** in `run-orchestrator.ts`:
+- [x] **Step 3: Implement** in `run-orchestrator.ts`:
   - The `tasks` mapping becomes:
 
 ```ts
@@ -1340,7 +1356,7 @@ function taskOutput(state: OrchestratorRunState, taskId: string): string | null 
 }
 ```
 
-- [ ] **Step 4: Run it and confirm it passes** (same command).
+- [x] **Step 4: Run it and confirm it passes** (same command).
 
 **Acceptance:** CLI output (`start`, `attach`, `status`) carries `tasks[].output`.
 
@@ -1352,7 +1368,7 @@ function taskOutput(state: OrchestratorRunState, taskId: string): string | null 
 - Modify: `src/orchestrator/workers.ts`
 - Test: `tests/process/orchestrator-run.e2e.test.ts`
 
-- [ ] **Step 1: Write the failing test.** In the test `'a child approval unloads the child model for the parent decision …'`, add:
+- [x] **Step 1: Write the failing test.** In the test `'a child approval unloads the child model for the parent decision …'`, add:
 
 ```ts
   const childRequests = engine.repoSearchRequests.filter((request) => request.taskKind !== 'orchestrator');
@@ -1360,13 +1376,13 @@ function taskOutput(state: OrchestratorRunState, taskId: string): string | null 
     'the child transcript is keyed by its reserved child run ID');
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/process/orchestrator-run.e2e.test.ts --test-name-pattern="child approval unloads"`
   - Expected: FAIL, because the request ID is an unrelated admission ID.
 
-- [ ] **Step 3: Implement.** In `startOrchestratorChild`, add `requestId: request.childRunId,` to the `startRepoWorkerRun` input.
+- [x] **Step 3: Implement.** In `startOrchestratorChild`, add `requestId: request.childRunId,` to the `startRepoWorkerRun` input.
 
-- [ ] **Step 4: Run it and confirm it passes** (same command, then the whole e2e file).
+- [x] **Step 4: Run it and confirm it passes** (same command, then the whole e2e file).
 
 **Acceptance:** `run_logs` and engine request IDs for orchestrator children equal their `childRunId`.
 
@@ -1378,7 +1394,7 @@ function taskOutput(state: OrchestratorRunState, taskId: string): string | null 
 - Modify: `src/status-server/repo-agent-lock-adapter.ts`, `src/status-server/routes/repo-agent.ts`
 - Test: `tests/model-request-queue.test.ts`
 
-- [ ] **Step 1: Write the failing test** (append to `tests/model-request-queue.test.ts`, next to the existing lock-adapter tests):
+- [x] **Step 1: Write the failing test** (append to `tests/model-request-queue.test.ts`, next to the existing lock-adapter tests):
 
 ```ts
 test('the worker lock adapter queues under the worker kind it was built for', async () => {
@@ -1401,17 +1417,17 @@ test('the worker lock adapter queues under the worker kind it was built for', as
 
   Update the two existing `new ServerModelLockAdapter(ctx, …)` calls in this file to pass `'repo_search'` as the second argument.
 
-- [ ] **Step 2: Confirm it fails.**
+- [x] **Step 2: Confirm it fails.**
   - Run: `npm run build:test`
   - Expected: FAIL (compile), because the constructor arity is different.
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - `ServerModelLockAdapter`'s constructor becomes `(ctx, private readonly kind: 'repo_search' | 'repo_agent', queueTimeout, intent)`.
   - Use `this.kind` in `acquireModelRequestWithWait(this.ctx, this.kind, …)` and in `new UncancelledModelWaitError(this.kind)`.
   - In `startRepoWorkerRun`, use `new ServerModelLockAdapter(ctx, input.taskKind === 'repo-search' ? 'repo_search' : 'repo_agent', input.modelQueueTimeout, { … })`.
   - Grep `'repo_search'` in `src/`, `tests/` and `dashboard/src` for code that compares a model-request `kind` or queue `owner`. Update each place that describes a repo-agent run, and nothing else.
 
-- [ ] **Step 4: Run the tests and confirm they pass.**
+- [x] **Step 4: Run the tests and confirm they pass.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/model-request-queue.test.ts tests/repo-agent-sessions.test.ts tests/admitted-model-routes.e2e.test.ts`
   - Expected: PASS.
 
@@ -1427,7 +1443,7 @@ test('the worker lock adapter queues under the worker kind it was built for', as
 - Modify: `src/repo-search/prompts.ts`
 - Test: `tests/repo-file-listing.test.ts` (new)
 
-- [ ] **Step 1: Write the failing test:**
+- [x] **Step 1: Write the failing test:**
 
 ```ts
 import assert from 'node:assert/strict';
@@ -1453,11 +1469,11 @@ test('the repository file listing never advertises runtime state under .siftkit'
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
   - Run: `npm run build:test; node .\dist\test-runner\run-tests.js tests/repo-file-listing.test.ts`
   - Expected: FAIL, because the listing includes `.siftkit/orchestrator/run-1/plan.md` or a `.siftkit` summary line.
 
-- [ ] **Step 3: Implement** in `src/repo-search/prompts.ts`:
+- [x] **Step 3: Implement** in `src/repo-search/prompts.ts`:
   - Add above `scanRepoFilesRaw`:
 
 ```ts
@@ -1467,7 +1483,7 @@ const LISTING_EXCLUDED_PATHS = ['.siftkit'];
 
   - In `scanRepoFilesRaw`, change `const ignoredPaths = ignorePolicy.paths ?? [];` to `const ignoredPaths = [...(ignorePolicy.paths ?? []), ...LISTING_EXCLUDED_PATHS];`.
 
-- [ ] **Step 4: Run it and confirm it passes** (same command).
+- [x] **Step 4: Run it and confirm it passes** (same command).
 
 **Acceptance:** `.siftkit/` never appears in any preset's repository listing; reads by explicit path still work.
 
@@ -1478,33 +1494,100 @@ const LISTING_EXCLUDED_PATHS = ['.siftkit'];
 **Files:**
 - Modify: `docs/superpowers/plans/2026-09-22-orchestrator-preset.md` (the "Parent-decided child approvals" bullets, around line 684)
 
-- [ ] **Step 1:** Replace the bullet `With \`auto\`, the parent's \`decideChildApproval\` phase loads the parent model and answers. …` with:
+- [x] **Step 1:** Replace the bullet `With \`auto\`, the parent's \`decideChildApproval\` phase loads the parent model and answers. …` with:
 
 ```markdown
   - With `auto`, the child's own auto-reviewer (`LlmApprovalGate`) answers each request first, on the child's model. Only a request it escalates parks for the parent: a verdict of `unsure`, or two failed verdict calls. The parent's `decideChildApproval` phase then loads the parent model and answers, and the child re-queues for its own model and continues the same attempt.
 ```
 
-- [ ] **Step 2:** Confirm the "observed load order is pinned as B, A, B" bullet still names `tests/process/orchestrator-run.e2e.test.ts`. That test uses `ESCALATING_VERDICTS`, which is exactly this escalation path. Leave the bullet unchanged.
+- [x] **Step 2:** Confirm the "observed load order is pinned as B, A, B" bullet still names `tests/process/orchestrator-run.e2e.test.ts`. That test uses `ESCALATING_VERDICTS`, which is exactly this escalation path. Leave the bullet unchanged.
 
 **Acceptance:** The design doc describes the actual approval routing; no code changes.
 
 ---
 
-### Task 15: Full validation
+### Task 15: Tasks run in parallel up to the worker model's parallel slots (user requirement, 2026-10-11)
 
-- [ ] **Step 1:** Run `npm run build:test; npm test 2>&1 | siftkit summary --question "Return pass/fail counts, failing test names, and root errors with file:line."`.
-  - Expected: all pass.
-- [ ] **Step 2:** Run `npm run test:process 2>&1 | siftkit summary --question "Return pass/fail counts, failing test names, and root errors with file:line."`.
-  - Expected: all pass.
-- [ ] **Step 3:** Run `npm run test:dashboard 2>&1 | siftkit summary --question "Return pass/fail counts and failing tests."`.
-  - Expected: all pass. This is needed because Task 8 changed an attempt status the dashboard may render.
-- [ ] **Step 4:** Run `npm run typecheck` (which includes lint) and `npm run lint`.
-  - Expected: exit 0.
-- [ ] **Step 5:** Confirm that `git status` shows only the files in the File map, plus the untracked validation-results doc.
+**Requirement (from the user):** the orchestrator can run as many tasks at once as the worker's model has parallel slots. For example, with `ParallelSlots` 2 it can run two repo-search tasks, or a repo-search task alongside a repo-agent task. It is not forced to: the planner is told the limit and decides how to split the work.
+
+**Decisions (user, 2026-10-11):**
+- `orchestrator.maxSubagents` is **removed**: the setting, the contract field, the dashboard input, and the built-in default. It is a complete replacement with no fallback. The cap is the `ParallelSlots` of the model preset each task's worker resolves to (`modelPresetId`, or the pinned config's active model preset when null).
+- **One writer plus readers.** At most one mutating task runs at a time, but read-only tasks run alongside it. Two writers never overlap, so diffs and scope checks stay attributable.
+
+**Design:**
+- **Scheduler** (`selectTasksToStart`):
+  - Each ready task counts against the slots of its worker's model.
+  - A task starts only while fewer active or just-selected tasks share that model than its `ParallelSlots`.
+  - A mutating task starts only when no other mutating task is active or selected.
+  - Readers no longer wait for a writer.
+  - Tasks on different models may both start; the model queue serializes them, as before.
+- **Repository gate:**
+  - New access `write`, owned by a run ID: `acquire(repoRoot, access, owner, signal)`.
+  - `exclusive` still needs no holders.
+  - `shared` is compatible with `shared`, and with a `write` held by the same owner.
+  - `write` is compatible only with `shared` held by the same owner.
+  - Standalone workers pass owner `null`, so another run's writer never overlaps them, and cross-run isolation is unchanged.
+  - A mutating task takes `write` instead of `exclusive`. Plan writing and final verification keep `exclusive`.
+- **Attribution:**
+  - A reader's workspace diff excludes the paths the run's writers changed while it ran.
+  - The run keeps the active writer's baseline. At a reader's settlement it subtracts the live writer diff, plus the changed paths of every writer attempt that settled since the reader started.
+  - Remaining risk: a reader's own check command that writes files (which the planner is told not to plan) can still show up in the writer's diff.
+- **Planner prompt:**
+  - `buildPlanPreparationPrompt` states, per worker, its model and that model's parallel slots.
+  - It says that tasks with no `dependsOn` path between them may run at the same time up to that many, at most one task that modifies files at a time, and that a task needing another task's output must list it in `dependsOn`.
+  - The wording does not ask the planner to parallelize.
+- **Migration:** schema 79 → 80 removes the `orchestrator` key from every stored preset in `app_config.presets_json`. `SiftPreset.orchestrator` and `OrchestratorPresetOptionsSchema` are deleted. The historic 76 → 77 upgrade keeps its frozen schema.
+
+**Files:**
+- Modify: `src/orchestrator/scheduler.ts`, `src/orchestrator/run.ts`, `src/orchestrator/prompts.ts`, `src/status-server/orchestrator-runs.ts`, `src/status-server/routes/repo-agent.ts` (and the repo-agent session lease call), `packages/contracts/src/config.ts`, `src/preset-catalog.ts`, `src/state/runtime-db.ts`, new `src/state/schema-upgrades/orchestrator-options.ts`, `dashboard/src/preset-editor.ts`, `dashboard/src/settings-draft-editor.ts`, `dashboard/src/tabs/settings/PresetsSection.tsx`
+- Docs: the concurrency text in `docs/superpowers/specs/2026-09-22-preset-model-routing-and-orchestration-design.md` (decision 6 and the concurrency paragraph)
+- Tests: `tests/orchestrator-scheduler.test.ts`, `tests/orchestrator-runs.test.ts`, `tests/runtime-db-schema-orchestrator.test.ts` (or a new schema-80 test), `tests/contracts-orchestrator.test.ts`, `tests/settings-draft-editor.test.ts`, the dashboard fixtures, and `tests/process/orchestrator-run.e2e.test.ts`
+
+- [x] **Step 1: Write the failing tests.**
+  - Scheduler:
+    - With `ParallelSlots` 2, two independent readers start together.
+    - A reader plus a writer start together.
+    - Two writers never start together.
+    - With `ParallelSlots` 1, one task starts at a time.
+    - A dependent task waits for its dependency.
+  - Gate:
+    - A same-owner `write` and `shared` overlap.
+    - A different-owner `shared` waits for a `write`.
+    - Two `write` leases never overlap.
+    - `exclusive` waits for everything.
+  - Schema 80: a stored preset carrying `orchestrator: {maxSubagents: 3}` loads without the key. A preset that still carries it after the upgrade is rejected by the contract (the strict schema).
+  - Prompt: the plan prompt names each worker's model and slots, and the one-writer rule.
+  - E2E: with `ParallelSlots` 2, a plan with one writer and one independent reader shows both tasks `running` before either settles. The reader's attempt has `changedPaths: []` and no scope violation, and the run completes.
+- [x] **Step 2:** Run them and confirm they fail for the stated reason.
+- [x] **Step 3:** Implement the design above. Remove `maxSubagents` everywhere (`grep -rn maxSubagents src packages dashboard/src tests dashboard/tests` must only find the frozen historic upgrade and its test).
+- [x] **Step 4:** Run the orchestrator unit, e2e, schema, and dashboard tests, and confirm they pass.
+
+**Acceptance:**
+- No `maxSubagents` remains outside the frozen 76 → 77 upgrade.
+- The concurrency is bounded per model by `ParallelSlots`.
+- At most one writer runs at a time, and readers overlap it.
+- A reader is never charged with a concurrent writer's changes.
+- The planner is told the limit but not required to use it.
 
 ---
 
-### Task 16: Live re-validation on real models (manual; the primary agent runs it)
+### Task 16: Full validation
+
+- [x] **Step 1:** Run `npm run build:test; npm test 2>&1 | siftkit summary --question "Return pass/fail counts, failing test names, and root errors with file:line."`.
+  - Expected: all pass.
+- [x] **Step 2:** Run `npm run test:process 2>&1 | siftkit summary --question "Return pass/fail counts, failing test names, and root errors with file:line."`.
+  - Expected: all pass.
+- [x] **Step 3:** Run `npm run test:dashboard 2>&1 | siftkit summary --question "Return pass/fail counts and failing tests."`.
+  - Expected: all pass. This is needed because Task 8 changed an attempt status the dashboard may render.
+- [x] **Step 4:** Run `npm run typecheck` (which includes lint) and `npm run lint`.
+  - Expected: exit 0.
+- [x] **Step 5:** Confirm that `git status` shows only the files in the File map, plus the untracked validation-results doc.
+
+---
+
+### Task 17: Live re-validation on real models (manual; the primary agent runs it)
+
+**Status (2026-10-11): partial.** Steps 1, 6 (S9a and S9b) and 7 are done; Steps 2–3 ran and surfaced F16–F18; Steps 4, 5 and 6b are blocked because another application took the GPU. Results: `## Re-validation 2026-10-11` in `docs/superpowers/plans/2026-09-24-orchestrator-live-validation-results.md`. Config restored, servers stopped, DB backup in `.siftkit/backups/pre-orchestrator-fixes-20261011/`.
 
 Follow `docs/superpowers/plans/2026-09-23-orchestrator-live-validation-handoff.md` §0–§2 for setup:
 - back up the DB;
@@ -1529,6 +1612,8 @@ Follow `docs/superpowers/plans/2026-09-23-orchestrator-live-validation-handoff.m
   - `drift_unresolved` stays covered by the existing stubbed e2e test `'drift still present after two corrections …'`.
 - [ ] **Step 6:** Rerun S9a (abort) and S9b (restart).
   - Expected: no task `running`, attempts `abandoned`, and after S9b the child `state.json` is `failed` (not resumable).
+- [ ] **Step 6b (Task 15):** With the worker model set to `ParallelSlots` 2, run a generated plan whose task asks for two independent read-only questions plus one edit.
+  - Confirm from events and the model timeline that tasks overlap up to 2 (one writer at most), and that the reader attempts show no scope violations.
 - [ ] **Step 7:** Append the outcomes to `docs/superpowers/plans/2026-09-24-orchestrator-live-validation-results.md` under a new `## Re-validation 2026-09-2x` section, listing each finding as fixed or still open with run IDs.
 - [ ] **Step 8:** Clean up as in the original handoff:
   - restore the config exactly;

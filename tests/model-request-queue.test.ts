@@ -850,7 +850,7 @@ test('repo-agent lock adapter forwards a no-deadline queue timeout and stays abo
     assert.ok(activeLock);
 
     const controller = new AbortController();
-    const acquisition = new ServerModelLockAdapter(ctx, 'none', { presetId: null, model: null }).acquire('webui-run', controller.signal);
+    const acquisition = new ServerModelLockAdapter(ctx, 'repo_search', 'none', { presetId: null, model: null }).acquire('webui-run', controller.signal);
     assert.equal(ctx.modelRequestQueue[0]?.ownerRunId, 'webui-run');
     assert.equal(ctx.modelRequestQueue[0]?.queueTimeout, 'none');
     assert.equal(ctx.modelRequestQueue[0]?.timeoutHandle, null);
@@ -871,9 +871,26 @@ test('repo-agent lock adapter without a queue timeout uses the default window', 
     assert.ok(activeLock);
 
     const controller = new AbortController();
-    const acquisition = new ServerModelLockAdapter(ctx, undefined, { presetId: null, model: null }).acquire('cli-run', controller.signal);
+    const acquisition = new ServerModelLockAdapter(ctx, 'repo_search', undefined, { presetId: null, model: null }).acquire('cli-run', controller.signal);
     assert.equal(ctx.modelRequestQueue[0]?.queueTimeout, DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS);
 
+    controller.abort();
+    assert.equal(await acquisition, null);
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+  } finally {
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('the worker lock adapter queues under the worker kind it was built for', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+    const controller = new AbortController();
+    const acquisition = new ServerModelLockAdapter(ctx, 'repo_agent', 'none', { presetId: null, model: null })
+      .acquire('agent-run', controller.signal);
+    assert.equal(ctx.modelRequestQueue[0]?.kind, 'repo_agent');
     controller.abort();
     assert.equal(await acquisition, null);
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);

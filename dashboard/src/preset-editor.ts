@@ -96,7 +96,6 @@ export function applyPresetKindDefaults(
   presetKind: DashboardPresetKind,
 ): void {
   preset.presetKind = presetKind;
-  preset.orchestrator = presetKind === 'orchestrator' ? preset.orchestrator ?? { maxSubagents: 1 } : null;
   applyOperationModeDefaults(preset, getDefaultOperationModeForPresetKind(presetKind));
 }
 

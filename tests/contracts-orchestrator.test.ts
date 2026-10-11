@@ -6,8 +6,8 @@ import {
   OrchestratorChildWorkSchema,
   OrchestratorDecideRequestSchema,
   OrchestratorDriftReviewSchema,
+  OrchestratorFailureSchema,
   OrchestratorPendingApprovalSchema,
-  OrchestratorPresetOptionsSchema,
   OrchestratorStartRequestSchema,
   OrchestratorTaskReviewSchema,
   SiftPresetCollectionSchema,
@@ -25,40 +25,22 @@ const FINDING = {
   affectedPaths: ['src/a.ts'], verification: [{ kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 }],
 };
 
-test('the default orchestrator inherits the model and runs one child at a time', () => {
+test('the default orchestrator inherits the model', () => {
   const preset = PresetCatalog.createDefault().requireById('orchestrator');
   assert.equal(preset.presetKind, 'orchestrator');
   assert.equal(preset.modelPresetId, null);
-  assert.deepEqual(preset.orchestrator, { maxSubagents: 1 });
   assert.equal(preset.deletable, false);
   assert.equal(preset.builtin, true);
   assert.deepEqual(preset.surfaces, ['cli', 'web']);
 });
 
-test('every other built-in preset carries null orchestrator options', () => {
-  for (const preset of PresetCatalog.createDefault().list()) {
-    if (preset.presetKind !== 'orchestrator') assert.equal(preset.orchestrator, null, preset.id);
-  }
-});
-
-test('the subagent cap is a positive integer and attempts are a fixed policy, not an option', () => {
+test('attempts are a fixed policy and concurrency comes from the worker model, so no preset carries orchestrator options', () => {
   assert.equal(ORCHESTRATOR_MAX_ATTEMPTS, 2);
-  assert.equal(OrchestratorPresetOptionsSchema.safeParse({ maxSubagents: 0 }).success, false);
-  assert.equal(OrchestratorPresetOptionsSchema.safeParse({ maxSubagents: 1.5 }).success, false);
-  assert.equal(OrchestratorPresetOptionsSchema.safeParse({ maxSubagents: 2, maxAttempts: 3 }).success, false);
-  assert.equal(OrchestratorPresetOptionsSchema.safeParse({ maxSubagents: 3 }).success, true);
-});
-
-test('orchestrator options are required for the orchestrator kind and forbidden for others', () => {
   const catalog = PresetCatalog.createDefault().list();
-  const withoutOptions = catalog.map((preset) => (preset.id === 'orchestrator' ? { ...preset, orchestrator: null } : preset));
-  assert.throws(() => SiftPresetCollectionSchema.parse(withoutOptions), /Orchestrator preset 'orchestrator' requires orchestrator options/u);
-  const chatWithOptions = catalog.map((preset) => (preset.id === 'chat' ? { ...preset, orchestrator: { maxSubagents: 1 } } : preset));
-  assert.throws(() => SiftPresetCollectionSchema.parse(chatWithOptions), /Preset 'chat' has kind 'chat' and must not carry orchestrator options/u);
-  const chat = catalog.find((preset) => preset.id === 'chat');
-  assert.ok(chat);
-  const { orchestrator: _omitted, ...missingField } = chat;
-  assert.equal(SiftPresetSchema.safeParse(missingField).success, false, 'the field is required, not optional');
+  assert.doesNotThrow(() => SiftPresetCollectionSchema.parse(catalog));
+  for (const preset of catalog) {
+    assert.equal(SiftPresetSchema.safeParse({ ...preset, orchestrator: null }).success, false, preset.id);
+  }
 });
 
 test('implementation work needs a plan reference; drift-fix work is only findings and fixes', () => {
@@ -125,4 +107,10 @@ test('a check failure explains a failing command and never flags an evidence che
   assert.equal(orchestratorCheckFailure({ ...result, check: command, executed: false, exitCode: null }), 'Check `npm test` never ran.');
   assert.equal(orchestratorCheckFailure({ ...result, check: command, timedOut: true, exitCode: 124 }), 'Check `npm test` timed out.');
   assert.equal(orchestratorCheckFailure({ check: evidence, executed: false, exitCode: null, timedOut: false, output: '' }), null);
+});
+
+test('a stored failure carries one of the known failure codes', () => {
+  const failure = { message: 'Stopped.', taskId: null, purpose: null, findingIds: [] };
+  assert.equal(OrchestratorFailureSchema.safeParse({ ...failure, code: 'infrastructure_failed' }).success, true);
+  assert.equal(OrchestratorFailureSchema.safeParse({ ...failure, code: 'infrastructure_falied' }).success, false);
 });

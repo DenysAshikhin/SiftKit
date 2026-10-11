@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { z } from '../lib/zod.ts';
 import { ensureDirectory } from '../lib/fs.ts';
-import { findNearestSiftKitRepoRoot } from '../lib/paths.ts';
+import { RUNTIME_DIR_NAME, findNearestSiftKitRepoRoot } from '../lib/paths.ts';
 import { SystemClock } from '../assistant/clock.ts';
 import { seedAssistantRegistries } from '../assistant/storage/schema.ts';
 import { CHAT_PENDING_MESSAGES_SCHEMA_SQL, initializeRuntimeSchema } from './runtime-schema.ts';
@@ -15,6 +15,7 @@ import { upgradeChatJournalEventsToVersion2 } from './schema-upgrades/chat-repla
 import { upgradeChatProgressEventsToDeltas } from './schema-upgrades/chat-progress-delta.ts';
 import { upgradePresetModelRouting } from './schema-upgrades/preset-model-routing.ts';
 import { upgradeOrchestratorPreset } from './schema-upgrades/orchestrator.ts';
+import { upgradeOrchestratorOptions } from './schema-upgrades/orchestrator-options.ts';
 import { upgradeOrchestratorRepoKey, upgradeOrchestratorRuns } from './schema-upgrades/orchestrator-runs.ts';
 import { upgradeChatStatusNarration } from './schema-upgrades/chat-status-narration.ts';
 import type { RuntimeDatabase } from './database-handle.ts';
@@ -27,7 +28,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 79;
+export const CURRENT_SCHEMA_VERSION = 80;
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -50,6 +51,7 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 76, apply: upgradeOrchestratorPreset },
   { from: 77, apply: upgradeOrchestratorRuns },
   { from: 78, apply: upgradeOrchestratorRepoKey },
+  { from: 79, apply: upgradeOrchestratorOptions },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {
@@ -134,7 +136,7 @@ function inspectRuntimeDatabase(database: RuntimeDatabase, databasePath: string)
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {
   const repoRoot = findNearestSiftKitRepoRoot(startPath);
   const resolvedBaseRoot = repoRoot ? resolve(repoRoot) : resolve(startPath);
-  return join(resolvedBaseRoot, '.siftkit');
+  return join(resolvedBaseRoot, RUNTIME_DIR_NAME);
 }
 
 export function getRuntimeDatabasePath(startPath: string = process.cwd()): string {

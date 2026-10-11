@@ -1268,14 +1268,14 @@ test('repository ownership is taken before the model and held across a park unti
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(), approvalMode: 'interactive', approvalDelivery: 'boundary', locks, repositoryGate,
   }, t);
-  const blocker = await repositoryGate.acquire(harness.tempRoot, 'exclusive', new AbortController().signal);
+  const blocker = await repositoryGate.acquire(harness.tempRoot, 'exclusive', null, new AbortController().signal);
   const session = harness.start();
   await delay(20);
   assert.equal(locks.acquisitions, 0, 'no model admission while the repository is owned elsewhere');
   blocker.release();
   assert.equal((await session.waitForBoundary(0)).status, 'approval_required');
   let readerGranted = false;
-  const reader = repositoryGate.acquire(harness.tempRoot, 'shared', new AbortController().signal)
+  const reader = repositoryGate.acquire(harness.tempRoot, 'shared', null, new AbortController().signal)
     .then((lease) => { readerGranted = true; return lease; });
   await delay(20);
   assert.equal(readerGranted, false, 'the parked run still owns the repository');

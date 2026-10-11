@@ -16,8 +16,8 @@ export const GpuMemorySchema = z.object({
 export type GpuMemory = z.infer<typeof GpuMemorySchema>;
 
 const MIB = 1_048_576;
-/** Long enough that a re-render storm cannot spawn a process per frame, short enough to stay live. */
-const GPU_MEMORY_CACHE_MS = 2_000;
+/** For status reads: long enough that a re-render storm cannot spawn a process per frame, short enough to stay live. */
+export const GPU_MEMORY_STATUS_CACHE_MS = 2_000;
 
 export function parseNvidiaSmiMemory(stdout: string): GpuMemory | null {
   const [firstLine] = String(stdout || '').trim().split('\n');
@@ -43,9 +43,15 @@ export interface GpuMemoryProbe {
 
 export class NvidiaSmiGpuMemoryProbe implements GpuMemoryProbe {
   private cached: { at: number; value: GpuMemory | null } | null = null;
+  private readonly cacheMs: number;
+
+  /** `cacheMs` 0 makes every read fresh, as polling a release needs. */
+  constructor(cacheMs: number) {
+    this.cacheMs = cacheMs;
+  }
 
   async read(): Promise<GpuMemory | null> {
-    if (this.cached && Date.now() - this.cached.at < GPU_MEMORY_CACHE_MS) {
+    if (this.cached && Date.now() - this.cached.at < this.cacheMs) {
       return this.cached.value;
     }
     let value: GpuMemory | null = null;

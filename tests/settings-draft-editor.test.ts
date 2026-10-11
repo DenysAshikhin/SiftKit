@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.ts';
-import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, ORCHESTRATOR_PRESET, PRESET, SECOND_MODEL_PRESET, TWO_MODEL_DASHBOARD_CONFIG } from '../dashboard/tests/fixtures.ts';
+import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, PRESET, SECOND_MODEL_PRESET, TWO_MODEL_DASHBOARD_CONFIG } from '../dashboard/tests/fixtures.ts';
 
 test('settings draft editor replaces the assistant config as one validated value', () => {
   const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
@@ -284,15 +284,4 @@ test('a model preset assigned to operation presets cannot be deleted until they 
   editor.apply({ type: 'delete-model-preset', presetId: SECOND_MODEL_PRESET.id });
 
   assert.deepEqual(editor.getConfig().Server.ModelPresets.Presets.map((preset) => preset.id), [MANAGED_PRESET.id]);
-});
-
-test('the subagent cap applies only to orchestrator presets and only as a positive integer', () => {
-  const editor = new DashboardSettingsDraftEditor({ ...DASHBOARD_CONFIG, Presets: [...DASHBOARD_CONFIG.Presets, ORCHESTRATOR_PRESET] });
-  editor.apply({ type: 'set-orchestrator-max-subagents', presetId: ORCHESTRATOR_PRESET.id, value: 3 });
-  assert.deepEqual(editor.getConfig().Presets.find((preset) => preset.id === ORCHESTRATOR_PRESET.id)?.orchestrator, { maxSubagents: 3 });
-  for (const value of [0, -1, 1.5, Number.NaN]) {
-    assert.throws(() => editor.apply({ type: 'set-orchestrator-max-subagents', presetId: ORCHESTRATOR_PRESET.id, value }), String(value));
-  }
-  assert.throws(() => editor.apply({ type: 'set-orchestrator-max-subagents', presetId: CUSTOM_PRESET.id, value: 2 }),
-    /Preset 'deep-dive' is not an orchestrator preset/u);
 });

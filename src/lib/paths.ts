@@ -3,6 +3,9 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { z } from './zod.ts';
 
+/** The repository-local runtime directory: database, logs, and run artifacts. */
+export const RUNTIME_DIR_NAME = '.siftkit';
+
 const PackageJsonNameSchema = z.object({ name: z.string().optional() });
 
 /**

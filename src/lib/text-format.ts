@@ -106,12 +106,6 @@ export function supportsAnsiColor(options: ColorOptions = {}): boolean {
   return isTTY && !Object.prototype.hasOwnProperty.call(env, 'NO_COLOR');
 }
 
-export function stripCodeFence(text: string): string {
-  const trimmed = text.trim();
-  const fenceMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/u.exec(trimmed);
-  return fenceMatch ? fenceMatch[1].trim() : trimmed;
-}
-
 export function colorize(text: string, colorCode: number, options: ColorOptions = {}): string {
   if (!supportsAnsiColor(options)) {
     return text;

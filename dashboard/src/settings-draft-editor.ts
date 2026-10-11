@@ -1,4 +1,3 @@
-import { OrchestratorPresetOptionsSchema } from '@siftkit/contracts';
 import {
   addModelPreset,
   deleteModelPreset,
@@ -102,7 +101,6 @@ export type DashboardSettingsDraftAction =
   | { type: 'set-preset-boolean'; presetId: string; field: PresetBooleanField; value: boolean }
   | { type: 'set-preset-max-turns'; presetId: string; value: number | null }
   | { type: 'set-preset-model'; presetId: string; value: string | null }
-  | { type: 'set-orchestrator-max-subagents'; presetId: string; value: number }
   | { type: 'set-preset-autoload-file'; presetId: string; index: number; value: string }
   | { type: 'add-preset-autoload-file'; presetId: string }
   | { type: 'remove-preset-autoload-file'; presetId: string; index: number }
@@ -204,14 +202,6 @@ export class DashboardSettingsDraftEditor {
       case 'set-preset-model':
         this.requirePreset(action.presetId).modelPresetId = action.value === null ? null : this.requireModelPreset(action.value).id;
         return;
-      case 'set-orchestrator-max-subagents': {
-        const preset = this.requirePreset(action.presetId);
-        if (preset.presetKind !== 'orchestrator' || preset.orchestrator === null) {
-          throw new Error(`Preset '${preset.id}' is not an orchestrator preset.`);
-        }
-        preset.orchestrator = OrchestratorPresetOptionsSchema.parse({ maxSubagents: action.value });
-        return;
-      }
       case 'set-preset-autoload-file': {
         const preset = this.requirePreset(action.presetId);
         this.requireAutoloadIndex(preset, action.index);
@@ -345,7 +335,6 @@ export class DashboardSettingsDraftEditor {
       repoRootRequired: false,
       maxTurns: null,
       modelPresetId: null,
-      orchestrator: null,
     });
   }
 

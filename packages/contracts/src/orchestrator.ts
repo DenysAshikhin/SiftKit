@@ -167,7 +167,7 @@ export type OrchestratorAttemptResult = z.infer<typeof OrchestratorAttemptResult
 export const OrchestratorAttemptSchema = z.object({
   taskId: z.string().min(1), purpose: OrchestratorChildPurposeSchema, attempt: OrchestratorAttemptNumberSchema,
   childRunId: z.string().uuid(), work: OrchestratorChildWorkSchema,
-  status: z.enum(['reserved', 'running', 'settled']), result: OrchestratorAttemptResultSchema.nullable(),
+  status: z.enum(['reserved', 'running', 'settled', 'abandoned']), result: OrchestratorAttemptResultSchema.nullable(),
   reservedAtUtc: z.string().datetime(),
 }).strict();
 export type OrchestratorAttempt = z.infer<typeof OrchestratorAttemptSchema>;
@@ -180,8 +180,15 @@ export const OrchestratorPendingApprovalSchema = z.discriminatedUnion('kind', [
 ]);
 export type OrchestratorPendingApproval = z.infer<typeof OrchestratorPendingApprovalSchema>;
 
+export const OrchestratorFailureCodeSchema = z.enum([
+  'aborted', 'interrupted', 'internal_error', 'infrastructure_failed', 'blocked', 'cleanup_failed',
+  'plan_not_found', 'plan_blocked', 'plan_invalid', 'implementation_failed', 'task_review_invalid',
+  'drift_review_invalid', 'drift_unresolved', 'approval_decision_invalid', 'final_review_invalid', 'final_verification_failed',
+]);
+export type OrchestratorFailureCode = z.infer<typeof OrchestratorFailureCodeSchema>;
+
 export const OrchestratorFailureSchema = z.object({
-  code: z.string().min(1), message: z.string().min(1),
+  code: OrchestratorFailureCodeSchema, message: z.string().min(1),
   taskId: z.string().nullable(), purpose: OrchestratorChildPurposeSchema.nullable(),
   findingIds: z.array(z.string().min(1)),
 }).strict();

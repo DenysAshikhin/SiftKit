@@ -67,6 +67,13 @@ function writeFile(content: string) {
   return { toolCalls: [{ name: 'write', arguments: { path: TARGET, content } }] };
 }
 
+/** A write into the attempt's scratch directory, read from its instruction. */
+function scratchNote(request: RepoSearchExecutionRequest) {
+  const scratch = /Scratch directory for temporary files: (\S+)/u.exec(request.prompt)?.[1];
+  if (scratch === undefined) throw new Error(`Expected an implementation prompt, got: ${request.prompt.slice(0, 120)}`);
+  return { toolCalls: [{ name: 'write', arguments: { path: `${scratch}/note.txt`, content: 'temporary\n' } }] };
+}
+
 function digestOf(request: RepoSearchExecutionRequest): string {
   const digest = /Change digest: ([0-9a-f]{64})/u.exec(request.prompt)?.[1];
   if (digest === undefined) throw new Error(`Expected a drift review prompt, got: ${request.prompt.slice(0, 120)}`);
@@ -161,6 +168,9 @@ test('a child approval unloads the child model for the parent decision and reloa
   assert.ok(fs.existsSync(path.join(context.repo, state.planPath ?? 'missing')));
   assert.deepEqual(events.map((event) => event.sequence), events.map((_, index) => index + 1));
   assert.ok(events.some((event) => event.message.startsWith('Approval requested: write')));
+  const childRequests = engine.repoSearchRequests.filter((request) => request.taskKind !== 'orchestrator');
+  assert.deepEqual([...new Set(childRequests.map((request) => request.requestId))], [state.attempts[0]?.childRunId],
+    'the child transcript is keyed by its reserved child run ID');
 });
 
 test('a task that fails verification twice stops after two implementation children and never starts its dependent', async (t) => {
@@ -168,8 +178,8 @@ test('a task that fails verification twice stops after two implementation childr
   const { engine } = context;
   engine.parent.push(planAnswer(writePlan(true)));
   for (const attempt of [1, 2]) {
-    engine.children.push([{ toolCalls: [{ name: 'write', arguments: { path: 'src/wrong.ts', content: `// ${attempt}\n` } }] },
-      ...finalAnswer('Done.')]);
+    engine.children.push((request) => [scratchNote(request),
+      { toolCalls: [{ name: 'write', arguments: { path: 'src/wrong.ts', content: `// ${attempt}\n` } }] }, ...finalAnswer('Done.')]);
   }
 
   const { state } = await followRun(context, (await startRun(context, 'off')).runId);
@@ -184,6 +194,8 @@ test('a task that fails verification twice stops after two implementation childr
   assert.match(second ?? '', /src\/wrong\.ts/u, 'the retry carries the previous attempt\'s changes');
   assert.equal(state.tasks.find((task) => task.taskId === 'report')?.status, 'pending');
   assert.equal(engine.prompts('children').length, 2);
+  const scratch = path.join(context.repo, '.siftkit', 'orchestrator', state.runId, 'scratch');
+  assert.deepEqual(fs.existsSync(scratch) ? fs.readdirSync(scratch) : [], [], 'a failed run leaves no scratch files');
 });
 
 test('actionable drift is fixed by one bullet correction child and a fresh clean review completes the task', async (t) => {
@@ -312,8 +324,11 @@ test('the CLI starts a run, streams committed events, and prints the typed resul
   const exitCode = await runCli({ argv: ['orchestrator', '--approval', 'off', '--repo', context.repo, 'Add a greeting module.'], stdout, stderr });
 
   assert.equal(exitCode, 0, stderr.text);
-  const result = z.object({ runId: z.string().uuid(), status: z.string() }).loose().parse(parseJsonValueText(stdout.text));
+  const result = z.object({ runId: z.string().uuid(), status: z.string(),
+    tasks: z.array(z.object({ taskId: z.string(), output: z.string().nullable() }).loose()) }).loose()
+    .parse(parseJsonValueText(stdout.text));
   assert.equal(result.status, 'completed');
+  assert.match(result.tasks[0]?.output ?? '', /Created\./u, 'the caller sees the worker answer');
   assert.match(stderr.text, /\[orchestrator #1\] preparing_plan: Orchestrator run created\./u);
   assert.match(stderr.text, /Reserved implementation attempt 1\./u);
   const status = new CollectingStream();
@@ -334,13 +349,15 @@ test('a supplied adequate plan is kept as is, and malformed parent output gets e
 
   const response = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
     submissionId: randomUUID(), repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: null, planPath: 'docs/plan.md' }) });
-  const { state } = await followRun(context, OrchestratorRunStateSchema.parse(response.body).runId);
+  const { state, events } = await followRun(context, OrchestratorRunStateSchema.parse(response.body).runId);
 
   assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
   assert.equal(state.planPath, 'docs/plan.md');
   assert.equal(fs.existsSync(path.join(context.repo, '.siftkit', 'orchestrator', state.runId, 'plan.md')), false, 'no second plan file');
   assert.match(engine.prompts('parent')[1] ?? '', /Your previous answer was rejected/u);
   assert.match(engine.prompts('children')[0] ?? '', /from plan docs\/plan\.md/u);
+  assert.ok(events.some((event) => /^Parent phase started: plan preparation; retrying after: Provider returned an invalid plan preparation payload/u
+    .test(event.message)));
 });
 
 test('a blocked plan and a missing plan file fail precisely before any child starts', async (t) => {
@@ -406,4 +423,214 @@ test('a run keeps the configuration it started with when presets change mid-run'
   assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
   const report = engine.requireRepoSearch('Report the greeting.');
   assert.notDeepEqual(report.allowedTools, ['read'], 'the report child keeps the tools the run started with');
+});
+
+const ENGINE_CRASH = 'TabbyAPI exited unexpectedly (code=1, signal=null).';
+
+function readOnlyPlan(verification: OrchestratorVerificationCheck[]): OrchestratorPlan {
+  const inspect = makeOrchestratorTask({ readPaths: ['src/app.ts'], verification,
+    steps: [{ instruction: 'Report the value of app in src/app.ts.', expectedResult: 'The value.' }] });
+  return { ...makeOrchestratorPlan([inspect]), finalVerification: [PASSING_CHECK] };
+}
+
+test('a parent phase hit by an engine failure is retried once as a new phase with the reason recorded', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-infra-retry-');
+  const { engine } = context;
+  engine.parent.push(new Error(ENGINE_CRASH));
+  engine.parent.push(planAnswer(writePlan()));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+  engine.parent.push(driftReview('clean'));
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  assert.ok(events.some((event) => event.message === 'Parent phase started: plan preparation.'));
+  assert.ok(events.some((event) => event.message.startsWith(
+    `Parent phase started: plan preparation; retrying after: infrastructure failure: ${ENGINE_CRASH}`)));
+});
+
+test('an engine failure twice in one approval decision fails the run as infrastructure, never as a denial', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-infra-fail-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(readOnlyPlan([PASSING_CHECK])));
+  engine.children.push(finalAnswer('app is 1.'));
+  engine.parent.push(new Error(ENGINE_CRASH));
+  engine.parent.push(new Error(ENGINE_CRASH));
+
+  const { state, events } = await followRun(context, (await startRun(context, 'auto')).runId);
+
+  assert.equal(state.phase, 'failed');
+  assert.equal(state.failure?.code, 'infrastructure_failed');
+  assert.match(state.failure?.message ?? '', /approval decision phase failed 2 times: TabbyAPI exited unexpectedly/u);
+  assert.equal(events.some((event) => /Not run|deny/u.test(event.message)), false, 'no check was denied');
+});
+
+test('an approval decision after prose is accepted and the decision is recorded', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-decision-prose-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(readOnlyPlan([PASSING_CHECK])));
+  engine.children.push(finalAnswer('app is 1.'));
+  engine.parent.push(finalAnswer('Checked: it only exits.\n{"decision":"approve","reason":"A no-op check."}'));
+  engine.parent.push(APPROVE_CHECK);
+
+  const { state, events } = await followRun(context, (await startRun(context, 'auto')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  assert.ok(events.some((event) => event.message === 'Approval resolved: approve.'));
+});
+
+test('an unusable approval decision is retried once, then fails the run instead of denying', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-decision-invalid-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(readOnlyPlan([PASSING_CHECK])));
+  engine.children.push(finalAnswer('app is 1.'));
+  engine.parent.push(finalAnswer('Looks fine to me.'));
+  engine.parent.push(finalAnswer('Still fine.'));
+
+  const { state } = await followRun(context, (await startRun(context, 'auto')).runId);
+
+  assert.equal(state.phase, 'failed');
+  assert.equal(state.failure?.code, 'approval_decision_invalid');
+  const decisions = engine.prompts('parent').filter((prompt) => prompt.includes('verification command'));
+  assert.equal(decisions.length, 2);
+  assert.match(decisions[1] ?? '', /Your previous answer was rejected:\n- Provider returned an invalid approval decision payload/u);
+});
+
+test('a review citing a snippet that is not in the file is re-asked, and the worker keeps its attempt', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-review-citation-');
+  const { engine } = context;
+  const evidence: OrchestratorVerificationCheck = { kind: 'evidence', instruction: 'Confirm app is 1.', paths: ['src/app.ts'] };
+  engine.parent.push(planAnswer(readOnlyPlan([evidence])));
+  engine.children.push(finalAnswer('app is 1 (src/app.ts:1).'));
+  engine.parent.push(finalAnswer(JSON.stringify({ status: 'pass',
+    evidence: [{ path: 'src/app.ts', line: 1, snippet: 'export const app = 1; // the only export' }] })));
+  engine.parent.push(finalAnswer(JSON.stringify({ status: 'pass',
+    evidence: [{ path: 'src/app.ts', line: 1, snippet: 'export const app = 1;' }] })));
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  assert.deepEqual(state.attempts.map((attempt) => [attempt.attempt, attempt.result?.passed]), [[1, true]]);
+  const reviews = engine.prompts('parent').filter((prompt) => prompt.startsWith('Phase: review the evidence'));
+  assert.equal(reviews.length, 2);
+  assert.match(reviews[1] ?? '', /Your previous review was rejected:\n- Review evidence: src\/app\.ts:1 does not contain the cited snippet\./u);
+});
+
+test('a plan whose check cannot run in the check shell is rejected and re-planned before any child starts', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-check-shell-');
+  const { engine } = context;
+  // A name no machine resolves; live S4 failed the same way on `grep`, which some PATHs do provide.
+  const missingToolCheck: OrchestratorVerificationCheck = { kind: 'command', command: 'node --version | siftkit-missing-tool v', cwd: '.',
+    expectedExitCode: 0 };
+  const unrunnable = writePlan();
+  engine.parent.push(planAnswer({ ...unrunnable, tasks: unrunnable.tasks.map((task) => ({ ...task, verification: [missingToolCheck] })) }));
+  engine.parent.push(planAnswer(writePlan()));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+  engine.parent.push(driftReview('clean'));
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  assert.ok(events.some((event) => event.message.startsWith('Plan rejected: Check `node --version | siftkit-missing-tool v` cannot run in PowerShell')));
+  assert.match(engine.prompts('parent')[1] ?? '', /'siftkit-missing-tool' is not a PowerShell command/u);
+  assert.match(engine.prompts('parent')[0] ?? '', /Command checks run in PowerShell \(Windows, powershell\.exe\)/u);
+  assert.equal(engine.prompts('children').length, 1);
+});
+
+/** Waits up to 20 s for the writer's file, so the reader can settle only once both tasks overlapped. */
+const WAIT_FOR_TARGET: OrchestratorVerificationCheck = { kind: 'command', cwd: '.', expectedExitCode: 0,
+  command: `$deadline = (Get-Date).AddSeconds(20); while (-not (Test-Path ${TARGET})) { if ((Get-Date) -gt $deadline) { exit 1 }; `
+    + 'Start-Sleep -Milliseconds 50 }; exit 0' };
+
+test('with two parallel slots a writer and an independent reader run together and the reader is never charged with the write',
+  async (t) => {
+    const context = await startHarness(t, 'siftkit-orchestrator-parallel-');
+    const { engine } = context;
+    await context.harness.updateParallelSlots(2);
+    await context.harness.assignOperationModel('repo-agent', MODEL_A);
+    const reader = makeOrchestratorTask({ id: 'read-app', readPaths: ['src/app.ts'], verification: [WAIT_FOR_TARGET],
+      steps: [{ instruction: 'Report the value of app in src/app.ts.', expectedResult: 'The value.' }] });
+    const plan = writePlan();
+    engine.parent.push(planAnswer({ ...plan, tasks: [...plan.tasks, reader] }));
+    // The two children may reach the engine in either order, so each answers by its own prompt.
+    const child = (request: RepoSearchExecutionRequest) => (request.prompt.includes('Report the value of app')
+      ? finalAnswer('app is 1.')
+      : [writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+    engine.children.push(child, child);
+    engine.parent.push(driftReview('clean'));
+
+    const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+    assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+    const firstSettled = events.findIndex((event) => event.message.startsWith('Settled'));
+    const started = events.slice(0, firstSettled).filter((event) => / running\.$/u.test(event.message)).map((event) => event.taskId);
+    assert.deepEqual(started.sort(), ['greeting', 'read-app'], 'both tasks were running before either settled');
+    const readAttempt = state.attempts.find((attempt) => attempt.taskId === 'read-app');
+    assert.deepEqual(readAttempt?.result?.changedPaths, []);
+    assert.deepEqual(readAttempt?.result?.scopeViolations, []);
+    assert.match(engine.prompts('parent')[0] ?? '', /2 parallel slots/u);
+    assert.match(engine.prompts('parent')[0] ?? '', /at most one task that modifies files at a time/u);
+  });
+
+test('parallel tasks take turns with their approvals, so every approval can be answered', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-parallel-approvals-');
+  const { engine } = context;
+  await context.harness.updateParallelSlots(2);
+  const readers = ['read-one', 'read-two'].map((id) => makeOrchestratorTask({ id, readPaths: ['src/app.ts'], verification: [PASSING_CHECK],
+    steps: [{ instruction: `Report the value of app in src/app.ts (${id}).`, expectedResult: 'The value.' }] }));
+  engine.parent.push(planAnswer({ ...makeOrchestratorPlan(readers), finalVerification: [PASSING_CHECK] }));
+  engine.children.push(finalAnswer('app is 1.'), finalAnswer('app is 1.'));
+  const started = await startRun(context, 'interactive');
+  const following = followRun(context, started.runId);
+
+  let answered = 0;
+  for (let approval = await waitForApprovalOrEnd(context, started.runId); approval !== null;
+    approval = await waitForApprovalOrEnd(context, started.runId)) {
+    const decided = await requestJson(`${context.baseUrl}/orchestrator/decide`, { method: 'POST',
+      body: JSON.stringify({ runId: started.runId, approvalId: approval.approval?.approvalId, decision: 'approve' }) });
+    assert.equal(decided.statusCode, 200, JSON.stringify(decided.body));
+    answered += 1;
+  }
+
+  const { state } = await following;
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  assert.equal(answered, 3, 'both task checks and the final check');
+});
+
+test('the planner and the evidence reviewer are told which uncommitted changes predate their work', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-preexisting-dirty-');
+  const { engine } = context;
+  fs.writeFileSync(path.join(context.repo, 'src', 'app.ts'), 'export const app = 1;\n// local note\n');
+  const evidence: OrchestratorVerificationCheck = { kind: 'evidence', instruction: 'Confirm app is 1.', paths: ['src/app.ts'] };
+  engine.parent.push(planAnswer(readOnlyPlan([evidence])));
+  engine.children.push(finalAnswer('app is 1 (src/app.ts:1).'));
+  engine.parent.push(finalAnswer(JSON.stringify({ status: 'pass',
+    evidence: [{ path: 'src/app.ts', line: 1, snippet: 'export const app = 1;' }] })));
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  const [plan, review] = engine.prompts('parent');
+  const notice = /Uncommitted changes that predate this work \(not made by it; never count them against it\): src\/app\.ts/u;
+  assert.match(plan ?? '', notice);
+  assert.match(review ?? '', notice);
+});
+
+test('a reader that starts after the writer finished is still charged with its own change to the writer\'s file', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-late-reader-');
+  const { engine } = context;
+  const touchTarget: OrchestratorVerificationCheck = { kind: 'command', cwd: '.', expectedExitCode: 0,
+    command: `Add-Content -Path ${TARGET} -Value '// touched by a reader check'; exit 0` };
+  const plan = writePlan(true);
+  engine.parent.push(planAnswer({ ...plan, tasks: plan.tasks.map((task) => (task.id === 'report' ? { ...task, verification: [touchTarget] } : task)) }));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+  engine.parent.push(driftReview('clean'));
+  engine.children.push(finalAnswer('The greeting is hi.'), finalAnswer('The greeting is hi.'));
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'failed');
+  assert.equal(state.failure?.code, 'implementation_failed');
+  const readAttempt = state.attempts.find((attempt) => attempt.taskId === 'report');
+  assert.deepEqual(readAttempt?.result?.scopeViolations, [TARGET]);
 });

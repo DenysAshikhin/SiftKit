@@ -45,7 +45,6 @@ function completePreset(options: {
     repoRootRequired: false,
     maxTurns: null,
     modelPresetId: null,
-    orchestrator: null,
   };
 }
 

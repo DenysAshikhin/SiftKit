@@ -160,7 +160,8 @@ export function startRepoWorkerRun(ctx: ServerContext, input: StartRepoWorkerRun
     admission,
     approvalMode: input.approvalMode,
     approvalDelivery: input.approvalDelivery,
-    locks: new ServerModelLockAdapter(ctx, input.modelQueueTimeout, { presetId: input.presetId, model: repoSearchRequest.model }),
+    locks: new ServerModelLockAdapter(ctx, input.taskKind === 'repo-search' ? 'repo_search' : 'repo_agent', input.modelQueueTimeout,
+      { presetId: input.presetId, model: repoSearchRequest.model }),
     repository: input.repositoryAccess === null ? null
       : { gate: ctx.orchestratorRuns.repositoryGate, repoRoot: admission.repoRoot, access: input.repositoryAccess },
     approvalGates: ctx.approvalGates,

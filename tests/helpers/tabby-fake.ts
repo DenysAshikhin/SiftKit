@@ -9,6 +9,7 @@ import {
   type Exl3PackageLocator,
 } from '../../src/inference-presets/exl3-model-capabilities.ts';
 import type { ManagedEngineHost } from '../../src/status-server/engine-process.ts';
+import type { GpuMemoryProbe } from '../../src/status-server/gpu-memory.ts';
 import { FakeTabbyLauncher, type FakeTabbyOptions } from './in-process-tabby.ts';
 
 class FixedExl3PackageLocator implements Exl3PackageLocator {
@@ -164,8 +165,11 @@ export interface FakeEngineHost {
  * A managed-engine host that never leaves the test process: the venv interpreter resolves an
  * exllamav3 carrying the 8e08af9 watermark, and every launch is an in-process fake TabbyAPI.
  */
-export function writeFakeEngineHost(root: string, options: FakeTabbyOptions): FakeEngineHost {
+export function writeFakeEngineHost(root: string, options: FakeTabbyOptions, gpuMemory: GpuMemoryProbe = NO_GPU_MEMORY): FakeEngineHost {
   const { pythonPath } = writeFakeExl3Venv(root, true);
   const launcher = new FakeTabbyLauncher(options);
-  return { launcher, host: { launcher, packageLocator: createFakeExl3PackageLocator(pythonPath) }, pythonPath };
+  return { launcher, host: { launcher, packageLocator: createFakeExl3PackageLocator(pythonPath), gpuMemory }, pythonPath };
 }
+
+/** A host without an NVIDIA GPU: every VRAM check is skipped. */
+export const NO_GPU_MEMORY: GpuMemoryProbe = { read: async () => null };

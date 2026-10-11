@@ -343,4 +343,9 @@ export const NEVER_LAUNCHING_ENGINE_HOST: ManagedEngineHost = {
       throw new Error(`Unexpected EXL3 interpreter probe: ${pythonPath}`);
     },
   },
+  gpuMemory: {
+    read() {
+      throw new Error('Unexpected GPU memory probe.');
+    },
+  },
 };

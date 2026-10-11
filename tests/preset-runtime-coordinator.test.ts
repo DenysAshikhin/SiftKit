@@ -592,6 +592,31 @@ test('a settings save landing while a requested switch is blocked is preserved',
   }
 });
 
+test('a readiness check joining a requested switch sees the new selection and never switches back', async () => {
+  const fixture = createBlockingCoordinator();
+  const { coordinator, events, configPath, runtime } = fixture;
+  try {
+    await coordinator.initialize();
+    const target = readConfig(configPath).Server.ModelPresets.Presets.find(preset => preset.id === 'exl3-alt');
+    assert.ok(target);
+    runtime.setBlockedTransition('ensure');
+    events.length = 0;
+
+    const requested = coordinator.ensureRequestPresetReady(target);
+    await runtime.transitionStarted.promise;
+    const readiness = coordinator.ensureActivePresetReady(); // what GET /config does
+    runtime.setBlockedTransition(null);
+    runtime.releaseTransition();
+    await Promise.all([requested, readiness]);
+
+    assert.deepEqual(events, ['unload:exl3', 'load:exl3-alt'], 'one switch, never back to the previous model');
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-alt');
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
 for (const sameResidency of [true, false]) {
   test(`a removed request profile fails before lifecycle changes (same residency: ${sameResidency})`, async () => {
     const fixture = createCoordinator();

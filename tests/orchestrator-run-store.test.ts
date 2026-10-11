@@ -152,3 +152,17 @@ test('recent runs are found by repository identity, not by how its path is spell
   assert.deepEqual(store.listRecent(REPO, 1).map((state) => state.runId), [second.runId]);
   assert.throws(() => store.create(startRequest({ repoRoot: path.join(REPO, 'missing') })), /ENOENT/u);
 });
+
+test('a stopped run aborts its open tasks and abandons unsettled attempts; untouched tasks stay pending', (t) => {
+  const { store } = openStore(t);
+  let state = planned(store);
+  state = store.update(state.runId, state.revision, { tasks: state.tasks.map((task) => (task.taskId === 'inspect'
+    ? { ...task, status: 'running' } : task)) }, { message: 'Task inspect: running.' });
+  const attempt = store.reserveAttempt(state.runId, state.revision, 'inspect', implementationWork());
+  state = store.markAttemptRunning(state.runId, store.read(state.runId).revision, attempt.childRunId);
+
+  const aborted = store.update(state.runId, state.revision, { phase: 'aborted' }, { message: 'Aborted by user.' });
+
+  assert.deepEqual(aborted.tasks.map((task) => [task.taskId, task.status]), [['inspect', 'aborted'], ['follow-up', 'pending']]);
+  assert.deepEqual(aborted.attempts.map((entry) => entry.status), ['abandoned']);
+});

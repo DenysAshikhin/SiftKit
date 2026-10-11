@@ -298,7 +298,7 @@ test('webui repo-agent run waits in the queue without a deadline and is admitted
         mockCommandResults: {},
       }),
     });
-    await assertQueuedWithoutDeadline(harness, 'repo_search', holder);
+    await assertQueuedWithoutDeadline(harness, 'repo_agent', holder);
     assertStreamCompleted(await stream, sessionId);
     await harness.waitForModelQueueIdle();
   } finally {

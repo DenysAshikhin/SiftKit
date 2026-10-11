@@ -73,12 +73,7 @@ test('a model preset still assigned to an operation cannot be deleted and names 
   screen.getByText('Assigned to Deep Dive; reassign before deleting.');
 });
 
-test('an orchestrator preset edits its subagent cap and ignores values below one', () => {
-  const calls: Array<[string, number]> = [];
-  const actions: PresetSettingsActions = {
-    ...PRESET_ACTIONS,
-    setMaxSubagents(presetId, value) { calls.push([presetId, value]); },
-  };
+test('an orchestrator preset has no subagent cap; its concurrency follows the worker model parallel slots', () => {
   render(
     <PresetsSection
       dashboardConfig={TWO_MODEL_DASHBOARD_CONFIG}
@@ -86,16 +81,10 @@ test('an orchestrator preset edits its subagent cap and ignores values below one
       selectedSettingsPresetId={ORCHESTRATOR_PRESET.id}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
-      presetActions={actions}
+      presetActions={PRESET_ACTIONS}
     />,
   );
-
-  const input = screen.getByRole('spinbutton', { name: 'Maximum concurrent subagents' });
-  assert.ok(input instanceof window.HTMLInputElement);
-  assert.equal(input.value, '1');
-  fireEvent.change(input, { target: { value: '3' } });
-  fireEvent.change(input, { target: { value: '0' } });
-  assert.deepEqual(calls, [[ORCHESTRATOR_PRESET.id, 3]]);
+  assert.equal(screen.queryByRole('spinbutton', { name: 'Maximum concurrent subagents' }), null);
 });
 
 test('non-orchestrator presets show no subagent cap', () => {

@@ -84,11 +84,15 @@ export function evaluateAttempt(input: {
   if (input.review?.status === 'fail') {
     for (const finding of input.review.findings) findings.push(`${finding.path}:${finding.line} ${finding.issue}`);
   }
-  if (input.review?.status === 'pass') {
-    for (const evidence of input.review.evidence) {
-      const problem = findEvidenceProblem(input.repoRoot, evidence);
-      if (problem !== null) findings.push(`Review evidence: ${problem}.`);
-    }
-  }
+  if (input.review !== null) findings.push(...findReviewEvidenceProblems(input.repoRoot, input.review));
   return { passed: findings.length === 0, findings };
+}
+
+/** Problems with a passing review's citations; a failing review cites findings, not evidence. */
+export function findReviewEvidenceProblems(repoRoot: string, review: OrchestratorTaskReview): string[] {
+  if (review.status !== 'pass') return [];
+  return review.evidence.flatMap((evidence) => {
+    const problem = findEvidenceProblem(repoRoot, evidence);
+    return problem === null ? [] : [`Review evidence: ${problem}.`];
+  });
 }

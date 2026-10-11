@@ -4,7 +4,7 @@ import { ChildProcessEngineLauncher } from '../../src/status-server/engine-proce
 import { acquireChildPortLease } from '../_runtime-helpers.ts';
 import { writeManagedEngineLauncher } from '../helpers/managed-engine-fixtures.ts';
 import { runManagedEngineReadinessScenario } from '../helpers/managed-engine-readiness-scenario.ts';
-import { createFakeExl3PackageLocator } from '../helpers/tabby-fake.ts';
+import { createFakeExl3PackageLocator, NO_GPU_MEMORY } from '../helpers/tabby-fake.ts';
 import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.ts';
 
 /**
@@ -21,6 +21,7 @@ test('managed engine readiness launches real engine processes that never become 
     await runManagedEngineReadinessScenario(tempRoot, managed, {
       launcher: new ChildProcessEngineLauncher(),
       packageLocator: createFakeExl3PackageLocator(managed.pythonPath),
+      gpuMemory: NO_GPU_MEMORY,
     });
   } finally {
     // Windows releases a terminated launcher's working directory asynchronously, so removal retries.

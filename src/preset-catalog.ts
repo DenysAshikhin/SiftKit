@@ -19,7 +19,6 @@ function clonePreset(preset: SiftPreset): SiftPreset {
     allowedTools: [...preset.allowedTools],
     surfaces: [...preset.surfaces],
     autoloadFiles: [...preset.autoloadFiles],
-    orchestrator: preset.orchestrator === null ? null : { ...preset.orchestrator },
   };
 }
 
@@ -43,7 +42,6 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: false,
     maxTurns: null,
     modelPresetId: null,
-    orchestrator: null,
   },
   {
     id: 'repo-search',
@@ -64,7 +62,6 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: true,
     maxTurns: 45,
     modelPresetId: null,
-    orchestrator: null,
   },
   {
     id: 'chat',
@@ -85,7 +82,6 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: false,
     maxTurns: null,
     modelPresetId: null,
-    orchestrator: null,
   },
   {
     id: 'plan',
@@ -106,7 +102,6 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: true,
     maxTurns: 45,
     modelPresetId: null,
-    orchestrator: null,
   },
   {
     id: 'repo-agent',
@@ -127,7 +122,6 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: true,
     maxTurns: REPO_AGENT_DEFAULT_MAX_TURNS,
     modelPresetId: null,
-    orchestrator: null,
   },
   {
     id: 'orchestrator',
@@ -148,7 +142,6 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: true,
     maxTurns: 45,
     modelPresetId: null,
-    orchestrator: { maxSubagents: 1 },
   },
 ];
 

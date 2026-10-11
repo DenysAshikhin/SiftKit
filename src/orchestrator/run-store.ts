@@ -18,6 +18,7 @@ import {
   type OrchestratorRunState,
   type OrchestratorStartRequest,
   type OrchestratorTaskState,
+  type OrchestratorTaskStatus,
 } from '@siftkit/contracts';
 
 import { digestStableJson } from '../lib/json-digest.ts';
@@ -35,6 +36,8 @@ const AttemptRowsSchema = z.array(z.object({ attempt_json: z.string() }));
 const EventRowsSchema = z.array(z.object({ event_json: z.string() }));
 const MaxSequenceRowSchema = z.object({ sequence: z.number().int().nullable() });
 const RunIdRowsSchema = z.array(z.object({ run_id: z.string() }));
+/** Task statuses that mean live work; a stopped parent turns them into `aborted`. */
+const OPEN_TASK_STATUSES: readonly OrchestratorTaskStatus[] = ['running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending'];
 const TERMINAL_PHASES_SQL = ORCHESTRATOR_TERMINAL_PHASES.map((phase) => `'${phase}'`).join(', ');
 
 /** Fields a transition may change; identity, plan, and attempts change only through their methods. */
@@ -200,7 +203,8 @@ export class OrchestratorRunStore {
       }
       if (isOrchestratorTerminalPhase(current.phase)) throw new Error(`Orchestrator run ${runId} is ${current.phase}.`);
       const { stored, event } = change(current);
-      const { attempts: _attempts, ...fields } = stored;
+      const closing = isOrchestratorTerminalPhase(stored.phase) && stored.phase !== 'completed';
+      const { attempts: _attempts, ...fields } = closing ? this.closeOpenWork(runId, stored) : stored;
       const next = StoredRunStateSchema.parse({ ...fields, revision: revision + 1, updatedAtUtc: new Date().toISOString() });
       this.database.prepare('UPDATE orchestrator_runs SET revision = ?, phase = ?, state_json = ?, updated_at_utc = ? WHERE run_id = ?')
         .run(next.revision, next.phase, JSON.stringify(next), next.updatedAtUtc, runId);
@@ -232,6 +236,14 @@ export class OrchestratorRunStore {
     const attempt = state.attempts.find((entry) => entry.childRunId === childRunId);
     if (!attempt) throw new Error(`Unknown orchestrator child ${childRunId} for run ${state.runId}.`);
     return attempt;
+  }
+
+  /** A stopped parent leaves nothing looking live: open tasks abort and unsettled attempts are abandoned. */
+  private closeOpenWork(runId: string, state: OrchestratorRunState): OrchestratorRunState {
+    for (const attempt of state.attempts) {
+      if (attempt.status === 'reserved' || attempt.status === 'running') this.writeAttempt(runId, { ...attempt, status: 'abandoned' });
+    }
+    return { ...state, tasks: state.tasks.map((task) => (OPEN_TASK_STATUSES.includes(task.status) ? { ...task, status: 'aborted' } : task)) };
   }
 
   private writeAttempt(runId: string, attempt: OrchestratorAttempt): void {

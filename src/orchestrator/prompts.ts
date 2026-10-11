@@ -8,11 +8,16 @@ import {
   type OrchestratorDriftFinding,
   type OrchestratorTask,
   type OrchestratorVerificationCheck,
+  type ModelRuntimePreset,
   type RepoAgentApproval,
   type SiftPreset,
 } from '@siftkit/contracts';
 
+import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
+
 const CHECK_OUTPUT_PROMPT_CHARS = 4_000;
+const CHECK_SHELL_RULE = `Command checks run in ${RUN_SHELL_LABEL} from their cwd: use PowerShell syntax, cmdlets, and programs on PATH only`
+  + ' (grep, sed, awk, bash, and && are unavailable).';
 
 const PLAN_JSON_SHAPE = [
   'Plan JSON shape (every field required):',
@@ -38,17 +43,32 @@ function formatCheckResult(result: OrchestratorCheckResult): string {
     '```', result.output.slice(-CHECK_OUTPUT_PROMPT_CHARS), '```'].join('\n');
 }
 
-function describeWorker(preset: SiftPreset): string {
+/** A worker preset and the model it runs on in this run's configuration. */
+export type PlanWorker = { preset: SiftPreset; model: ModelRuntimePreset };
+
+/** Dirt in the checkout before this work started: a reviewer must never charge it to the work. */
+function describePreexistingChanges(paths: readonly string[]): string {
+  return `Uncommitted changes that predate this work (not made by it; never count them against it): ${paths.join(', ') || 'none'}.`;
+}
+
+/** The problems that rejected the parent's previous answer, as prompt lines; none on a first try. */
+export function describeRejection(subject: 'answer' | 'review' | 'report', problems: readonly string[]): string[] {
+  return problems.length === 0 ? [] : [`Your previous ${subject} was rejected:`, ...problems.map((problem) => `- ${problem}`)];
+}
+
+function describeWorker({ preset, model }: PlanWorker): string {
   const access = preset.presetKind === 'repo-search' ? 'read-only' : 'can modify files';
-  return `- ${preset.id} (${preset.presetKind}, ${access}): ${preset.description}`;
+  const slots = model.ParallelSlots === 1 ? '1 parallel slot' : `${model.ParallelSlots} parallel slots`;
+  return `- ${preset.id} (${preset.presetKind}, ${access}; model ${model.id}, ${slots}): ${preset.description}`;
 }
 
 export function buildPlanPreparationPrompt(input: {
   task: string | null;
   planPath: string | null;
   planMarkdown: string | null;
-  workers: readonly SiftPreset[];
-  previousErrors: readonly string[];
+  workers: readonly PlanWorker[];
+  preexistingDirtyPaths: readonly string[];
+  rejectedProblems: readonly string[];
 }): string {
   return [
     'Phase: prepare the executable plan for this orchestrator run.',
@@ -61,12 +81,17 @@ export function buildPlanPreparationPrompt(input: {
     'Inspect the repository to confirm every referenced file and symbol exists. Each task must be one discrete, verifiable',
     'unit with bounded read/write paths, concrete steps, exact verification checks, and acceptance criteria. Read-only',
     'tasks use a read-only worker and evidence checks; tasks that modify files use a worker that can modify files.',
-    ...(input.previousErrors.length === 0 ? [] : ['Your previous answer was rejected:', ...input.previousErrors.map((error) => `- ${error}`)]),
+    'Tasks with no dependsOn path between them may run at the same time, up to their worker model\'s parallel slots, with',
+    'at most one task that modifies files at a time. A task that needs another task\'s output or changes must list it in',
+    'dependsOn. Split the work into parallel tasks only where that suits it.',
+    describePreexistingChanges(input.preexistingDirtyPaths),
+    ...describeRejection('answer', input.rejectedProblems),
     'Answer with exactly one JSON object:',
     '- {"status": "ready", "plan": <plan>} when the supplied plan is adequate; the plan must be its faithful manifest.',
     '- {"status": "generated", "plan": <plan>, "issues": [string]} when there is no plan or the supplied one is inadequate;',
     '  list what was inadequate in "issues".',
     '- {"status": "blocked", "reason": string} when the request cannot be planned safely (for example an ambiguous target).',
+    CHECK_SHELL_RULE,
     PLAN_JSON_SHAPE,
   ].join('\n');
 }
@@ -74,6 +99,8 @@ export function buildPlanPreparationPrompt(input: {
 export function buildAttemptReviewPrompt(input: {
   task: OrchestratorTask;
   result: Pick<OrchestratorAttemptResult, 'workerOutput' | 'checks' | 'changedPaths'>;
+  preexistingDirtyPaths: readonly string[];
+  rejectedProblems: readonly string[];
 }): string {
   return [
     `Phase: review the evidence for task '${input.task.id}' (${input.task.title}).`,
@@ -82,11 +109,13 @@ export function buildAttemptReviewPrompt(input: {
     ...input.task.verification.filter((check) => check.kind === 'evidence').map((check) => `- ${formatCheck(check)}`),
     'Recorded command results:', ...input.result.checks.map(formatCheckResult),
     `Changed paths: ${input.result.changedPaths.join(', ') || '(none)'}`,
+    describePreexistingChanges(input.preexistingDirtyPaths),
     'Worker report (a claim, not evidence):', input.result.workerOutput,
     'Read the cited files yourself. Pass only when every criterion is supported by repository evidence you checked.',
     'Answer with exactly one JSON object:',
     '- {"status": "pass", "evidence": [{"path": string, "line": number, "snippet": "exact code at that line"}, ...]}',
     '- {"status": "fail", "findings": [{"path": string, "line": number, "issue": string}]}',
+    ...describeRejection('review', input.rejectedProblems),
   ].join('\n');
 }
 
@@ -125,8 +154,9 @@ export function buildDriftReviewPrompt(input: {
     '- "status": "clean", "findings": []',
     '- "status": "actionable", "findings": [{"id": "D1", "title", "purpose", "directive", "evidence": [{"path",',
     '  "line", "snippet"}], "impact", "fix", "affectedPaths": [string], "verification": [<verification check>]}]',
+    CHECK_SHELL_RULE,
     `Use taskId "${input.task.id}" and changeDigest "${input.changeDigest}".`,
-    ...(input.rejectedProblems.length === 0 ? [] : ['Your previous report was rejected:', ...input.rejectedProblems.map((problem) => `- ${problem}`)]),
+    ...describeRejection('report', input.rejectedProblems),
   ].join('\n');
 }
 

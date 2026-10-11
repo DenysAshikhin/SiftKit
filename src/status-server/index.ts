@@ -95,7 +95,7 @@ import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/p
 import { AssistantService } from '../assistant/assistant-service.ts';
 import { SystemClock } from '../assistant/clock.ts';
 import { DpapiDataProtector } from '../assistant/crypto/dpapi.ts';
-import { NvidiaSmiGpuMemoryProbe } from './gpu-memory.ts';
+import { GPU_MEMORY_STATUS_CACHE_MS, NvidiaSmiGpuMemoryProbe } from './gpu-memory.ts';
 import { createSystemManagedEngineHost } from './engine-process.ts';
 import { RandomIdGenerator } from '../assistant/ids.ts';
 import { DefaultAssistantInferenceClient } from '../assistant/inference/client.ts';
@@ -261,7 +261,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const chatRuntimeOwner = ChatRuntimeOwner.acquire(runtimeDatabase, randomUUID());
   const orchestratorRunStore = new OrchestratorRunStore(runtimeDatabase);
   const orchestratorRuns = new OrchestratorRunRegistry(orchestratorRunStore);
-  orchestratorRuns.reconcileOnStartup();
+  orchestratorRuns.reconcileOnStartup(repoAgentRunStore);
   const inferenceRunFlushQueue = new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) });
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
@@ -275,7 +275,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     idleSummarySnapshotsPath,
     disableManagedEngineStartup,
     engineService,
-    gpuMemoryProbe: options.gpuMemoryProbe ?? new NvidiaSmiGpuMemoryProbe(),
+    gpuMemoryProbe: options.gpuMemoryProbe ?? new NvidiaSmiGpuMemoryProbe(GPU_MEMORY_STATUS_CACHE_MS),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     orchestratorRunStore,

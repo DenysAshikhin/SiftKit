@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import type { Exl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
 import { InterpreterExl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
 import { terminateProcessTree } from '../lib/process-tree.ts';
+import { NvidiaSmiGpuMemoryProbe, type GpuMemoryProbe } from './gpu-memory.ts';
 
 /** A managed engine launch; `environment` is the complete child environment, not a delta. */
 export type EngineLaunchSpec = {
@@ -32,6 +33,8 @@ export interface EngineProcessLauncher {
 export type ManagedEngineHost = {
   readonly launcher: EngineProcessLauncher;
   readonly packageLocator: Exl3PackageLocator;
+  /** Confirms a stopped engine released its VRAM before the next launch. */
+  readonly gpuMemory: GpuMemoryProbe;
 };
 
 export class ChildProcessEngineLauncher implements EngineProcessLauncher {
@@ -51,5 +54,9 @@ export class ChildProcessEngineLauncher implements EngineProcessLauncher {
 }
 
 export function createSystemManagedEngineHost(): ManagedEngineHost {
-  return { launcher: new ChildProcessEngineLauncher(), packageLocator: new InterpreterExl3PackageLocator() };
+  return {
+    launcher: new ChildProcessEngineLauncher(),
+    packageLocator: new InterpreterExl3PackageLocator(),
+    gpuMemory: new NvidiaSmiGpuMemoryProbe(0),
+  };
 }

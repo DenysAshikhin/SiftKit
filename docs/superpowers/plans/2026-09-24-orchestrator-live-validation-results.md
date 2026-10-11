@@ -210,3 +210,53 @@ Handoff: `docs/superpowers/plans/2026-09-23-orchestrator-live-validation-handoff
 - evidence: `inference_runs` since 17:25Z (all `exit_code=1`, `status=stopped`); `model-timeline.log` (rt= columns from 18:25Z).
 - severity: medium-high (doubles switch latency; likely contributes to F13)
 - suspected area: residency / active-preset reconciliation in `src/status-server/preset-runtime-coordinator.ts` (`ensureActivePresetReady` vs `ensureRequestPresetReady`, `persistAppliedModelSelection` ordering) and the `GET /config` handler that calls `ensureActivePresetReady` (`src/status-server/routes/server-admin.ts:184-212`). Unconfirmed which caller re-applies the previous preset.
+
+## Re-validation 2026-10-11
+
+Fixes plan: `docs/superpowers/plans/2026-09-25-orchestrator-live-validation-fixes.md`, Tasks 1–15, uncommitted on top of `ec8ac412`.
+
+### Environment
+- **Runtime DB:** backed up to `.siftkit/backups/pre-orchestrator-fixes-20261011/`. The first start upgraded it 79 → 80 (Task 15 strips `orchestrator` from stored presets); the stored presets loaded cleanly.
+- **Model assignments (via `PUT /config`, restored afterwards; the config diff against the original is empty):**
+  - `orchestrator` → `exl3-3-8-27b` (A, 1 slot)
+  - `repo-agent` → `exl3-3-8-27b-5bpw` (B, 2 slots)
+  - `repo-search` inherits
+- **Sandbox:** `c:\tmp\rsx\orch-small` (`node --test`, 1 test), with an uncommitted README edit left in place on purpose.
+- **Server:**
+  - First runs: `npm start` (watch mode).
+  - From run 3 on: `npm run start:status:stable:server`, because of F18.
+
+### Runs
+
+| Run | Scenario | Result | Evidence | Findings |
+|---|---|---|---|---|
+| `e43bc17a-03c1-4478-8161-a50a5403a78c` | S2/S3 rerun: generated plan, `auto`, write task, A↔B | **failed** (`implementation_failed` on `verify-greet-surface`) | Plan: attempt 1 was a bare plan object without `{status, plan}`. That shape is still rejected by design, and retry event #3 names the reason; attempt 2 was accepted. `add-greet-export` and `add-greet-test` each passed on attempt 1, with drift `clean`. Every check decision reads `Approval resolved: approve.` (#13, #16, #19, #32, …). One drift retry was for a real value error (`resolutions[0].findingId` null). Model queue shows `repo_agent` for the writer. A↔B switches show one unload then one load each, and GPU memory fell to ≈2 MiB before every new load; no `Insufficient VRAM`. CLI result carries `tasks[].output`. README hash unchanged; `scratch/` empty after the failure; sandbox `npm test` 3/3. **Both `verify-greet-surface` attempts were correct but failed the parent's evidence review**, because README.md (the pre-existing edit) was "modified relative to HEAD" | F16 (new, fixed), F17 (new, fixed); F4, F5, F7, F9, F10, F12, F13 (VRAM release), F2 now pass |
+| `a3e4c908-8362-48cc-93b6-e955990d731b` | S3 rerun after the F16 fix; F8 check (stale `.siftkit/orchestrator/e43bc17a…/plan.md` present) | **interrupted** (restart, F18) | Plan accepted at first answer with no retry, so F8 no longer misleads the planner. Both tasks passed on attempt 1. The first task-review answer was invalid JSON ("Colon expected"); it was re-asked on the parent side (#33) and the worker attempt passed (F6 path). Then `node --watch` restarted the server at 14:03, a spurious Windows watch event on an unchanged file, and the restart crashed (F18). After a stable restart: `interrupted`, not redispatched, tasks `completed`, attempts `settled` (S9b/F15) | F18 (new, open) |
+| `61053cdf-3148-475a-afd0-bb4e209cc4f8` | S3 rerun; S9a abort | **aborted** (by me) | The task's first check decision hit `TabbyAPI exited unexpectedly`. The cause was `RuntimeError: Insufficient VRAM in split for model and cache`, because League of Legends had started on the GPU (≈700 MiB used outside SiftKit, and model A needs ≈23.7 of 24.5 GB). Event #12: `Parent phase started: approval decision; retrying after: infrastructure failure: …`. It was retried, not denied (F13 orchestrator half). I aborted with `siftkit orchestrator abort` to free the GPU: phase `aborted`, `approval: null`, task `add-greet-export` → `aborted`, the untouched task stays `pending`, attempt `abandoned`, `scratch/` empty (S9a, F15, F12) | — |
+
+### New findings
+
+#### F16: The evidence reviewer was never told which changes predated the run (fixed)
+- **Observed:** in run `e43bc17a`, attempts 1 and 2 of `verify-greet-surface` failed on "README.md is modified relative to HEAD". README.md held the user's uncommitted edit from before the run. The worker's instruction lists pre-existing dirty files, but the plan and review prompts did not, so the planner wrote "README.md untouched" acceptance and the reviewer enforced it against HEAD.
+- **Fix:** the plan prompt lists the paths that were dirty when the run started. The evidence-review prompt lists the paths that were dirty when the task started. Both state: "Uncommitted changes that predate this work (not made by it; never count them against it): …".
+- **Test:** `'the planner and the evidence reviewer are told which uncommitted changes predate their work'`.
+
+#### F17: Schema rejections were raw ZodError JSON in events and retry prompts (fixed)
+- **Observed:** retry reasons were multi-line issue arrays (events #3 and #40 of `e43bc17a`).
+- **Fix:** `ModelJson.parseObject` now throws `Provider returned an invalid <payload> payload: <z.prettifyError …>`.
+
+#### F18: A `node --watch` restart of the dev server can crash on the chat-runtime lease (open; not orchestrator code)
+- **Observed:** at 14:03 the watcher reported a change to `src/orchestrator/phase-runner.ts`, whose mtime was 12:46, before the server started. The restart then failed: `Error: A live chat runtime owner holds this database lease.` (`src/state/chat-runtime-owner.ts:28`, from `startStatusServer` `src/status-server/index.ts:261`). The server stayed down until it was restarted manually.
+- **Severity:** medium for development: any spurious or real watch restart during a run kills the run and can leave the server down.
+- **Suspected area:** the lease release on SIGINT shutdown versus `--watch-kill-signal` restart timing (`src/state/chat-runtime-owner.ts`).
+
+### Not re-run
+- **Blocked:** the GPU was taken by another application, so the rest of the live re-validation could not run:
+  - S4 (interactive);
+  - S8 (drift bait);
+  - Step 6b (parallel slots);
+  - S2 with `off`.
+- **Covered by stubbed e2e tests instead:**
+  - the parallel scheduler, gate, and approval turns (`tests/process/orchestrator-run.e2e.test.ts`);
+  - the check preflight (`tests/process/orchestrator-check-preflight.test.ts`).
+- **Still blocked:** S5 and the web half of S6 (no browser extension).

@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { ensureDirectory } from '../lib/fs.ts';
-import { findNearestSiftKitRepoRoot } from '../lib/paths.ts';
+import { RUNTIME_DIR_NAME, findNearestSiftKitRepoRoot } from '../lib/paths.ts';
 import {
   getRepoRuntimeRoot,
   getRuntimeDatabasePath as getRuntimeDatabasePathShared,
@@ -20,7 +20,7 @@ export type RuntimePaths = {
 
 export function getRepoLocalRuntimeRoot(): string | null {
   const repoRoot = findNearestSiftKitRepoRoot();
-  return repoRoot ? resolve(repoRoot, '.siftkit') : null;
+  return repoRoot ? resolve(repoRoot, RUNTIME_DIR_NAME) : null;
 }
 
 export function getRepoLocalLogsPath(): string | null {

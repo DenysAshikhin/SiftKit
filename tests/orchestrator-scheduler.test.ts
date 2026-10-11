@@ -1,45 +1,63 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { OrchestratorTaskState, OrchestratorTaskStatus } from '@siftkit/contracts';
+import type { OrchestratorTask, OrchestratorTaskState, OrchestratorTaskStatus } from '@siftkit/contracts';
+import { getActiveModelPreset } from '../src/config/getters.ts';
 import { selectTasksToStart } from '../src/orchestrator/scheduler.ts';
 import { getDefaultConfig } from '../src/status-server/config-store.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
-const CONFIG = getDefaultConfig();
 const READ_A = makeOrchestratorTask({ id: 'read-a' });
 const READ_B = makeOrchestratorTask({ id: 'read-b' });
-const READ_C = makeOrchestratorTask({ id: 'read-c' });
 const WRITE = makeOrchestratorTask({ id: 'write', workerPresetId: 'repo-agent', writePaths: ['src/a.ts'] });
+const WRITE_2 = makeOrchestratorTask({ id: 'write-2', workerPresetId: 'repo-agent', writePaths: ['src/b.ts'] });
 const AFTER_WRITE = makeOrchestratorTask({ id: 'after-write', dependsOn: ['write'] });
-const PLAN = makeOrchestratorPlan([READ_A, READ_B, WRITE, READ_C, AFTER_WRITE]);
+const PLAN = makeOrchestratorPlan([READ_A, WRITE, WRITE_2, READ_B, AFTER_WRITE]);
+
+/** The default config with every worker on the active model, which has `slots` parallel slots. */
+function configWithSlots(slots: number) {
+  const config = getDefaultConfig();
+  getActiveModelPreset(config).ParallelSlots = slots;
+  return config;
+}
 
 function states(overrides: Record<string, OrchestratorTaskStatus> = {}): OrchestratorTaskState[] {
   return PLAN.tasks.map((task) => ({ taskId: task.id, status: overrides[task.id] ?? 'pending', driftReview: null, reviewedDigests: [] }));
 }
 
-function start(maxSubagents: number, active: { taskId: string; mutating: boolean }[], overrides: Record<string, OrchestratorTaskStatus> = {}): string[] {
-  return selectTasksToStart({ config: CONFIG, plan: PLAN, taskStates: states(overrides), active, maxSubagents })
+function start(slots: number, active: OrchestratorTask[], overrides: Record<string, OrchestratorTaskStatus> = {}): string[] {
+  const running = Object.fromEntries(active.map((task) => [task.id, 'running' as const]));
+  return selectTasksToStart({ config: configWithSlots(slots), plan: PLAN, taskStates: states({ ...running, ...overrides }), active })
     .map((task) => task.id);
 }
 
-test('the default cap admits one task and a cap of three overlaps independent readers only', () => {
+test('tasks start up to the parallel slots of their worker model, one at a time with one slot', () => {
   assert.deepEqual(start(1, []), ['read-a']);
-  assert.deepEqual(start(3, []), ['read-a', 'read-b', 'read-c']);
-  assert.deepEqual(start(3, [{ taskId: 'read-a', mutating: false }], { 'read-a': 'running' }), ['read-b', 'read-c']);
+  assert.deepEqual(start(1, [READ_A]), []);
+  assert.deepEqual(start(2, []), ['read-a', 'write']);
+  assert.deepEqual(start(5, []), ['read-a', 'write', 'read-b']);
+  assert.deepEqual(start(3, [READ_A]), ['write', 'read-b']);
 });
 
-test('a mutating task starts only alone and blocks every other start while it owns the repository', () => {
-  const readersDone = { 'read-a': 'completed', 'read-b': 'completed', 'read-c': 'completed' } as const;
-  assert.deepEqual(start(3, [], readersDone), ['write']);
-  assert.deepEqual(start(3, [{ taskId: 'read-c', mutating: false }], { ...readersDone, 'read-c': 'running' }), [],
-    'the writer waits for the active reader');
-  assert.deepEqual(start(3, [{ taskId: 'write', mutating: true }], { 'write': 'running' }), [],
-    'no reader starts beside the writer');
+test('one writer runs beside readers, but two writers never overlap', () => {
+  assert.deepEqual(start(3, [WRITE]), ['read-a', 'read-b'], 'readers start beside the active writer');
+  assert.deepEqual(start(3, [READ_A, READ_B], { 'write': 'completed' }), ['write-2'], 'a writer starts beside active readers');
+  assert.deepEqual(start(5, [WRITE], { 'read-a': 'completed', 'read-b': 'completed' }), [], 'the second writer waits');
+});
+
+test('workers on different models count against their own model slots', () => {
+  const config = configWithSlots(1);
+  const alternate = { ...getActiveModelPreset(config), id: 'exl3-alt', ParallelSlots: 1 };
+  config.Server.ModelPresets.Presets.push(alternate);
+  const agent = config.Presets.find((preset) => preset.id === 'repo-agent');
+  assert.ok(agent);
+  agent.modelPresetId = alternate.id;
+  assert.deepEqual(selectTasksToStart({ config, plan: PLAN, taskStates: states(), active: [] }).map((task) => task.id),
+    ['read-a', 'write'], 'one slot on each model');
 });
 
 test('a dependent starts only once its predecessor completed, not while it verifies or reviews drift', () => {
-  const done = { 'read-a': 'completed', 'read-b': 'completed', 'read-c': 'completed' } as const;
+  const done = { 'read-a': 'completed', 'read-b': 'completed', 'write-2': 'completed' } as const;
   for (const status of ['running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending', 'failed'] as const) {
     assert.deepEqual(start(3, [], { ...done, write: status }), [], status);
   }

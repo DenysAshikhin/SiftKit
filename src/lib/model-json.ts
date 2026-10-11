@@ -3,7 +3,7 @@ import { jsonrepair } from 'jsonrepair';
 import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.ts';
 import type { StructuredModelDecision } from '../summary/types.ts';
 import { getErrorMessage } from './errors.ts';
-import type { z } from './zod.ts';
+import { z } from './zod.ts';
 import { JsonRecordReader } from './json-record-reader.ts';
 import {
   JsonValueSchema,
@@ -11,7 +11,6 @@ import {
   type JsonValue,
   type OptionalJsonValue,
 } from './json-types.ts';
-import { stripCodeFence } from './text-format.ts';
 
 type ParsedJsonValue = {
   value: JsonValue;
@@ -25,19 +24,60 @@ type ParsedModelObject = {
   synthesizedNull: boolean;
 };
 
+function removeKeys(value: JsonValue, path: readonly PropertyKey[], keys: readonly string[]): JsonValue {
+  const [head, ...rest] = path;
+  if (Array.isArray(value)) {
+    return typeof head === 'number' ? value.map((entry, index) => (index === head ? removeKeys(entry, rest, keys) : entry)) : value;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  if (head === undefined) return Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)));
+  if (typeof head !== 'string') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, key === head ? removeKeys(entry, rest, keys) : entry]));
+}
+
 export class ModelJson {
   static parseSummaryDecision(text: string): StructuredModelDecision {
     const parsed = this.parseModelObject(text, 'SiftKit decision').value;
     return this.validateSummaryDecision(parsed);
   }
 
-  /** A model's typed JSON answer; a repair that invents a missing value is rejected, not accepted. */
+  /**
+   * A model's typed JSON answer: the object itself, or the one embedded after prose or in a fence.
+   * Keys the schema does not define are dropped; values are still validated, and a repair that invents a value is rejected.
+   */
   static parseObject<T>(text: string, schema: z.ZodType<T>, payloadName: string): T {
     const parsed = this.parseModelObject(text, payloadName);
     if (parsed.repaired && parsed.synthesizedNull) {
       throw new Error(`Provider returned an invalid ${payloadName} payload: JSON repair synthesized a missing value.`);
     }
-    return schema.parse(parsed.value);
+    const result = schema.safeParse(this.withoutUnrecognizedKeys(parsed.value, schema));
+    if (!result.success) throw new Error(`Provider returned an invalid ${payloadName} payload: ${z.prettifyError(result.error)}`);
+    return result.data;
+  }
+
+  /** Text starting with an object is the answer; otherwise the last fenced object, else the outermost braces. */
+  private static answerObjectText(text: string): string {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{')) return trimmed;
+    const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gu)]
+      .map((match) => (match[1] ?? '').trim())
+      .filter((candidate) => candidate.startsWith('{'));
+    const lastFenced = fenced[fenced.length - 1];
+    if (lastFenced !== undefined) return lastFenced;
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    return start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;
+  }
+
+  /** Removes the keys the schema reports as unrecognized (one parse reports every depth); other issues stay for the caller. */
+  private static withoutUnrecognizedKeys<T>(value: JsonObject, schema: z.ZodType<T>): JsonValue {
+    const result = schema.safeParse(value);
+    if (result.success || !result.error.issues.every((issue) => issue.code === 'unrecognized_keys')) return value;
+    let current: JsonValue = value;
+    for (const issue of result.error.issues) {
+      if (issue.code === 'unrecognized_keys') current = removeKeys(current, issue.path, issue.keys);
+    }
+    return current;
   }
 
   static parseToolArguments(value: OptionalJsonValue): JsonObject | null {
@@ -67,7 +107,7 @@ export class ModelJson {
   }
 
   private static parseModelObject(text: string, payloadName: string): ParsedModelObject {
-    const parsed = this.parseJsonValue(stripCodeFence(text), payloadName);
+    const parsed = this.parseJsonValue(this.answerObjectText(text), payloadName);
     const record = this.getRecord(parsed.value);
     if (!record) {
       throw new Error(`Provider returned an invalid ${payloadName} payload: expected JSON object.`);

@@ -24,7 +24,6 @@ const PRESET_ACTIONS: PresetSettingsActions = {
   removeAutoloadFile() {},
   setSummaryDefault() {},
   setModelPreset() {},
-  setMaxSubagents() {},
   addPreset() {},
   deletePreset() {},
 };

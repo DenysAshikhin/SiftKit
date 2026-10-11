@@ -151,7 +151,7 @@ test('a version 74 database upgrades to 75 adding only modelPresetId null to eve
 
     // Every record received exactly modelPresetId: null on top of the historical layout.
     const expected = [...[...HISTORIC_BUILTIN_CATALOG, CUSTOM_PRESET_74]
-      .map((preset) => ({ ...preset, modelPresetId: null, orchestrator: null })), ORCHESTRATOR_BUILTIN];
+      .map((preset) => ({ ...preset, modelPresetId: null })), ORCHESTRATOR_BUILTIN];
     assert.deepEqual(JSON.parse(upgradedRow.presets_json), expected);
     assert.doesNotThrow(() => SiftPresetCollectionSchema.parse(JSON.parse(upgradedRow.presets_json)));
   } finally {

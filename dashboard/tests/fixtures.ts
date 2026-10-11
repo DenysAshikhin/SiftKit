@@ -40,7 +40,6 @@ export const PRESET_ACTIONS: PresetSettingsActions = {
   removeAutoloadFile() {},
   setSummaryDefault() {},
   setModelPreset() {},
-  setMaxSubagents() {},
   addPreset() {},
   deletePreset() {},
 };
@@ -85,7 +84,7 @@ export const PRESET = {
   promptPrefix: '', allowedTools: ['read_lines'], surfaces: ['cli', 'web'],
   useForSummary: true, builtin: true, deletable: false, includeAgentsMd: false,
   includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null, orchestrator: null,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null,
 } satisfies DashboardPreset;
 
 export const CUSTOM_PRESET = {
@@ -94,7 +93,7 @@ export const CUSTOM_PRESET = {
   promptPrefix: '', allowedTools: ['read_lines', 'grep'], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: false, deletable: true, includeAgentsMd: false,
   includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null, orchestrator: null,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null,
 } satisfies DashboardPreset;
 
 export const ORCHESTRATOR_PRESET = {
@@ -103,7 +102,7 @@ export const ORCHESTRATOR_PRESET = {
   promptPrefix: '', allowedTools: ['read', 'grep'], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: true, deletable: false, includeAgentsMd: true,
   includeRepoFileListing: true, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: 45, modelPresetId: null, orchestrator: { maxSubagents: 1 },
+  autoloadFiles: [], repoRootRequired: false, maxTurns: 45, modelPresetId: null,
 } satisfies DashboardPreset;
 
 export const MANAGED_PRESET = {

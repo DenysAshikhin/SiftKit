@@ -26,6 +26,9 @@ assert.ok(ORCHESTRATOR_BUILTIN);
 const CATALOG_76: JsonObject[] = CURRENT_CATALOG
   .filter((preset) => preset.id !== 'orchestrator')
   .map(({ orchestrator: _future, ...historic }) => historic);
+/** The catalog schemas 77-79 stored: every preset carries orchestrator options, the built-in a cap of one. */
+const CATALOG_77: JsonObject[] = CURRENT_CATALOG.map((preset) => ({ ...preset,
+  orchestrator: preset.presetKind === 'orchestrator' ? { maxSubagents: 1 } : null }));
 const CATALOG_74: JsonObject[] = CATALOG_76.map(({ modelPresetId: _future, ...historic }) => historic);
 
 const CUSTOM_76: JsonObject = {
@@ -60,7 +63,7 @@ function readStored(dbPath: string): { version: number; presetsJson: string } {
   }
 }
 
-test('a version 76 database upgrades to 77 adding null options and the protected orchestrator built-in', () => {
+test('a version 76 database upgrades through 77 adding the protected orchestrator built-in', () => {
   const dbPath = rewind(76, JSON.stringify([...CATALOG_76, CUSTOM_76]));
   try {
     const before = openStoredRuntimeDatabase(dbPath);
@@ -72,7 +75,7 @@ test('a version 76 database upgrades to 77 adding null options and the protected
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
     const row = PresetsJsonRowSchema.parse(database.prepare('SELECT presets_json FROM app_config WHERE id = 1').get());
     assert.deepEqual(JSON.parse(row.presets_json), [
-      ...[...CATALOG_76, CUSTOM_76].map((preset) => ({ ...preset, orchestrator: null })),
+      ...[...CATALOG_76, CUSTOM_76],
       ORCHESTRATOR_BUILTIN,
     ]);
     assert.doesNotThrow(() => SiftPresetCollectionSchema.parse(JSON.parse(row.presets_json)));
@@ -89,7 +92,7 @@ test('the complete 74 to 77 chain yields the current catalog shape with every as
     const database = getRuntimeDatabase(dbPath);
     const row = PresetsJsonRowSchema.parse(database.prepare('SELECT presets_json FROM app_config WHERE id = 1').get());
     assert.deepEqual(JSON.parse(row.presets_json), [
-      ...CATALOG_74.map((preset) => ({ ...preset, modelPresetId: null, orchestrator: null })),
+      ...CATALOG_74.map((preset) => ({ ...preset, modelPresetId: null })),
       ORCHESTRATOR_BUILTIN,
     ]);
   } finally {
@@ -130,7 +133,7 @@ function orchestratorSchema(dbPath: string) {
 
 test('the upgrade chain from 77 creates the same orchestrator run tables as a fresh database', () => {
   const freshPath = path.join(createManagedTempDir('siftkit-orchestrator-runs-fresh-'), 'runtime.sqlite');
-  const upgradedPath = rewind(77, JSON.stringify(CURRENT_CATALOG));
+  const upgradedPath = rewind(77, JSON.stringify(CATALOG_77));
   try {
     const fresh = orchestratorSchema(freshPath);
     assert.ok(fresh.columns.flat().some((column) => column.table === 'orchestrator_runs' && column.name === 'repo_key'));
@@ -144,7 +147,7 @@ const RepoKeyRowsSchema = z.array(z.object({ run_id: z.string(), repo_key: z.str
 
 test('the 78 to 79 upgrade keys stored runs by repository identity and leaves vanished repositories unkeyed', () => {
   const repo = createManagedTempDir('siftkit-orchestrator-key-repo-');
-  const dbPath = rewind(77, JSON.stringify(CURRENT_CATALOG));
+  const dbPath = rewind(77, JSON.stringify(CATALOG_77));
   withRuntimeDatabaseConnection(dbPath, (database) => {
     database.exec(ORCHESTRATOR_RUNS_78_SQL);
     const insert = database.prepare(`INSERT INTO orchestrator_runs

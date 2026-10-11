@@ -13,18 +13,21 @@ import { getAddressInfo } from './helpers/dashboard-http.ts';
 import { FakeTabbyModelState, writeFakeEngineHost } from './helpers/tabby-fake.ts';
 import { launchEngineVariables, NEVER_LAUNCHING_ENGINE_HOST, type FakeTabbyOptions } from './helpers/in-process-tabby.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import type { GpuMemory, GpuMemoryProbe } from '../src/status-server/gpu-memory.ts';
 
 const FIXTURE_ENTRYPOINT = 'tabby-main.py';
-
 // The default fake rejects /v1/model/load and announces MTP drafting on stdout at once.
+const DEFAULT_FAKE_OPTIONS: Omit<FakeTabbyOptions, 'port'> = { rejectLoads: true, mtpAnnouncement: { stream: 'stdout', delayMs: 0 } };
+
 async function createManagedTabbyFixture(
   root: string,
   leaseName: string,
   environment: Record<string, string> = {},
-  fakeOptions: Omit<FakeTabbyOptions, 'port'> = { rejectLoads: true, mtpAnnouncement: { stream: 'stdout', delayMs: 0 } },
+  fakeOptions: Omit<FakeTabbyOptions, 'port'> = DEFAULT_FAKE_OPTIONS,
+  hostOptions: { gpuMemory?: GpuMemoryProbe; shutdownTimeoutMs?: number } = {},
 ) {
   const portLease = await acquireChildPortLease(leaseName);
-  const fakeTabby = writeFakeEngineHost(root, { port: portLease.port, ...fakeOptions });
+  const fakeTabby = writeFakeEngineHost(root, { port: portLease.port, ...fakeOptions }, hostOptions.gpuMemory);
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
   const exl3Preset = {
@@ -49,7 +52,7 @@ async function createManagedTabbyFixture(
     Entrypoint: FIXTURE_ENTRYPOINT,
     ModelRoot: root,
     AdminApiKey: '',
-    ShutdownTimeoutMs: 5_000,
+    ShutdownTimeoutMs: hostOptions.shutdownTimeoutMs ?? 5_000,
     Environment: environment,
   }, flushQueue, fakeTabby.host);
 
@@ -68,6 +71,69 @@ async function createManagedTabbyFixture(
 
 test('ManagedTabbyRuntime construction requires engine configuration, a flush queue, and an engine host', () => {
   assert.equal(ManagedTabbyRuntime.length, 3);
+});
+
+const MIB = 1_048_576;
+
+/** Reports scripted used-VRAM readings in MiB (null: unreadable); the last repeats until `settle` fixes every later one. */
+class ScriptedGpuMemory implements GpuMemoryProbe {
+  reads = 0;
+  private settled: number | null = null;
+  private readonly usedMiB: readonly (number | null)[];
+  constructor(usedMiB: readonly (number | null)[]) {
+    this.usedMiB = usedMiB;
+  }
+  settle(usedMiB: number): void {
+    this.settled = usedMiB;
+  }
+  async read(): Promise<GpuMemory | null> {
+    const scripted = this.usedMiB[Math.min(this.reads, this.usedMiB.length - 1)];
+    if (scripted === undefined) throw new Error('ScriptedGpuMemory needs at least one reading.');
+    const used = this.settled ?? scripted;
+    this.reads += 1;
+    if (used === null) return null;
+    return { totalBytes: 24_000 * MIB, usedBytes: used * MIB, freeBytes: (24_000 - used) * MIB };
+  }
+}
+
+test('managed Tabby stops only once the engine has released its VRAM', async () => {
+  await withTempEnv(async (root) => {
+    // baseline before launch, two readings still holding the model, then released
+    const gpu = new ScriptedGpuMemory([2_000, 20_000, 20_000, 2_100]);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-vram-release', {}, DEFAULT_FAKE_OPTIONS, { gpuMemory: gpu });
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    assert.equal(gpu.reads, 1, 'the baseline is read once before launch');
+
+    await fixture.runtime.unloadPreset();
+
+    assert.equal(gpu.reads, 4, 'stop polled until usage returned to the baseline');
+    assert.equal(fixture.runtime.getProcessState(), 'stopped');
+  });
+});
+
+test('managed Tabby fails the stop loudly when VRAM is never released', async () => {
+  await withTempEnv(async (root) => {
+    const gpu = new ScriptedGpuMemory([2_000, 20_000]);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-vram-held', {}, DEFAULT_FAKE_OPTIONS,
+      { gpuMemory: gpu, shutdownTimeoutMs: 600 });
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+    await assert.rejects(fixture.runtime.unloadPreset(), /GPU memory was not released within 600 ms \(20000 MiB used; 2000 MiB before launch\)/u);
+    assert.equal(fixture.runtime.getProcessState(), 'failed');
+    gpu.settle(2_000); // lets the fixture's disposal stop cleanly
+  });
+});
+
+test('managed Tabby fails the stop loudly when GPU memory measured at launch becomes unreadable', async () => {
+  await withTempEnv(async (root) => {
+    const gpu = new ScriptedGpuMemory([2_000, null]);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-vram-unreadable', {}, DEFAULT_FAKE_OPTIONS, { gpuMemory: gpu });
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+    await assert.rejects(fixture.runtime.unloadPreset(), /GPU memory could not be read after stopping TabbyAPI \(2000 MiB before launch\)/u);
+    assert.equal(fixture.runtime.getProcessState(), 'failed');
+    gpu.settle(2_000);
+  });
 });
 
 test('concurrent Tabby readiness calls perform one model load and unload explicitly', async () => {

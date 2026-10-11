@@ -19,6 +19,7 @@ export function startOrchestratorChild(ctx: ServerContext, config: SiftConfig, i
   }
   return startRepoWorkerRun(ctx, {
     runId: request.childRunId,
+    requestId: request.childRunId,
     taskKind: preset.presetKind === 'repo-search' ? 'repo-search' : 'repo-agent',
     repositoryAccess: null,
     presetId: preset.id,

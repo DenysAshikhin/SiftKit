@@ -237,9 +237,6 @@ export function useSettingsController(deps: {
     setModelPreset(presetId, value) {
       applySettingsAction({ type: 'set-preset-model', presetId, value });
     },
-    setMaxSubagents(presetId, value) {
-      applySettingsAction({ type: 'set-orchestrator-max-subagents', presetId, value });
-    },
     addPreset() {
       if (!dashboardConfig) {
         return;

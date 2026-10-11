@@ -12,7 +12,7 @@ export const PRESET = {
   promptPrefix: '', allowedTools: [], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: true, deletable: false, includeAgentsMd: false,
   includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null, orchestrator: null,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null,
 } satisfies DashboardPreset;
 
 export const REPO_AGENT_PRESET = {
@@ -98,7 +98,7 @@ export function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps 
 }
 
 export const ORCHESTRATOR_CHAT_PRESET = { ...REPO_AGENT_PRESET, id: 'orchestrator', label: 'Orchestrator', presetKind: 'orchestrator',
-  operationMode: 'read-only', orchestrator: { maxSubagents: 1 } } satisfies DashboardPreset;
+  operationMode: 'read-only' } satisfies DashboardPreset;
 export const ORCHESTRATOR_RUN_ID = '4f9c1f9a-0000-4000-8000-0000000000aa';
 
 export function orchestratorProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {

@@ -681,7 +681,7 @@ Delivered O3–O8 as ticked above. Open boxes are not done, or only partly done.
 - **Subagent cap.** The cap counts tasks, not child processes. A task holds its slot through verification, drift review, and correction.
 - **Parent-decided child approvals.**
   - A parked approval releases the child's model lock through `ApprovalParkLease`. `ApprovalGate` parks it, and `RepoAgentSession` releases and later re-acquires the lock.
-  - With `auto`, the parent's `decideChildApproval` phase loads the parent model and answers. The child then re-queues for its own model and continues the same attempt.
+  - With `auto`, the child's own auto-reviewer (`LlmApprovalGate`) answers each request first, on the child's model. Only a request it escalates parks for the parent: a verdict of `unsure`, or two failed verdict calls. The parent's `decideChildApproval` phase then loads the parent model and answers, and the child re-queues for its own model and continues the same attempt.
   - With `interactive`, the request goes to the person.
   - The observed load order is pinned as B, A, B in `tests/process/orchestrator-run.e2e.test.ts`.
 

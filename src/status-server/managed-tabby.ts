@@ -13,6 +13,10 @@ import { TabbyModelClient } from './tabby-model-client.ts';
 import { TabbyRunRecorder } from './tabby-run-recorder.ts';
 
 const STARTUP_LOG_POLL_INTERVAL_MS = 25;
+const MIB = 1_048_576;
+/** Allowance for other GPU clients drifting while an engine ran; a resident model is far larger. */
+const VRAM_RELEASE_TOLERANCE_BYTES = 1_024 * MIB;
+const VRAM_RELEASE_POLL_MS = 250;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -33,6 +37,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private processSignature: string | null = null;
   private residentResidencyKey: string | null = null;
   private loadPromise: Promise<void> | null = null;
+  private vramBaselineUsedBytes: number | null = null;
   private readonly adapter: Exl3PresetAdapter;
   private readonly capabilities: Exl3ModelCapabilities;
 
@@ -71,7 +76,10 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       throw new Error('Managed TabbyAPI requires a launch environment.');
     }
     try {
-      if (!this.child || this.child.exitCode !== null) this.spawnProcess(launchEnvironment);
+      if (!this.child || this.child.exitCode !== null) {
+        this.vramBaselineUsedBytes = (await this.host.gpuMemory.read())?.usedBytes ?? null;
+        this.spawnProcess(launchEnvironment);
+      }
       await this.waitForProcess(preset, processSignature);
     } catch (error) {
       try {
@@ -142,26 +150,17 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   async stopProcess(): Promise<void> {
     const child = this.child;
-    if (!child || child.exitCode !== null) {
-      this.child = null;
-      this.recorder = null;
-      this.processBaseUrl = null;
-      this.processManaged = null;
-      this.processSignature = null;
-      this.currentPreset = null;
-      this.residentResidencyKey = null;
-      this.transitionModelTo('unloaded');
-      this.transitionProcessTo('stopped');
-      return;
-    }
-    this.stopping = true;
-    this.transitionProcessTo('stopping');
-    this.host.launcher.terminate(child);
+    // One budget covers both the exit and the VRAM release.
     const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
-    while (child.exitCode === null && Date.now() < deadline) await delay(25);
-    if (child.exitCode === null) {
-      this.transitionProcessTo('failed');
-      throw new Error('Timed out stopping TabbyAPI.');
+    if (child && child.exitCode === null) {
+      this.stopping = true;
+      this.transitionProcessTo('stopping');
+      this.host.launcher.terminate(child);
+      while (child.exitCode === null && Date.now() < deadline) await delay(25);
+      if (child.exitCode === null) {
+        this.transitionProcessTo('failed');
+        throw new Error('Timed out stopping TabbyAPI.');
+      }
     }
     this.child = null;
     this.recorder = null;
@@ -171,7 +170,34 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.currentPreset = null;
     this.residentResidencyKey = null;
     this.transitionModelTo('unloaded');
+    await this.waitForVramRelease(deadline);
     this.transitionProcessTo('stopped');
+  }
+
+  /**
+   * Resolves once GPU use is back to its pre-launch level; Windows frees an exited engine's VRAM with a lag.
+   * No baseline means the GPU was unmeasurable at launch (the probe's documented "skip"); losing it later is an error.
+   */
+  private async waitForVramRelease(deadline: number): Promise<void> {
+    const baseline = this.vramBaselineUsedBytes;
+    if (baseline === null) return;
+    for (;;) {
+      const memory = await this.host.gpuMemory.read();
+      if (memory === null) {
+        this.transitionProcessTo('failed');
+        throw new Error(`GPU memory could not be read after stopping TabbyAPI (${Math.round(baseline / MIB)} MiB before launch).`);
+      }
+      if (memory.usedBytes <= baseline + VRAM_RELEASE_TOLERANCE_BYTES) {
+        this.vramBaselineUsedBytes = null;
+        return;
+      }
+      if (Date.now() >= deadline) {
+        this.transitionProcessTo('failed');
+        throw new Error(`TabbyAPI stopped, but GPU memory was not released within ${this.engine.ShutdownTimeoutMs} ms `
+          + `(${Math.round(memory.usedBytes / MIB)} MiB used; ${Math.round(baseline / MIB)} MiB before launch).`);
+      }
+      await delay(VRAM_RELEASE_POLL_MS);
+    }
   }
 
   stopForProcessExitSync(): void {

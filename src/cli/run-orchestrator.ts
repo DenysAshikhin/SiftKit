@@ -5,6 +5,12 @@ import type { OrchestratorRunState } from '@siftkit/contracts';
 import type { OrchestratorInvocation } from './orchestrator-args.ts';
 import { StatusServerApiClient } from './status-server-api-client.ts';
 
+/** The worker report of the task's latest passing attempt; for a read-only task this is its answer. */
+function taskOutput(state: OrchestratorRunState, taskId: string): string | null {
+  const passing = state.attempts.filter((attempt) => attempt.taskId === taskId && attempt.result?.passed === true);
+  return passing[passing.length - 1]?.result?.workerOutput ?? null;
+}
+
 /** The typed summary printed on stdout; the exit code follows the parent phase, never a child's exit. */
 function renderResult(state: OrchestratorRunState): string {
   return JSON.stringify({
@@ -17,7 +23,8 @@ function renderResult(state: OrchestratorRunState): string {
         abort: `siftkit orchestrator decide ${state.runId} ${state.approval.approvalId} abort`,
       },
     },
-    tasks: state.tasks.map((task) => ({ taskId: task.taskId, status: task.status, drift: task.driftReview?.status ?? null })),
+    tasks: state.tasks.map((task) => ({ taskId: task.taskId, status: task.status, drift: task.driftReview?.status ?? null,
+      output: taskOutput(state, task.taskId) })),
     attempts: state.attempts.map((attempt) => ({ taskId: attempt.taskId, purpose: attempt.purpose, attempt: attempt.attempt,
       childRunId: attempt.childRunId, passed: attempt.result?.passed ?? null })),
   }, null, 2);

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.ts';
+import { RUNTIME_DIR_NAME } from '../lib/paths.ts';
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
 import {
   EXPOSED_REPO_TOOL_NAMES,
@@ -54,10 +55,12 @@ type ScanResult = {
   nonCodeCounts: Map<string, Map<string, number>>; // dir -> ext -> count
 };
 
+
 function scanRepoFilesRaw(repoRoot: string, ignorePolicy: IgnorePolicy): ScanResult {
   const codeFiles: string[] = [];
   const nonCodeCounts = new Map<string, Map<string, number>>();
-  const ignoredPaths = ignorePolicy.paths ?? [];
+  // Runtime state: tools may still read it by path, but the listing never advertises it.
+  const ignoredPaths = [...(ignorePolicy.paths ?? []), RUNTIME_DIR_NAME];
 
   function walk(dir: string, relBase: string): void {
     if (codeFiles.length >= SCAN_MAX_FILES) return;

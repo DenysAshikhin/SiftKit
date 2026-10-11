@@ -15,10 +15,12 @@ const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is i
 /** Raised when a restart is asked of a preset whose server SiftKit did not launch. */
 export class ExternalServerRestartError extends Error {}
 
+/** Administrative switches apply a saved selection; requested ones persist theirs inside the switch; restarts force a new process. */
+type SwitchKind = 'administrative' | 'requested' | 'restart';
+
 export class PresetRuntimeCoordinator {
-  private pendingTarget: ModelRuntimePreset | null = null;
-  private pendingForceRestart = false;
-  private switchPromise: Promise<SiftConfig> | null = null;
+  private pendingSwitch: { target: ModelRuntimePreset; kind: SwitchKind } | null = null;
+  private switchPromise: Promise<void> | null = null;
   private errorPhase: InferenceRuntimeErrorPhase | null = null;
   private error: string | null = null;
   private rollback: string | null = null;
@@ -69,14 +71,14 @@ export class PresetRuntimeCoordinator {
     const target = this.getPreset(presetId);
     if (
       this.appliedModelPresetState.isApplied(target)
-      && this.pendingTarget === null
+      && this.pendingSwitch === null
       && this.runtime.getModelState() === 'ready'
     ) {
       this.publishReadyPreset(target);
       return 'ready';
     }
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
-    this.setPendingSwitch(target, false);
+    this.setPendingSwitch(target, 'administrative');
     if (this.hasActiveModelRequests() && !this.hasReadyResidency(target)) return 'queued';
     await this.startPendingSwitch();
     return 'ready';
@@ -102,9 +104,8 @@ export class PresetRuntimeCoordinator {
         `${this.activeModelRequests.size} model request(s) are in progress; a requested model switch must wait for them to complete.`,
       );
     }
-    this.setPendingSwitch(requested, false);
-    const expected = await this.startPendingSwitch();
-    persistAppliedModelSelection(this.configPath, expected, requested);
+    this.setPendingSwitch(requested, 'requested');
+    await this.startPendingSwitch();
   }
 
   // Stops and re-readies the preset currently persisted in config, even when it is
@@ -122,7 +123,7 @@ export class PresetRuntimeCoordinator {
         `Preset '${configured.id}' uses an external inference server, so SiftKit does not own its lifecycle and cannot restart it.`,
       );
     }
-    this.setPendingSwitch(configured, true);
+    this.setPendingSwitch(configured, 'restart');
     await this.startPendingSwitch();
   }
 
@@ -167,7 +168,7 @@ export class PresetRuntimeCoordinator {
   }
 
   canGrantModelRequest(): boolean {
-    return this.pendingTarget === null && this.switchPromise === null && !this.residencyActionInProgress;
+    return this.pendingSwitch === null && this.switchPromise === null && !this.residencyActionInProgress;
   }
 
   waitForCurrentAdmissionBlocker(): Promise<void> {
@@ -180,7 +181,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async applyIdleResidencyAction(presetId: string, action: 'unload'): Promise<boolean> {
-    if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingTarget !== null) return false;
+    if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingSwitch !== null) return false;
     if (this.residencyActionInProgress) return false;
     const runtime = this.runtime;
     if (runtime.getModelState() !== 'ready') return false;
@@ -197,7 +198,7 @@ export class PresetRuntimeCoordinator {
   }
 
   private refuseIfBusy(): ModelLifecycleActionResult | null {
-    if (this.switchPromise !== null || this.pendingTarget !== null) {
+    if (this.switchPromise !== null || this.pendingSwitch !== null) {
       return { status: 'busy', reason: 'A preset switch is in progress; retry once it completes.' };
     }
     if (this.hasActiveModelRequests()) {
@@ -250,7 +251,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async onModelRequestReleased(): Promise<void> {
-    if (!this.hasActiveModelRequests() && this.pendingTarget !== null) await this.startPendingSwitch();
+    if (!this.hasActiveModelRequests() && this.pendingSwitch !== null) await this.startPendingSwitch();
   }
 
   getStatus(): InferenceRuntimeStatus {
@@ -289,31 +290,29 @@ export class PresetRuntimeCoordinator {
       }
     }
     await runtime.stopProcess();
-    this.pendingTarget = null;
+    this.pendingSwitch = null;
   }
 
-  private setPendingSwitch(target: ModelRuntimePreset, forceRestart: boolean): void {
-    if (this.pendingTarget === null) this.beginAdmissionBlocker();
-    this.pendingTarget = structuredClone(target);
-    this.pendingForceRestart = forceRestart;
+  private setPendingSwitch(target: ModelRuntimePreset, kind: SwitchKind): void {
+    if (this.pendingSwitch === null) this.beginAdmissionBlocker();
+    this.pendingSwitch = { target: structuredClone(target), kind };
     this.errorPhase = null;
     this.error = null;
     this.rollback = null;
   }
 
-  private async startPendingSwitch(): Promise<SiftConfig> {
+  private async startPendingSwitch(): Promise<void> {
     if (this.switchPromise) return this.switchPromise;
-    if (this.pendingTarget === null) return readConfig(this.configPath);
-    const target = this.pendingTarget;
+    if (this.pendingSwitch === null) return;
+    const { target, kind } = this.pendingSwitch;
     try {
       const expected = readConfig(this.configPath);
       this.findPreset(expected, target.id);
-      this.switchPromise = this.executeSwitch(target, this.pendingForceRestart, expected);
-      return await this.switchPromise;
+      this.switchPromise = this.executeSwitch(target, kind, expected);
+      await this.switchPromise;
     } finally {
       this.switchPromise = null;
-      this.pendingTarget = null;
-      this.pendingForceRestart = false;
+      this.pendingSwitch = null;
       this.endAdmissionBlocker();
     }
   }
@@ -348,18 +347,18 @@ export class PresetRuntimeCoordinator {
     resolve();
   }
 
-  private async executeSwitch(target: ModelRuntimePreset, forceRestart: boolean, expected: SiftConfig): Promise<SiftConfig> {
+  private async executeSwitch(target: ModelRuntimePreset, kind: SwitchKind, expected: SiftConfig): Promise<void> {
     const previous = this.appliedModelPresetState.getPreset();
     const runtime = this.runtime;
+    const forceRestart = kind === 'restart';
     const reuseResidency = !forceRestart && this.hasReadyResidency(target);
     try {
       if (!reuseResidency) await runtime.unloadPreset();
       if (forceRestart) await runtime.stopProcess();
       await runtime.ensurePresetReady(target);
-      // An administrative switch applies a selection the user already saved; a requested switch
-      // persists its selection conditionally after this returns, so a newer save is never clobbered.
       this.publishReadyPreset(target);
-      return expected;
+      // Persist before admission reopens so a joined readiness check never sees the old selection; compare-and-set keeps a newer save.
+      if (kind === 'requested') persistAppliedModelSelection(this.configPath, expected, target);
     } catch (error) {
       this.fail('preset-switch', error instanceof Error ? error.message : String(error));
       let cleanupError: string | null = null;
