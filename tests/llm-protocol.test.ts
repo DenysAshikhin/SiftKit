@@ -1,7 +1,6 @@
 import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 
 import type {
@@ -175,34 +174,6 @@ class CapturingHttpClient {
 class StringThrowingHttpClient extends CapturingHttpClient {
   override async requestJsonFull<T>(): Promise<FullJsonResponse<T>> {
     throw 'string failure';
-  }
-}
-
-class BlockingHttpClient extends CapturingHttpClient {
-  calls = 0;
-  activeCalls = 0;
-  maxActiveCalls = 0;
-  private holdFirst = true;
-
-  releaseFirst(): void {
-    this.holdFirst = false;
-  }
-
-  override async *streamSse(options: SseStreamOptions): AsyncGenerator<SseFrame> {
-    this.requests.push({ url: options.url, body: options.body });
-    this.calls += 1;
-    const callNumber = this.calls;
-    this.activeCalls += 1;
-    this.maxActiveCalls = Math.max(this.maxActiveCalls, this.activeCalls);
-    try {
-      while (callNumber === 1 && this.holdFirst) {
-        await delay(1);
-      }
-      yield { event: 'message', data: JSON.stringify({ choices: [{ delta: { content: `response ${callNumber}` } }] }) };
-      yield { event: 'message', data: '[DONE]' };
-    } finally {
-      this.activeCalls -= 1;
-    }
   }
 }
 
@@ -446,34 +417,6 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
   const toolCallArguments = response.toolCalls[0]?.function.arguments;
   assert.ok(typeof toolCallArguments === 'string');
   assert.deepEqual(JSON.parse(toolCallArguments), { pattern: 'SelectedBackend' });
-});
-
-test('EXL3 chat requests are serialized for a single Tabby cache slot', async () => {
-  const config = buildProtocolConfig();
-  config.Server.ModelPresets.Presets[0].Backend = 'exl3';
-  config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
-  const http = new BlockingHttpClient();
-  const client = new InferenceClient(http);
-  const options = {
-    config,
-    model: '3.6_27B',
-    messages: [{ role: 'user' as const, content: 'hello' }],
-    tools: [],
-    maxTokens: 4,
-    allowedToolNames: [],
-    throughputAudit: TEST_THROUGHPUT_AUDIT,
-  };
-
-  const first = client.chat(options);
-  while (http.calls === 0) await delay(1);
-  const second = client.chat(options);
-  await delay(20);
-  const callsBeforeRelease = http.calls;
-  http.releaseFirst();
-  await Promise.all([first, second]);
-
-  assert.equal(callsBeforeRelease, 1);
-  assert.equal(http.maxActiveCalls, 1);
 });
 
 test('OpenAI response normalization accepts Tabby nullable optional fields', async () => {

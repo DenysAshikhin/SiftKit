@@ -21,6 +21,7 @@ import {
 export type DashboardTestBackend = {
   baseUrl: string;
   model: string;
+  parallelSlots?: number;
 };
 
 /**
@@ -74,6 +75,7 @@ export class DashboardTestServer {
     activePreset.ExternalServerEnabled = true;
     activePreset.Model = backend.model;
     activePreset.BaseUrl = backend.baseUrl;
+    activePreset.ParallelSlots = backend.parallelSlots ?? activePreset.ParallelSlots;
     modelPresets.ActivePresetId = activePreset.id;
     writeConfig(databasePath, config);
     writeRuntimeLaunchSnapshot(databasePath, { Model: backend.model, Engine: {} });

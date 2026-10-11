@@ -222,6 +222,9 @@ interface StubServerState {
   statusPosts: JsonObject[];
   artifactPosts: StubArtifactPost[];
   chatRequests: ChatRequest[];
+  /** Chat requests currently being answered, and the most ever answered at once. */
+  activeChatRequests: number;
+  maxActiveChatRequests: number;
   tokenizeRequests: JsonObject[];
   summaryRouteRequests: JsonObject[];
   healthChecks: number;
@@ -240,6 +243,8 @@ interface StubServerOptions {
   tokenizeTokenCount?: StubTokenizeTokenCount;
   tokenizeCharsPerToken?: number;
   chatDelayMs?: number;
+  /** Holds each chat request until this many are in flight or the timeout passes, exposing serialized clients. */
+  holdChatUntilConcurrent?: { count: number; timeoutMs: number };
   rejectPromptCharsOver?: number;
   assistantContent?: AssistantResponder;
   assistantReasoningContent?: AssistantResponder;
@@ -563,6 +568,8 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     statusPosts: [],
     artifactPosts: [],
     chatRequests: [],
+    activeChatRequests: 0,
+    maxActiveChatRequests: 0,
     tokenizeRequests: [],
     summaryRouteRequests: [],
     healthChecks: 0,
@@ -751,6 +758,14 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
       const parsed = ChatRequestSchema.parse(bodyText ? JsonValueSchema.parse(JSON.parse(bodyText)) : { messages: [] });
       const promptText = getChatRequestText(parsed);
       state.chatRequests.push(parsed);
+      state.activeChatRequests += 1;
+      state.maxActiveChatRequests = Math.max(state.maxActiveChatRequests, state.activeChatRequests);
+      res.on('close', () => { state.activeChatRequests -= 1; });
+      if (options.holdChatUntilConcurrent) {
+        const { count, timeoutMs } = options.holdChatUntilConcurrent;
+        const heldAt = Date.now();
+        while (state.maxActiveChatRequests < count && Date.now() - heldAt < timeoutMs) await sleep(5);
+      }
       if (Number.isFinite(options.chatDelayMs) && Number(options.chatDelayMs) > 0) {
         await sleep(Number(options.chatDelayMs));
       }

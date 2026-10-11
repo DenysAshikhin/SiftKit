@@ -55,28 +55,6 @@ import type { InferenceActivityObserver } from '../lib/progress-writer.ts';
 
 type InferenceHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
-class SingleRequestGate {
-  private active = false;
-  private readonly waiters: Array<() => void> = [];
-
-  async acquire(): Promise<void> {
-    if (!this.active) {
-      this.active = true;
-      return;
-    }
-    await new Promise<void>((resolve) => this.waiters.push(resolve));
-  }
-
-  release(): void {
-    const next = this.waiters.shift();
-    if (next) {
-      next();
-      return;
-    }
-    this.active = false;
-  }
-}
-
 const RawTokenizeResponseSchema = z.object({
   length: z.number().optional(),
   count: z.number().optional(),
@@ -97,7 +75,6 @@ const RawModelListResponseSchema = z.object({
 });
 type RawModelEntry = z.infer<typeof RawModelEntrySchema>;
 const inferenceRequestBuilder = new InferenceRequestBuilder();
-const exl3RequestGate = new SingleRequestGate();
 
 function getRawModelIdentifier(entry: RawModelEntry): string {
   return typeof entry === 'string'
@@ -250,7 +227,7 @@ export class InferenceClient {
   }
 
   async chat(options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse> {
-    const response = await this.runChat(options);
+    const response = await this.chatAtBaseUrl(options.baseUrl || getConfiguredEngineBaseUrl(options.config), options);
     // One request-scope audit per logical model request, after final usage normalization: transient
     // retries and thinking-budget continuations are already merged into exactly one fold by now.
     auditInferenceThroughput(
@@ -259,20 +236,6 @@ export class InferenceClient {
       UNPUBLISHED_RATES,
     );
     return response;
-  }
-
-  private async runChat(options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse> {
-    const baseUrl = options.baseUrl || getConfiguredEngineBaseUrl(options.config);
-    const backend = getActiveInferenceBackend(options.config);
-    if (backend !== 'exl3') {
-      return this.chatAtBaseUrl(baseUrl, options);
-    }
-    await exl3RequestGate.acquire();
-    try {
-      return await this.chatAtBaseUrl(baseUrl, options);
-    } finally {
-      exl3RequestGate.release();
-    }
   }
 
   private async chatAtBaseUrl(baseUrl: string, options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse> {
