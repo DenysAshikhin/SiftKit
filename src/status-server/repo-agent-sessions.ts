@@ -155,7 +155,7 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
   private readonly progressWriter = new SessionProgressWriter(this);
   private readonly gate: ApprovalGate;
   private readonly waiters: BoundaryWaiter[] = [];
-  private subscriber: RepoAgentSessionSubscriber | null = null;
+  private readonly subscribers = new Set<RepoAgentSessionSubscriber>();
   private lock: RepoAgentModelLockHandle | null = null;
   private admittedModelPresetId: string | null = null;
   // In-memory only on purpose: large thinking text must never land in the persisted run state.
@@ -240,17 +240,16 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
     return this.unpersistedTerminalState;
   }
 
+  /** Adds a subscriber beside any others; the returned detach removes only this one. */
   attach(subscriber: RepoAgentSessionSubscriber): () => void {
-    this.subscriber = subscriber;
+    this.subscribers.add(subscriber);
     return () => {
-      if (this.subscriber === subscriber) {
-        this.subscriber = null;
-      }
+      this.subscribers.delete(subscriber);
     };
   }
 
   subscriberWantsLiveText(): boolean {
-    return this.subscriber?.wantsLiveText === true;
+    return [...this.subscribers].some((subscriber) => subscriber.wantsLiveText);
   }
 
   /**
@@ -371,16 +370,8 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
         return;
       }
     }
-    if (event.kind === 'answer') {
-      if (this.subscriber?.wantsLiveText) {
-        this.subscriber.writeProgress(event);
-      }
-      return;
-    }
-    if (isLiveTextProgressEvent(event)) {
-      if (this.subscriber?.wantsLiveText) {
-        this.subscriber.writeProgress(event);
-      }
+    if (event.kind === 'answer' || isLiveTextProgressEvent(event)) {
+      this.fanOut(event, true);
       return;
     }
     if (isServerLoggedProgressEvent(event)) {
@@ -389,19 +380,23 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
         serverLogger.emitBody('rs', this.requestId, body);
       }
     }
-    this.subscriber?.writeProgress(event);
+    this.fanOut(event, false);
   }
 
   // ---- internals ----
+
+  /** Writes to every subscriber, or only to live-text subscribers for live text. */
+  private fanOut(event: OperationProgressEvent, liveText: boolean): void {
+    for (const subscriber of [...this.subscribers]) {
+      if (!liveText || subscriber.wantsLiveText) subscriber.writeProgress(event);
+    }
+  }
 
   private async run(): Promise<void> {
     this.approvalGates.set(this.requestId, this.gate);
     const lockWaitStartedAt = Date.now();
     const lockWaitTimer = setInterval(() => {
-      this.subscriber?.writeProgress({
-        kind: 'lock_wait',
-        elapsedMs: Date.now() - lockWaitStartedAt,
-      });
+      this.fanOut({ kind: 'lock_wait', elapsedMs: Date.now() - lockWaitStartedAt }, false);
     }, LOCK_WAIT_EMIT_INTERVAL_MS);
     lockWaitTimer.unref();
     try {

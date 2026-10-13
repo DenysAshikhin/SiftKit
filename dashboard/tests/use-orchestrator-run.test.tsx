@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { OrchestratorRunStateSchema, type OrchestratorRunState } from '@siftkit/contracts';
+import { OrchestratorRunStateSchema, type OrchestratorActivity, type OrchestratorRunState } from '@siftkit/contracts';
 import { renderHook, waitFor } from './react-test-environment.ts';
 import { useOrchestratorRun } from '../src/hooks/useOrchestratorRun.ts';
 
@@ -55,14 +55,19 @@ test('a reload reattaches to the latest live run, follows its events, and settle
   } finally { fetches.restore(); }
 });
 
-test('a terminal latest run is shown without following, and a decision targets the pending approval ID', async () => {
+test('a terminal latest run replays its events once, so the stepper knows where it stopped, and a decision targets the pending approval ID', async () => {
+  const failed = runState({ phase: 'failed', approval: null, failure: { code: 'blocked', message: 'Blocked.', taskId: null, purpose: null, findingIds: [] } });
+  const stopped = { ...EVENT, sequence: 2, phase: 'failed', message: 'Blocked.' };
   const fetches = mockFetch({
-    '/orchestrator/runs': json({ runs: [runState({ phase: 'failed', approval: null, failure: { code: 'blocked', message: 'Blocked.', taskId: null, purpose: null, findingIds: [] } })] }),
+    '/orchestrator/runs': json({ runs: [failed] }),
+    '/orchestrator/events': () => new Response(`event: progress\ndata: ${JSON.stringify({ events: [EVENT, stopped], state: failed })}\n\nevent: result\ndata: ${JSON.stringify(failed)}\n\n`),
   });
   try {
     const { result } = renderHook(() => useOrchestratorRun('C:/repo'));
-    await waitFor(() => assert.equal(result.current.state?.phase, 'failed'));
-    assert.equal(fetches.calls.length, 1);
+    await waitFor(() => assert.equal(result.current.workPhase, 'executing'));
+    assert.equal(result.current.state?.phase, 'failed');
+    assert.equal(result.current.lastMessage, 'Blocked.');
+    assert.equal(fetches.calls.length, 2, 'one replay; a terminal stream ends at once');
     assert.throws(() => { void result.current.decide({ decision: 'approve' }); }, /No orchestrator approval is pending/u);
   } finally { fetches.restore(); }
 
@@ -100,5 +105,40 @@ test('no repository means no run lookup and start fails loudly', () => {
     assert.equal(result.current.state, null);
     assert.throws(() => { void result.current.start({ presetId: 'orchestrator', approval: 'auto', task: 'x', planPath: null }); }, /needs a repository folder/u);
     assert.equal(fetches.calls.length, 0);
+  } finally { fetches.restore(); }
+});
+
+const ACTIVITY: OrchestratorActivity = { runId: RUN_ID, schedule: null, children: [] };
+
+test('activity frames update the live view, and an approval pause keeps the last work phase', async () => {
+  const paused = { ...EVENT, sequence: 2, phase: 'approval_required', message: 'Waiting for your approval decision.' };
+  const progress = { events: [EVENT, paused], state: runState({ revision: 2, phase: 'approval_required', approval: APPROVAL }) };
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(`event: progress\ndata: ${JSON.stringify(progress)}\n\n`));
+      controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(ACTIVITY)}\n\n`));
+    },
+  });
+  const fetches = mockFetch({ '/orchestrator/runs': json({ runs: [runState({})] }), '/orchestrator/events': () => new Response(body) });
+  try {
+    const { result, unmount } = renderHook(() => useOrchestratorRun('C:/repo'));
+    await waitFor(() => assert.deepEqual(result.current.activity, ACTIVITY));
+    assert.equal(result.current.workPhase, 'executing');
+    assert.equal(result.current.state?.phase, 'approval_required');
+    unmount();
+  } finally { fetches.restore(); }
+});
+
+test('the closing result clears the live view', async () => {
+  const completed = runState({ phase: 'completed', revision: 5 });
+  const fetches = mockFetch({
+    '/orchestrator/runs': json({ runs: [runState({})] }),
+    '/orchestrator/events': () => new Response(`event: activity\ndata: ${JSON.stringify(ACTIVITY)}\n\nevent: result\ndata: ${JSON.stringify(completed)}\n\n`),
+  });
+  try {
+    const { result } = renderHook(() => useOrchestratorRun('C:/repo'));
+    await waitFor(() => assert.equal(result.current.state?.phase, 'completed'));
+    assert.equal(result.current.activity, null);
   } finally { fetches.restore(); }
 });

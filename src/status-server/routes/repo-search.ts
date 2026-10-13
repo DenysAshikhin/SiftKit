@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { toError } from '../../lib/errors.ts';
 import { JsonRecordReader } from '../../lib/json-record-reader.ts';
 import type { JsonObject, JsonSerializable } from '../../lib/json-types.ts';
-import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.ts';
+import { OPERATION_STREAM_EVENTS } from '@siftkit/contracts';
 import { sleep } from '../../lib/time.ts';
 import { readConfig } from '../config-store.ts';
 import { readBody, parseJsonBody, sendBodyReadError, sendJson } from '../http-utils.ts';

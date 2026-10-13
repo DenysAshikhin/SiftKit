@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { OPERATION_STREAM_EVENTS } from '@siftkit/contracts';
 import { z } from '../src/lib/zod.ts';
 import {
-  OPERATION_STREAM_EVENTS,
   StatusServerOperationError,
   classifyOperationStreamFrame,
 } from '../src/lib/operation-stream.ts';

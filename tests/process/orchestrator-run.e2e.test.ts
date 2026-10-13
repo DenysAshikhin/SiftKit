@@ -8,6 +8,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test, { type TestContext } from 'node:test';
 
 import {
+  ORCHESTRATOR_ACTIVITY_FRAME,
+  OrchestratorActivitySchema,
   OrchestratorPlanPreparationSchema,
   OrchestratorProgressSchema,
   OrchestratorRunStateSchema,
@@ -18,7 +20,7 @@ import {
   type OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
 import { runCli } from '../../src/cli/dispatch.ts';
-import { parseJsonValueText } from '../../src/lib/json.ts';
+import { parseJsonText, parseJsonValueText } from '../../src/lib/json.ts';
 import { z } from '../../src/lib/zod.ts';
 import type { RepoSearchExecutionRequest } from '../../src/repo-search/types.ts';
 import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from '../helpers/dashboard-model-queue-harness.ts';
@@ -197,6 +199,27 @@ test('a task that fails verification twice stops after two implementation childr
   assert.equal(engine.prompts('children').length, 2);
   const scratch = path.join(context.repo, '.siftkit', 'orchestrator', state.runId, 'scratch');
   assert.deepEqual(fs.existsSync(scratch) ? fs.readdirSync(scratch) : [], [], 'a failed run leaves no scratch files');
+});
+
+test('a drift correction runs on the task\'s own worker preset, so it holds the model slot the task claimed', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-drift-worker-');
+  const { engine } = context;
+  await context.harness.copyOperationPreset('repo-agent', { id: 'site-writer', label: 'Site writer', modelPresetId: MODEL_A });
+  const plan = writePlan();
+  engine.parent.push(planAnswer({ ...plan, tasks: plan.tasks.map((task) => ({ ...task, workerPresetId: 'site-writer' })) }));
+  engine.children.push([writeFile(`${LEGACY_LINE}\n`), ...finalAnswer('Created.')]);
+  engine.parent.push(driftReview('actionable'));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Removed the legacy path.')]);
+  engine.parent.push(driftReview('clean', [{ findingId: 'D1', evidence: 'src/greeting.ts:1 exports the literal only' }]));
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  const fix = state.attempts.find((attempt) => attempt.purpose === 'drift_fix');
+  assert.ok(fix);
+  const fixRequests = engine.repoSearchRequests.filter((request) => request.requestId === fix.childRunId);
+  assert.ok(fixRequests.length > 0);
+  assert.deepEqual([...new Set(fixRequests.map((request) => request.presetId))], ['site-writer']);
 });
 
 test('actionable drift is fixed by one bullet correction child and a fresh clean review completes the task', async (t) => {
@@ -632,6 +655,75 @@ test('with two parallel slots a writer and an independent reader run together an
     assert.match(engine.prompts('parent')[0] ?? '', /2 parallel slots/u);
     assert.match(engine.prompts('parent')[0] ?? '', /at most one task that modifies files at a time/u);
   });
+
+test('the events stream carries live child activity: each scheduler pass, the child\'s turns and tool calls, and nothing once it settles', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-activity-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(writePlan()));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+  engine.parent.push(driftReview('clean'));
+
+  const started = await startRun(context, 'off');
+  const response = await requestSse(`${context.baseUrl}/orchestrator/events`, {
+    body: { runId: started.runId, afterSequence: 0 }, timeoutMs: RUN_TIMEOUT_MS,
+  });
+  const state = OrchestratorRunStateSchema.parse(response.result);
+  const activities = response.frames
+    .filter((frame) => frame.event === ORCHESTRATOR_ACTIVITY_FRAME)
+    .map((frame) => parseJsonText(frame.data, OrchestratorActivitySchema));
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  const scheduled = activities.find((activity) => activity.schedule !== null)?.schedule;
+  assert.deepEqual(scheduled?.claims.map(({ taskId, modelId, mutating }) => ({ taskId, modelId, mutating })),
+    [{ taskId: 'greeting', modelId: ALTERNATE_MODEL_PRESET_ID, mutating: true }]);
+  assert.deepEqual([scheduled?.models, scheduled?.writerUsed], [[{ modelId: ALTERNATE_MODEL_PRESET_ID, slots: 1, used: 1 }], true],
+    'the first pass started the writer');
+  assert.deepEqual(activities.at(-1)?.schedule?.models, [{ modelId: ALTERNATE_MODEL_PRESET_ID, slots: 1, used: 0 }],
+    'the last pass holds nothing');
+  const childViews = activities.flatMap((activity) => activity.children);
+  assert.ok(childViews.length > 0, 'the running child was published');
+  assert.ok(childViews.every((child) => child.childRunId === state.attempts[0]?.childRunId && child.taskId === 'greeting'));
+  assert.ok(childViews.some((child) => child.turn >= 1 && child.maxTurns !== null), 'turns are reported');
+  const tools = childViews.flatMap((child) => child.tools);
+  const written = tools.find((tool) => tool.status === 'running');
+  assert.ok(written, 'a tool call was seen while running');
+  assert.ok(tools.some((tool) => tool.toolCallId === written.toolCallId && tool.status === 'succeeded'), 'and then settled');
+  assert.deepEqual(activities.at(-1)?.children, [], 'a settled child leaves the view');
+  const childRunId = state.attempts[0]?.childRunId;
+  assert.ok(childRunId);
+  const transcript = await requestJson(`${context.baseUrl}/dashboard/runs/${encodeURIComponent(childRunId)}`);
+  assert.equal(transcript.statusCode, 200, 'the Logs tab finds the child transcript by its child run ID');
+});
+
+test('a client that connects mid-run starts from the live snapshot, and an aborted child leaves the view before the run ends', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-activity-snapshot-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(writePlan()));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+  const started = await startRun(context, 'interactive');
+  const parked = await waitForApproval(context, started.runId);
+  const childRunId = parked.approval?.kind === 'child' ? parked.approval.childRunId : null;
+  assert.ok(childRunId, 'the child is parked on its write');
+
+  const aborts: ReturnType<typeof requestJson>[] = [];
+  const response = await requestSse(`${context.baseUrl}/orchestrator/events`, {
+    body: { runId: started.runId, afterSequence: 0 }, timeoutMs: RUN_TIMEOUT_MS,
+    onProgress: () => {
+      if (aborts.length === 0) aborts.push(requestJson(`${context.baseUrl}/orchestrator/abort`, { method: 'POST', body: JSON.stringify({ runId: started.runId }) }));
+    },
+  });
+  const [aborted] = await Promise.all(aborts);
+  assert.equal(aborted?.statusCode, 200);
+  const activities = response.frames
+    .filter((frame) => frame.event === ORCHESTRATOR_ACTIVITY_FRAME)
+    .map((frame) => parseJsonText(frame.data, OrchestratorActivitySchema));
+
+  assert.equal(OrchestratorRunStateSchema.parse(response.result).phase, 'aborted');
+  assert.deepEqual(activities[0]?.children.map((child) => [child.childRunId, child.taskId]), [[childRunId, 'greeting']],
+    'the first frame is the live snapshot, sent before anything changed');
+  assert.equal(activities[0]?.schedule?.writerUsed, true);
+  assert.deepEqual(activities.at(-1)?.children, [], 'the aborted child was untracked before the terminal result');
+});
 
 test('parallel tasks take turns with their approvals, so every approval can be answered', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-parallel-approvals-');

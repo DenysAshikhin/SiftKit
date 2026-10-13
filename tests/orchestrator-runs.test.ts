@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 
-import type { OrchestratorRunState } from '@siftkit/contracts';
+import type { OrchestratorActivity, OrchestratorRunState } from '@siftkit/contracts';
 import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import {
@@ -52,6 +52,9 @@ class FakeLiveRun implements OrchestratorLiveRun {
   }
   decide(): boolean {
     return false;
+  }
+  activitySnapshot(): OrchestratorActivity {
+    return { runId: this.runId, schedule: null, children: [] };
   }
 }
 
@@ -192,4 +195,17 @@ test('startup marks the running children of an interrupted parent not resumable'
 
   assert.deepEqual(marked, [attempt.childRunId]);
   assert.deepEqual(store.read(state.runId).attempts.map((entry) => entry.status), ['abandoned']);
+});
+
+test('activity reaches only its own run\'s subscribers, until they detach', (t) => {
+  const registry = new OrchestratorRunRegistry(openStore(t));
+  const runA = randomUUID();
+  const runB = randomUUID();
+  const seen: string[] = [];
+  const detach = registry.subscribeActivity(runA, (activity) => seen.push(activity.runId));
+  registry.publishActivity({ runId: runA, schedule: null, children: [] });
+  registry.publishActivity({ runId: runB, schedule: null, children: [] });
+  detach();
+  registry.publishActivity({ runId: runA, schedule: null, children: [] });
+  assert.deepEqual(seen, [runA]);
 });

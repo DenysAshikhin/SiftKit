@@ -26,6 +26,13 @@ export function readSearchParams(): URLSearchParams {
   return new URLSearchParams(window.location.search);
 }
 
+/** The Logs tab, opened on `runId` when given; App and useRunsController read these query keys at startup. */
+export function runLogsHref(runId: string | null): string {
+  const params = new URLSearchParams({ tab: 'runs' });
+  if (runId !== null) params.set('run', runId);
+  return `?${params.toString()}`;
+}
+
 export function writeSearchParams(update: Record<string, string | null>): void {
   if (typeof window === 'undefined') {
     return;

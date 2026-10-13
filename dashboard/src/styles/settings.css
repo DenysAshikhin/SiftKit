@@ -27,7 +27,7 @@
 .set-head h2 { margin: 0; font-size: 1rem; }
 .save { font: inherit; font-size: 0.78rem; background: var(--acc); color: #06251e; font-weight: 700; border: none; border-radius: 7px; padding: 6px 14px; cursor: pointer; }
 .save:disabled { opacity: 0.6; cursor: default; }
-.dirty-pill { font-size: 0.68rem; color: var(--run); border: 1px solid #5a4a2a; border-radius: 999px; padding: 2px 8px; }
+.dirty-pill { font-size: 0.68rem; color: var(--run); border: 1px solid var(--run-line); border-radius: 999px; padding: 2px 8px; }
 .sec-hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 12px; max-width: 78ch; }
 .set-sec { display: block; }
 .subhead { font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--dim); margin: 16px 0 8px; }

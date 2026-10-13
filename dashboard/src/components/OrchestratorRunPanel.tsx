@@ -1,33 +1,17 @@
 import React from 'react';
 
 import {
-  ORCHESTRATOR_MAX_ATTEMPTS,
   isOrchestratorTerminalPhase,
-  orchestratorCheckFailure,
-  type OrchestratorAttempt,
-  type OrchestratorDriftReview,
+  type OrchestratorActivity,
   type OrchestratorPendingApproval,
+  type OrchestratorPhase,
   type OrchestratorRunState,
+  type OrchestratorSchedule,
   type RepoAgentDecision,
 } from '@siftkit/contracts';
-
-const VISIBLE_FINDINGS = 3;
-
-function attemptLabel(attempt: OrchestratorAttempt): string {
-  const kind = attempt.purpose === 'implementation' ? 'Implementation attempt' : 'Drift correction';
-  return `${kind} ${attempt.attempt} of ${ORCHESTRATOR_MAX_ATTEMPTS}`;
-}
-
-function DriftSummary({ review }: { review: OrchestratorDriftReview }) {
-  if (review.status !== 'actionable') return <p className="hint">No actionable drift</p>;
-  const hidden = review.findings.length - VISIBLE_FINDINGS;
-  return (
-    <ul className="orchestrator-findings">
-      {review.findings.slice(0, VISIBLE_FINDINGS).map((finding) => <li key={finding.id}>{finding.title}</li>)}
-      {hidden > 0 ? <li className="hint">+{hidden} more findings</li> : null}
-    </ul>
-  );
-}
+import { useNow } from '../hooks/useNow.ts';
+import { formatElapsed, orchestratorSteps, phaseTone, runElapsedMs } from '../orchestrator-view.ts';
+import { OrchestratorTaskRow } from './OrchestratorTaskRow.tsx';
 
 function ApprovalRequest({ pending, onDecide }: { pending: OrchestratorPendingApproval; onDecide(decision: RepoAgentDecision): void }) {
   const [reason, setReason] = React.useState('');
@@ -48,37 +32,64 @@ function ApprovalRequest({ pending, onDecide }: { pending: OrchestratorPendingAp
   );
 }
 
-export function OrchestratorRunPanel({ state, lastMessage, onDecide, onAbort }: {
+/** Elapsed times are shown to the second. */
+const CLOCK_TICK_MS = 1000;
+
+function SlotMeter({ schedule }: { schedule: OrchestratorSchedule }) {
+  return (
+    <div className="orch-slots" aria-label="Scheduler slots">
+      <span className="orch-slot-group" title={schedule.writerUsed ? 'writer slot in use' : 'writer slot free'}>
+        writer <span className={schedule.writerUsed ? 'orch-slot writer used' : 'orch-slot writer'} />
+      </span>
+      {schedule.models.map((model) => (
+        <span key={model.modelId} className="orch-slot-group" title={`${model.used} of ${model.slots} ${model.modelId} slots in use`}>
+          {model.modelId}
+          {Array.from({ length: model.slots }, (_, index) => (
+            <span key={index} className={index < model.used ? 'orch-slot used' : 'orch-slot'} />
+          ))}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, onDecide, onAbort }: {
   state: OrchestratorRunState;
+  activity: OrchestratorActivity | null;
+  workPhase: OrchestratorPhase | null;
   lastMessage: string | null;
   onDecide(decision: RepoAgentDecision): void;
   onAbort(): void;
 }) {
-  const titles = new Map((state.plan?.tasks ?? []).map((task) => [task.id, task.title]));
+  const live = !isOrchestratorTerminalPhase(state.phase);
+  const now = useNow(CLOCK_TICK_MS, live);
+  const schedule = activity?.schedule ?? null;
+  const completed = state.tasks.filter((task) => task.status === 'completed').length;
   return (
     <section className="orchestrator-run" aria-label="Orchestrator run">
-      <div className="orchestrator-run-head">
-        <span>Orchestrator</span>
-        <span className="bdg">{state.phase}</span>
-        {isOrchestratorTerminalPhase(state.phase) ? null : <button type="button" className="send stop" onClick={onAbort}>Stop</button>}
+      <header className="orch-head">
+        {live ? <span className="live-dot" /> : null}
+        <span className="orch-title">Orchestrator</span>
+        <span className={`bdg ${phaseTone(state.phase)}`}>{state.phase}</span>
+        {state.tasks.length > 0 ? <span className="hint">{completed} of {state.tasks.length} tasks complete</span> : null}
+        {live ? <button type="button" className="send stop orch-stop" onClick={onAbort}>Stop</button> : null}
+      </header>
+      <div className="orch-meta">
+        {state.planPath ? <span>plan <code>{state.planPath}</code></span> : null}
+        <span>approval <b>{state.request.approval}</b></span>
+        <span>elapsed <b>{formatElapsed(runElapsedMs(state, now))}</b></span>
       </div>
-      {state.planPath ? <code>{state.planPath}</code> : null}
-      {lastMessage ? <p className="hint">{lastMessage}</p> : null}
-      <ol className="orchestrator-tasks">
-        {state.tasks.map((task) => {
-          const latest = state.attempts.filter((attempt) => attempt.taskId === task.taskId).at(-1);
-          const failed = latest?.result && !latest.result.passed
-            ? latest.result.checks.flatMap((result) => orchestratorCheckFailure(result) ?? [])
-            : [];
-          return (
-            <li key={task.taskId}>
-              <span>{titles.get(task.taskId) ?? task.taskId}</span> <span className="bdg">{task.status}</span>
-              {latest ? <div>{attemptLabel(latest)}</div> : null}
-              {failed.map((failure, index) => <div key={index} className="bad">{failure}</div>)}
-              {task.driftReview ? <DriftSummary review={task.driftReview} /> : null}
-            </li>
-          );
-        })}
+      {lastMessage ? <p className="hint orch-last">{lastMessage}</p> : null}
+      <ol className="orch-phases" aria-label="Run phases">
+        {orchestratorSteps(state.phase, workPhase).map((step) => (
+          <li key={step.label} className={`orch-phase ${step.status}`} data-status={step.status} aria-label={`${step.label} step`}>
+            <i />{step.label}
+          </li>
+        ))}
+      </ol>
+      {schedule !== null ? <SlotMeter schedule={schedule} /> : null}
+      <ol className="orch-tasks">
+        {state.tasks.map((task) => <OrchestratorTaskRow key={task.taskId} task={task} state={state} activity={activity} now={now} />)}
       </ol>
       {state.approval ? <ApprovalRequest key={state.approval.approvalId} pending={state.approval} onDecide={onDecide} /> : null}
       {state.failure ? <div className="err-banner"><span>{state.failure.message}</span></div> : null}

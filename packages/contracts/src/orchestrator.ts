@@ -6,6 +6,7 @@ import {
   RepoAgentApprovalSchema,
   RepoAgentApproveDecisionSchema,
   RepoAgentDenyDecisionSchema,
+  ToolActivityKindSchema,
 } from './chat.ts';
 
 /** Fixed policy: one initial dispatch plus one retry per purpose; not a configurable setting. */
@@ -115,7 +116,7 @@ export const OrchestratorStartRequestSchema = z.object({
 export type OrchestratorStartRequest = z.infer<typeof OrchestratorStartRequestSchema>;
 
 export const OrchestratorPhaseSchema = z.enum([
-  'preparing_plan', 'validating_plan', 'executing', 'verifying', 'reviewing_drift', 'correcting_drift',
+  'preparing_plan', 'validating_plan', 'executing', 'verifying',
   'cleaning', 'approval_required', 'completed', 'failed', 'aborted', 'interrupted',
 ]);
 export type OrchestratorPhase = z.infer<typeof OrchestratorPhaseSchema>;
@@ -125,10 +126,16 @@ export function isOrchestratorTerminalPhase(phase: OrchestratorPhase): boolean {
   return ORCHESTRATOR_TERMINAL_PHASES.some((terminal) => terminal === phase);
 }
 
+/** Task statuses that mean live work: the task holds its scheduler claim. */
+const OrchestratorOpenTaskStatusSchema = z.enum(['running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending']);
 export const OrchestratorTaskStatusSchema = z.enum([
-  'pending', 'running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending', 'completed', 'failed', 'aborted',
+  'pending', ...OrchestratorOpenTaskStatusSchema.options, 'completed', 'failed', 'aborted',
 ]);
 export type OrchestratorTaskStatus = z.infer<typeof OrchestratorTaskStatusSchema>;
+
+export function isOrchestratorOpenTaskStatus(status: OrchestratorTaskStatus): boolean {
+  return OrchestratorOpenTaskStatusSchema.options.some((open) => open === status);
+}
 
 export const OrchestratorAttemptNumberSchema = z.number().int().min(1).max(ORCHESTRATOR_MAX_ATTEMPTS);
 
@@ -275,3 +282,55 @@ export type OrchestratorAbortRequest = z.infer<typeof OrchestratorAbortRequestSc
 
 export const OrchestratorRunListSchema = z.object({ runs: z.array(OrchestratorRunStateSchema) }).strict();
 export type OrchestratorRunList = z.infer<typeof OrchestratorRunListSchema>;
+
+/** How many of a child's latest tool calls the live view keeps. */
+export const ORCHESTRATOR_RECENT_TOOL_LIMIT = 4;
+/** SSE frame name for live, unpersisted activity on the orchestrator events stream. */
+export const ORCHESTRATOR_ACTIVITY_FRAME = 'activity';
+
+export const OrchestratorToolCallActivitySchema = z.object({
+  toolCallId: z.string().min(1), turn: z.number().int().positive(), activityKind: ToolActivityKindSchema,
+  command: z.string(), status: z.enum(['running', 'succeeded', 'failed']),
+}).strict();
+export type OrchestratorToolCallActivity = z.infer<typeof OrchestratorToolCallActivitySchema>;
+
+/** A running child as the parent observes it; in memory only, dropped when the child settles. */
+export const OrchestratorChildActivitySchema = z.object({
+  childRunId: z.string().uuid(), taskId: z.string().min(1),
+  waitingForModel: z.boolean(), turn: z.number().int().nonnegative(), maxTurns: z.number().int().positive().nullable(),
+  promptTokens: z.number().nonnegative(),
+  tools: z.array(OrchestratorToolCallActivitySchema).max(ORCHESTRATOR_RECENT_TOOL_LIMIT),
+}).strict();
+export type OrchestratorChildActivity = z.infer<typeof OrchestratorChildActivitySchema>;
+
+/** What a task claims from the scheduler: one slot of its worker's model, and the writer slot if it mutates. */
+export const OrchestratorTaskClaimSchema = z.object({
+  taskId: z.string().min(1), modelId: z.string().min(1), mutating: z.boolean(), contextTokens: z.number().positive(),
+}).strict();
+export type OrchestratorTaskClaim = z.infer<typeof OrchestratorTaskClaimSchema>;
+
+export const OrchestratorModelSlotsSchema = z.object({
+  modelId: z.string().min(1), slots: z.number().positive(), used: z.number().int().nonnegative(),
+}).strict();
+export type OrchestratorModelSlots = z.infer<typeof OrchestratorModelSlotsSchema>;
+
+/** Why the scheduler left a ready-to-check pending task waiting, in the order it checks. */
+export const OrchestratorTaskWaitSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('dependencies'), taskIds: z.array(z.string().min(1)).min(1) }).strict(),
+  z.object({ kind: z.literal('writer_slot') }).strict(),
+  z.object({ kind: z.literal('model_slot'), modelId: z.string().min(1) }).strict(),
+]);
+export type OrchestratorTaskWait = z.infer<typeof OrchestratorTaskWaitSchema>;
+
+/** The latest scheduler pass: every task's claim, the slots held after it, and why each pending task waits. */
+export const OrchestratorScheduleSchema = z.object({
+  claims: z.array(OrchestratorTaskClaimSchema), models: z.array(OrchestratorModelSlotsSchema), writerUsed: z.boolean(),
+  waits: z.array(z.object({ taskId: z.string().min(1), wait: OrchestratorTaskWaitSchema }).strict()),
+}).strict();
+export type OrchestratorSchedule = z.infer<typeof OrchestratorScheduleSchema>;
+
+/** The parent's live view; the schedule is null until the scheduler's first pass. */
+export const OrchestratorActivitySchema = z.object({
+  runId: z.string().uuid(), schedule: OrchestratorScheduleSchema.nullable(), children: z.array(OrchestratorChildActivitySchema),
+}).strict();
+export type OrchestratorActivity = z.infer<typeof OrchestratorActivitySchema>;

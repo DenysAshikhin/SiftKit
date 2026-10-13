@@ -3,6 +3,16 @@ import test from 'node:test';
 
 import {
   ORCHESTRATOR_MAX_ATTEMPTS,
+  OPERATION_STREAM_EVENTS,
+  ORCHESTRATOR_ACTIVITY_FRAME,
+  ORCHESTRATOR_RECENT_TOOL_LIMIT,
+  OrchestratorActivitySchema,
+  OrchestratorChildActivitySchema,
+  OrchestratorModelSlotsSchema,
+  OrchestratorPhaseSchema,
+  OrchestratorTaskStatusSchema,
+  OrchestratorTaskWaitSchema,
+  isOrchestratorOpenTaskStatus,
   OrchestratorChildWorkSchema,
   OrchestratorDecideRequestSchema,
   OrchestratorDriftReviewSchema,
@@ -113,4 +123,48 @@ test('a stored failure carries one of the known failure codes', () => {
   const failure = { message: 'Stopped.', taskId: null, purpose: null, findingIds: [] };
   assert.equal(OrchestratorFailureSchema.safeParse({ ...failure, code: 'infrastructure_failed' }).success, true);
   assert.equal(OrchestratorFailureSchema.safeParse({ ...failure, code: 'infrastructure_falied' }).success, false);
+});
+
+const LIVE_CHILD = {
+  childRunId: '00000000-0000-4000-8000-000000000002', taskId: 'greeting',
+  waitingForModel: false, turn: 3, maxTurns: 40, promptTokens: 1200, tools: [],
+};
+const LIVE_TOOL = { toolCallId: 't1', turn: 3, activityKind: 'edit', command: 'write src/greeting.ts', status: 'running' };
+const SCHEDULE = {
+  claims: [{ taskId: 'greeting', modelId: 'exl3-main', mutating: true, contextTokens: 32768 }],
+  models: [{ modelId: 'exl3-main', slots: 2, used: 1 }], writerUsed: true,
+  waits: [{ taskId: 'report', wait: { kind: 'dependencies', taskIds: ['greeting'] } }],
+};
+
+test('a live activity snapshot carries the scheduler pass and children with a bounded tool history', () => {
+  const activity = OrchestratorActivitySchema.parse({
+    runId: LIVE_CHILD.childRunId, schedule: SCHEDULE, children: [{ ...LIVE_CHILD, tools: [LIVE_TOOL] }],
+  });
+  assert.equal(activity.children[0]?.tools[0]?.status, 'running');
+  assert.equal(OrchestratorActivitySchema.safeParse({ runId: LIVE_CHILD.childRunId, schedule: null, children: [] }).success, true);
+  const tooMany = Array.from({ length: ORCHESTRATOR_RECENT_TOOL_LIMIT + 1 }, (_, index) => ({ ...LIVE_TOOL, toolCallId: `t${index}` }));
+  assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, tools: tooMany }).success, false);
+  assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, extra: true }).success, false);
+  assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, maxTurns: null, turn: 0 }).success, true);
+  assert.equal(OrchestratorModelSlotsSchema.safeParse({ modelId: 'm', slots: 0, used: 0 }).success, false);
+  assert.equal(OrchestratorModelSlotsSchema.safeParse({ modelId: 'm', slots: 1, used: -1 }).success, false);
+});
+
+test('a wait names its unmet dependencies, the writer slot, or the full model', () => {
+  assert.equal(OrchestratorTaskWaitSchema.safeParse({ kind: 'dependencies', taskIds: [] }).success, false);
+  assert.equal(OrchestratorTaskWaitSchema.safeParse({ kind: 'writer_slot' }).success, true);
+  assert.equal(OrchestratorTaskWaitSchema.safeParse({ kind: 'model_slot', modelId: 'exl3-main' }).success, true);
+});
+
+test('open task statuses are exactly the statuses of live work', () => {
+  const open = OrchestratorTaskStatusSchema.options.filter((status) => isOrchestratorOpenTaskStatus(status));
+  assert.deepEqual(open, ['running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending']);
+});
+
+test('drift review and correction are task statuses, never run phases', () => {
+  for (const phase of ['reviewing_drift', 'correcting_drift']) assert.equal(OrchestratorPhaseSchema.safeParse(phase).success, false, phase);
+});
+
+test('the orchestrator stream names every frame from the shared contract', () => {
+  assert.deepEqual([OPERATION_STREAM_EVENTS.progress, ORCHESTRATOR_ACTIVITY_FRAME, OPERATION_STREAM_EVENTS.result], ['progress', 'activity', 'result']);
 });

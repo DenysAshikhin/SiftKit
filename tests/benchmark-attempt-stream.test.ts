@@ -8,7 +8,7 @@ import { parseRepoSearchRequest, parseSummaryRequest } from '../src/status-serve
 import { requestBenchmarkAttemptResult } from '../src/status-server/dashboard-benchmark-runner.ts';
 import { buildMockScorecard } from './_test-helpers.ts';
 import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.ts';
-import { OPERATION_STREAM_EVENTS } from '../src/lib/operation-stream.ts';
+import { OPERATION_STREAM_EVENTS } from '@siftkit/contracts';
 import { SseResponseWriter } from '../src/status-server/sse-response-writer.ts';
 import { buildOperationStreamErrorPayload } from './helpers/sse-http.ts';
 

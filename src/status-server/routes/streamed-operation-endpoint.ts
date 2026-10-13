@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { JsonObject, JsonSerializable } from '../../lib/json-types.ts';
-import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.ts';
+import { OPERATION_STREAM_EVENTS } from '@siftkit/contracts';
 import { recordServerError } from '../error-response.ts';
 import { toError } from '../../lib/errors.ts';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';

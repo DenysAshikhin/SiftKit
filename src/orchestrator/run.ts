@@ -9,6 +9,7 @@ import {
   OrchestratorPlanPreparationSchema,
   OrchestratorTaskReviewSchema,
   isOrchestratorTerminalPhase,
+  type OrchestratorActivity,
   type OrchestratorAttempt,
   type OrchestratorAttemptResult,
   type OrchestratorCheckResult,
@@ -51,6 +52,7 @@ import {
   OrchestratorPhaseRunner,
   type OrchestratorPhaseLabel,
 } from './phase-runner.ts';
+import { OrchestratorLiveActivity } from './live-activity.ts';
 import { renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
 import {
   buildAttemptReviewPrompt,
@@ -67,7 +69,7 @@ import {
   type PlanWorker,
   type RunContext,
 } from './prompts.ts';
-import { isMutatingTask, selectTasksToStart, workerModelPreset } from './scheduler.ts';
+import { isMutatingTask, schedulePass, workerModelPreset } from './scheduler.ts';
 import { evaluateAttempt, findReviewEvidenceProblems, runVerificationCheck, unexecutedCheck } from './verification.ts';
 import { startOrchestratorChild, toChildOutcome, type ChildOutcome } from './workers.ts';
 import {
@@ -135,6 +137,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   private readonly abortController = new AbortController();
   private readonly phases: OrchestratorPhaseRunner;
   private readonly children = new Map<string, RepoAgentSession>();
+  private readonly activity: OrchestratorLiveActivity;
   private pendingUserDecision: PendingUserDecision | null = null;
   /** Settles when the latest approval is answered; parallel tasks take turns so one approval is pending at a time. */
   private approvalTurn: Promise<void> = Promise.resolve();
@@ -156,6 +159,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     this.runId = state.runId;
     this.state = state;
     this.phases = new OrchestratorPhaseRunner(ctx, config);
+    this.activity = new OrchestratorLiveActivity(state.runId, ctx.orchestratorRuns);
     // Work begins on the next tick, and only once the registry owns this run.
     this.settled = Promise.resolve().then(() => (this.registered ? this.execute() : undefined));
     ctx.orchestratorRuns.register(this);
@@ -185,6 +189,10 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     this.pendingUserDecision = null;
     pending.resolve(decision);
     return true;
+  }
+
+  activitySnapshot(): OrchestratorActivity {
+    return this.activity.snapshot();
   }
 
   private get signal(): AbortSignal {
@@ -384,11 +392,13 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     const running = new Map<string, { task: OrchestratorTask; done: Promise<string> }>();
     for (;;) {
       this.signal.throwIfAborted();
-      for (const task of selectTasksToStart({ config: this.config, plan, taskStates: this.state.tasks,
-        active: [...running.values()].map((entry) => entry.task) })) {
+      const pass = schedulePass({ config: this.config, plan, taskStates: this.state.tasks,
+        active: [...running.values()].map((entry) => entry.task) });
+      for (const task of pass.start) {
         this.setTaskStatus(task.id, 'running');
         running.set(task.id, { task, done: this.runTask(task, planPath, planHash).then(() => task.id) });
       }
+      this.activity.setSchedule(pass.schedule);
       if (running.size === 0) {
         const unfinished = this.state.tasks.filter((task) => task.status !== 'completed').map((task) => task.taskId);
         if (unfinished.length === 0) return;
@@ -555,12 +565,13 @@ export class OrchestratorRun implements OrchestratorLiveRun {
 
   private async superviseChild(task: OrchestratorTask, attempt: OrchestratorAttempt, instruction: string): Promise<ChildOutcome> {
     this.signal.throwIfAborted();
+    // Every attempt, drift corrections included, runs on the task's worker: the model slot it claimed.
     const session = startOrchestratorChild(this.ctx, this.config, {
       runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
-      workerPresetId: attempt.work.kind === 'drift_fix' ? 'repo-agent' : task.workerPresetId,
-      repoRoot: this.request.repoRoot, work: attempt.work, instruction, approval: this.request.approval,
+      workerPresetId: task.workerPresetId, repoRoot: this.request.repoRoot, work: attempt.work, instruction, approval: this.request.approval,
     });
     this.children.set(attempt.childRunId, session);
+    this.activity.track(session, { childRunId: attempt.childRunId, taskId: task.id });
     this.publish(this.ctx.orchestratorRunStore.markAttemptRunning(this.runId, this.state.revision, attempt.childRunId));
     try {
       let seen = 0;
@@ -578,6 +589,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
       throw error;
     } finally {
       this.children.delete(attempt.childRunId);
+      this.activity.untrack(attempt.childRunId);
     }
   }
 

@@ -1,5 +1,5 @@
 import { buildLiveTokenDisplays } from '../lib/chat-live-token-display.ts';
-import { requireLiveTokenDisplay, type TokenDisplay } from '../lib/format.ts';
+import { requireLiveTokenDisplay, runLogsHref, type TokenDisplay } from '../lib/format.ts';
 import React from 'react';
 
 import {
@@ -447,6 +447,8 @@ export function ChatTab({
               {chatMode === 'orchestrator' && orchestrator.state ? (
                 <OrchestratorRunPanel
                   state={orchestrator.state}
+                  activity={orchestrator.activity}
+                  workPhase={orchestrator.workPhase}
                   lastMessage={orchestrator.lastMessage}
                   onDecide={(decision) => { void orchestrator.decide(decision); }}
                   onAbort={() => { void orchestrator.abort(); }}
@@ -492,7 +494,7 @@ export function ChatTab({
               <div className="err-banner">
                 <span>{chatError}</span>
                 <button type="button" className="mini-btn" onClick={dispatchSend} disabled={recoveryBlocked || selectedSessionBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
-                <a className="mini-btn" href="?tab=runs">Open logs</a>
+                <a className="mini-btn" href={runLogsHref(null)}>Open logs</a>
               </div>
             ) : null}
 

@@ -6,6 +6,7 @@ import {
   getLiveMessageTokenDisplay,
   getSessionTelemetryStats,
   getTurnTokenDisplay,
+  runLogsHref,
 } from '../src/lib/format.ts';
 import type { ChatTurn } from '../src/lib/chatTurns.ts';
 import type { ChatMessage, ChatSession } from '../src/types.ts';
@@ -296,4 +297,9 @@ test('getSessionTelemetryStats uses the canonical rates published on the session
   const stats = getSessionTelemetryStats(session);
   assert.equal(stats.promptTokensPerSecond, 23.57);
   assert.equal(stats.generationTokensPerSecond, 16.52);
+});
+
+test('the Logs link opens the runs tab, on one run when it is named', () => {
+  assert.equal(runLogsHref(null), '?tab=runs');
+  assert.equal(runLogsHref('a b/c'), '?tab=runs&run=a+b%2Fc');
 });

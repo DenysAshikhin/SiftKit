@@ -21,3 +21,10 @@ export const RunOperationTypeSchema = z.enum([
   'orchestrator',
 ]);
 export type RunOperationType = z.infer<typeof RunOperationTypeSchema>;
+
+/** SSE frame names shared by every streamed operation. */
+export const OPERATION_STREAM_EVENTS = {
+  progress: 'progress',
+  result: 'result',
+  error: 'error',
+} as const;

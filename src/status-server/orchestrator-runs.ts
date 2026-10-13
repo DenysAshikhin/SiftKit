@@ -1,4 +1,4 @@
-import { isOrchestratorTerminalPhase, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
+import { isOrchestratorTerminalPhase, type OrchestratorActivity, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
 
 import { getAbortError } from '../lib/abort.ts';
 import { canonicalRepositoryKey } from '../lib/repository-key.ts';
@@ -92,9 +92,22 @@ export type OrchestratorLiveRun = {
   abort(reason: string): void;
   /** Answers the pending user approval; false when that approval is not the one waiting. */
   decide(approvalId: string, decision: RepoAgentDecision): boolean;
+  /** The current live view, for a client that connects mid-run. */
+  activitySnapshot(): OrchestratorActivity;
 };
 
 type StateListener = (state: OrchestratorRunState) => void;
+type ActivityListener = (activity: OrchestratorActivity) => void;
+
+function addListener<T>(listeners: Map<string, Set<(value: T) => void>>, runId: string, listener: (value: T) => void): () => void {
+  const forRun = listeners.get(runId) ?? new Set<(value: T) => void>();
+  forRun.add(listener);
+  listeners.set(runId, forRun);
+  return () => {
+    forRun.delete(listener);
+    if (forRun.size === 0) listeners.delete(runId);
+  };
+}
 
 const RESTART_REASON = 'The server restarted while this run was active; uncertain work was not redispatched.';
 const SHUTDOWN_REASON = 'The server is shutting down.';
@@ -104,6 +117,7 @@ export class OrchestratorRunRegistry {
   readonly repositoryGate = new RepositoryGate();
   private readonly live = new Map<string, OrchestratorLiveRun>();
   private readonly listeners = new Map<string, Set<StateListener>>();
+  private readonly activityListeners = new Map<string, Set<ActivityListener>>();
   private shutdownPromise: Promise<void> | null = null;
 
   private readonly store: OrchestratorRunStore;
@@ -136,18 +150,21 @@ export class OrchestratorRunRegistry {
   }
 
   subscribe(runId: string, listener: StateListener): () => void {
-    const listeners = this.listeners.get(runId) ?? new Set<StateListener>();
-    listeners.add(listener);
-    this.listeners.set(runId, listeners);
-    return () => {
-      listeners.delete(listener);
-      if (listeners.size === 0) this.listeners.delete(runId);
-    };
+    return addListener(this.listeners, runId, listener);
   }
 
   /** Fans a committed state out to its subscribers. */
   publish(state: OrchestratorRunState): void {
     for (const listener of [...(this.listeners.get(state.runId) ?? [])]) listener(state);
+  }
+
+  subscribeActivity(runId: string, listener: ActivityListener): () => void {
+    return addListener(this.activityListeners, runId, listener);
+  }
+
+  /** Fans the live view out to its subscribers; nothing is stored. */
+  publishActivity(activity: OrchestratorActivity): void {
+    for (const listener of [...(this.activityListeners.get(activity.runId) ?? [])]) listener(activity);
   }
 
   /** Idempotent: stop accepting parents, abort the live ones, await them, interrupt the unsettled. */

@@ -8,6 +8,7 @@ import {
   OrchestratorEventSchema,
   OrchestratorRunStateSchema,
   OrchestratorStartRequestSchema,
+  isOrchestratorOpenTaskStatus,
   isOrchestratorTerminalPhase,
   type OrchestratorAttempt,
   type OrchestratorAttemptResult,
@@ -18,7 +19,6 @@ import {
   type OrchestratorRunState,
   type OrchestratorStartRequest,
   type OrchestratorTaskState,
-  type OrchestratorTaskStatus,
 } from '@siftkit/contracts';
 
 import { digestStableJson } from '../lib/json-digest.ts';
@@ -36,8 +36,6 @@ const AttemptRowsSchema = z.array(z.object({ attempt_json: z.string() }));
 const EventRowsSchema = z.array(z.object({ event_json: z.string() }));
 const MaxSequenceRowSchema = z.object({ sequence: z.number().int().nullable() });
 const RunIdRowsSchema = z.array(z.object({ run_id: z.string() }));
-/** Task statuses that mean live work; a stopped parent turns them into `aborted`. */
-const OPEN_TASK_STATUSES: readonly OrchestratorTaskStatus[] = ['running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending'];
 const TERMINAL_PHASES_SQL = ORCHESTRATOR_TERMINAL_PHASES.map((phase) => `'${phase}'`).join(', ');
 
 /** Fields a transition may change; identity, plan, and attempts change only through their methods. */
@@ -243,7 +241,7 @@ export class OrchestratorRunStore {
     for (const attempt of state.attempts) {
       if (attempt.status === 'reserved' || attempt.status === 'running') this.writeAttempt(runId, { ...attempt, status: 'abandoned' });
     }
-    return { ...state, tasks: state.tasks.map((task) => (OPEN_TASK_STATUSES.includes(task.status) ? { ...task, status: 'aborted' } : task)) };
+    return { ...state, tasks: state.tasks.map((task) => (isOrchestratorOpenTaskStatus(task.status) ? { ...task, status: 'aborted' } : task)) };
   }
 
   private writeAttempt(runId: string, attempt: OrchestratorAttempt): void {

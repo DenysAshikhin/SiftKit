@@ -4,7 +4,7 @@ import { onTestFinished, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChatSessionResponseSchema, DurableChatApprovalSchema, OrchestratorRunStateSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, DurableChatApprovalSchema, OrchestratorActivitySchema, OrchestratorRunStateSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import { fireEvent, notifyResize, render as renderComponent, screen, waitFor } from './react-test-environment.ts';
 import { countRenders } from './render-tracker.ts';
 import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
@@ -559,6 +559,43 @@ data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
     assert.deepEqual({ ...request, submissionId: null },
       { submissionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null });
     assert.deepEqual(drafts, ['']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('orchestrator mode hands the live activity and the last work phase to the run panel', async () => {
+  const originalFetch = globalThis.fetch;
+  const childRunId = '4f9c1f9a-0000-4000-8000-0000000000bb';
+  const check = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
+  const task = { id: 'greet', title: 'Greet', dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: ['src/a.ts'],
+    steps: [{ instruction: 'Write it.', expectedResult: 'It exists.' }], verification: [check], acceptance: ['Greets.'], temporaryPaths: [] };
+  const running = OrchestratorRunStateSchema.parse({
+    runId: ORCHESTRATOR_RUN_ID,
+    request: { submissionId: ORCHESTRATOR_RUN_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
+    revision: 2, phase: 'approval_required', planPath: 'plan.md', planHash: 'h',
+    plan: { goal: 'Greet', constraints: [], tasks: [task], finalVerification: [check] },
+    tasks: [{ taskId: 'greet', status: 'running', driftReview: null, reviewedDigests: [] }], attempts: [], phaseRunIds: [],
+    approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
+  });
+  const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'executing', message: 'Executing.',
+    taskId: null, purpose: null, attempt: null, childRunId: null };
+  const activity = OrchestratorActivitySchema.parse({ runId: ORCHESTRATOR_RUN_ID, children: [{ childRunId, taskId: 'greet',
+    waitingForModel: false, turn: 2, maxTurns: 40, promptTokens: 100, tools: [] }], schedule: null });
+  const encoder = new TextEncoder();
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.startsWith('/orchestrator/runs')) return new Response(JSON.stringify({ runs: [running] }));
+    if (url === '/orchestrator/events') return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(encoder.encode(`event: progress\ndata: ${JSON.stringify({ events: [event], state: running })}\n\n`));
+      controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(activity)}\n\n`));
+    } }));
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  try {
+    const view = renderComponent(<ChatTab {...orchestratorProps()} />);
+    await screen.findByLabelText(`Agent ${childRunId}`);
+    const steps = screen.getAllByRole('listitem', { name: /step$/u }).map((step) => step.getAttribute('data-status'));
+    assert.deepEqual(steps, ['done', 'done', 'now', 'todo', 'todo'], 'the approval pause still shows the Execute step');
+    view.unmount();
   } finally { globalThis.fetch = originalFetch; }
 });
 

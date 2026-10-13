@@ -1,6 +1,13 @@
 import React from 'react';
 
-import { isOrchestratorTerminalPhase, type ApprovalMode, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
+import {
+  isOrchestratorTerminalPhase,
+  type ApprovalMode,
+  type OrchestratorActivity,
+  type OrchestratorPhase,
+  type OrchestratorRunState,
+  type RepoAgentDecision,
+} from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.ts';
 import {
   abortOrchestrator,
@@ -12,9 +19,12 @@ import {
 
 export type OrchestratorStartInput = { presetId: string; approval: ApprovalMode; task: string | null; planPath: string | null };
 
-/** Shows the repository's latest parent run, follows it while live, and forwards the user's controls. */
+/** Shows the repository's latest parent run, follows it and its live activity, and forwards the user's controls. */
 export function useOrchestratorRun(repoRoot: string | null) {
   const [state, setState] = React.useState<OrchestratorRunState | null>(null);
+  const [activity, setActivity] = React.useState<OrchestratorActivity | null>(null);
+  // The last phase that was real work, so an approval pause or a stop still shows where the run was.
+  const [workPhase, setWorkPhase] = React.useState<OrchestratorPhase | null>(null);
   const [lastMessage, setLastMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const follow = React.useRef<AbortController | null>(null);
@@ -24,8 +34,10 @@ export function useOrchestratorRun(repoRoot: string | null) {
     const controller = new AbortController();
     follow.current = controller;
     setState(initial);
+    setActivity(null);
+    setWorkPhase(null);
     setError(null);
-    if (isOrchestratorTerminalPhase(initial.phase)) return;
+    // A terminal run is followed too: its replayed events restore the last message and work phase.
     void (async () => {
       try {
         const stream = followOrchestrator(initial.runId, 0, controller.signal);
@@ -33,12 +45,21 @@ export function useOrchestratorRun(repoRoot: string | null) {
           const next = await stream.next();
           if (controller.signal.aborted) return;
           if (next.done) {
+            setActivity(null);
             setState(next.value);
             return;
           }
+          const item = next.value;
+          if (item.kind === 'activity') {
+            setActivity(item.activity);
+            continue;
+          }
           // Each frame carries the state its events produced; no status refetch is needed.
-          setLastMessage(next.value.events.at(-1)?.message ?? null);
-          setState(next.value.state);
+          const { events, state: committed } = item.progress;
+          setLastMessage(events.at(-1)?.message ?? null);
+          const worked = events.filter((event) => event.phase !== 'approval_required' && !isOrchestratorTerminalPhase(event.phase)).at(-1);
+          if (worked !== undefined) setWorkPhase(worked.phase);
+          setState(committed);
         }
       } catch (caught) {
         if (!controller.signal.aborted) setError(toError(caught).message);
@@ -48,6 +69,8 @@ export function useOrchestratorRun(repoRoot: string | null) {
 
   React.useEffect(() => {
     setState(null);
+    setActivity(null);
+    setWorkPhase(null);
     setLastMessage(null);
     setError(null);
     if (repoRoot === null) return undefined;
@@ -64,6 +87,8 @@ export function useOrchestratorRun(repoRoot: string | null) {
 
   return {
     state,
+    activity,
+    workPhase,
     lastMessage,
     error,
     start(input: OrchestratorStartInput): Promise<void> {

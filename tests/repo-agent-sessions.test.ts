@@ -1579,3 +1579,24 @@ test('a run started in off parks after a switch to interactive', async (t) => {
   }
   await session.settled;
 });
+
+test('every attached subscriber gets progress, live text reaches only the live-text one, and detaching one keeps the other', async (t) => {
+  const events = liveTextEvents();
+  const engine = new ScriptedProgressEngine(events.all);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
+  const session = harness.start();
+  const observer = new RecordingSubscriber(false);
+  const live = new RecordingSubscriber(true);
+  const dropped = new RecordingSubscriber(true);
+  session.attach(observer);
+  session.attach(live);
+  session.attach(dropped)();
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+  await session.settled;
+
+  assert.deepEqual(observer.events, [events.toolStart], 'a later subscriber does not displace an earlier one');
+  assert.deepEqual(live.events, events.all);
+  assert.deepEqual(dropped.events, [], 'a detached subscriber receives nothing');
+});

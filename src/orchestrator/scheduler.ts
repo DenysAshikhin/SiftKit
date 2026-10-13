@@ -1,4 +1,13 @@
-import type { OrchestratorPlan, OrchestratorTask, OrchestratorTaskState, SiftPreset } from '@siftkit/contracts';
+import type {
+  OrchestratorPlan,
+  OrchestratorSchedule,
+  OrchestratorTask,
+  OrchestratorTaskClaim,
+  OrchestratorTaskState,
+  OrchestratorTaskStatus,
+  OrchestratorTaskWait,
+  SiftPreset,
+} from '@siftkit/contracts';
 
 import { getActiveModelPreset } from '../config/getters.ts';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.ts';
@@ -15,36 +24,59 @@ export function workerModelPreset(config: SiftConfig, worker: SiftPreset): Model
 }
 
 /** What a task claims while it runs: one parallel slot of its worker's model, and the writer slot if it mutates. */
-type TaskClaim = { mutating: boolean; modelId: string; slots: number };
+type HeldClaim = OrchestratorTaskClaim & { slots: number };
 
-function taskClaim(config: SiftConfig, task: OrchestratorTask): TaskClaim {
+function taskClaim(config: SiftConfig, task: OrchestratorTask): HeldClaim {
   const worker = requireOrchestratorWorkerPreset(config, task);
   const model = workerModelPreset(config, worker);
-  return { mutating: workerCanMutate(worker), modelId: model.id, slots: model.ParallelSlots };
+  return { taskId: task.id, mutating: workerCanMutate(worker), modelId: model.id, contextTokens: model.NumCtx, slots: model.ParallelSlots };
+}
+
+function taskWait(task: OrchestratorTask, claim: HeldClaim, status: ReadonlyMap<string, OrchestratorTaskStatus>,
+  held: readonly HeldClaim[]): OrchestratorTaskWait | null {
+  const unmet = task.dependsOn.filter((dependency) => status.get(dependency) !== 'completed');
+  if (unmet.length > 0) return { kind: 'dependencies', taskIds: unmet };
+  if (claim.mutating && held.some((other) => other.mutating)) return { kind: 'writer_slot' };
+  if (held.filter((other) => other.modelId === claim.modelId).length >= claim.slots) return { kind: 'model_slot', modelId: claim.modelId };
+  return null;
 }
 
 /**
- * Tasks to start now, in plan order. A task is ready once every dependency completed. Each task
- * takes one parallel slot of its worker's model, and at most one mutating task runs at a time.
+ * One scheduling pass in plan order. A task is ready once every dependency completed. Each task takes one
+ * parallel slot of its worker's model, and at most one mutating task runs at a time. The schedule records
+ * why every other pending task waits, so no viewer re-derives these rules.
  */
-export function selectTasksToStart(input: {
+export function schedulePass(input: {
   config: SiftConfig;
   plan: OrchestratorPlan;
   taskStates: readonly OrchestratorTaskState[];
   active: readonly OrchestratorTask[];
-}): OrchestratorTask[] {
+}): { start: OrchestratorTask[]; schedule: OrchestratorSchedule } {
   const status = new Map(input.taskStates.map((state) => [state.taskId, state.status]));
   const activeIds = new Set(input.active.map((task) => task.id));
-  const claimed = input.active.map((task) => taskClaim(input.config, task));
-  const selected: OrchestratorTask[] = [];
+  const held = input.active.map((task) => taskClaim(input.config, task));
+  const start: OrchestratorTask[] = [];
+  const waits: OrchestratorSchedule['waits'] = [];
   for (const task of input.plan.tasks) {
     if (status.get(task.id) !== 'pending' || activeIds.has(task.id)) continue;
-    if (!task.dependsOn.every((dependency) => status.get(dependency) === 'completed')) continue;
     const claim = taskClaim(input.config, task);
-    if (claim.mutating && claimed.some((other) => other.mutating)) continue;
-    if (claimed.filter((other) => other.modelId === claim.modelId).length >= claim.slots) continue;
-    claimed.push(claim);
-    selected.push(task);
+    const wait = taskWait(task, claim, status, held);
+    if (wait !== null) {
+      waits.push({ taskId: task.id, wait });
+      continue;
+    }
+    held.push(claim);
+    start.push(task);
   }
-  return selected;
+  const claims = input.plan.tasks.map((task) => taskClaim(input.config, task));
+  const models = [...new Map(claims.map((claim) => [claim.modelId, claim.slots]))].map(([modelId, slots]) => ({
+    modelId, slots, used: held.filter((claim) => claim.modelId === modelId).length,
+  }));
+  return {
+    start,
+    schedule: {
+      claims: claims.map(({ taskId, modelId, mutating, contextTokens }) => ({ taskId, modelId, mutating, contextTokens })),
+      models, writerUsed: held.some((claim) => claim.mutating), waits,
+    },
+  };
 }

@@ -1,3 +1,5 @@
+import { OPERATION_STREAM_EVENTS } from '@siftkit/contracts';
+
 import { z } from './zod.ts';
 import { ServerErrorPayloadSchema, type ErrorDiagnostic } from './error-diagnostics.ts';
 import { parseJsonObjectText, parseJsonText } from './json.ts';
@@ -5,12 +7,6 @@ import { ModelRequestIntentSchema } from './model-request-intent.ts';
 import type { JsonObject } from './json-types.ts';
 import type { SseFrame } from './sse-frame-parser.ts';
 import type { HttpClient, SseStreamOptions } from './http-client.ts';
-
-export const OPERATION_STREAM_EVENTS = {
-  progress: 'progress',
-  result: 'result',
-  error: 'error',
-} as const;
 
 /** A model profile and an opaque SHA-256 fingerprint of its loading identity; null when underivable. */
 export const ModelResidencyDiagnosticsSchema = z.object({

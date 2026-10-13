@@ -1,9 +1,13 @@
 import {
+  OPERATION_STREAM_EVENTS,
+  ORCHESTRATOR_ACTIVITY_FRAME,
+  OrchestratorActivitySchema,
   OrchestratorDecideRequestSchema,
   OrchestratorProgressSchema,
   OrchestratorRunListSchema,
   OrchestratorRunStateSchema,
   OrchestratorStartRequestSchema,
+  type OrchestratorActivity,
   type OrchestratorDecideRequest,
   type OrchestratorProgress,
   type OrchestratorRunState,
@@ -34,12 +38,17 @@ export async function abortOrchestrator(runId: string): Promise<OrchestratorRunS
   return parseJsonResponse(await postJson('/orchestrator/abort', JSON.stringify({ runId })), OrchestratorRunStateSchema);
 }
 
-/** Replays committed progress after the cursor, then follows live progress; returns the state that ended the stream. */
+/** One item of a followed run: committed progress, or the live (unstored) activity view. */
+export type OrchestratorStreamItem =
+  | { kind: 'progress'; progress: OrchestratorProgress }
+  | { kind: 'activity'; activity: OrchestratorActivity };
+
+/** Replays committed progress after the cursor, then follows live progress and activity; returns the state that ended the stream. */
 export async function* followOrchestrator(
   runId: string,
   afterSequence: number,
   signal: AbortSignal,
-): AsyncGenerator<OrchestratorProgress, OrchestratorRunState> {
+): AsyncGenerator<OrchestratorStreamItem, OrchestratorRunState> {
   const response = await postJson('/orchestrator/events', JSON.stringify({ runId, afterSequence }), signal);
   if (!response.ok) throw new Error(`Request failed (${response.status}): ${await response.text()}`);
   if (!response.body) throw new Error('Orchestrator event stream body was empty.');
@@ -50,12 +59,16 @@ export async function* followOrchestrator(
     const chunk = await reader.read();
     if (chunk.done) throw new Error('Orchestrator event stream ended without a result.');
     for (const frame of parser.push(decoder.decode(chunk.value, { stream: true }))) {
-      // The events route writes only progress and a closing result; anything else is a protocol break.
-      if (frame.event === 'progress') {
-        yield parseJsonText(frame.data, OrchestratorProgressSchema);
+      // The events route writes progress, activity, and a closing result; anything else is a protocol break.
+      if (frame.event === OPERATION_STREAM_EVENTS.progress) {
+        yield { kind: 'progress', progress: parseJsonText(frame.data, OrchestratorProgressSchema) };
         continue;
       }
-      if (frame.event !== 'result') throw new Error(`Unexpected orchestrator stream frame: ${frame.event}`);
+      if (frame.event === ORCHESTRATOR_ACTIVITY_FRAME) {
+        yield { kind: 'activity', activity: parseJsonText(frame.data, OrchestratorActivitySchema) };
+        continue;
+      }
+      if (frame.event !== OPERATION_STREAM_EVENTS.result) throw new Error(`Unexpected orchestrator stream frame: ${frame.event}`);
       await reader.cancel();
       return parseJsonText(frame.data, OrchestratorRunStateSchema);
     }

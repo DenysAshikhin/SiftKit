@@ -335,6 +335,20 @@ export class DashboardModelQueueHarness {
   }
 
   /** Saves changed fields of one operation preset through the config API. */
+  /** Saves a new operation preset copied from `sourceId`, with `change` applied. */
+  async copyOperationPreset(sourceId: string, change: Partial<SiftPreset> & { id: string }): Promise<void> {
+    const config = readConfig(getConfigPath());
+    const source = config.Presets.find((preset) => preset.id === sourceId);
+    if (source === undefined) throw new Error(`No preset '${sourceId}' to copy.`);
+    const response = await requestJson(`${this.getBaseUrl()}/config?skip_ready=1`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...config, Presets: [...config.Presets, { ...source, builtin: false, deletable: true, ...change }] }),
+    });
+    if (response.statusCode !== 200) {
+      throw new Error(`Expected the preset '${change.id}' copy to save, received ${response.statusCode}.`);
+    }
+  }
+
   async updateOperationPreset(presetId: string, change: Partial<SiftPreset>): Promise<void> {
     const config = readConfig(getConfigPath());
     const response = await requestJson(`${this.getBaseUrl()}/config?skip_ready=1`, {

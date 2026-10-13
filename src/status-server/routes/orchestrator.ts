@@ -1,17 +1,19 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
+  OPERATION_STREAM_EVENTS,
+  ORCHESTRATOR_ACTIVITY_FRAME,
   OrchestratorAbortRequestSchema,
   OrchestratorDecideRequestSchema,
   OrchestratorStartRequestSchema,
   isOrchestratorTerminalPhase,
+  type OrchestratorActivity,
   type OrchestratorProgress,
   type OrchestratorRunState,
 } from '@siftkit/contracts';
 
 import { toError } from '../../lib/errors.ts';
 import type { JsonObject } from '../../lib/json-types.ts';
-import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.ts';
 import { z } from '../../lib/zod.ts';
 import { OrchestratorRun } from '../../orchestrator/run.ts';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
@@ -118,7 +120,12 @@ export class OrchestratorEventsEndpoint implements RouteEndpoint {
     writer.open();
     let cursor = parsed.data.afterSequence;
     let finished = false;
-    let detach: () => void = () => {};
+    let detachState: () => void = () => {};
+    let detachActivity: () => void = () => {};
+    const detach = (): void => {
+      detachState();
+      detachActivity();
+    };
     const flush = (state: OrchestratorRunState): void => {
       if (finished) return;
       const events = ctx.orchestratorRunStore.readEvents(runId, cursor);
@@ -136,9 +143,16 @@ export class OrchestratorEventsEndpoint implements RouteEndpoint {
         writer.end();
       }
     };
-    detach = ctx.orchestratorRuns.subscribe(runId, flush);
-    res.on('close', () => detach());
+    const writeActivity = (activity: OrchestratorActivity): void => {
+      if (!finished) writer.writeEvent(ORCHESTRATOR_ACTIVITY_FRAME, activity);
+    };
+    detachState = ctx.orchestratorRuns.subscribe(runId, flush);
+    detachActivity = ctx.orchestratorRuns.subscribeActivity(runId, writeActivity);
+    res.on('close', detach);
     flush(ctx.orchestratorRunStore.read(runId));
+    // Activity is never stored, so a client that connects mid-run starts from the live snapshot.
+    const live = ctx.orchestratorRuns.get(runId);
+    if (live !== undefined) writeActivity(live.activitySnapshot());
   }
 }
 

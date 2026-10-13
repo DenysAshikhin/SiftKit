@@ -48,7 +48,7 @@
 .markdown-body img { max-width: 100%; height: auto; }
 .chat-grounding-badge { display: inline-block; font-size: 0.62rem; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; margin-bottom: 6px; }
 
-.think { border-left: 2px solid #3a4c61; color: var(--dim); padding: 2px 0 2px 10px; font-size: 0.74rem; margin-top: 8px; font-style: italic; white-space: pre-wrap; }
+.think { border-left: 2px solid var(--idle); color: var(--dim); padding: 2px 0 2px 10px; font-size: 0.74rem; margin-top: 8px; font-style: italic; white-space: pre-wrap; }
 .thinking-box, .system-context-bubble, .internal-logic { margin-top: 8px; font-size: 0.74rem; color: var(--dim); }
 .thinking-box > summary, .system-context-bubble > summary, .internal-logic > summary { cursor: pointer; color: var(--dim); }
 .internal-logic-steps, .live-thinking-stack { display: grid; gap: 8px; margin-top: 8px; }
@@ -82,14 +82,14 @@
 .tcall-expand { margin-left: auto; color: var(--dim); }
 .tcall-details {
   display: grid; gap: 6px; margin: 3px 5px 7px 27px; padding: 8px 10px;
-  border-left: 2px solid var(--line); color: #b9cbdd;
+  border-left: 2px solid var(--line); color: var(--code-ink);
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 .tcall-details pre { margin: 0; border-radius: 0; background: none; padding: 0; }
 
 /* ---- composer ---- */
 .composer { flex: none; border-top: 1px solid var(--line); padding: 10px 16px; display: grid; gap: 7px; }
-.ctx { height: 4px; border-radius: 999px; background: #1a2634; overflow: hidden; }
+.ctx { height: 4px; border-radius: 999px; background: var(--track); overflow: hidden; }
 .ctx i { display: block; height: 100%; background: var(--acc); }
 .ctx.warn i { background: var(--run); }
 .ctx-label { font-size: 0.64rem; color: var(--dim); font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
@@ -103,7 +103,7 @@
 .settings-toggle.active { border-color: var(--acc); color: var(--acc); }
 .send { font: inherit; font-size: 0.78rem; background: var(--acc); color: #06251e; font-weight: 700; border: none; border-radius: 7px; padding: 7px 14px; cursor: pointer; }
 .send:disabled { opacity: 0.55; cursor: default; }
-.send.stop { background: linear-gradient(180deg, #3a2028 0%, #28161c 100%); border: 1px solid #8d4b53; color: #ffd7d2; }
+.send.stop { background: linear-gradient(180deg, #3a2028 0%, #28161c 100%); border: 1px solid var(--bad-line); color: #ffd7d2; }
 .send.stop:hover { filter: brightness(1.08); }
 
 .approval-card { max-width: 100%; border: 1px solid #4d4026; border-radius: 10px; background: #1a1610; padding: 10px 12px; display: grid; gap: 8px; }
@@ -111,14 +111,14 @@
 .approval-command { margin: 0; padding: 7px 10px; white-space: pre-wrap; word-break: break-all; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; color: var(--ink); }
 .approval-payload { margin: 0; color: var(--dim); font-size: 0.76rem; }
 .approval-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
-.approval-reject { font: inherit; font-size: 0.76rem; padding: 6px 13px; border-radius: 7px; border: 1px solid #8d4b53; color: #ffd7d2; background: linear-gradient(180deg, #3a2028 0%, #28161c 100%); cursor: pointer; }
+.approval-reject { font: inherit; font-size: 0.76rem; padding: 6px 13px; border-radius: 7px; border: 1px solid var(--bad-line); color: #ffd7d2; background: linear-gradient(180deg, #3a2028 0%, #28161c 100%); cursor: pointer; }
 .approval-reject:disabled { opacity: 0.55; cursor: default; }
 .approval-reject-form { display: grid; gap: 7px; }
 .approval-reject-form textarea { min-height: 52px; resize: vertical; background: var(--panel2); border: 1px solid #5a2f33; border-radius: 7px; color: var(--ink); font: inherit; padding: 7px 10px; }
-.approval-abort:hover { color: var(--bad); border-color: #8d4b53; }
+.approval-abort:hover { color: var(--bad); border-color: var(--bad-line); }
 .approval-row { max-width: 100%; display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-left: 2px solid var(--line); color: var(--dim); font-size: 0.72rem; }
 .approval-row.ok { border-left-color: var(--ok); }
-.approval-row.bad { border-left-color: #8d4b53; }
+.approval-row.bad { border-left-color: var(--bad-line); }
 .approval-row.ok .verdict { color: var(--ok); }
 .approval-row.bad .verdict { color: var(--bad); }
 .approval-row .verdict, .approval-row .who { font-weight: 600; }
@@ -126,7 +126,7 @@
 .approval-row .cmd-inline { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.7rem; }
 
 .composer-settings-popover { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 10px; display: grid; gap: 4px; font-size: 0.72rem; color: var(--dim); }
-.composer-settings-popover.warning { border-color: #5a4a2a; }
+.composer-settings-popover.warning { border-color: var(--run-line); }
 .composer-plan-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .approval-mode { display: inline-flex; gap: 4px; margin-left: auto; }
 .composer-plan-root { flex: 1; }
@@ -137,7 +137,7 @@
 
 /* ---- error banner ---- */
 .err-banner { border: 1px solid #5a2f33; background: #2a1517; color: #ffb4b4; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; display: flex; gap: 10px; align-items: center; margin: 0 16px 10px; }
-.warning-banner { border: 1px solid #5a4a2a; background: #2a2415; color: #f4d28d; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; display: grid; gap: 3px; margin: 0 16px 10px; }
+.warning-banner { border: 1px solid var(--run-line); background: #2a2415; color: #f4d28d; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; display: grid; gap: 3px; margin: 0 16px 10px; }
 .mini-btn { font: inherit; font-size: 0.68rem; color: var(--dim); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; text-decoration: none; }
 
 /* ---- states: static on purpose; any endless animation keeps Chrome rendering frames (measured CPU/GPU cost) ---- */
