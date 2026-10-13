@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 
 import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.ts';
+import { toError } from '../lib/errors.ts';
 import {
   Exl3PresetAdapter,
   type Exl3LaunchEnvironment,
@@ -9,6 +10,7 @@ import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilit
 import { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.ts';
 import type { EngineProcess, ManagedEngineHost } from './engine-process.ts';
+import { serverLogger } from './server-logger.ts';
 import { TabbyModelClient } from './tabby-model-client.ts';
 import { TabbyRunRecorder } from './tabby-run-recorder.ts';
 
@@ -17,6 +19,8 @@ const MIB = 1_048_576;
 /** Allowance for other GPU clients drifting while an engine ran; a resident model is far larger. */
 const VRAM_RELEASE_TOLERANCE_BYTES = 1_024 * MIB;
 const VRAM_RELEASE_POLL_MS = 250;
+/** How long an exit waits for engine stderr to end, so the traceback's last line is read. */
+const EXIT_STDERR_DRAIN_MS = 1_000;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -102,6 +106,12 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
         + 'on a server SiftKit did not launch. Use a managed launch or disable SpeculativeEnabled.',
       );
     }
+    if (!managed && preset.DiskCacheDir !== null) {
+      throw new Error(
+        `Preset '${preset.id}' sets DiskCacheDir, but the disk cache is a launch setting that only a SiftKit-managed `
+        + 'TabbyAPI can apply. Use a managed launch or clear DiskCacheDir.',
+      );
+    }
     const launchEnvironment = managed ? this.adapter.buildLaunchEnvironment(preset) : null;
     const processSignature = launchEnvironment
       ? JSON.stringify(this.getEngineIdentity(launchEnvironment))
@@ -150,11 +160,14 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   async stopProcess(): Promise<void> {
     const child = this.child;
-    // One budget covers both the exit and the VRAM release.
-    const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
     if (child && child.exitCode === null) {
       this.stopping = true;
       this.transitionProcessTo('stopping');
+      await this.flushDiskCache();
+    }
+    // One budget covers both the exit and the VRAM release; it starts once the flush is done.
+    const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
+    if (child && child.exitCode === null) {
       this.host.launcher.terminate(child);
       while (child.exitCode === null && Date.now() < deadline) await delay(25);
       if (child.exitCode === null) {
@@ -172,6 +185,19 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.transitionModelTo('unloaded');
     await this.waitForVramRelease(deadline);
     this.transitionProcessTo('stopped');
+  }
+
+  /** Drains a disk-cache preset's pending writes through Tabby's unload (generator.close); a failure never blocks the stop. */
+  private async flushDiskCache(): Promise<void> {
+    const preset = this.currentPreset;
+    const baseUrl = this.processBaseUrl;
+    if (preset === null || preset.DiskCacheDir === null || baseUrl === null || this.getModelState() !== 'ready') return;
+    try {
+      await this.client.unload(baseUrl, this.engine.ShutdownTimeoutMs);
+    } catch (error) {
+      serverLogger.warning({ scope: 'exl3', id: preset.id, event: 'disk_cache_flush_failed', fields: '',
+        alert: toError(error).message });
+    }
   }
 
   /**
@@ -262,20 +288,29 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       this.transitionProcessTo('failed');
     });
     child.once('exit', (code, signal) => {
-      const exitMessage = `TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)}).`;
-      recorder.finalize({
-        status: this.stopping ? 'stopped' : 'failed',
-        exitCode: Number.isFinite(code) ? Number(code) : null,
-        errorMessage: this.stopping ? null : exitMessage,
-      });
-      if (this.stopping) return;
-      this.startupError = new Error(exitMessage);
-      this.processBaseUrl = null;
-      this.processManaged = null;
-      this.processSignature = null;
-      this.transitionModelTo('unloaded');
-      this.transitionProcessTo('failed');
+      void this.settleExit(child, recorder, this.stopping, code, signal);
     });
+  }
+
+  /** Records an engine exit; 'exit' can precede the last stderr chunk, so the traceback is read once stderr ends. */
+  private async settleExit(child: EngineProcess, recorder: TabbyRunRecorder, stopping: boolean,
+    code: number | null, signal: NodeJS.Signals | null): Promise<void> {
+    await recorder.waitForEngineStderrEnd(EXIT_STDERR_DRAIN_MS);
+    const exitStatus = `TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)})`;
+    const engineError = recorder.lastEngineError();
+    const exitMessage = engineError === null ? `${exitStatus}.` : `${exitStatus}: ${engineError}`;
+    recorder.finalize({
+      status: stopping ? 'stopped' : 'failed',
+      exitCode: Number.isFinite(code) ? Number(code) : null,
+      errorMessage: stopping ? null : exitMessage,
+    });
+    if (stopping || this.child !== child) return;
+    this.startupError = new Error(exitMessage);
+    this.processBaseUrl = null;
+    this.processManaged = null;
+    this.processSignature = null;
+    this.transitionModelTo('unloaded');
+    this.transitionProcessTo('failed');
   }
 
   private async waitForProcess(preset: ModelRuntimePreset, processSignature: string | null): Promise<void> {

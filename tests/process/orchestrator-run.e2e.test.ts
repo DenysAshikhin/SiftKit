@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test, { type TestContext } from 'node:test';
 
 import {
+  OrchestratorPlanPreparationSchema,
   OrchestratorProgressSchema,
   OrchestratorRunStateSchema,
   type ApprovalMode,
@@ -356,8 +357,26 @@ test('a supplied adequate plan is kept as is, and malformed parent output gets e
   assert.equal(fs.existsSync(path.join(context.repo, '.siftkit', 'orchestrator', state.runId, 'plan.md')), false, 'no second plan file');
   assert.match(engine.prompts('parent')[1] ?? '', /Your previous answer was rejected/u);
   assert.match(engine.prompts('children')[0] ?? '', /from plan docs\/plan\.md/u);
-  assert.ok(events.some((event) => /^Parent phase started: plan preparation; retrying after: Provider returned an invalid plan preparation payload/u
+  assert.ok(events.some((event) => /^Parent phase started: plan preparation; retrying after: Provider returned an invalid plan_preparation payload/u
     .test(event.message)));
+});
+
+test('malformed plan-preparation JSON is repaired inside the phase by one constrained turn, with no phase retry', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-answer-repair-');
+  const { engine } = context;
+  const plan = JSON.stringify({ status: 'generated', plan: writePlan(), issues: [] });
+  const broken = `Here is the plan: ${plan.slice(0, -40)}`;
+  engine.parent.push([{ content: broken }, { content: plan }]);
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+  engine.parent.push(driftReview('clean'));
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  assert.ok(events.some((event) => event.message === 'Validating the plan.'));
+  assert.equal(events.some((event) => event.message.startsWith('Parent phase started: plan preparation; retrying after')), false);
+  assert.equal(engine.repoSearchRequests[0]?.answerSchema?.name, 'plan_preparation');
+  assert.equal(engine.repoSearchRequests[0]?.answerSchema?.schema, OrchestratorPlanPreparationSchema);
 });
 
 test('a blocked plan and a missing plan file fail precisely before any child starts', async (t) => {
@@ -493,7 +512,7 @@ test('an unusable approval decision is retried once, then fails the run instead 
   assert.equal(state.failure?.code, 'approval_decision_invalid');
   const decisions = engine.prompts('parent').filter((prompt) => prompt.includes('verification command'));
   assert.equal(decisions.length, 2);
-  assert.match(decisions[1] ?? '', /Your previous answer was rejected:\n- Provider returned an invalid approval decision payload/u);
+  assert.match(decisions[1] ?? '', /Your previous answer was rejected:\n- Provider returned an invalid approval_decision payload/u);
 });
 
 test('a review citing a snippet that is not in the file is re-asked, and the worker keeps its attempt', async (t) => {
@@ -511,9 +530,51 @@ test('a review citing a snippet that is not in the file is re-asked, and the wor
 
   assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
   assert.deepEqual(state.attempts.map((attempt) => [attempt.attempt, attempt.result?.passed]), [[1, true]]);
-  const reviews = engine.prompts('parent').filter((prompt) => prompt.startsWith('Phase: review the evidence'));
+  const reviews = engine.prompts('parent').filter((prompt) => prompt.includes('\nPhase: review the evidence'));
   assert.equal(reviews.length, 2);
   assert.match(reviews[1] ?? '', /Your previous review was rejected:\n- Review evidence: src\/app\.ts:1 does not contain the cited snippet\./u);
+});
+
+const BAD_CITATION = finalAnswer(JSON.stringify({ status: 'pass',
+  evidence: [{ path: 'src/app.ts', line: 1, snippet: 'export const app = 1; // the only export' }] }));
+
+/** A read-only task checked by command, then a final evidence review of src/app.ts. */
+function finalEvidencePlan(): OrchestratorPlan {
+  const evidence: OrchestratorVerificationCheck = { kind: 'evidence', instruction: 'Confirm app is 1.', paths: ['src/app.ts'] };
+  return { ...readOnlyPlan([PASSING_CHECK]), finalVerification: [evidence] };
+}
+
+test('a final review citing a snippet that is not in the file is re-asked once and the run completes', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-final-citation-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(finalEvidencePlan()));
+  engine.children.push(finalAnswer('app is 1.'));
+  engine.parent.push(BAD_CITATION);
+  engine.parent.push(finalAnswer(JSON.stringify({ status: 'pass',
+    evidence: [{ path: 'src/app.ts', line: 1, snippet: 'export const app = 1;' }] })));
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  assert.ok(events.some((event) => event.message.startsWith(
+    'Parent phase started: final verification; retrying after: Review evidence: src/app.ts:1 does not contain the cited snippet.')));
+  const finals = engine.prompts('parent').filter((prompt) => prompt.includes('\nPhase: final verification'));
+  assert.equal(finals.length, 2);
+  assert.match(finals[1] ?? '', /Your previous review was rejected:\n- Review evidence: src\/app\.ts:1 does not contain the cited snippet\./u);
+});
+
+test('a final review that cites badly twice fails the run as an unusable final review', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-final-citation-twice-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(finalEvidencePlan()));
+  engine.children.push(finalAnswer('app is 1.'));
+  engine.parent.push(BAD_CITATION, BAD_CITATION);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'failed');
+  assert.equal(state.failure?.code, 'final_review_invalid');
+  assert.match(state.failure?.message ?? '', /Review evidence: src\/app\.ts:1 does not contain the cited snippet\./u);
 });
 
 test('a plan whose check cannot run in the check shell is rejected and re-planned before any child starts', async (t) => {
@@ -611,9 +672,11 @@ test('the planner and the evidence reviewer are told which uncommitted changes p
 
   assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
   const [plan, review] = engine.prompts('parent');
-  const notice = /Uncommitted changes that predate this work \(not made by it; never count them against it\): src\/app\.ts/u;
-  assert.match(plan ?? '', notice);
-  assert.match(review ?? '', notice);
+  assert.match(plan ?? '', /Uncommitted changes that predate this run \(not made by it; never count them against it\): src\/app\.ts/u);
+  assert.ok((review ?? '').includes(
+    'Uncommitted changes that predate this run (not made by it; never count them against it): src/app.ts'), review);
+  assert.ok((review ?? '').includes('Uncommitted changes that predate this task, beyond those listed in the run context '
+    + '(not made by it; never count them against it): none'), review);
 });
 
 test('a reader that starts after the writer finished is still charged with its own change to the writer\'s file', async (t) => {
@@ -633,4 +696,27 @@ test('a reader that starts after the writer finished is still charged with its o
   assert.equal(state.failure?.code, 'implementation_failed');
   const readAttempt = state.attempts.find((attempt) => attempt.taskId === 'report');
   assert.deepEqual(readAttempt?.result?.scopeViolations, [TARGET]);
+});
+
+test('every parent phase reuses the run-start system context and run block, even after a writer adds a file', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-frozen-context-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(writePlan()));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...ESCALATING_VERDICTS, ...finalAnswer('Created.')]);
+  engine.parent.push(finalAnswer('{"decision":"approve","reason":"Creates the planned file inside its scope."}'));
+  engine.parent.push(APPROVE_CHECK);
+  engine.parent.push(driftReview('clean'));
+  engine.parent.push(APPROVE_CHECK);
+
+  const { state } = await followRun(context, (await startRun(context, 'auto')).runId);
+
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  const parents = engine.repoSearchRequests.filter((request) => request.taskKind === 'orchestrator');
+  assert.ok(parents.length >= 3, 'plan, approvals, and drift review');
+  const first = parents[0]?.systemContext;
+  assert.ok(first?.hasRepoFileListing, 'the orchestrator preset includes the listing');
+  assert.doesNotMatch(first.content, /greeting\.ts/u, 'snapshotted before the writer ran');
+  for (const request of parents) assert.equal(request.systemContext, first);
+  const blocks = parents.slice(1).map((request) => request.prompt.slice(0, request.prompt.indexOf('\nPhase: ')));
+  assert.ok(blocks.every((block) => block === blocks[0] && block.includes('Saved plan')));
 });

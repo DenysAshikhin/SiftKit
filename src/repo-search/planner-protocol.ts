@@ -18,7 +18,7 @@ import {
   serializeNetworkError,
 } from '../lib/provider-helpers.ts';
 import { buildInferenceJsonSchemaResponseFormat } from '../providers/structured-output-schema.ts';
-import { buildApprovalVerdictJsonSchema } from './approval-verdict.ts';
+import { ApprovalVerdictSchema } from './approval-verdict.ts';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
 import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.ts';
@@ -706,7 +706,7 @@ export async function requestApprovalVerdict(options: {
     activityObserver: options.activityObserver,
     cachePrefix: options.executing,
     stage: 'approval_verdict',
-    responseSchema: buildApprovalVerdictJsonSchema(),
+    responseSchema: buildPlannerJsonSchema(ApprovalVerdictSchema),
     responseSchemaName: 'siftkit_approval_verdict',
     tools: options.executing.tools,
     toolChoice: 'none',
@@ -722,6 +722,7 @@ export async function requestTerminalSynthesis(options: {
   executing: ExecutingPlannerRequest;
   timeoutMs: number;
   maxTokens: number;
+  responseConstraint: PlannerResponseConstraint;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
@@ -745,7 +746,7 @@ export async function requestTerminalSynthesis(options: {
     logger: options.logger,
     cachePrefix: options.executing,
     stage: 'terminal_synthesis',
-    responseSchema: null,
+    ...options.responseConstraint,
     tools: options.executing.tools,
     toolChoice: 'none',
     onContentDelta: options.onContentDelta,

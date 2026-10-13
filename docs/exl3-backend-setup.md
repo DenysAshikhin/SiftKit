@@ -2,13 +2,13 @@
 
 ## Installed deployment
 
-- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `production-upstream` tracking official `main` at `be74bf0a00bcb3a518e6feb7606f150c189be637` (2026-09-29 deployment).
-- ExLlamaV3 source: `C:\AI\exl3\dev-20261006\src`, branch `production-20261006` at `5b88e4a`. It contains upstream `dev` at `d68e8fb` (EXL3 1.5.4) plus two pending PRs merged: the Windows WDDM/NVML headroom patch ([#389](https://github.com/turboderp-org/exllamav3/pull/389), branch `fix/windows-wddm-loader-headroom`) and the CPU-MoE host-core affinity change (branch `feat/moe-cpu-host-affinity`, `28e84f9`). The source checkout records build provenance; the runtime imports the installed wheel. The previous source `C:\AI\exl3\prod-20260924\src` (branch `production-wddm-dev-20261006`, `9b17c0b` = `9f2f6f8` + WDDM) remains for rollback.
+- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `production-upstream` tracking official `main` at `2636ef602b55b5343cf3740dd55a77f21e0a8003` (2026-10-11 deployment; adds the `disk_cache_*` memory options). Roll back with `git checkout be74bf0` (2026-09-29).
+- ExLlamaV3 source: `C:\AI\exl3\dev-20261011\src`, branch `production-20261011` at `a1a91a8`. It contains upstream `dev` at `e7b0d2a` (EXL3 1.6.1, which includes the disk cache tier and the CPU-MoE host-core affinity) plus the Windows WDDM/NVML headroom patch ([#389](https://github.com/turboderp-org/exllamav3/pull/389), `5db9f89`) merged locally. The source checkout records build provenance; the runtime imports the installed wheel. The previous source `C:\AI\exl3\dev-20261006\src` (branch `production-20261006`, `5b88e4a`) remains for rollback.
 - Base interpreter: `C:\AI\exl3\python\cpython-3.14.7-windows-x86_64-none\python.exe`, installed without PATH or registry changes.
 - Python: `C:\AI\exl3\prod-20260924\venv-runtime\Scripts\python.exe` (`3.14.7`)
 - Torch: `2.14.0+cu132`; CUDA build: `13.2`
-- ExLlamaV3: `1.5.4`, built 2026-10-06 with `npm run exl3:build-wheel` (12 jobs, sm_89, CUDA 13.2.2) to `C:\AI\exl3\packages\prod\5b88e4a\exllamav3-1.5.4-cp314-cp314-win_amd64.whl` (SHA-256 `3525641b…57de7`; `build.json` records provenance). Its extension is `C:\AI\exl3\prod-20260924\venv-runtime\Lib\site-packages\exllamav3_ext.cp314-win_amd64.pyd` (SHA-256 `6dd75a33…a9b94`). Installed into `venv-runtime` on 2026-10-06; `pip check` clean. The `9f2f6f8` 1.5.4 wheel (previous production) and the `4a1f6e9` 1.5.3 wheel remain available for rollback.
-- Active preset: Swift 5 bpw, `exl3-3-8-27b-5bpw`; Flash Next remains saved as `exl3-3-8-27b`.
+- ExLlamaV3: `1.6.1`, built 2026-10-11 with `npm run exl3:build-wheel` (12 jobs, sm_89, CUDA 13.2.2) to `C:\AI\exl3\packages\prod\a1a91a8\exllamav3-1.6.1-cp314-cp314-win_amd64.whl` (SHA-256 `03bf0930…6b5`; `build.json` records provenance). Its extension is `C:\AI\exl3\prod-20260924\venv-runtime\Lib\site-packages\exllamav3_ext.cp314-win_amd64.pyd` (SHA-256 `a266c745…79d7`). Installed into `venv-runtime` on 2026-10-11; `pip check` clean. Swift 5 bpw and Flash Next passed a 46.8k-token prompt, streamed `cached_tokens` (46,592 on repeat) and a reload on 1.6.1. The `5b88e4a` 1.5.4 wheel (previous production) and the `9f2f6f8` 1.5.4 wheel remain available for rollback.
+- Presets: Swift 5 bpw `exl3-3-8-27b-5bpw` (repo-agent, repo-search); Flash Next `exl3-3-8-27b`; Flash Next 3.50bpw FP16 `exl3-3-8-next-3-5bpw` (orchestrator, active) and Q8 `exl3-3-8-next-3-5bpw-q8`.
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
 - Managed command: `C:\AI\exl3\prod-20260924\venv-runtime\Scripts\python.exe main.py`, with the Tabby checkout as its working directory and the active preset's `TABBY_*` overrides.
 - API: `http://127.0.0.1:8098/v1`
@@ -38,11 +38,15 @@ Identify presets by their model paths; labels can be misleading:
 
 | Model directory | Context | KV cache | Chunk | CPU-MoE experts | MTP |
 |---|---:|---|---:|---:|---|
-| `Swift-Qwen3.8-Flash-Next-4.00bpw_sc_h6_ng6` | 165000 | Q8 (`8,8`) | 2048 | 408 | Disabled |
+| `Swift-Qwen3.8-Flash-Next-4.00bpw_sc_h6_ng6` | 165000 | Q8 (`8,8`) | 2048 | 394 of 512 per layer | Dynamic, maximum 1 |
+| `Qwen3.8-Flash-Next-exl3-3.50bpw_hq_h6_ng6` (`exl3-3-8-next-3-5bpw`) | 165000 | FP16 | 2048 | 390 of 512 per layer | Dynamic, maximum 1 |
+| `Qwen3.8-Flash-Next-exl3-3.50bpw_hq_h6_ng6` (`exl3-3-8-next-3-5bpw-q8`) | 165000 | Q8 (`8,8`) | 2048 | 372 of 512 per layer | Dynamic, maximum 1 |
+
+Dedicated VRAM (Task Manager's counter, which includes other apps) must stay under 23.5 GiB under load, or WDDM slows the model sharply: at 368 experts offloaded, Q8 peaked at 23.50 GiB and prefill fell to ~350 tok/s and decode to ~7 tok/s. Measured peaks during a 46.8k-token prefill and a 512-token generation: f16 390 → 23.31 GiB (388 → 23.45); Q8 372 → 23.17 GiB (376 → 22.80, 380 → 22.43). The largest offload counts that load at all are f16 388 and Q8 368. Tune by peak, not by what loads; one expert per layer is ~101 MiB at 3.50 bpw.
 | `3.8_27b_sc_5.00bpw_h6` | 155000 | Q8 (`8,8`) | 1024 | 0 (dense) | Dynamic, maximum 3 |
 | `Swift-Qwen3.8-27b-5.00bpw-sc65` (active) | 149000 | Q8 (`8,8`) | 1024 | 0 (dense) | Dynamic, maximum 3 |
 
-All three saved presets enable vision with offload, set `NgramRam: false`, and reserve 4096 MiB of recurrent host cache. September 29 validation exercised the active Swift and Flash Next presets; the older 155k dense preset was preserved but not exercised.
+All saved presets enable vision with offload, set `NgramRam: false`, and reserve 4096 MiB of recurrent host cache. September 29 validation exercised the active Swift and Flash Next presets; the older 155k dense preset was preserved but not exercised.
 
 For these dense recurrent models, each extra draft position reserves approximately 144 MiB of main-model recurrent state per parallel slot, separately from the quantized KV cache. Dynamic drafting reduces work per round but reserves memory for its configured ceiling. The 16-token draft setting failed to load at 155k/Q8; four tokens loaded successfully, and the user subsequently chose three to leave more context headroom. Context limits were not increased automatically.
 
@@ -51,6 +55,24 @@ Tabby loads the model folder's `chat_template.jinja`. SiftKit forwards OpenAI `t
 ### Windows commit headroom for CPU-offloaded experts
 
 With `EXL3_MOE_PINNED_ARENA=1` the Flash Next preset's 408 CPU experts (45.2 GiB) live in named pagefile-backed sections, which charge Windows commit up front. exllamav3 preflights each 1 GiB chunk against free commit and fails before Windows would grow the pagefile (this machine: 16 MiB initial / 64000 MiB max on `D:`, so the commit limit tracks physical RAM). A successful load takes free commit from ~76 GB to ~2 GB (arena ~45 GB, Tabby ~26 GB private, worker ~2.4 GB), so the margin is thin: on 2026-10-06 one load with 76 GB free still failed at chunk 43 with `CPU MoE pinned arena: chunk N needs 1024 MiB, but only ... of commit are available`, and the immediate retry succeeded. The same check exists in 1.5.3. Free commit (close applications) or raise the pagefile's initial size before loading.
+
+On 2026-10-11 the desktop baseline alone held ~52 GB of commit and Flash Next ~78 GB more (arena ~46 GB, Tabby ~29 GB of which most is the WDDM charge backing its VRAM, workers ~4.5 GB), leaving ~2 GB. The CPU page cache (`CacheRam`) is one pinned mapping reserved at load, so `CacheRam` 4096 failed with `WinError 1450` (Windows' code for an uncommittable pagefile-backed section, even with 40+ GB of RAM free); 2048 fits, and loads still fail intermittently at arena chunk 42. A larger initial pagefile removes the limit without using RAM.
+
+### Persistent disk cache
+
+A preset's `DiskCacheDir` enables exllamav3's disk tier behind the CPU page cache, so `CacheRam` must be > 0. Pages and recurrent checkpoints go to `<dir>\<model fingerprint>\` (pages, states, `index.sqlite`), are flushed when the generator goes idle and on SiftKit's stop/switch (unload before terminate), and are read back by a later process. Presets sharing a directory must use the same `DiskCacheSizeMiB`, which budgets the whole root.
+
+Hybrid recurrent models resume only from a stored recurrent checkpoint, and the disk tier keeps checkpoints no closer than `DiskCacheCheckpointInterval` tokens. Orchestrator parent phases share a ~2–2.5k-token prefix, so at 4096 every first parent request after a swap got 0 cached tokens; at 2048 (the chunk size) it got 2048–4096. The default is therefore 2048; keep it at or below the chunk size for orchestrator presets.
+
+A failed engine start reports the engine's last Python exception line, for example `TabbyAPI exited unexpectedly (code=1, signal=null): RuntimeError: Insufficient VRAM in split for model and cache`. On WDDM an over-allocated load can instead surface as `RuntimeError: CUDA driver error: device not ready` (the driver could not create a GPU mapping).
+
+Validated 2026-10-11 with `D:\AI\exl3-disk-cache` (50 GiB budget), `CacheRam` 2048 and interval 2048 on both Flash Next presets, Swift 5 bpw (no disk cache) as repo-agent/repo-search:
+- A 46.8k-token prompt after a Tabby restart: 43,008 tokens from disk, 8.4 s vs 54–91 s cold.
+- Orchestrator runs that swapped parent ↔ worker several times: every first parent request after a swap back reused 2048–4096 tokens; no `disk_cache_flush_failed`. Each model's folder held ~3.2 GiB afterwards.
+- As orchestrator parent, Flash Next 4.00bpw/Q8 produced a valid plan in 1 of 4 runs (1 of 8 attempts); 3.50bpw hq/FP16 in 2 of 3 runs (3 of 5 attempts, no invalid payloads in other phases); 3.50bpw hq/Q8 also completed 2 of 3 runs (3 of 5 plan attempts) but had 6 invalid review/drift payloads and one run failed on a misquoted evidence line. FP16 KV is the better parent.
+- Since 2026-10-12 a parent answer that fails its schema gets one repair turn constrained by `response_format: json_schema` on the cached prefix (`task_answer_repair_requested` in the transcript), and final verification retries bad citations like task review. With 3.50bpw hq/FP16 as parent: 3 of 3 runs completed, 0 parent phase retries; 3 repairs in 20 parent calls, all schema-valid.
+  - With 3.50bpw hq/Q8 (372 CPU experts) as parent, the same test: 3 of 3 runs completed, 0 parent phase retries; 4 repairs in 21 parent calls, all schema-valid. FP16's repairs were wrong shapes; two of Q8's were broken JSON syntax (`Colon expected`). Neither had an invalid tool call. Peak VRAM 23,652 MiB.
+  - The constraint did not slow decoding: repair turns ran at 16.7 tok/s (FP16) and 11.6 tok/s (Q8), against 10.7 and 10.8 tok/s for normal turns, which include prefill. A repair costs a full rewrite of the answer, about 2.5 minutes for a whole plan.
 
 ### CPU-MoE host-core affinity
 
@@ -73,7 +95,7 @@ When `SleepIdleSeconds` elapses, SiftKit unloads the EXL3 model while leaving Ta
 ## Environment notes
 
 The production environment is a wheel install. The current wheel was built from
-`C:\AI\exl3\dev-20261006\src` and installed into the independent `venv-runtime`. Keep the old
+`C:\AI\exl3\dev-20261011\src` and installed into the independent `venv-runtime`. Keep the old
 `prod` environment intact for rollback. To rebuild, update the source from upstream `dev`,
 retain the required pending PRs, stop the managed runtime, then build with:
 

@@ -36,6 +36,7 @@ import type { MockPlannerResponseInput } from '../planner-protocol/mock-response
 import type {
   JsonLogger,
   RetainedWebToolCall,
+  RepoSearchAnswerSchema,
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
 } from './types.ts';
@@ -141,6 +142,7 @@ export function assertConfiguredModelPresent(model: string, availableModels: str
 export async function runRepoSearch(options: {
   repoRoot: string;
   systemContext: PresetSystemContext;
+  answerSchema?: RepoSearchAnswerSchema;
   taskKind: RepoSearchTaskKind;
   config?: SiftConfig;
   baseUrl?: string;
@@ -242,6 +244,7 @@ export async function runRepoSearch(options: {
       thinkingEnabledOverride: options.thinkingEnabledOverride,
       plannerToolDefinitions: options.plannerToolDefinitions,
       systemContext: options.systemContext,
+      answerSchema: options.answerSchema,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       retainedWebToolCalls: options.retainedWebToolCalls,

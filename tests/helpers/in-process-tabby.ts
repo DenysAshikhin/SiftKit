@@ -21,6 +21,10 @@ export type FakeTabbyOptions = {
   appliedMaxSeqLen?: number;
   /** `POST /v1/model/load` fails with 500 instead of loading. */
   rejectLoads?: boolean;
+  /** `POST /v1/model/unload` fails with 500. */
+  rejectUnloads?: boolean;
+  /** `POST /v1/model/unload` waits this long before answering, like a slow disk-cache drain. */
+  unloadDelayMs?: number;
   /** Announces MTP drafting when the launch asks for it; loguru writes to stderr by default. */
   mtpAnnouncement?: { stream: 'stdout' | 'stderr'; delayMs: number };
   startupLogLine?: string;
@@ -31,6 +35,10 @@ export type FakeTabbyOptions = {
   launchHangingProcess?: boolean;
   /** Logs `engineLogLine`, then exits with `exitCode` before serving. */
   exitAfterLog?: boolean;
+  /** Written to stderr before an `exitAfterLog` exit, like the last line of a Python traceback. */
+  exitStderrLine?: string;
+  /** With exitAfterLog: emits 'exit' first and writes exitStderrLine afterwards, as a real child's stderr can drain after its exit. */
+  stderrAfterExit?: boolean;
   exitCode?: number;
 };
 
@@ -126,6 +134,17 @@ class FakeTabbyProcess extends EventEmitter implements EngineProcess {
     server.closeAllConnections();
     server.close(() => finish());
   }
+
+  /** Exits before stderr drains: 'exit' fires, then `stderrLine` is written and the streams end. */
+  exitBeforeStderrDrains(code: number, stderrLine: string): void {
+    this.exitCode = code;
+    this.emit('exit', code, null);
+    setImmediate(() => {
+      this.stderr.write(`${stderrLine}\n`);
+      this.stdout.end();
+      this.stderr.end();
+    });
+  }
 }
 
 /**
@@ -137,6 +156,8 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
   readonly launches: EngineLaunchSpec[] = [];
   loadRequestCount = 0;
   modelProbeCount = 0;
+  /** 'unload' and 'terminate' in the order they happened. */
+  readonly events: string[] = [];
   private readonly processes: FakeTabbyProcess[] = [];
   private deferredLogReleased = false;
 
@@ -175,6 +196,7 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
   }
 
   terminate(engineProcess: EngineProcess): void {
+    this.events.push('terminate');
     for (const process of this.processes) if (process === engineProcess) process.exit(0);
   }
 
@@ -192,6 +214,11 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
     if (options.startupLogLine) process.stdout.write(`${options.startupLogLine}\n`);
     if (options.exitAfterLog) {
       if (options.engineLogLine) process.stdout.write(`${options.engineLogLine}\n`);
+      if (options.stderrAfterExit) {
+        process.exitBeforeStderrDrains(options.exitCode ?? 0, options.exitStderrLine ?? '');
+        return;
+      }
+      if (options.exitStderrLine) process.stderr.write(`${options.exitStderrLine}\n`);
       process.exit(options.exitCode ?? 0);
       return;
     }
@@ -276,6 +303,13 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
       return;
     }
     if (request.method === 'POST' && url === '/v1/model/unload') {
+      this.events.push('unload');
+      const unloadDelayMs = this.options.unloadDelayMs ?? 0;
+      if (unloadDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, unloadDelayMs));
+      if (this.options.rejectUnloads) {
+        sendJson(response, 500, { error: 'unload failed' });
+        return;
+      }
       card.current = null;
       sendJson(response, 200, { ok: true });
       return;

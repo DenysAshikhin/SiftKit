@@ -35,7 +35,9 @@ import type { SiftConfig } from '../config/types.ts';
 import { toError } from '../lib/errors.ts';
 import { ModelJson } from '../lib/model-json.ts';
 import type { z } from '../lib/zod.ts';
+import { buildPlannerJsonSchema } from '../planner-protocol/json-schema.ts';
 import { PresetCatalog } from '../preset-catalog.ts';
+import { PresetSystemContextBuilder, type PresetSystemContext } from '../preset-system-context.ts';
 import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
 import { readConfig } from '../status-server/config-store.ts';
 import type { OrchestratorLiveRun, RepositoryAccess, RepositoryLease } from '../status-server/orchestrator-runs.ts';
@@ -43,7 +45,12 @@ import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
 import type { ServerContext } from '../status-server/server-types.ts';
 import { findUnrunnableChecks } from './check-preflight.ts';
 import { buildDriftCorrectionWork, validateDriftReview } from './drift-review.ts';
-import { OrchestratorInfrastructureError, OrchestratorPhaseRunner, type OrchestratorPhaseLabel } from './phase-runner.ts';
+import {
+  ORCHESTRATOR_PHASE_ANSWER_NAMES,
+  OrchestratorInfrastructureError,
+  OrchestratorPhaseRunner,
+  type OrchestratorPhaseLabel,
+} from './phase-runner.ts';
 import { renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
 import {
   buildAttemptReviewPrompt,
@@ -53,9 +60,12 @@ import {
   buildDriftReviewPrompt,
   buildFinalVerificationPrompt,
   buildImplementationInstruction,
+  buildParentPrompt,
   buildPlanPreparationPrompt,
   describeRejection,
   type ImplementationRetryEvidence,
+  type PlanWorker,
+  type RunContext,
 } from './prompts.ts';
 import { isMutatingTask, selectTasksToStart, workerModelPreset } from './scheduler.ts';
 import { evaluateAttempt, findReviewEvidenceProblems, runVerificationCheck, unexecutedCheck } from './verification.ts';
@@ -83,10 +93,18 @@ type ParentReply<T> = { ok: true; answer: T } | { ok: false; problems: string[] 
 /** A task between its lease and its completion; a reader collects paths an overlapping writer changed. */
 type RunningTask = { task: OrchestratorTask; mutating: boolean; baseline: WorkspaceSnapshot; writerPaths: Set<string> };
 
+/** What the parent's evidence review covers: one task attempt, or the run's final verification. */
+type EvidenceReviewRequest =
+  | { kind: 'task'; running: RunningTask; child: ChildOutcome; checks: OrchestratorCheckResult[]; changedPaths: string[] }
+  | { kind: 'final'; checks: OrchestratorCheckResult[] };
+
 /** An answered approval the run continues with; an abort never returns. */
 type ContinuingDecision = Exclude<RepoAgentDecision, { decision: 'abort' }>;
 
 type PendingUserDecision = { approvalId: string; resolve(decision: RepoAgentDecision): void };
+
+/** Captured once before the plan: the parent's frozen system context and the checkout's dirty paths. */
+type RunStart = { systemContext: PresetSystemContext; dirtyPaths: string[] };
 
 /** A stop with a precise, stored diagnosis. */
 class OrchestratorRunFailure extends Error {
@@ -123,6 +141,8 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   private readonly runningTasks = new Set<RunningTask>();
   private registered = false;
   private state: OrchestratorRunState;
+  private readonly workers: PlanWorker[];
+  private runStart: RunStart | null = null;
 
   private readonly ctx: ServerContext;
   private readonly config: SiftConfig;
@@ -130,6 +150,9 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   private constructor(ctx: ServerContext, state: OrchestratorRunState, config: SiftConfig) {
     this.ctx = ctx;
     this.config = config;
+    this.workers = config.Presets
+      .filter((preset) => preset.presetKind === 'repo-agent' || preset.presetKind === 'repo-search')
+      .map((preset) => ({ preset, model: workerModelPreset(config, preset) }));
     this.runId = state.runId;
     this.state = state;
     this.phases = new OrchestratorPhaseRunner(ctx, config);
@@ -172,9 +195,17 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     return this.state.request;
   }
 
-  private requirePlan(): OrchestratorPlan {
-    if (this.state.plan === null) throw new Error('The plan must be saved before tasks run.');
-    return this.state.plan;
+  private requireRunStart(): RunStart {
+    if (this.runStart === null) throw new Error('The run start must be captured before any parent phase.');
+    return this.runStart;
+  }
+
+  /** The block every parent prompt starts with; every phase after plan preparation requires the saved plan. */
+  private runContext(label: OrchestratorPhaseLabel): RunContext {
+    const { plan, planPath, planHash } = this.state;
+    const saved = plan === null || planPath === null || planHash === null ? null : { path: planPath, hash: planHash, plan };
+    if (saved === null && label !== 'plan preparation') throw new Error(`The plan must be saved before the ${label} phase.`);
+    return { task: this.request.task, workers: this.workers, preexistingDirtyPaths: this.requireRunStart().dirtyPaths, plan: saved };
   }
 
   // ---- lifecycle ----
@@ -183,6 +214,11 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   private async execute(): Promise<void> {
     let failure: Error | null = null;
     try {
+      this.runStart = {
+        systemContext: new PresetSystemContextBuilder(this.request.repoRoot)
+          .build(PresetCatalog.fromPresets(this.config.Presets).requireById(this.request.presetId)),
+        dirtyPaths: [...(await captureWorkspace(this.request.repoRoot)).keys()],
+      };
       const plan = await this.preparePlan();
       await this.executeTasks(plan);
       await this.verifyFinal(plan);
@@ -245,8 +281,9 @@ export class OrchestratorRun implements OrchestratorLiveRun {
    * One parent answer, each try committed as a phase. An infrastructure failure is retried once and then ends
    * the run; an unusable answer comes back as its problems, which `rejected` carries into the next ask.
    */
-  private async askParent<T>(label: OrchestratorPhaseLabel, prompt: string, schema: z.ZodType<T>,
+  private async askParent<T>(label: OrchestratorPhaseLabel, phasePrompt: string, schema: z.ZodType<T>,
     rejected: readonly string[]): Promise<ParentReply<T>> {
+    const prompt = buildParentPrompt(this.runContext(label), phasePrompt, buildPlannerJsonSchema(schema));
     let retryReason = rejected.length === 0 ? null : rejected.join(' ');
     for (let attempt = 1; ; attempt += 1) {
       const phaseRunId = randomUUID();
@@ -255,7 +292,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
       let output: string;
       try {
         output = await this.phases.infer({ runId: this.runId, phaseRunId, presetId: this.request.presetId,
-          repoRoot: this.request.repoRoot, abortSignal: this.signal }, prompt, label);
+          repoRoot: this.request.repoRoot, systemContext: this.requireRunStart().systemContext, abortSignal: this.signal }, prompt, label, schema);
       } catch (error) {
         this.signal.throwIfAborted();
         if (!(error instanceof OrchestratorInfrastructureError)) return { ok: false, problems: [toError(error).message] };
@@ -266,7 +303,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
         continue;
       }
       try {
-        return { ok: true, answer: ModelJson.parseObject(output, schema, label) };
+        return { ok: true, answer: ModelJson.parseObject(output, schema, ORCHESTRATOR_PHASE_ANSWER_NAMES[label]) };
       } catch (error) {
         return { ok: false, problems: [toError(error).message] };
       }
@@ -281,18 +318,13 @@ export class OrchestratorRun implements OrchestratorLiveRun {
 
   private async preparePlan(): Promise<OrchestratorPlan> {
     const supplied = this.request.planPath === null ? null : readSuppliedPlan(this.request.repoRoot, this.request.planPath);
-    const workers = this.config.Presets
-      .filter((preset) => preset.presetKind === 'repo-agent' || preset.presetKind === 'repo-search')
-      .map((preset) => ({ preset, model: workerModelPreset(this.config, preset) }));
-    const preexistingDirtyPaths = [...(await captureWorkspace(this.request.repoRoot)).keys()];
     let rejected: string[] = [];
     for (let attempt = 1; attempt <= PARENT_PHASE_ATTEMPTS; attempt += 1) {
       const lease = await this.acquireRepository('shared');
       let reply: ParentReply<OrchestratorPlanPreparation>;
       try {
         reply = await this.askParent('plan preparation', buildPlanPreparationPrompt({
-          task: this.request.task, planPath: supplied?.path ?? null, planMarkdown: supplied?.markdown ?? null, workers,
-          preexistingDirtyPaths, rejectedProblems: rejected,
+          planPath: supplied?.path ?? null, planMarkdown: supplied?.markdown ?? null, rejectedProblems: rejected,
         }), OrchestratorPlanPreparationSchema, rejected);
       } finally {
         lease.release();
@@ -477,7 +509,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     const changes = await this.taskChanges(running);
     const scopeViolations = findScopeViolations(changes.paths, writePaths);
     const review = checks.some((check) => check.check.kind === 'evidence')
-      ? await this.reviewEvidence(running, child, checks, changes.paths)
+      ? await this.askEvidenceReview({ kind: 'task', running, child, checks, changedPaths: changes.paths })
       : null;
     const { findings } = evaluateAttempt({ repoRoot: this.request.repoRoot, workerStatus: child.workerStatus, checks, scopeViolations,
       review });
@@ -490,19 +522,35 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     return { result, findings };
   }
 
-  /** The parent's evidence review. Its own unusable answers and bad citations are retried here, never charged to the worker. */
-  private async reviewEvidence(running: RunningTask, child: ChildOutcome, checks: OrchestratorCheckResult[],
-    changedPaths: string[]): Promise<OrchestratorTaskReview> {
-    const { task } = running;
+  /** The parent's evidence review. Its own unusable answers and bad citations are retried here, never charged to the work. */
+  private async askEvidenceReview(review: EvidenceReviewRequest): Promise<OrchestratorTaskReview> {
     let rejected: string[] = [];
+    let described = this.describeEvidenceReview(review, rejected);
     for (let attempt = 1; attempt <= PARENT_PHASE_ATTEMPTS; attempt += 1) {
-      const reply = await this.askParent('task review', buildAttemptReviewPrompt({ task,
-        result: { workerOutput: child.output, checks, changedPaths }, preexistingDirtyPaths: [...running.baseline.keys()],
-        rejectedProblems: rejected }), OrchestratorTaskReviewSchema, rejected);
+      described = this.describeEvidenceReview(review, rejected);
+      const reply = await this.askParent(described.label, described.prompt, OrchestratorTaskReviewSchema, rejected);
       rejected = reply.ok ? findReviewEvidenceProblems(this.request.repoRoot, reply.answer) : reply.problems;
       if (reply.ok && rejected.length === 0) return reply.answer;
     }
-    throw fail('task_review_invalid', `Task '${task.id}' evidence review was unusable: ${rejected.join(' ')}`, { taskId: task.id });
+    throw fail(described.failureCode, `${described.subject} was unusable: ${rejected.join(' ')}`, { taskId: described.taskId });
+  }
+
+  /** One evidence review's phase, prompt, and the failure it ends in when no answer is usable. */
+  private describeEvidenceReview(review: EvidenceReviewRequest, rejectedProblems: readonly string[]):
+    { label: OrchestratorPhaseLabel; prompt: string; failureCode: OrchestratorFailureCode; subject: string; taskId: string | null } {
+    switch (review.kind) {
+      case 'task': {
+        const { task, baseline } = review.running;
+        const runDirty = new Set(this.requireRunStart().dirtyPaths);
+        return { label: 'task review', failureCode: 'task_review_invalid', subject: `Task '${task.id}' evidence review`, taskId: task.id,
+          prompt: buildAttemptReviewPrompt({ task, result: { workerOutput: review.child.output, checks: review.checks,
+            changedPaths: review.changedPaths }, preexistingDirtyPaths: [...baseline.keys()].filter((path) => !runDirty.has(path)),
+            rejectedProblems }) };
+      }
+      case 'final':
+        return { label: 'final verification', failureCode: 'final_review_invalid', subject: 'The final evidence review', taskId: null,
+          prompt: buildFinalVerificationPrompt({ checks: review.checks, rejectedProblems }) };
+    }
   }
 
   private async superviseChild(task: OrchestratorTask, attempt: OrchestratorAttempt, instruction: string): Promise<ChildOutcome> {
@@ -624,7 +672,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     if (this.request.approval === 'off') return null;
     const decision = await this.answerApproval(
       { kind: 'check', approvalId: randomUUID(), taskId: task?.id ?? null, command: check.command, cwd: check.cwd },
-      buildCheckApprovalPrompt({ goal: this.requirePlan().goal, task, check }),
+      buildCheckApprovalPrompt({ task, check }),
     );
     return decision.decision === 'deny' ? decision.reason : null;
   }
@@ -713,11 +761,9 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     const lease = await this.acquireRepository('exclusive');
     try {
       const checks = await this.runChecks(plan.finalVerification, null);
-      const reply = checks.some((check) => check.check.kind === 'evidence')
-        ? await this.askParent('final verification', buildFinalVerificationPrompt({ goal: plan.goal, checks }), OrchestratorTaskReviewSchema, [])
+      const review = checks.some((check) => check.check.kind === 'evidence')
+        ? await this.askEvidenceReview({ kind: 'final', checks })
         : null;
-      if (reply !== null && !reply.ok) throw fail('final_review_invalid', `The final evidence review was unusable: ${reply.problems.join(' ')}`);
-      const review = reply === null ? null : reply.answer;
       const evaluation = evaluateAttempt({ repoRoot: this.request.repoRoot, workerStatus: 'completed', checks, scopeViolations: [], review });
       if (!evaluation.passed) throw fail('final_verification_failed', `Final verification failed: ${evaluation.findings.join(' ')}`);
     } finally {

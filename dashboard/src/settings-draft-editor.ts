@@ -40,7 +40,7 @@ export type PresetStringField = 'label' | 'description' | 'promptPrefix';
 export type PresetBooleanField =
   | 'includeAgentsMd' | 'includeRepoFileListing' | 'repoRootRequired' | 'assistantMemory';
 export type ModelStringField = 'label';
-export type ModelNullableStringField = 'Model' | 'BaseUrl' | 'ModelPath' | 'ReasoningBudgetMessage';
+export type ModelNullableStringField = 'Model' | 'BaseUrl' | 'ModelPath' | 'ReasoningBudgetMessage' | 'DiskCacheDir';
 export type ModelIntegerField =
   | 'NumCtx'
   | 'CompactionReserveTokens'
@@ -49,6 +49,8 @@ export type ModelIntegerField =
   | 'UBatchSize'
   | 'CacheRam'
   | 'CacheRecurrentRam'
+  | 'DiskCacheSizeMiB'
+  | 'DiskCacheCheckpointInterval'
   | 'TopK'
   | 'SpeculativeDraftMax'
   | 'ReasoningBudget'

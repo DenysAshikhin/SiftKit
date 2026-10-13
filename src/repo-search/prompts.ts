@@ -418,6 +418,15 @@ export function buildTerminalSynthesisInstruction(reason: string): string {
   ].join('\n');
 }
 
+// Re-asks for a final answer that failed its schema; the caller constrains the reply format.
+export function buildAnswerRepairInstruction(problems: readonly string[]): string {
+  return [
+    'Your final answer above could not be used:',
+    ...problems.map((problem) => `- ${problem}`),
+    'Reply with only the corrected answer as one JSON object in the required format, keeping its content.',
+  ].join('\n');
+}
+
 /**
  * The context-compaction instruction. It is appended after the conversation it summarizes;
  * that history is about to be deleted and replaced by the model's answer, so the sections

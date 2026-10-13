@@ -32,10 +32,11 @@ import {
   type CompactionCacheOrigin,
   type ExecutingPlannerRequest,
   type PlannerActionResponse,
+  type PlannerResponseConstraint,
   type PlannerThinkingFlags,
 } from '../planner-protocol.ts';
 import type { ChatMessage } from '../planner-chat-message.ts';
-import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.ts';
+import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../../planner-protocol/json-schema.ts';
 import {
   RepoSearchActionAdapter,
   RepoSearchPlannerModelClient,
@@ -44,8 +45,10 @@ import {
   RepoSearchToolAdapter,
 } from '../agent-loop-adapter.ts';
 import {
+  buildAnswerRepairInstruction,
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt,
+  buildTerminalSynthesisInstruction,
   type TaskCommand,
 } from '../prompts.ts';
 import { evaluateFinishAttempt } from '../../tool-loop-governor.ts';
@@ -55,6 +58,7 @@ import {
 } from '../chat-grounding-policy.ts';
 import { WebResearchTools } from '../../web-search/web-research-tools.ts';
 import { throwIfAborted } from '../../lib/abort.ts';
+import { toError } from '../../lib/errors.ts';
 import { SilentProgressWriter } from '../../lib/progress-writer.ts';
 import { DuplicateTracker } from './duplicate-tracker.ts';
 import { ForcedFinishController } from './forced-finish.ts';
@@ -68,6 +72,7 @@ import {
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
   describeStreamTruncation,
+  findAnswerSchemaProblem,
   isPlannerMaintainPerStepThinkingEnabled,
   isToolBudgetSpent,
   POST_LIMIT_ANSWER_SLACK_TURNS,
@@ -848,37 +853,13 @@ export class TaskLoop {
   }
 
   async buildAgentLoopResult(): Promise<TaskResult> {
+    const answerSchema = this.options.answerSchema;
     // Terminal synthesis if no final output — retry up to 3 times then hard-fail.
     if (!String(this.finalOutput || '').trim()) {
-      const synthesizer = new TerminalSynthesizer({
-        baseUrl: this.options.baseUrl,
-        model: this.options.model,
-        timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
-        config: this.options.config,
-        useEstimatedTokensOnly: this.useEstimatedTokensOnly,
-        totalContextTokens: this.budget.totalContextTokens,
-        streamFinishAsAnswer: this.streamFinishAsAnswer,
-        logger: this.options.logger || null,
-        progress: this.progress,
-        tokenUsage: this.tokenUsage,
-        throughputAudit: this.options.throughputAudit,
-      });
-      const executing = this.executingPlannerRequest;
-      if (!executing) {
-        throw new Error('terminal_synthesis requires an executing planner prompt-cache prefix');
-      }
-      const synthesis = await synthesizer.synthesize({
-        taskId: this.task.id,
-        reason: this.counters.reason,
-        messages: this.transcript.getMessages(),
-        executing,
-        turnsUsed: this.turnsUsed,
-        mockResponses: this.options.mockResponses,
-        mockResponseIndex: this.mockResponseIndex,
-      });
-      this.finalOutput = synthesis.finalOutput;
-      this.transcript.pushAssistant({ role: 'assistant', content: synthesis.finalOutput });
-      this.mockResponseIndex = synthesis.nextMockResponseIndex;
+      await this.synthesizeFinalOutput(this.counters.reason, buildTerminalSynthesisInstruction(this.counters.reason));
+    } else if (answerSchema !== undefined) {
+      const problem = findAnswerSchemaProblem(this.finalOutput, answerSchema);
+      if (problem !== null) await this.repairFinalOutput(problem);
     }
 
     this.options.logger?.write({
@@ -897,6 +878,56 @@ export class TaskLoop {
       toolStats: this.toolStats.snapshot(),
       readOverlapSummary: this.readWindows.summary(),
     };
+  }
+
+  /** One constrained repair turn; if it fails, the original answer stands for the caller's own parse to reject. */
+  private async repairFinalOutput(problem: string): Promise<void> {
+    this.options.logger?.write({ kind: 'task_answer_repair_requested', taskId: this.task.id, problem });
+    try {
+      await this.synthesizeFinalOutput('answer_repair', buildAnswerRepairInstruction([problem]));
+    } catch (error) {
+      throwIfAborted(this.options.abortSignal);
+      this.options.logger?.write({ kind: 'task_answer_repair_failed', taskId: this.task.id, error: toError(error).message });
+    }
+  }
+
+  /** Replaces the final output with one terminal synthesis turn on the cached prefix, constrained to the answer schema. */
+  private async synthesizeFinalOutput(reason: string, instruction: string): Promise<void> {
+    const answerSchema = this.options.answerSchema;
+    const responseConstraint: PlannerResponseConstraint = answerSchema === undefined
+      ? { responseSchema: null }
+      : { responseSchema: buildPlannerJsonSchema(answerSchema.schema), responseSchemaName: answerSchema.name };
+    const synthesizer = new TerminalSynthesizer({
+      baseUrl: this.options.baseUrl,
+      model: this.options.model,
+      timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
+      config: this.options.config,
+      useEstimatedTokensOnly: this.useEstimatedTokensOnly,
+      totalContextTokens: this.budget.totalContextTokens,
+      streamFinishAsAnswer: this.streamFinishAsAnswer,
+      logger: this.options.logger || null,
+      progress: this.progress,
+      tokenUsage: this.tokenUsage,
+      throughputAudit: this.options.throughputAudit,
+    });
+    const executing = this.executingPlannerRequest;
+    if (!executing) {
+      throw new Error('terminal_synthesis requires an executing planner prompt-cache prefix');
+    }
+    const synthesis = await synthesizer.synthesize({
+      taskId: this.task.id,
+      reason,
+      instruction,
+      responseConstraint,
+      messages: this.transcript.getMessages(),
+      executing,
+      turnsUsed: this.turnsUsed,
+      mockResponses: this.options.mockResponses,
+      mockResponseIndex: this.mockResponseIndex,
+    });
+    this.finalOutput = synthesis.finalOutput;
+    this.transcript.pushAssistant({ role: 'assistant', content: synthesis.finalOutput });
+    this.mockResponseIndex = synthesis.nextMockResponseIndex;
   }
 
   turnTokenRecords(): readonly TurnTokenRecord[] {

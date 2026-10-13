@@ -182,6 +182,15 @@ export function ModelPresetsSection({
           <ModelPresetControl preset={preset} field="CacheRecurrentRam" label="CacheRecurrentRam">
             <input type="number" value={preset.CacheRecurrentRam} onChange={(event) => modelPresetActions.setInteger('CacheRecurrentRam', parseIntegerInput(event.target.value, preset.CacheRecurrentRam))} />
           </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="DiskCacheDir" label="Disk cache directory">
+            <input value={preset.DiskCacheDir || ''} placeholder="Off" onChange={(event) => modelPresetActions.setNullableString('DiskCacheDir', event.target.value.trim() === '' ? null : event.target.value)} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="DiskCacheSizeMiB" label="Disk cache size (MiB)">
+            <input type="number" min={1} value={preset.DiskCacheSizeMiB} onChange={(event) => modelPresetActions.setInteger('DiskCacheSizeMiB', parseIntegerInput(event.target.value, preset.DiskCacheSizeMiB))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="DiskCacheCheckpointInterval" label="Disk checkpoint spacing">
+            <input type="number" min={1} value={preset.DiskCacheCheckpointInterval} onChange={(event) => modelPresetActions.setInteger('DiskCacheCheckpointInterval', parseIntegerInput(event.target.value, preset.DiskCacheCheckpointInterval))} />
+          </ModelPresetControl>
           <ModelPresetControl preset={preset} field="NgramRam" label={NGRAM_RAM_LABEL}>
             <label className="settings-live-toggle-control">
               <input

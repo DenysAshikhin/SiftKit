@@ -7,7 +7,8 @@ import {
 } from '../src/repo-search/planner-protocol.ts';
 import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.ts';
-import { buildApprovalVerdictJsonSchema } from '../src/repo-search/approval-verdict.ts';
+import { ApprovalVerdictSchema } from '../src/repo-search/approval-verdict.ts';
+import { buildPlannerJsonSchema } from '../src/planner-protocol/json-schema.ts';
 import { ApprovalModeSchema } from '@siftkit/contracts';
 import { RepoSearchApprovalRequestSchema } from '../src/repo-search/engine/approval-gate.ts';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.ts';
@@ -68,8 +69,8 @@ test('approval submissions discard reviewer payloads', () => {
   );
 });
 
-test('buildApprovalVerdictJsonSchema constrains verdict to approve|deny|unsure', () => {
-  assert.deepEqual(buildApprovalVerdictJsonSchema(), {
+test('the approval verdict JSON schema constrains verdict to approve|deny|unsure', () => {
+  assert.deepEqual(buildPlannerJsonSchema(ApprovalVerdictSchema), {
     type: 'object',
     properties: {
       verdict: { type: 'string', enum: ['approve', 'deny', 'unsure'] },

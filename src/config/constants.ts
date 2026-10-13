@@ -34,6 +34,9 @@ export const SIFT_DEFAULT_ENGINE_UBATCH_SIZE = 512;
 export const SIFT_DEFAULT_ENGINE_CACHE_RAM = 8192;
 /** MB of host RAM exllamav3 reserves for recurrent (linear-attention) states; mirrors TabbyAPI's own default. */
 export const SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM = 4096;
+export const SIFT_DEFAULT_EXL3_DISK_CACHE_SIZE_MIB = 51_200;
+/** Orchestrator phases share a ~2k-token prefix and a hybrid model resumes only from a stored checkpoint. */
+export const SIFT_DEFAULT_EXL3_DISK_CACHE_CHECKPOINT_INTERVAL = 2_048;
 export const SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION = 'f16';
 export const SIFT_DEFAULT_ENGINE_REASONING_BUDGET = 10_000;
 export const SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';

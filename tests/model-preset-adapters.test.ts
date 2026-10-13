@@ -10,7 +10,7 @@ import {
   type ModelPresetField,
 } from '@siftkit/contracts';
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
-import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.ts';
+import { Exl3LaunchEnvironmentSchema, Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.ts';
 import {
   buildPresetRequestDefaults,
   getExl3CacheModes,
@@ -138,6 +138,31 @@ test('EXL3 adapter disables dynamic drafting when the preset opts out', () => {
   });
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DYNAMIC_DRAFT, 'false');
+});
+
+test('EXL3 adapter emits the disk cache only for a preset that sets a directory', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const exl3Preset = createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' });
+  const off = adapter.buildLaunchEnvironment({ ...exl3Preset, DiskCacheDir: null });
+  assert.equal(off.TABBY_MEMORY_DISK_CACHE_DIR, undefined);
+  assert.equal(off.TABBY_MEMORY_DISK_CACHE_SIZE, undefined);
+  assert.equal(off.TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL, undefined);
+  const on = adapter.buildLaunchEnvironment({ ...exl3Preset, CacheRam: 4096, DiskCacheDir: 'D:\\AI\\exl3-disk-cache',
+    DiskCacheSizeMiB: 51200, DiskCacheCheckpointInterval: 2048 });
+  assert.equal(on.TABBY_MEMORY_DISK_CACHE_DIR, 'D:\\AI\\exl3-disk-cache');
+  assert.equal(on.TABBY_MEMORY_DISK_CACHE_SIZE, '51200');
+  assert.equal(on.TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL, '2048');
+});
+
+test('the EXL3 launch environment rejects a partial disk-cache variable set', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const exl3Preset = createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' });
+  const on = adapter.buildLaunchEnvironment({ ...exl3Preset, CacheRam: 4096, DiskCacheDir: 'D:\\AI\\exl3-disk-cache' });
+  const { TABBY_MEMORY_DISK_CACHE_SIZE, ...withoutSize } = on;
+  assert.equal(Exl3LaunchEnvironmentSchema.safeParse(withoutSize).success, false, 'a directory without a size');
+  const off = adapter.buildLaunchEnvironment({ ...exl3Preset, DiskCacheDir: null });
+  const dirOnly = { ...off, TABBY_MEMORY_DISK_CACHE_DIR: 'D:\\AI\\exl3-disk-cache' };
+  assert.equal(Exl3LaunchEnvironmentSchema.safeParse(dirOnly).success, false, 'a directory alone');
 });
 
 test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => {
@@ -329,6 +354,9 @@ const PRESET_FIELD_EXPECTATIONS = {
   UBatchSize: ALWAYS,
   CacheRam: MANAGED_ONLY,
   CacheRecurrentRam: MANAGED_ONLY,
+  DiskCacheDir: MANAGED_ONLY,
+  DiskCacheSizeMiB: MANAGED_ONLY,
+  DiskCacheCheckpointInterval: MANAGED_ONLY,
   NgramRam: MANAGED_ONLY,
   KvCacheQuantization: ALWAYS,
 

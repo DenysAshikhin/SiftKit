@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { parseJsonValueText } from '../src/lib/json.ts';
+import { z } from '../src/lib/zod.ts';
 import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.ts';
 import { asObject, asArray, asObjectArray, getAddressInfo } from './helpers/dashboard-http.ts';
 
@@ -1443,6 +1444,138 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
+});
+
+const ANSWER_CHECK_SCHEMA = z.object({ verdict: z.enum(['pass', 'fail']), notes: z.string() });
+const ANSWER_CHECK = { name: 'answer_check', schema: ANSWER_CHECK_SCHEMA };
+const { $schema: _answerCheckDialect, ...ANSWER_CHECK_JSON_SCHEMA } = z.toJSONSchema(ANSWER_CHECK_SCHEMA, { io: 'input' });
+const VALID_ANSWER_CHECK = '{"verdict":"pass","notes":"all good"}';
+
+/** Runs one task against a server that replies with `replies` in order; records request bodies and log events. */
+async function runAnswerSchemaTask(input: {
+  replies: readonly string[];
+  answerSchema?: typeof ANSWER_CHECK;
+}): Promise<{ finalOutput: string; reason: string; chatRequests: JsonObject[]; events: JsonObject[] }> {
+  const chatRequests: JsonObject[] = [];
+  const events: JsonObject[] = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        chatRequests.push(JsonObjectSchema.parse(parseJsonValueText(body || '{}')));
+        const content = input.replies[chatRequests.length - 1] ?? '';
+        sendChatCompletionSse(res, {
+          choices: [{ message: { role: 'assistant', content } }],
+          usage: DONT_CARE_TABBY_USAGE,
+        });
+      });
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  try {
+    const result = await runTaskLoop(
+      { id: 'task-answer-schema', question: 'Check the answer.' },
+      {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
+        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
+        repoRoot: process.cwd(),
+        systemContext: createEmptyPresetSystemContext(),
+        baseUrl,
+        model: 'mock-model',
+        config: mockSiftConfig({
+          Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 70000, Reasoning: 'off' }] } },
+        }),
+        maxTurns: 1,
+        maxInvalidResponses: 1,
+        minToolCallsBeforeFinish: 0,
+        answerSchema: input.answerSchema,
+        logger: { path: 'test', write(event) { events.push(JsonObjectSchema.parse(event)); } },
+      },
+    );
+    return { finalOutput: result.finalOutput, reason: result.reason, chatRequests, events };
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+}
+
+function lastUserMessageText(request: JsonObject | undefined): string {
+  const messages = asObjectArray(asObject(request).messages);
+  const last = asObject(messages[messages.length - 1]);
+  assert.equal(last.role, 'user');
+  return String(last.content);
+}
+
+test('runTaskLoop keeps a finishing answer that parses to its answer schema', async () => {
+  const run = await runAnswerSchemaTask({ replies: [VALID_ANSWER_CHECK], answerSchema: ANSWER_CHECK });
+  assert.equal(run.reason, 'finish');
+  assert.equal(run.finalOutput, VALID_ANSWER_CHECK);
+  assert.equal(run.chatRequests.length, 1);
+  assert.equal(run.events.some((event) => event.kind === 'task_answer_repair_requested'), false);
+});
+
+for (const [label, badAnswer, problemPattern] of [
+  ['prose', 'The verdict is pass, all good.', /Provider returned an invalid answer_check payload/u],
+  ['wrong shape', '{"verdict":"maybe","notes":"all good"}', /Provider returned an invalid answer_check payload: .*verdict/su],
+] as const) {
+  test(`runTaskLoop repairs a finishing answer that fails its answer schema (${label}) with one constrained turn`, async () => {
+    const run = await runAnswerSchemaTask({ replies: [badAnswer, VALID_ANSWER_CHECK], answerSchema: ANSWER_CHECK });
+    assert.equal(run.reason, 'finish');
+    assert.equal(run.finalOutput, VALID_ANSWER_CHECK);
+    assert.equal(run.chatRequests.length, 2);
+    const repairRequest = asObject(run.chatRequests[1]);
+    assert.deepEqual(repairRequest.response_format, {
+      type: 'json_schema',
+      json_schema: { name: 'answer_check', strict: true, schema: ANSWER_CHECK_JSON_SCHEMA },
+    });
+    const instruction = lastUserMessageText(repairRequest);
+    assert.match(instruction, /^Your final answer above could not be used:\n- /u);
+    assert.match(instruction, problemPattern);
+    const repairEvents = run.events.filter((event) => event.kind === 'task_answer_repair_requested');
+    assert.equal(repairEvents.length, 1);
+    assert.equal(repairEvents[0]?.taskId, 'task-answer-schema');
+    assert.match(String(repairEvents[0]?.problem), problemPattern);
+  });
+}
+
+test('runTaskLoop keeps the original answer when its repair synthesis fails', async () => {
+  const run = await runAnswerSchemaTask({ replies: ['not json at all', '', '', ''], answerSchema: ANSWER_CHECK });
+  assert.equal(run.reason, 'finish');
+  assert.equal(run.finalOutput, 'not json at all');
+  assert.equal(run.events.filter((event) => event.kind === 'task_answer_repair_requested').length, 1);
+  const failedEvents = run.events.filter((event) => event.kind === 'task_answer_repair_failed');
+  assert.equal(failedEvents.length, 1);
+  assert.match(String(failedEvents[0]?.error), /Terminal synthesis produced no usable output/u);
+  const synthesisFailed = run.events.filter((event) => event.kind === 'task_terminal_synthesis_failed');
+  assert.equal(synthesisFailed.length, 1);
+  assert.equal(synthesisFailed[0]?.reason, 'answer_repair');
+});
+
+test('runTaskLoop constrains terminal synthesis to the answer schema when the task never finishes', async () => {
+  const run = await runAnswerSchemaTask({ replies: ['', VALID_ANSWER_CHECK], answerSchema: ANSWER_CHECK });
+  assert.equal(run.reason, 'invalid_response_limit');
+  assert.equal(run.finalOutput, VALID_ANSWER_CHECK);
+  assert.equal(run.chatRequests.length, 2);
+  assert.deepEqual(asObject(run.chatRequests[1]).response_format, {
+    type: 'json_schema',
+    json_schema: { name: 'answer_check', strict: true, schema: ANSWER_CHECK_JSON_SCHEMA },
+  });
+  assert.match(lastUserMessageText(run.chatRequests[1]), /^The run stopped before producing a final answer/u);
+});
+
+test('runTaskLoop without an answer schema neither repairs nor constrains', async () => {
+  const finished = await runAnswerSchemaTask({ replies: ['The verdict is pass, all good.'] });
+  assert.equal(finished.finalOutput, 'The verdict is pass, all good.');
+  assert.equal(finished.chatRequests.length, 1);
+  const synthesized = await runAnswerSchemaTask({ replies: ['', 'best-effort answer'] });
+  assert.equal(synthesized.finalOutput, 'best-effort answer');
+  assert.equal('response_format' in asObject(synthesized.chatRequests[1]), false);
 });
 
 test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_result', async () => {

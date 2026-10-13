@@ -553,6 +553,31 @@ test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid
   assert.equal(bogus.ReasoningEffort, 'xhigh');
 });
 
+test('a stored preset without disk-cache fields reads back with the disk tier off and default sizes', () => {
+  const legacy = normalizeModelRuntimePresetRecord(
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', IdleAction: 'unload' },
+    'legacy',
+    'Legacy',
+  );
+  assert.equal(legacy.DiskCacheDir, null);
+  assert.equal(legacy.DiskCacheSizeMiB, 51200);
+  assert.equal(legacy.DiskCacheCheckpointInterval, 2048);
+
+  const padded = normalizeModelRuntimePresetRecord(
+    { id: 'disk', label: 'Disk', Backend: 'exl3', IdleAction: 'unload', DiskCacheDir: '  D:\\cache  ' },
+    'disk',
+    'Disk',
+  );
+  assert.equal(padded.DiskCacheDir, 'D:\\cache');
+
+  const explicit = normalizeModelRuntimePresetRecord(
+    { id: 'spaced', label: 'Spaced', Backend: 'exl3', IdleAction: 'unload', DiskCacheCheckpointInterval: 4096 },
+    'spaced',
+    'Spaced',
+  );
+  assert.equal(explicit.DiskCacheCheckpointInterval, 4096);
+});
+
 test('the default model preset ships ReasoningEffort xhigh', () => {
   const [preset] = getDefaultConfig().Server.ModelPresets.Presets;
   assert.equal(preset.ReasoningEffort, 'xhigh');

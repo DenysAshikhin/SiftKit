@@ -59,6 +59,9 @@ test('settings tooltip labels include the documented fields', () => {
       'UBatchSize',
       'CacheRam',
       'CacheRecurrentRam',
+      'Disk cache directory',
+      'Disk cache size (MiB)',
+      'Disk checkpoint spacing',
       NGRAM_RAM_LABEL,
       'KV cache quant',
       'Temperature',
@@ -101,6 +104,13 @@ test('every integrated settings field includes help text', () => {
       assert.ok(field.helpText.trim().length > 0, `${sectionId}:${field.label} help text is empty`);
     }
   }
+});
+
+test('disk checkpoint spacing help text stays model-agnostic', () => {
+  const helpText = SETTINGS_SECTIONS['model-presets'].fields.find((entry) => entry.label === 'Disk checkpoint spacing')?.helpText;
+  assert.ok(typeof helpText === 'string', 'model-presets:Disk checkpoint spacing help text is missing');
+  assert.doesNotMatch(helpText, /Flash Next/u);
+  assert.match(helpText, /recurrent state/u);
 });
 
 test('policy mode options match the supported UI choices', () => {

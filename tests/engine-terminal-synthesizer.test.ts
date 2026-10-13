@@ -15,10 +15,12 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
 import {
   captureExecutingPlannerRequest,
   serializeProtocolMessages,
+  type PlannerResponseConstraint,
 } from '../src/repo-search/planner-protocol.ts';
 import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { buildAnswerRepairInstruction, buildTerminalSynthesisInstruction } from '../src/repo-search/prompts.ts';
 
 function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   return new TerminalSynthesizer({
@@ -178,6 +180,8 @@ function synthesisInput() {
   return {
     taskId: 't1',
     reason: 'max_turns',
+    instruction: buildTerminalSynthesisInstruction('max_turns'),
+    responseConstraint: { responseSchema: null },
     messages: SYNTHESIS_MESSAGES,
     executing: captureExecutingPlannerRequest(
       serializeProtocolMessages(SYNTHESIS_MESSAGES, SYNTHESIS_FLAGS.reasoningContentEnabled),
@@ -266,6 +270,77 @@ test('synthesize streams answer progress and logs the result for a real SSE resp
   } finally {
     await closeServer(server);
   }
+});
+
+const PLAN_PREPARATION_SCHEMA: JsonObject = {
+  type: 'object',
+  properties: { summary: { type: 'string' } },
+  required: ['summary'],
+  additionalProperties: false,
+};
+
+async function synthesizeAgainstSse(overrides: {
+  instruction: string;
+  responseConstraint: PlannerResponseConstraint;
+}): Promise<JsonObject> {
+  const requestBodies: JsonObject[] = [];
+  const server = await startSseServer(['{"summary":"ok"}'], requestBodies);
+  try {
+    const synthesizer = makeStreamingSynthesizer({
+      tokenUsage: new TokenUsageTracker(undefined),
+      baseUrl: getBaseUrl(server),
+      progressEvents: [],
+      loggerEvents: [],
+    });
+    await synthesizer.synthesize({ ...synthesisInput(), ...overrides });
+  } finally {
+    await closeServer(server);
+  }
+  assert.equal(requestBodies.length, 1);
+  const [body] = requestBodies;
+  assert.ok(body);
+  return body;
+}
+
+test('synthesize with an answer format constrains the request to its JSON schema', async () => {
+  const body = await synthesizeAgainstSse({
+    instruction: buildTerminalSynthesisInstruction('max_turns'),
+    responseConstraint: { responseSchema: PLAN_PREPARATION_SCHEMA, responseSchemaName: 'plan_preparation' },
+  });
+  assert.deepEqual(body.response_format, {
+    type: 'json_schema',
+    json_schema: { name: 'plan_preparation', strict: true, schema: PLAN_PREPARATION_SCHEMA },
+  });
+  assert.equal(body.tool_choice, 'none');
+});
+
+test('synthesize without an answer format sends no response_format', async () => {
+  const body = await synthesizeAgainstSse({
+    instruction: buildTerminalSynthesisInstruction('max_turns'),
+    responseConstraint: { responseSchema: null },
+  });
+  assert.equal('response_format' in body, false);
+  assert.equal(body.tool_choice, 'none');
+});
+
+test('a repair synthesis appends the repair instruction instead of the terminal one', async () => {
+  const instruction = buildAnswerRepairInstruction(['summary: expected string, received undefined']);
+  const body = await synthesizeAgainstSse({ instruction, responseConstraint: { responseSchema: null } });
+  const requestMessages = asObjectArray(body.messages);
+  assert.equal(requestMessages.length, SYNTHESIS_MESSAGES.length + 1);
+  assert.deepEqual(requestMessages.at(-1), { role: 'user', content: instruction });
+});
+
+test('buildAnswerRepairInstruction lists each problem and asks for the corrected JSON answer', () => {
+  assert.equal(
+    buildAnswerRepairInstruction(['first problem', 'second problem']),
+    [
+      'Your final answer above could not be used:',
+      '- first problem',
+      '- second problem',
+      'Reply with only the corrected answer as one JSON object in the required format, keeping its content.',
+    ].join('\n'),
+  );
 });
 
 test('synthesize retries provider errors and records terminal synthesis failure', async () => {

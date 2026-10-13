@@ -6,6 +6,7 @@ import {
   type OrchestratorCommandCheck,
   type OrchestratorDriftCorrectionWork,
   type OrchestratorDriftFinding,
+  type OrchestratorPlan,
   type OrchestratorTask,
   type OrchestratorVerificationCheck,
   type ModelRuntimePreset,
@@ -13,22 +14,16 @@ import {
   type SiftPreset,
 } from '@siftkit/contracts';
 
+import type { JsonObject } from '../lib/json-types.ts';
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
+import { renderOrchestratorPlan } from './plan.ts';
 
 const CHECK_OUTPUT_PROMPT_CHARS = 4_000;
 const CHECK_SHELL_RULE = `Command checks run in ${RUN_SHELL_LABEL} from their cwd: use PowerShell syntax, cmdlets, and programs on PATH only`
   + ' (grep, sed, awk, bash, and && are unavailable).';
 
-const PLAN_JSON_SHAPE = [
-  'Plan JSON shape (every field required):',
-  '{"goal": string, "constraints": string[], "tasks": [{"id": "kebab-case", "title": string, "dependsOn": string[],',
-  ' "workerPresetId": string, "readPaths": string[], "writePaths": string[],',
-  ' "steps": [{"instruction": string, "expectedResult": string}],',
-  ' "verification": [{"kind": "command", "command": string, "cwd": ".", "expectedExitCode": 0}',
-  '   | {"kind": "evidence", "instruction": string, "paths": string[]}],',
-  ' "acceptance": string[], "temporaryPaths": string[]}],',
-  ' "finalVerification": [<verification check>, ...]}',
-].join('\n');
+/** How an evidence review answers; shared by task review and final verification. */
+export const EVIDENCE_REVIEW_GUIDANCE = 'Answer "pass" with evidence whose snippet is the exact code at each cited line, or "fail" with one finding per problem.';
 
 function formatCheck(check: OrchestratorVerificationCheck): string {
   return check.kind === 'command'
@@ -47,8 +42,9 @@ function formatCheckResult(result: OrchestratorCheckResult): string {
 export type PlanWorker = { preset: SiftPreset; model: ModelRuntimePreset };
 
 /** Dirt in the checkout before this work started: a reviewer must never charge it to the work. */
-function describePreexistingChanges(paths: readonly string[]): string {
-  return `Uncommitted changes that predate this work (not made by it; never count them against it): ${paths.join(', ') || 'none'}.`;
+function describePreexistingChanges(subject: 'run' | 'task', paths: readonly string[]): string {
+  const scope = subject === 'run' ? 'this run' : 'this task, beyond those listed in the run context';
+  return `Uncommitted changes that predate ${scope} (not made by it; never count them against it): ${paths.join(', ') || 'none'}.`;
 }
 
 /** The problems that rejected the parent's previous answer, as prompt lines; none on a first try. */
@@ -62,37 +58,55 @@ function describeWorker({ preset, model }: PlanWorker): string {
   return `- ${preset.id} (${preset.presetKind}, ${access}; model ${model.id}, ${slots}): ${preset.description}`;
 }
 
-export function buildPlanPreparationPrompt(input: {
+/** What every parent phase of one run shares; rendered first so the phases reuse one KV prefix. */
+export type RunContext = {
   task: string | null;
-  planPath: string | null;
-  planMarkdown: string | null;
   workers: readonly PlanWorker[];
   preexistingDirtyPaths: readonly string[];
+  plan: { path: string; hash: string; plan: OrchestratorPlan } | null;
+};
+
+export function buildRunContext(run: RunContext): string {
+  return [
+    'Orchestrator run context (shared by every phase of this run):',
+    `Requested task: ${run.task ?? '(none; execute the supplied plan)'}`,
+    'Worker presets (never another orchestrator):', ...run.workers.map(describeWorker),
+    CHECK_SHELL_RULE,
+    describePreexistingChanges('run', run.preexistingDirtyPaths),
+    'The repository file listing in your instructions was taken when this run started; use ls and find for the current state.',
+    ...(run.plan === null ? [] : [`Saved plan ${run.plan.path} (sha256 ${run.plan.hash}):`, '<<<PLAN',
+      renderOrchestratorPlan(run.plan.plan), 'PLAN>>>']),
+  ].join('\n');
+}
+
+/** A parent prompt: the shared run block first (one KV prefix for every phase), then the phase, then the answer's JSON schema. */
+export function buildParentPrompt(run: RunContext, phasePrompt: string, answerSchema: JsonObject): string {
+  return [buildRunContext(run), phasePrompt,
+    'Answer with exactly one JSON object that matches this JSON schema:', JSON.stringify(answerSchema)].join('\n');
+}
+
+export function buildPlanPreparationPrompt(input: {
+  planPath: string | null;
+  planMarkdown: string | null;
   rejectedProblems: readonly string[];
 }): string {
   return [
     'Phase: prepare the executable plan for this orchestrator run.',
-    `Requested task: ${input.task ?? '(none; execute the supplied plan)'}`,
     input.planMarkdown === null
       ? 'Supplied plan: none.'
       : [`Supplied plan (${input.planPath ?? 'inline'}):`, '<<<PLAN', input.planMarkdown, 'PLAN>>>'].join('\n'),
-    'Worker presets you may assign (never another orchestrator):',
-    ...input.workers.map(describeWorker),
+    'Assign each task one of the worker presets listed in the run context.',
     'Inspect the repository to confirm every referenced file and symbol exists. Each task must be one discrete, verifiable',
     'unit with bounded read/write paths, concrete steps, exact verification checks, and acceptance criteria. Read-only',
     'tasks use a read-only worker and evidence checks; tasks that modify files use a worker that can modify files.',
     'Tasks with no dependsOn path between them may run at the same time, up to their worker model\'s parallel slots, with',
     'at most one task that modifies files at a time. A task that needs another task\'s output or changes must list it in',
     'dependsOn. Split the work into parallel tasks only where that suits it.',
-    describePreexistingChanges(input.preexistingDirtyPaths),
     ...describeRejection('answer', input.rejectedProblems),
-    'Answer with exactly one JSON object:',
-    '- {"status": "ready", "plan": <plan>} when the supplied plan is adequate; the plan must be its faithful manifest.',
-    '- {"status": "generated", "plan": <plan>, "issues": [string]} when there is no plan or the supplied one is inadequate;',
-    '  list what was inadequate in "issues".',
-    '- {"status": "blocked", "reason": string} when the request cannot be planned safely (for example an ambiguous target).',
-    CHECK_SHELL_RULE,
-    PLAN_JSON_SHAPE,
+    'Answer status "ready" when the supplied plan is adequate (its plan must be that plan\'s faithful manifest), "generated" when',
+    'there is no plan or the supplied one is inadequate (list what was inadequate in "issues"), or "blocked" with a "reason"',
+    'when the request cannot be planned safely (for example an ambiguous target). A command check\'s cwd is relative to the',
+    'repository root, usually ".".',
   ].join('\n');
 }
 
@@ -109,12 +123,10 @@ export function buildAttemptReviewPrompt(input: {
     ...input.task.verification.filter((check) => check.kind === 'evidence').map((check) => `- ${formatCheck(check)}`),
     'Recorded command results:', ...input.result.checks.map(formatCheckResult),
     `Changed paths: ${input.result.changedPaths.join(', ') || '(none)'}`,
-    describePreexistingChanges(input.preexistingDirtyPaths),
+    describePreexistingChanges('task', input.preexistingDirtyPaths),
     'Worker report (a claim, not evidence):', input.result.workerOutput,
     'Read the cited files yourself. Pass only when every criterion is supported by repository evidence you checked.',
-    'Answer with exactly one JSON object:',
-    '- {"status": "pass", "evidence": [{"path": string, "line": number, "snippet": "exact code at that line"}, ...]}',
-    '- {"status": "fail", "findings": [{"path": string, "line": number, "issue": string}]}',
+    EVIDENCE_REVIEW_GUIDANCE,
     ...describeRejection('review', input.rejectedProblems),
   ].join('\n');
 }
@@ -149,12 +161,8 @@ export function buildDriftReviewPrompt(input: {
     'material test gaps. Do NOT flag formatting, naming preferences, deliberate domain constants, external-API callbacks,',
     'necessary state-owning classes, allowed `as const`/`satisfies`, speculative future generality, or unchanged',
     'pre-existing debt. Zero findings is a valid, desirable answer; there is no quota.',
-    'Answer with exactly one JSON object with fields taskId, changeDigest, scopePaths, resolutions',
-    '([{"findingId", "evidence"}]) and either:',
-    '- "status": "clean", "findings": []',
-    '- "status": "actionable", "findings": [{"id": "D1", "title", "purpose", "directive", "evidence": [{"path",',
-    '  "line", "snippet"}], "impact", "fix", "affectedPaths": [string], "verification": [<verification check>]}]',
-    CHECK_SHELL_RULE,
+    'Answer status "clean" with no findings, or "actionable" with your findings; account for every previously confirmed',
+    'finding in "resolutions". Never answer "not_required": the host uses it only for steps without code changes.',
     `Use taskId "${input.task.id}" and changeDigest "${input.changeDigest}".`,
     ...describeRejection('report', input.rejectedProblems),
   ].join('\n');
@@ -176,38 +184,34 @@ export function buildChildApprovalPrompt(input: {
     'Steps:', ...input.task.steps.map((step) => `- ${step.instruction}`),
     'Approve only when the action is needed for this task, stays within its scope, and cannot damage unrelated work,',
     'history, or the machine. Deny anything destructive, out of scope, or unexplained, and say why.',
-    'Answer with exactly one JSON object: {"decision": "approve" | "deny", "reason": string}.',
   ].join('\n');
 }
 
 export function buildCheckApprovalPrompt(input: {
-  goal: string;
   task: OrchestratorTask | null;
   check: OrchestratorCommandCheck;
 }): string {
   return [
     `Phase: decide whether to run one verification command for ${input.task === null
-      ? 'the final verification of the whole run' : `task '${input.task.id}' (${input.task.title})`}. Goal: ${input.goal}`,
+      ? 'the final verification of the whole run' : `task '${input.task.id}' (${input.task.title})`}.`,
     `Command: ${input.check.command}`,
     `Working directory: ${input.check.cwd}`,
     'The plan declared this check, but it runs as a real shell command in the repository.',
     'Approve only a command that verifies the work without changing tracked files, history, or the machine.',
     'Deny anything destructive, networked without need, or unrelated to verification, and say why.',
-    'Answer with exactly one JSON object: {"decision": "approve" | "deny", "reason": string}.',
   ].join('\n');
 }
 
 export function buildFinalVerificationPrompt(input: {
-  goal: string;
   checks: readonly OrchestratorCheckResult[];
+  rejectedProblems: readonly string[];
 }): string {
   return [
-    `Phase: final verification of the whole run. Goal: ${input.goal}`,
+    'Phase: final verification of the whole run.',
     'Recorded final command results:', ...input.checks.map(formatCheckResult),
     'Confirm each evidence check yourself with repository tools.',
-    'Answer with exactly one JSON object:',
-    '- {"status": "pass", "evidence": [{"path": string, "line": number, "snippet": "exact code at that line"}, ...]}',
-    '- {"status": "fail", "findings": [{"path": string, "line": number, "issue": string}]}',
+    ...describeRejection('review', input.rejectedProblems),
+    EVIDENCE_REVIEW_GUIDANCE,
   ].join('\n');
 }
 

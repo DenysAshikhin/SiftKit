@@ -8,6 +8,8 @@ import {
 } from '@siftkit/contracts';
 import {
   SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM,
+  SIFT_DEFAULT_EXL3_DISK_CACHE_SIZE_MIB,
+  SIFT_DEFAULT_EXL3_DISK_CACHE_CHECKPOINT_INTERVAL,
   SIFT_DEFAULT_ENGINE_CACHE_RAM,
   SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION,
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET,
@@ -529,6 +531,15 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     CacheRecurrentRam: getFiniteNonNegativeInteger(
       input.CacheRecurrentRam,
       Number(defaults.CacheRecurrentRam ?? SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM),
+    ),
+    DiskCacheDir: getNullableTrimmedString(input.DiskCacheDir),
+    DiskCacheSizeMiB: getFinitePositiveInteger(
+      input.DiskCacheSizeMiB,
+      Number(defaults.DiskCacheSizeMiB ?? SIFT_DEFAULT_EXL3_DISK_CACHE_SIZE_MIB),
+    ),
+    DiskCacheCheckpointInterval: getFinitePositiveInteger(
+      input.DiskCacheCheckpointInterval,
+      Number(defaults.DiskCacheCheckpointInterval ?? SIFT_DEFAULT_EXL3_DISK_CACHE_CHECKPOINT_INTERVAL),
     ),
     NgramRam: getBooleanWithDefault(input.NgramRam, defaults.NgramRam),
     KvCacheQuantization: getModelKvCacheQuantization(

@@ -4,11 +4,11 @@ import {
   appendPlannerInstruction,
   requestTerminalSynthesis,
   type ExecutingPlannerRequest,
+  type PlannerResponseConstraint,
 } from '../planner-protocol.ts';
 import type { ChatMessage } from '../planner-chat-message.ts';
 import { countPlannerPromptTokens } from '../prompt-budget.ts';
 import { renderWirePrompt } from '../wire-prompt.ts';
-import { buildTerminalSynthesisInstruction } from '../prompts.ts';
 import type { JsonLogger } from '../types.ts';
 import { ProgressReporter } from './progress-reporter.ts';
 import { TokenUsageTracker } from './token-usage.ts';
@@ -51,16 +51,16 @@ export class TerminalSynthesizer {
   async synthesize(input: {
     taskId: string;
     reason: string;
+    // Appended as the final user turn: the terminal-synthesis or answer-repair instruction.
+    instruction: string;
+    responseConstraint: PlannerResponseConstraint;
     messages: readonly ChatMessage[];
     executing: ExecutingPlannerRequest;
     turnsUsed: number;
     mockResponses?: MockPlannerResponseInput[];
     mockResponseIndex: number;
   }): Promise<{ finalOutput: string; nextMockResponseIndex: number }> {
-    const terminalMessages = appendPlannerInstruction(
-      input.messages,
-      buildTerminalSynthesisInstruction(input.reason),
-    );
+    const terminalMessages = appendPlannerInstruction(input.messages, input.instruction);
     // The synthesis prompt is measured only to fit its generation into the physical
     // remainder of the window; no prompt limit applies to a terminal answer.
     const measurement = await countPlannerPromptTokens({
@@ -109,6 +109,7 @@ export class TerminalSynthesizer {
           mockResponses: input.mockResponses,
           mockResponseIndex,
           maxTokens: synthesisMaxTokens,
+          responseConstraint: input.responseConstraint,
           logger: this.options.logger,
           onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
             ? (snapshot) => { this.options.progress.answer(input.turnsUsed, snapshot.narrationText); }

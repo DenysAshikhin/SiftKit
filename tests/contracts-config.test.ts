@@ -296,3 +296,35 @@ test('ModelRuntimePresetSchema requires ReasoningEffort on every preset', () => 
 test('ReasoningEffort is an editable model preset field', () => {
   assert.equal(ModelPresetFieldSchema.safeParse('ReasoningEffort').success, true);
 });
+
+test('a disk-cache model preset needs an absolute path and a RAM tier', () => {
+  const base = getDefaultConfigObject().Server.ModelPresets;
+  const preset = base.Presets[0];
+  assert.ok(preset);
+  const withDisk = (changes: Partial<typeof preset>) => ServerModelPresetsConfigSchema.safeParse({
+    ...base, Presets: [{ ...preset, CacheRam: 4096, DiskCacheDir: 'D:\\AI\\exl3-disk-cache', ...changes }],
+  });
+  assert.equal(withDisk({}).success, true);
+  assert.equal(withDisk({ DiskCacheDir: null, CacheRam: 0 }).success, true, 'off needs nothing');
+  assert.match(JSON.stringify(withDisk({ DiskCacheDir: 'cache' }).error?.issues), /normalized absolute path/u);
+  assert.match(JSON.stringify(withDisk({ DiskCacheDir: 'D:\\AI\\x\\..\\cache' }).error?.issues), /normalized absolute path/u);
+  assert.match(JSON.stringify(withDisk({ DiskCacheDir: 'D:\\AI\\.\\cache' }).error?.issues), /normalized absolute path/u);
+  assert.match(JSON.stringify(withDisk({ CacheRam: 0 }).error?.issues), /CacheRam must be above 0/u);
+  assert.equal(withDisk({ ExternalServerEnabled: true }).success, true, 'the runtime, not the schema, rejects an external disk preset');
+});
+
+test('model presets that share a disk-cache directory must share its size budget', () => {
+  const base = getDefaultConfigObject().Server.ModelPresets;
+  const preset = base.Presets[0];
+  assert.ok(preset);
+  const disk = { ...preset, CacheRam: 4096, DiskCacheDir: 'D:\\AI\\exl3-disk-cache', DiskCacheSizeMiB: 51200 };
+  const other = { ...disk, id: 'other', DiskCacheDir: 'd:/ai/EXL3-disk-cache/' };
+  assert.equal(ServerModelPresetsConfigSchema.safeParse({ ...base, Presets: [disk, other] }).success, true);
+  const result = ServerModelPresetsConfigSchema.safeParse({ ...base, Presets: [disk, { ...other, DiskCacheSizeMiB: 1024 }] });
+  assert.equal(result.success, false);
+  assert.match(JSON.stringify(result.error?.issues), /share DiskCacheSizeMiB/u);
+  const variant = { ...disk, id: 'variant', DiskCacheDir: 'd:/AI/exl3-disk-cache/', DiskCacheSizeMiB: 1024 };
+  const variantResult = ServerModelPresetsConfigSchema.safeParse({ ...base, Presets: [disk, variant] });
+  assert.equal(variantResult.success, false);
+  assert.match(JSON.stringify(variantResult.error?.issues), /share DiskCacheSizeMiB/u);
+});

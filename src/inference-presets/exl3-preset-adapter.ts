@@ -26,7 +26,7 @@ export const Exl3LoadRequestSchema = z.object({
 });
 export type Exl3LoadRequest = z.infer<typeof Exl3LoadRequestSchema>;
 
-export const Exl3LaunchEnvironmentSchema = z.object({
+const Exl3BaseLaunchEnvironmentSchema = z.object({
   TABBY_MODEL_MODEL_DIR: z.string(),
   TABBY_MODEL_MODEL_NAME: z.string(),
   TABBY_MODEL_MAX_SEQ_LEN: z.string(),
@@ -68,6 +68,22 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   /** cudaMallocAsync cannot use expandable segments, so Tabby must not install it. */
   TABBY_MEMORY_CUDA_MALLOC_ASYNC: z.literal('false'),
 });
+
+// The disk tier is all three variables or none; a partial set must not parse.
+const Exl3DiskCacheEnvironment = {
+  /** Disk tier behind the RAM tier; omitted unless the preset sets DiskCacheDir. Size is in MiB. */
+  TABBY_MEMORY_DISK_CACHE_DIR: z.string(), TABBY_MEMORY_DISK_CACHE_SIZE: z.string(),
+  TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL: z.string(),
+};
+const Exl3NoDiskCacheEnvironment = {
+  TABBY_MEMORY_DISK_CACHE_DIR: z.undefined().optional(), TABBY_MEMORY_DISK_CACHE_SIZE: z.undefined().optional(),
+  TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL: z.undefined().optional(),
+};
+
+export const Exl3LaunchEnvironmentSchema = z.union([
+  Exl3BaseLaunchEnvironmentSchema.extend(Exl3DiskCacheEnvironment),
+  Exl3BaseLaunchEnvironmentSchema.extend(Exl3NoDiskCacheEnvironment),
+]);
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
 /** TabbyAPI reads its env overrides as text, so every boolean setting ships as this exact pair. */
@@ -130,6 +146,12 @@ export class Exl3PresetAdapter {
       TABBY_MODEL_CHUNK_SIZE: String(request.chunk_size),
       TABBY_MEMORY_SYSMEM_KV_CACHE: String(preset.CacheRam),
       TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(preset.CacheRecurrentRam),
+      // Tabby reads disk_cache_size in MB and multiplies by 1024², so MiB passes through unchanged.
+      ...(preset.DiskCacheDir === null ? {} : {
+        TABBY_MEMORY_DISK_CACHE_DIR: win32.resolve(preset.DiskCacheDir),
+        TABBY_MEMORY_DISK_CACHE_SIZE: String(preset.DiskCacheSizeMiB),
+        TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL: String(preset.DiskCacheCheckpointInterval),
+      }),
       TABBY_DRAFT_MODEL_DRAFT_MODE: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),

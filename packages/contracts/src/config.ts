@@ -61,7 +61,10 @@ export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 const ModelPresetSettingsShape = {
   ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
   NumCtx: z.number(), CompactionReserveTokens: z.number().int().positive(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
-  CacheRecurrentRam: z.number(), NgramRam: z.boolean(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
+  CacheRecurrentRam: z.number(),
+  DiskCacheDir: z.string().min(1).nullable(), DiskCacheSizeMiB: z.number().int().positive(),
+  DiskCacheCheckpointInterval: z.number().int().positive(),
+  NgramRam: z.boolean(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
   Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
   Reasoning: ReasoningSchema, ReasoningEffort: ReasoningEffortSchema, ReasoningContent: z.boolean(),
@@ -76,7 +79,7 @@ const ModelPresetSettingsShape = {
 
 export const ModelPresetFieldSchema = z.enum([
   'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'CompactionReserveTokens', 'NcpuMoe', 'ParallelSlots', 'UBatchSize', 'CacheRam',
-  'CacheRecurrentRam', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
+  'CacheRecurrentRam', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'ReasoningBudget',
@@ -94,6 +97,14 @@ export const ModelRuntimePresetSchema = z.object({
   ...ModelPresetSettingsShape,
 }).strict();
 export type ModelRuntimePreset = z.infer<typeof ModelRuntimePresetSchema>;
+
+const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
+const DOT_SEGMENT = /(?:^|[\\/])\.{1,2}(?:[\\/]|$)/u;
+
+/** One key per disk-cache root: separators unified, trailing separators dropped, case-insensitive. */
+function diskCacheRootKey(directory: string): string {
+  return directory.replace(/\//gu, '\\').replace(/\\+$/u, '').toLowerCase();
+}
 
 export const ServerModelPresetsConfigSchema = z.object({
   Presets: z.array(ModelRuntimePresetSchema).min(1), ActivePresetId: z.string(),
@@ -116,6 +127,28 @@ export const ServerModelPresetsConfigSchema = z.object({
       path: ['ActivePresetId'],
       message: `Active model preset id '${value.ActivePresetId}' is not in the model preset list.`,
     });
+  }
+  // exllamav3 applies one size budget to a whole disk-cache root, so presets sharing one must agree on it.
+  const budgets = new Map<string, number>();
+  for (const [index, preset] of value.Presets.entries()) {
+    if (preset.DiskCacheDir === null) continue;
+    const at = (field: string) => ['Presets', index, field];
+    if (!WINDOWS_ABSOLUTE_PATH.test(preset.DiskCacheDir) || DOT_SEGMENT.test(preset.DiskCacheDir)) {
+      context.addIssue({ code: 'custom', path: at('DiskCacheDir'),
+        message: `Model preset '${preset.id}': DiskCacheDir must be a normalized absolute path such as C:\\exl3-cache (no . or .. segments).` });
+    }
+    if (preset.CacheRam <= 0) {
+      context.addIssue({ code: 'custom', path: at('CacheRam'),
+        message: `Model preset '${preset.id}': the disk cache writes through the RAM tier, so CacheRam must be above 0.` });
+    }
+    const key = diskCacheRootKey(preset.DiskCacheDir);
+    const budget = budgets.get(key);
+    if (budget === undefined) {
+      budgets.set(key, preset.DiskCacheSizeMiB);
+    } else if (budget !== preset.DiskCacheSizeMiB) {
+      context.addIssue({ code: 'custom', path: at('DiskCacheSizeMiB'),
+        message: `Model presets sharing DiskCacheDir '${preset.DiskCacheDir}' must share DiskCacheSizeMiB (one budget covers the directory).` });
+    }
   }
 });
 export type ServerModelPresetsConfig = z.infer<typeof ServerModelPresetsConfigSchema>;

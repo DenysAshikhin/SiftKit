@@ -393,7 +393,7 @@ export async function executeRepoSearchRequest(
       operationPreset: preset,
       modelPreset: activeVisionPreset,
     });
-    const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
+    const systemContext = request.systemContext ?? new PresetSystemContextBuilder(repoRoot).build(preset);
     const runPromptBase = {
       promptPrefix: preset.promptPrefix,
       additionalPromptPrefix: request.additionalPromptPrefix,
@@ -423,6 +423,7 @@ export async function executeRepoSearchRequest(
       repoRoot,
       config,
       systemContext,
+      answerSchema: request.answerSchema,
       taskKind: executionTaskKind,
       maxTurns: request.maxTurns,
       plannerToolDefinitions,

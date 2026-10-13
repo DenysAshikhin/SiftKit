@@ -1,4 +1,3 @@
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.ts';
 import { z } from '../lib/zod.ts';
 
 export const APPROVAL_VERDICTS = ['approve', 'deny', 'unsure'] as const;
@@ -12,8 +11,3 @@ export type ApprovalVerdict = z.infer<typeof ApprovalVerdictSchema>;
 const APPROVAL_VERDICT_CHOICES = APPROVAL_VERDICTS.map((verdict) => JSON.stringify(verdict)).join('|');
 export const APPROVAL_VERDICT_RESPONSE_INSTRUCTION =
   `{"verdict":${APPROVAL_VERDICT_CHOICES},"reason":"<one sentence>"}`;
-
-export function buildApprovalVerdictJsonSchema(): JsonObject {
-  const { $schema: _dialect, ...schema } = z.toJSONSchema(ApprovalVerdictSchema, { io: 'input' });
-  return JsonObjectSchema.parse(schema);
-}

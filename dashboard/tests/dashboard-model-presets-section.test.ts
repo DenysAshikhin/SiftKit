@@ -7,6 +7,8 @@ import { getDefaultConfigObject } from '../../src/config/defaults.ts';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../../src/lib/context-token-budget.ts';
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
 import type { ModelPresetSettingsActions } from '../src/settings-action-groups.ts';
+import type { DashboardModelRuntimePreset } from '../src/types.ts';
+import { cleanup, fireEvent, render } from './react-test-environment.ts';
 
 interface PresetRenderOptions {
   externalServerEnabled?: boolean;
@@ -120,6 +122,80 @@ test('the reasoning effort dropdown offers the three levels the template disting
 
 test('the reasoning effort dropdown is hidden when reasoning is off', () => {
   assertFieldAbsent(renderPreset({ reasoning: 'off' }), 'Reasoning effort');
+});
+
+const DISK_CACHE_LABELS = ['Disk cache directory', 'Disk cache size (MiB)', 'Disk checkpoint spacing'] as const;
+
+function renderLivePreset(overrides: Partial<DashboardModelRuntimePreset>, actions: ModelPresetSettingsActions): HTMLElement {
+  const config = getDefaultConfigObject();
+  const preset = config.Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default config must include a model preset.');
+  Object.assign(preset, { ExternalServerEnabled: false }, overrides);
+  return render(React.createElement(ModelPresetsSection, {
+    dashboardConfig: config,
+    selectedModelPreset: preset,
+    settingsActionBusy: false,
+    settingsPathPickerBusyTarget: null,
+    modelPresetActions: actions,
+    runtimeStatus: null,
+  })).container;
+}
+
+function getFieldInput(container: HTMLElement, label: string): HTMLInputElement {
+  const fieldLabel = [...container.querySelectorAll('label')].find((entry) => entry.firstChild?.textContent === label);
+  const input = fieldLabel?.parentElement?.querySelector('input');
+  if (!input) throw new Error(`Input for '${label}' is missing.`);
+  return input;
+}
+
+test('the memory group exposes the disk-cache controls for a managed preset', () => {
+  const markup = renderPreset();
+
+  for (const label of DISK_CACHE_LABELS) {
+    assert.doesNotMatch(getRenderedField(markup, label), /disabled/u);
+  }
+  assert.match(getRenderedField(markup, 'Disk cache size (MiB)'), /value="51200"/u);
+  assert.match(getRenderedField(markup, 'Disk checkpoint spacing'), /value="2048"/u);
+});
+
+test('the disk-cache controls are disabled for an external preset', () => {
+  const markup = renderPreset({ externalServerEnabled: true });
+
+  for (const label of DISK_CACHE_LABELS) {
+    const field = getRenderedField(markup, label);
+    assert.match(field, /disabled/u);
+    assert.match(field, /Requires SiftKit-managed TabbyAPI/u);
+  }
+});
+
+test('editing the disk-cache directory stores the path and an empty value as null', () => {
+  const calls: Array<[string, string | null]> = [];
+  const actions = { ...MODEL_PRESET_ACTIONS, setNullableString: (field: string, value: string | null) => { calls.push([field, value]); } };
+
+  fireEvent.change(getFieldInput(renderLivePreset({ DiskCacheDir: null }, actions), 'Disk cache directory'), {
+    target: { value: 'D:\\AI\\exl3-disk-cache' },
+  });
+  cleanup();
+  fireEvent.change(getFieldInput(renderLivePreset({ DiskCacheDir: 'D:\\AI\\exl3-disk-cache' }, actions), 'Disk cache directory'), {
+    target: { value: '  ' },
+  });
+  cleanup();
+  fireEvent.change(getFieldInput(renderLivePreset({ DiskCacheDir: null }, actions), 'Disk cache directory'), {
+    target: { value: 'D:\\AI Cache ' },
+  });
+
+  assert.deepEqual(calls, [['DiskCacheDir', 'D:\\AI\\exl3-disk-cache'], ['DiskCacheDir', null], ['DiskCacheDir', 'D:\\AI Cache ']]);
+});
+
+test('editing the disk-cache size and checkpoint spacing writes the integer fields', () => {
+  const calls: Array<[string, number]> = [];
+  const actions = { ...MODEL_PRESET_ACTIONS, setInteger: (field: string, value: number) => { calls.push([field, value]); } };
+  const container = renderLivePreset({}, actions);
+
+  fireEvent.change(getFieldInput(container, 'Disk cache size (MiB)'), { target: { value: '1024' } });
+  fireEvent.change(getFieldInput(container, 'Disk checkpoint spacing'), { target: { value: '1024' } });
+
+  assert.deepEqual(calls, [['DiskCacheSizeMiB', 1024], ['DiskCacheCheckpointInterval', 1024]]);
 });
 
 test('the memory group exposes the per-preset compaction reserve', () => {

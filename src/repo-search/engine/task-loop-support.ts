@@ -1,5 +1,7 @@
 import { getActiveModelPreset, type SiftConfig } from '../../config/index.ts';
 import { z } from '../../lib/zod.ts';
+import { toError } from '../../lib/errors.ts';
+import { ModelJson } from '../../lib/model-json.ts';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.ts';
 import { LENGTH_FINISH_REASON, LOOP_DETECTED_EOS_REASON, type StreamStop } from '../../llm-protocol/types.ts';
 import type { PresetSystemContext } from '../../preset-system-context.ts';
@@ -14,6 +16,7 @@ import { ChatGroundingStatusSchema } from '../chat-grounding-policy.ts';
 import type {
   JsonLogger,
   RetainedWebToolCall,
+  RepoSearchAnswerSchema,
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
 } from '../types.ts';
@@ -231,6 +234,16 @@ export function taskPassed(task: Pick<TaskResult, 'reason'>): boolean {
   return task.reason === 'finish';
 }
 
+/** Why a finishing answer does not parse to its schema, or null when it does. */
+export function findAnswerSchemaProblem(finalOutput: string, answerSchema: RepoSearchAnswerSchema): string | null {
+  try {
+    ModelJson.parseObject(finalOutput, answerSchema.schema, answerSchema.name);
+    return null;
+  } catch (error) {
+    return toError(error).message;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Task loop options
 // ---------------------------------------------------------------------------
@@ -256,6 +269,8 @@ export type RunTaskLoopOptions = {
   initialUserImages?: readonly string[];
   plannerToolDefinitions: readonly PlannerToolDefinition[];
   systemContext: PresetSystemContext;
+  /** The shape a finishing answer must parse to; an answer that fails it gets one constrained repair turn. */
+  answerSchema?: RepoSearchAnswerSchema;
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];

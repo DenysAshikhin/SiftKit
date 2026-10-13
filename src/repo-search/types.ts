@@ -4,6 +4,7 @@ import { z } from '../lib/zod.ts';
 import type { JsonSerializable } from '../lib/json-types.ts';
 import type { SiftConfig } from '../config/index.ts';
 import type { ProgressWriter } from '../lib/progress-writer.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
 
 export type JsonLogger = {
   path: string;
@@ -197,6 +198,9 @@ export const RepoSearchMockCommandResultSchema = z.strictObject({
 });
 export type RepoSearchMockCommandResult = z.infer<typeof RepoSearchMockCommandResultSchema>;
 
+/** A named zod schema a run's finishing answer must parse to. */
+export type RepoSearchAnswerSchema = { name: string; schema: z.ZodType };
+
 export type RepoSearchExecutionRequest = {
   presetId: string;
   requestId?: string;
@@ -231,6 +235,10 @@ export type RepoSearchExecutionRequest = {
   evidenceRecorder?: ChatRunEvidenceRecorder;
   /** The Web run's question channel; its presence is what offers the web chat tools. */
   questionGate?: QuestionGate;
+  /** A fixed system context used instead of one built from the preset: an orchestrator parent's run-start snapshot. */
+  systemContext?: PresetSystemContext;
+  /** The shape a finishing answer must parse to; an answer that fails it gets one constrained repair turn. */
+  answerSchema?: RepoSearchAnswerSchema;
   abortSignal?: AbortSignal;
 };
 

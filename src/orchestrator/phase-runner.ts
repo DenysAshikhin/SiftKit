@@ -1,7 +1,9 @@
 import type { SiftConfig } from '../config/types.ts';
 import { toError } from '../lib/errors.ts';
 import { ProgressWriter } from '../lib/progress-writer.ts';
+import type { z } from '../lib/zod.ts';
 import { PresetCatalog } from '../preset-catalog.ts';
+import type { PresetSystemContext } from '../preset-system-context.ts';
 import { taskPassed } from '../repo-search/engine/task-loop-support.ts';
 import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
 import {
@@ -18,10 +20,21 @@ export type OrchestratorPhaseRequest = {
   phaseRunId: string;
   presetId: string;
   repoRoot: string;
+  systemContext: PresetSystemContext;
   abortSignal: AbortSignal;
 };
 
-export type OrchestratorPhaseLabel = 'plan preparation' | 'task review' | 'drift review' | 'final verification' | 'approval decision';
+/** The `json_schema` name each phase's answer is constrained to when it needs repair. */
+export const ORCHESTRATOR_PHASE_ANSWER_NAMES = {
+  'plan preparation': 'plan_preparation',
+  'task review': 'task_review',
+  'drift review': 'drift_review',
+  'final verification': 'final_verification',
+  'approval decision': 'approval_decision',
+} as const;
+
+/** A parent phase, named in progress and failure messages. */
+export type OrchestratorPhaseLabel = keyof typeof ORCHESTRATOR_PHASE_ANSWER_NAMES;
 
 /** The parent's model or engine failed, not its answer. */
 export class OrchestratorInfrastructureError extends Error {}
@@ -69,7 +82,8 @@ export class OrchestratorPhaseRunner {
   }
 
   /** The phase's final answer text. A lease or engine failure is infrastructure; a missing answer is the model's. */
-  async infer(request: OrchestratorPhaseRequest, prompt: string, label: OrchestratorPhaseLabel): Promise<string> {
+  async infer(request: OrchestratorPhaseRequest, prompt: string, label: OrchestratorPhaseLabel,
+    schema: z.ZodType): Promise<string> {
     const preset = PresetCatalog.fromPresets(this.config.Presets).requireById(request.presetId);
     const asInfrastructure = (error: Error): never => {
       request.abortSignal.throwIfAborted();
@@ -92,6 +106,8 @@ export class OrchestratorPhaseRunner {
         prompt,
         requestId: request.phaseRunId,
         repoRoot: request.repoRoot,
+        systemContext: request.systemContext,
+        answerSchema: { name: ORCHESTRATOR_PHASE_ANSWER_NAMES[label], schema },
         statusBackendUrl: `${this.ctx.getServiceBaseUrl()}/status`,
         config: lock.context.config,
         allowedTools: [...preset.allowedTools],

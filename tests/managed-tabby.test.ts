@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
+import { serverLogger } from '../src/status-server/server-logger.ts';
 
 import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
 import { getAddressInfo } from './helpers/dashboard-http.ts';
@@ -334,6 +335,63 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
   }), /cannot enable MTP drafting/u);
 });
 
+test('unmanaged EXL3 preset with a disk cache fails loud instead of silently dropping the disk tier', async () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
+  const runtime = new ManagedTabbyRuntime({
+    Managed: false,
+    WorkingDirectory: '.',
+    PythonPath: process.execPath,
+    Entrypoint: 'unused',
+    ModelRoot: '.',
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 100,
+    Environment: {},
+  }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
+
+  await assert.rejects(runtime.ensurePresetReady({
+    ...preset,
+    id: 'external-disk-cache',
+    Backend: 'exl3' as const,
+    BaseUrl: DEAD_BASE_URL,
+    Model: 'model-a',
+    ModelPath: path.join('.', 'model-a'),
+    DiskCacheDir: 'D:\\AI\\exl3-disk-cache',
+    CacheRam: 4096,
+    SpeculativeEnabled: false,
+  }), /sets DiskCacheDir, but the disk cache is a launch setting/u);
+});
+
+test('managed engine rejects an external-server EXL3 preset with a disk cache', async () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
+  const runtime = new ManagedTabbyRuntime({
+    Managed: true,
+    WorkingDirectory: '.',
+    PythonPath: process.execPath,
+    Entrypoint: 'unused',
+    ModelRoot: '.',
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 100,
+    Environment: {},
+  }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
+
+  await assert.rejects(runtime.ensurePresetReady({
+    ...preset,
+    id: 'external-disk-cache',
+    Backend: 'exl3' as const,
+    BaseUrl: DEAD_BASE_URL,
+    Model: 'model-a',
+    ModelPath: path.join('.', 'model-a'),
+    ExternalServerEnabled: true,
+    DiskCacheDir: 'D:\\AI\\exl3-disk-cache',
+    CacheRam: 4096,
+    SpeculativeEnabled: false,
+  }), /sets DiskCacheDir, but the disk cache is a launch setting/u);
+});
+
 test('managed Tabby waits for delayed MTP drafting announced on stderr', async () => {
   await withTempEnv(async (root) => {
     await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-stderr-mtp', {}, {
@@ -358,6 +416,33 @@ test('managed Tabby rejects a speculative preset when the startup log never repo
       HealthcheckIntervalMs: 10,
     }), /startup log never reported the MTP draft component/u);
     assert.equal(fixture.runtime.getModelState(), 'failed');
+  });
+});
+
+test('managed Tabby names the engine exception when the process exits during startup', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-exit-error', {}, {
+      exitAfterLog: true,
+      exitStderrLine: 'RuntimeError: Insufficient VRAM in split for model and cache',
+      exitCode: 1,
+    });
+    await assert.rejects(fixture.runtime.ensurePresetReady(fixture.exl3Preset), {
+      message: 'TabbyAPI exited unexpectedly (code=1, signal=null): RuntimeError: Insufficient VRAM in split for model and cache',
+    });
+  });
+});
+
+test('managed Tabby names the engine exception even when stderr drains after the exit', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-exit-error-late-stderr', {}, {
+      exitAfterLog: true,
+      exitStderrLine: 'RuntimeError: Insufficient VRAM in split for model and cache',
+      stderrAfterExit: true,
+      exitCode: 1,
+    });
+    await assert.rejects(fixture.runtime.ensurePresetReady(fixture.exl3Preset), {
+      message: 'TabbyAPI exited unexpectedly (code=1, signal=null): RuntimeError: Insufficient VRAM in split for model and cache',
+    });
   });
 });
 
@@ -484,4 +569,60 @@ test('managed Tabby overrides conflicting inherited allocator settings', async (
       else process.env[key] = value;
     }
   }
+});
+
+const DISK_CACHE = { DiskCacheDir: 'D:\\AI\\exl3-disk-cache', CacheRam: 1024 };
+
+test('managed Tabby drains a disk-cache preset through unload before terminating it', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-disk-drain');
+    await fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, ...DISK_CACHE });
+    await fixture.runtime.unloadPreset();
+    assert.deepEqual(fixture.launcher.events, ['unload', 'terminate']);
+    assert.equal(fixture.runtime.getProcessState(), 'stopped');
+  });
+});
+
+test('a disk-cache drain runs while the process reports stopping', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-disk-drain-stopping', {},
+      { ...DEFAULT_FAKE_OPTIONS, unloadDelayMs: 300 });
+    await fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, ...DISK_CACHE });
+    const stop = fixture.runtime.unloadPreset();
+    const pollDeadline = Date.now() + 2_000;
+    while (!fixture.launcher.events.includes('unload') && Date.now() < pollDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(fixture.runtime.getProcessState(), 'stopping');
+    await stop;
+    assert.equal(fixture.runtime.getProcessState(), 'stopped');
+    assert.deepEqual(fixture.launcher.events, ['unload', 'terminate']);
+  });
+});
+
+test('a failed disk-cache drain is logged and the engine still stops', async (t) => {
+  const warnings = t.mock.method(serverLogger, 'warning', () => {});
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-disk-drain-fail', {},
+      { ...DEFAULT_FAKE_OPTIONS, rejectUnloads: true });
+    await fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, ...DISK_CACHE });
+    await fixture.runtime.unloadPreset();
+    assert.deepEqual(fixture.launcher.events, ['unload', 'terminate']);
+    assert.equal(fixture.runtime.getProcessState(), 'stopped');
+  });
+  const drainWarnings = warnings.mock.calls
+    .map((call) => call.arguments[0])
+    .filter((event) => event?.scope === 'exl3' && event.event === 'disk_cache_flush_failed');
+  assert.equal(drainWarnings.length, 1);
+  assert.equal(typeof drainWarnings[0]?.alert, 'string');
+  assert.notEqual(drainWarnings[0]?.alert, '');
+});
+
+test('a preset without a disk cache is terminated without an unload', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-no-disk');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    await fixture.runtime.unloadPreset();
+    assert.deepEqual(fixture.launcher.events, ['terminate']);
+  });
 });

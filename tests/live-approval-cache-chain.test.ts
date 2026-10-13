@@ -2,10 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseJsonValueText } from '../src/lib/json.ts';
-import {
-  ApprovalVerdictSchema,
-  buildApprovalVerdictJsonSchema,
-} from '../src/repo-search/approval-verdict.ts';
+import { ApprovalVerdictSchema } from '../src/repo-search/approval-verdict.ts';
+import { buildPlannerJsonSchema } from '../src/planner-protocol/json-schema.ts';
 import { isApprovalExemptReadOnlyTool } from '../src/repo-search/engine/approval-gate.ts';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.ts';
 import {
@@ -32,7 +30,7 @@ const MIN_LARGE_CONTEXT_TOKENS = 32_768;
 const CACHE_RETENTION_FRACTION = 0.9;
 const CONTEXT_LINE_COUNT = 2_600;
 const LARGE_TOOL_CONTENT_BYTES = 2_048;
-const LIVE_STEP_RESPONSE_SCHEMA = buildApprovalVerdictJsonSchema();
+const LIVE_STEP_RESPONSE_SCHEMA = buildPlannerJsonSchema(ApprovalVerdictSchema);
 
 type CacheRecord = {
   label: string;

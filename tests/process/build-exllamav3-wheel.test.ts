@@ -12,7 +12,7 @@ test('production wheel command targets the current source and build environment'
   const packageSchema = z.object({ scripts: z.object({ 'exl3:build-wheel': z.string() }) });
   const manifest = packageSchema.parse(JSON.parse(readFileSync(packagePath, 'utf8')));
   const command = manifest.scripts['exl3:build-wheel'];
-  assert.ok(command.includes('--repo C:\\AI\\exl3\\dev-20261006\\src'));
+  assert.ok(command.includes('--repo C:\\AI\\exl3\\dev-20261011\\src'));
   assert.ok(command.includes('--python C:\\AI\\exl3\\prod-20260924\\venv\\Scripts\\python.exe'));
 });
 
