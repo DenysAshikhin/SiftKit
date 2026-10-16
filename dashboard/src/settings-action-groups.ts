@@ -22,6 +22,7 @@ import type {
   ReasoningEffort,
   WebSearchProviderId,
 } from './types.ts';
+import type { ModelProfile } from '@siftkit/contracts';
 
 export type AssistantSettingsActions = {
   replace(value: AssistantConfig): void;
@@ -88,6 +89,7 @@ export type ModelPresetSettingsActions = {
   setReasoning(value: 'on' | 'off'): void;
   setReasoningEffort(value: ReasoningEffort): void;
   setReasoningContent(value: boolean): void;
+  applyRecommendedSampling(profile: ModelProfile): void;
   addPreset(): void;
   deletePreset(presetId: string): void;
   pickModelPath(): Promise<void>;

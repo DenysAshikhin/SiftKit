@@ -145,6 +145,7 @@ export function getDefaultConfigObject(): SiftConfig {
     VisionOffload: SIFT_DEFAULT_VISION_OFFLOAD,
     VisionImageRetention: SIFT_DEFAULT_VISION_IMAGE_RETENTION,
     VisionMaxImagePixels: SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS,
+    UnlockAllSettings: false,
   };
   return {
     Version: SIFTKIT_VERSION,

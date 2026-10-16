@@ -3,7 +3,7 @@
  * idle-summary snapshots.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { ManagedFilePickerTargetSchema } from '@siftkit/contracts';
+import { ManagedFilePickerTargetSchema, ModelProfileRequestSchema } from '@siftkit/contracts';
 import type {
   MetricsResponse,
   IdleSummaryResponse,
@@ -84,6 +84,7 @@ import {
   subscribeBenchmarkJob,
 } from '../dashboard-benchmark-runner.ts';
 import { pickManagedFilePath } from '../file-picker.ts';
+import { inspectModelDirectory } from '../../inference-presets/model-profile-inspector.ts';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.ts';
 import type { ServerContext } from '../server-types.ts';
 import type { SiftConfig } from '../../config/index.ts';
@@ -868,6 +869,32 @@ class SystemPickFileEndpoint implements RouteEndpoint {
     return;
   }
 }
+class ModelProfileEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: IncomingMessage,
+    res: ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    let parsedBody: ReturnType<typeof parseJsonBody>;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch (error) {
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
+      return;
+    }
+    const request = ModelProfileRequestSchema.safeParse(parsedBody);
+    if (!request.success) {
+      sendJson(res, 400, { error: 'Expected a modelPath string.' });
+      return;
+    }
+    try {
+      sendJson(res, 200, { profile: inspectModelDirectory(request.data.modelPath) });
+    } catch (error) {
+      sendJson(res, 422, { error: toError(error).message });
+    }
+  }
+}
 const BENCHMARK_QUESTION_PRESET_MUTATION_ENDPOINT = new BenchmarkQuestionPresetMutationEndpoint();
 
 const DASHBOARD_ROUTES = new RouteTable([
@@ -904,6 +931,7 @@ const DASHBOARD_ROUTES = new RouteTable([
   { method: 'GET', path: /^\/dashboard\/admin\/runtime-artifacts\/([^/]+)$/u, endpoint: new RuntimeArtifactDetailEndpoint() },
   { method: 'DELETE', path: /^\/dashboard\/admin\/runtime-artifacts\/([^/]+)$/u, endpoint: new RuntimeArtifactDeleteEndpoint() },
   { method: 'POST', path: '/dashboard/system/pick-file', endpoint: new SystemPickFileEndpoint() },
+  { method: 'POST', path: '/dashboard/model-profile', endpoint: new ModelProfileEndpoint() },
 ]);
 
 export async function handleDashboardRoute(

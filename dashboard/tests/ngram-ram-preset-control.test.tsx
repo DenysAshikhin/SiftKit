@@ -25,6 +25,7 @@ function sectionProps(
     settingsPathPickerBusyTarget: null,
     modelPresetActions,
     runtimeStatus: null,
+    modelProfileStatus: { state: 'no-path' },
   };
 }
 

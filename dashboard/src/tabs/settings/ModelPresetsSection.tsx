@@ -8,6 +8,11 @@ import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls
 import { NGRAM_RAM_LABEL } from '../../settings-sections.ts';
 import { getModelPresetAssignments } from '../../model-runtime-presets.ts';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema } from '@siftkit/contracts';
+import {
+  getMlaKvCacheEquivalent,
+  getReasoningEffortOptions,
+} from '../../../../src/inference-presets/preset-compatibility.ts';
+import { ModelProfileBanner } from './ModelProfileBanner.tsx';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
@@ -15,7 +20,9 @@ import type {
 import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 import type { ModelPresetSettingsActions } from '../../settings-action-groups.ts';
 import {
+  getIdentifiedProfile,
   isModelPresetPickerBusy,
+  type ModelProfileStatus,
   type SettingsPathPickerBusyTarget,
 } from '../../settings-flow.ts';
 
@@ -26,6 +33,7 @@ type ModelPresetsSectionProps = {
   settingsPathPickerBusyTarget: SettingsPathPickerBusyTarget | null;
   modelPresetActions: ModelPresetSettingsActions;
   runtimeStatus: InferenceRuntimeDashboardStatus | null;
+  modelProfileStatus: ModelProfileStatus;
 };
 
 const GROUP_TITLES: Record<ModelPresetGroupId, string> = {
@@ -63,6 +71,7 @@ export function ModelPresetsSection({
   settingsPathPickerBusyTarget,
   modelPresetActions,
   runtimeStatus,
+  modelProfileStatus,
 }: ModelPresetsSectionProps) {
   const [openGroups, setOpenGroups] = React.useState<Record<ModelPresetGroupId, boolean>>({
     'identity-launch': true,
@@ -76,6 +85,7 @@ export function ModelPresetsSection({
     return null;
   }
   const preset = selectedModelPreset;
+  const profile = getIdentifiedProfile(modelProfileStatus);
   const assignments = getModelPresetAssignments(dashboardConfig, preset.id);
   const runtimeStatusMatchesPreset = runtimeStatus !== null
     && dashboardConfig.Server.ModelPresets.ActivePresetId === preset.id
@@ -125,6 +135,7 @@ export function ModelPresetsSection({
           <span className="fhint">Assigned to {assignments.map((entry) => entry.label).join(', ')}; reassign before deleting.</span>
         ) : null}
       </div>
+      <ModelProfileBanner status={modelProfileStatus} preset={preset} modelPresetActions={modelPresetActions} />
 
       {group('identity-launch', (
         <>
@@ -167,31 +178,31 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="Compaction reserve">
             <input type="number" min={1} value={preset.CompactionReserveTokens} onChange={(event) => modelPresetActions.setInteger('CompactionReserveTokens', parseIntegerInput(event.target.value, preset.CompactionReserveTokens))} />
           </SettingsSectionField>
-          <ModelPresetControl preset={preset} field="NcpuMoe" label="NcpuMoe">
+          <ModelPresetControl preset={preset} profile={profile} field="NcpuMoe" label="NcpuMoe">
             <input type="number" min={0} value={preset.NcpuMoe} onChange={(event) => modelPresetActions.setInteger('NcpuMoe', parseIntegerInput(event.target.value, preset.NcpuMoe))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="ParallelSlots" label="ParallelSlots">
+          <ModelPresetControl preset={preset} profile={profile} field="ParallelSlots" label="ParallelSlots">
             <input type="number" value={preset.ParallelSlots} onChange={(event) => modelPresetActions.setInteger('ParallelSlots', parseIntegerInput(event.target.value, preset.ParallelSlots))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="UBatchSize" label="UBatchSize">
+          <ModelPresetControl preset={preset} profile={profile} field="UBatchSize" label="UBatchSize">
             <input type="number" value={preset.UBatchSize} onChange={(event) => modelPresetActions.setInteger('UBatchSize', parseIntegerInput(event.target.value, preset.UBatchSize))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="CacheRam" label="CacheRam">
+          <ModelPresetControl preset={preset} profile={profile} field="CacheRam" label="CacheRam">
             <input type="number" value={preset.CacheRam} onChange={(event) => modelPresetActions.setInteger('CacheRam', parseIntegerInput(event.target.value, preset.CacheRam))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="CacheRecurrentRam" label="CacheRecurrentRam">
+          <ModelPresetControl preset={preset} profile={profile} field="CacheRecurrentRam" label="CacheRecurrentRam">
             <input type="number" value={preset.CacheRecurrentRam} onChange={(event) => modelPresetActions.setInteger('CacheRecurrentRam', parseIntegerInput(event.target.value, preset.CacheRecurrentRam))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="DiskCacheDir" label="Disk cache directory">
+          <ModelPresetControl preset={preset} profile={profile} field="DiskCacheDir" label="Disk cache directory">
             <input value={preset.DiskCacheDir || ''} placeholder="Off" onChange={(event) => modelPresetActions.setNullableString('DiskCacheDir', event.target.value.trim() === '' ? null : event.target.value)} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="DiskCacheSizeMiB" label="Disk cache size (MiB)">
+          <ModelPresetControl preset={preset} profile={profile} field="DiskCacheSizeMiB" label="Disk cache size (MiB)">
             <input type="number" min={1} value={preset.DiskCacheSizeMiB} onChange={(event) => modelPresetActions.setInteger('DiskCacheSizeMiB', parseIntegerInput(event.target.value, preset.DiskCacheSizeMiB))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="DiskCacheCheckpointInterval" label="Disk checkpoint spacing">
+          <ModelPresetControl preset={preset} profile={profile} field="DiskCacheCheckpointInterval" label="Disk checkpoint spacing">
             <input type="number" min={1} value={preset.DiskCacheCheckpointInterval} onChange={(event) => modelPresetActions.setInteger('DiskCacheCheckpointInterval', parseIntegerInput(event.target.value, preset.DiskCacheCheckpointInterval))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="NgramRam" label={NGRAM_RAM_LABEL}>
+          <ModelPresetControl preset={preset} profile={profile} field="NgramRam" label={NGRAM_RAM_LABEL}>
             <label className="settings-live-toggle-control">
               <input
                 type="checkbox"
@@ -202,14 +213,20 @@ export function ModelPresetsSection({
               <span>{preset.NgramRam ? 'System RAM' : 'Stream from disk'}</span>
             </label>
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="KvCacheQuantization" label="KV cache quant">
+          <ModelPresetControl preset={preset} profile={profile} field="KvCacheQuantization" label="KV cache quant">
             <select value={preset.KvCacheQuantization} onChange={(event) => {
               const value = ModelKvCacheQuantizationSchema.safeParse(event.target.value);
               if (value.success) modelPresetActions.setKvCacheQuantization(value.data);
             }}>
-              {ModelKvCacheQuantizationSchema.options.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
+              {ModelKvCacheQuantizationSchema.options.map((option) => {
+                const equivalent = getMlaKvCacheEquivalent(preset, profile, option);
+                return (
+                  <option key={option} value={option} disabled={equivalent !== null}
+                    title={equivalent === null ? undefined : `MLA caches one latent, so V bits are unused; same as ${equivalent}`}>
+                    {equivalent === null ? option : `${option} (same as ${equivalent})`}
+                  </option>
+                );
+              })}
             </select>
           </ModelPresetControl>
         </>
@@ -240,7 +257,7 @@ export function ModelPresetsSection({
 
       {group('reasoning', (
         <>
-          <SettingsSectionField sectionId="model-presets" label="Reasoning">
+          <ModelPresetControl preset={preset} profile={profile} field="Reasoning" label="Reasoning">
             <select
               value={preset.Reasoning}
               onChange={(event) => modelPresetActions.setReasoning(event.target.value === 'on' ? 'on' : 'off')}
@@ -248,9 +265,9 @@ export function ModelPresetsSection({
               <option value="off">off</option>
               <option value="on">on</option>
             </select>
-          </SettingsSectionField>
+          </ModelPresetControl>
           {reasoningEnabled ? (
-            <SettingsSectionField sectionId="model-presets" label="Reasoning effort">
+            <ModelPresetControl preset={preset} profile={profile} field="ReasoningEffort" label="Reasoning effort">
               <select
                 value={preset.ReasoningEffort}
                 onChange={(event) => {
@@ -258,14 +275,14 @@ export function ModelPresetsSection({
                   if (value.success) modelPresetActions.setReasoningEffort(value.data);
                 }}
               >
-                {ReasoningEffortSchema.options.map((option) => (
+                {getReasoningEffortOptions(preset, profile).map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
-            </SettingsSectionField>
+            </ModelPresetControl>
           ) : null}
           {reasoningEnabled ? (
-            <SettingsSectionField sectionId="model-presets" label="Reasoning content">
+            <ModelPresetControl preset={preset} profile={profile} field="ReasoningContent" label="Reasoning content">
               <label className="settings-live-toggle-control">
                 <input
                   type="checkbox"
@@ -274,28 +291,28 @@ export function ModelPresetsSection({
                 />
                 <span>{preset.ReasoningContent ? 'Enabled' : 'Disabled'}</span>
               </label>
-            </SettingsSectionField>
+            </ModelPresetControl>
           ) : null}
           {reasoningContentEnabled ? (
-            <SettingsSectionField sectionId="model-presets" label="Preserve thinking">
+            <ModelPresetControl preset={preset} profile={profile} field="PreserveThinking" label="Preserve thinking">
               <label className="settings-live-toggle-control">
                 <input type="checkbox" checked={preset.PreserveThinking} onChange={(event) => modelPresetActions.setBoolean('PreserveThinking', event.target.checked)} />
                 <span>{preset.PreserveThinking ? 'Enabled' : 'Disabled'}</span>
               </label>
-            </SettingsSectionField>
+            </ModelPresetControl>
           ) : null}
           {reasoningEnabled ? (
-            <SettingsSectionField sectionId="model-presets" label="Maintain per step thinking">
+            <ModelPresetControl preset={preset} profile={profile} field="MaintainPerStepThinking" label="Maintain per step thinking">
               <label className="settings-live-toggle-control">
                 <input type="checkbox" checked={preset.MaintainPerStepThinking} onChange={(event) => modelPresetActions.setBoolean('MaintainPerStepThinking', event.target.checked)} />
                 <span>{preset.MaintainPerStepThinking ? 'Enabled' : 'Disabled'}</span>
               </label>
-            </SettingsSectionField>
+            </ModelPresetControl>
           ) : null}
-          <ModelPresetControl preset={preset} field="ReasoningBudget" label="ReasoningBudget">
+          <ModelPresetControl preset={preset} profile={profile} field="ReasoningBudget" label="ReasoningBudget">
             <input type="number" value={preset.ReasoningBudget} onChange={(event) => modelPresetActions.setInteger('ReasoningBudget', parseIntegerInput(event.target.value, preset.ReasoningBudget))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="ReasoningBudgetMessage" label="ReasoningBudgetMessage" className="w4">
+          <ModelPresetControl preset={preset} profile={profile} field="ReasoningBudgetMessage" label="ReasoningBudgetMessage" className="w4">
             <textarea rows={3} value={preset.ReasoningBudgetMessage || ''} onChange={(event) => modelPresetActions.setNullableString('ReasoningBudgetMessage', event.target.value || null)} />
           </ModelPresetControl>
         </>
@@ -303,19 +320,19 @@ export function ModelPresetsSection({
 
       {group('speculative', (
         <>
-          <ModelPresetControl preset={preset} field="SpeculativeEnabled" label="Enable speculative decoding">
+          <ModelPresetControl preset={preset} profile={profile} field="SpeculativeEnabled" label="Enable speculative decoding">
             <label className="settings-live-toggle-control">
               <input type="checkbox" checked={preset.SpeculativeEnabled} onChange={(event) => modelPresetActions.setBoolean('SpeculativeEnabled', event.target.checked)} />
               <span>{preset.SpeculativeEnabled ? 'Enabled' : 'Disabled'}</span>
             </label>
           </ModelPresetControl>
           {preset.SpeculativeEnabled ? (
-            <ModelPresetControl preset={preset} field="SpeculativeDraftMax" label="SpeculativeDraftMax">
+            <ModelPresetControl preset={preset} profile={profile} field="SpeculativeDraftMax" label="SpeculativeDraftMax">
               <input type="number" value={preset.SpeculativeDraftMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMax', parseIntegerInput(event.target.value, preset.SpeculativeDraftMax))} />
             </ModelPresetControl>
           ) : null}
           {preset.SpeculativeEnabled ? (
-            <ModelPresetControl preset={preset} field="SpeculativeDynamic" label="SpeculativeDynamic">
+            <ModelPresetControl preset={preset} profile={profile} field="SpeculativeDynamic" label="SpeculativeDynamic">
               <label className="settings-live-toggle-control">
                 <input type="checkbox" checked={preset.SpeculativeDynamic} onChange={(event) => modelPresetActions.setBoolean('SpeculativeDynamic', event.target.checked)} />
                 <span>{preset.SpeculativeDynamic ? 'Enabled' : 'Disabled'}</span>
@@ -336,7 +353,7 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="HealthcheckIntervalMs">
             <input type="number" value={preset.HealthcheckIntervalMs} onChange={(event) => modelPresetActions.setInteger('HealthcheckIntervalMs', parseIntegerInput(event.target.value, preset.HealthcheckIntervalMs))} />
           </SettingsSectionField>
-          <ModelPresetControl preset={preset} field="IdleAction" label="IdleAction">
+          <ModelPresetControl preset={preset} profile={profile} field="IdleAction" label="IdleAction">
             <select value={preset.IdleAction} onChange={(event) => {
               const value = ModelIdleActionSchema.safeParse(event.target.value);
               if (value.success) modelPresetActions.setIdleAction(value.data);
@@ -355,6 +372,7 @@ export function ModelPresetsSection({
           </SettingsSectionField>
           <VisionPresetControls
             preset={preset}
+            profile={profile}
             modelPresetActions={modelPresetActions}
             imageTokenBudget={runtimeStatusMatchesPreset ? runtimeStatus.imageTokenBudget : null}
             gpuFreeBytes={runtimeStatusMatchesPreset ? runtimeStatus.gpuFreeBytes : null}

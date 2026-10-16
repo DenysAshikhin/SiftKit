@@ -62,6 +62,7 @@ test('a model preset still assigned to an operation cannot be deleted and names 
       selectedModelPreset={SECOND_MODEL_PRESET}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
+      modelProfileStatus={{ state: 'no-path' }}
       modelPresetActions={MODEL_PRESET_ACTIONS}
       runtimeStatus={null}
     />,

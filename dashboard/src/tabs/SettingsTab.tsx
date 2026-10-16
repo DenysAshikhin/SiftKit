@@ -2,7 +2,7 @@ import React from 'react';
 import type { ReactNode } from 'react';
 
 import { formatDate, formatNumber, parseIntegerInput } from '../lib/format.ts';
-import type { DirtyContinuation, SettingsPathPickerBusyTarget } from '../settings-flow.ts';
+import type { DirtyContinuation, ModelProfileStatus, SettingsPathPickerBusyTarget } from '../settings-flow.ts';
 import {
   POLICY_MODE_OPTIONS,
   SETTINGS_SECTION_ORDER,
@@ -50,6 +50,7 @@ export type SettingsTabProps = {
   settingsSaving: boolean;
   settingsRestarting: boolean;
   settingsPathPickerBusyTarget: SettingsPathPickerBusyTarget | null;
+  modelProfileStatus: ModelProfileStatus;
   requestSettingsAction(continuation: DirtyContinuation): void;
   generalActions: GeneralSettingsActions;
   toolPolicyActions: ToolPolicySettingsActions;
@@ -81,6 +82,7 @@ export function SettingsTab(props: SettingsTabProps) {
     settingsSaving,
     settingsRestarting,
     settingsPathPickerBusyTarget,
+    modelProfileStatus,
     requestSettingsAction,
     generalActions,
     toolPolicyActions,
@@ -405,6 +407,7 @@ export function SettingsTab(props: SettingsTabProps) {
           settingsPathPickerBusyTarget={settingsPathPickerBusyTarget}
           modelPresetActions={modelPresetActions}
           runtimeStatus={runtimeStatus.status}
+          modelProfileStatus={modelProfileStatus}
         />
       </>
     );

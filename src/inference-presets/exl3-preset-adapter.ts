@@ -7,7 +7,7 @@ import {
   type Exl3CacheModes,
   type PresetRequestDefaults,
 } from './preset-compatibility.ts';
-import { Exl3ModelCapabilities } from './exl3-model-capabilities.ts';
+import { inspectModelDirectory, readTemplateThinking } from './model-profile-inspector.ts';
 
 /** A profile with no ModelPath declares no loading identity, e.g. a model already served externally. */
 export class MissingModelPathError extends Error {
@@ -92,8 +92,6 @@ function envFlag(value: boolean): 'true' | 'false' {
 }
 
 export class Exl3PresetAdapter {
-  private readonly capabilities = new Exl3ModelCapabilities();
-
   private readonly modelRoot: string;
 
   constructor(modelRoot: string) {
@@ -114,11 +112,30 @@ export class Exl3PresetAdapter {
     }
     if (preset.VisionEnabled) {
       const modelDirectory = win32.resolve(this.modelRoot, relativeModelPath);
-      if (!this.capabilities.hasVisionTower(modelDirectory)) {
+      if (!inspectModelDirectory(modelDirectory).vision) {
         throw new Error(
           `preset=${preset.id} backend=exl3 VisionEnabled=true but ${modelDirectory} has no vision_config`,
         );
       }
+    }
+  }
+
+  /** Launch-time check: thinking settings the chat template ignores would silently not apply. */
+  validateTemplateThinking(preset: ModelRuntimePreset): void {
+    if (preset.UnlockAllSettings) return;
+    const modelDirectory = win32.resolve(this.modelRoot, this.getRelativeModelPath(preset));
+    const { reasoningEfforts: efforts, thinkingToggle } = readTemplateThinking(modelDirectory);
+    if (preset.Reasoning === 'off' && !thinkingToggle) {
+      throw new Error(
+        `preset=${preset.id} backend=exl3 Reasoning=off but ${modelDirectory} chat template ignores enable_thinking, `
+        + 'so the model always thinks; set Reasoning=on or UnlockAllSettings',
+      );
+    }
+    if (preset.Reasoning === 'on' && efforts.length > 0 && !efforts.includes(preset.ReasoningEffort)) {
+      throw new Error(
+        `preset=${preset.id} backend=exl3 ReasoningEffort=${preset.ReasoningEffort} is not distinguished by `
+        + `${modelDirectory} chat template; use ${efforts.join(', ')} or UnlockAllSettings`,
+      );
     }
   }
 

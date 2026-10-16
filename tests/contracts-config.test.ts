@@ -275,12 +275,9 @@ test('SiftPresetCollectionSchema requires the summary default to have summary ki
   }
 });
 
-test('ReasoningEffortSchema accepts the three levels this template distinguishes', () => {
-  assert.equal(ReasoningEffortSchema.safeParse('low').success, true);
-  assert.equal(ReasoningEffortSchema.safeParse('medium').success, true);
-  assert.equal(ReasoningEffortSchema.safeParse('xhigh').success, true);
-  // 'high' is a dead alias for 'xhigh' in the Qwen3.8 template; offering it would lie.
-  assert.equal(ReasoningEffortSchema.safeParse('high').success, false);
+test('ReasoningEffortSchema accepts the union of levels the supported templates distinguish', () => {
+  assert.deepEqual(ReasoningEffortSchema.options, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.equal(ReasoningEffortSchema.safeParse('none').success, false);
   assert.equal(ReasoningEffortSchema.safeParse('').success, false);
 });
 
@@ -290,7 +287,16 @@ test('ModelRuntimePresetSchema requires ReasoningEffort on every preset', () => 
   const { ReasoningEffort: _ReasoningEffort, ...withoutEffort } = preset;
   assert.equal(ModelRuntimePresetSchema.safeParse(withoutEffort).success, false);
   assert.equal(ModelRuntimePresetSchema.safeParse({ ...preset, ReasoningEffort: 'low' }).success, true);
-  assert.equal(ModelRuntimePresetSchema.safeParse({ ...preset, ReasoningEffort: 'high' }).success, false);
+  assert.equal(ModelRuntimePresetSchema.safeParse({ ...preset, ReasoningEffort: 'none' }).success, false);
+});
+
+test('ModelRuntimePresetSchema requires UnlockAllSettings on every preset', () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const { UnlockAllSettings: _UnlockAllSettings, ...withoutUnlock } = preset;
+  assert.equal(preset.UnlockAllSettings, false);
+  assert.equal(ModelRuntimePresetSchema.safeParse(withoutUnlock).success, false);
+  assert.equal(ModelPresetFieldSchema.safeParse('UnlockAllSettings').success, true);
 });
 
 test('ReasoningEffort is an editable model preset field', () => {

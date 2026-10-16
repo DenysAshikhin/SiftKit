@@ -8,13 +8,26 @@ import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../../src/lib/context-token-bu
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
 import type { ModelPresetSettingsActions } from '../src/settings-action-groups.ts';
 import type { DashboardModelRuntimePreset } from '../src/types.ts';
+import type { ModelProfileStatus } from '../src/settings-flow.ts';
+import type { ModelProfile } from '@siftkit/contracts';
 import { cleanup, fireEvent, render } from './react-test-environment.ts';
+import { GLM_PROFILE } from './fixtures.ts';
 
 interface PresetRenderOptions {
   externalServerEnabled?: boolean;
   parallelSlots?: number;
   reasoning?: 'on' | 'off';
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  unlocked?: boolean;
+  profileStatus?: ModelProfileStatus;
 }
+
+const QWEN_PROFILE: ModelProfile = {
+  ...GLM_PROFILE, name: 'Qwen3.8-Flash-Next-exl3-3.50bpw_hq_h6_ng6', architecture: 'Qwen4ExpForConditionalGeneration',
+  ngram: true, mla: false, reasoningEfforts: ['low', 'medium', 'xhigh'], thinkingToggle: true, preserveThinking: true,
+  sampling: { temperature: 1.0, topP: 0.95, topK: 20 },
+};
+const identified = (profile: ModelProfile): ModelProfileStatus => ({ state: 'identified', presetId: 'default', profile });
 
 const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   selectPreset() {},
@@ -29,6 +42,7 @@ const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   setReasoning() {},
   setReasoningEffort() {},
   setReasoningContent() {},
+  applyRecommendedSampling() {},
   addPreset() {},
   deletePreset() {},
   async pickModelPath() {},
@@ -43,6 +57,8 @@ function renderPreset(options: PresetRenderOptions = {}): string {
   preset.KvCacheQuantization = 'f16';
   preset.ParallelSlots = options.parallelSlots ?? 1;
   preset.Reasoning = options.reasoning ?? 'off';
+  preset.ReasoningEffort = options.effort ?? preset.ReasoningEffort;
+  preset.UnlockAllSettings = options.unlocked ?? false;
   preset.SpeculativeEnabled = true;
 
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, {
@@ -52,6 +68,7 @@ function renderPreset(options: PresetRenderOptions = {}): string {
     settingsPathPickerBusyTarget: null,
     modelPresetActions: MODEL_PRESET_ACTIONS,
     runtimeStatus: null,
+    modelProfileStatus: options.profileStatus ?? { state: 'no-path' },
   }));
 }
 
@@ -109,15 +126,64 @@ test('the KV cache control offers exactly the EXL3 cache modes', () => {
   assert.doesNotMatch(field, /value="bf16"|value="f32"/u);
 });
 
-test('the reasoning effort dropdown offers the three levels the template distinguishes', () => {
-  const markup = renderPreset({ reasoning: 'on' });
-  const field = getRenderedField(markup, 'Reasoning effort');
+function renderedEffortOptions(options: PresetRenderOptions): string[] {
+  const field = getRenderedField(renderPreset({ reasoning: 'on', ...options }), 'Reasoning effort');
+  return [...field.matchAll(/<option value="([a-z]+)"/gu)].map((match) => match[1] ?? '');
+}
 
-  assert.match(field, /<option value="low">low<\/option>/u);
-  assert.match(field, /<option value="medium">medium<\/option>/u);
-  assert.match(field, /<option value="xhigh" selected="">xhigh<\/option>/u);
-  // 'high' collapses into 'xhigh' in the Qwen3.8 template, so it is never offered.
-  assert.doesNotMatch(field, /value="high"/u);
+test('the reasoning effort dropdown offers only the levels the identified template distinguishes', () => {
+  assert.deepEqual(renderedEffortOptions({ effort: 'xhigh', profileStatus: identified(QWEN_PROFILE) }), ['low', 'medium', 'xhigh']);
+  assert.deepEqual(renderedEffortOptions({ effort: 'max', profileStatus: identified(GLM_PROFILE) }), ['low', 'high', 'max']);
+  assert.match(getRenderedField(renderPreset({ reasoning: 'on', effort: 'max', profileStatus: identified(GLM_PROFILE) }), 'Reasoning effort'),
+    /<option value="max" selected="">max<\/option>/u);
+});
+
+test('the reasoning effort dropdown offers every level when unidentified or unlocked', () => {
+  const all = ['low', 'medium', 'high', 'xhigh', 'max'];
+  assert.deepEqual(renderedEffortOptions({ effort: 'xhigh' }), all);
+  assert.deepEqual(renderedEffortOptions({ effort: 'xhigh', profileStatus: { state: 'unidentified', error: 'no config.json' } }), all);
+  assert.deepEqual(renderedEffortOptions({ effort: 'xhigh', unlocked: true, profileStatus: identified(GLM_PROFILE) }), all);
+});
+
+test('an identified GLM model is announced and grays out the settings it ignores', () => {
+  const markup = renderPreset({ reasoning: 'on', effort: 'max', profileStatus: identified(GLM_PROFILE) });
+
+  assert.match(markup, /Auto-identified <strong>GLM-5\.3-Flash-3\.00bpw-hq<\/strong>/u);
+  assert.match(markup, /MoE · recurrent · MTP · vision · MLA/u);
+  assert.match(markup, /3 settings don(&#x27;|')t apply and are grayed out/u);
+  assert.match(getRenderedField(markup, 'Reasoning'), /disabled=""[\s\S]*Template ignores enable_thinking; the model always thinks/u);
+  assert.match(getRenderedField(markup, 'Keep n-gram table in RAM'), /disabled=""[\s\S]*No n-gram embedding table/u);
+  assert.doesNotMatch(getRenderedField(markup, 'NcpuMoe'), /disabled/u);
+  assert.match(getRenderedField(markup, 'KV cache quant'), /<option value="q8_0\/q4_0" disabled=""/u);
+  assert.match(markup, /Recommended sampling: temperature 1, top_p 0\.95/u);
+  assert.match(markup, /aria-label="Unlock all settings"/u);
+});
+
+test('an unlocked preset keeps the identification but enables every setting', () => {
+  const markup = renderPreset({ reasoning: 'on', unlocked: true, profileStatus: identified(GLM_PROFILE) });
+
+  assert.match(markup, /Auto-identified/u);
+  assert.match(markup, /All settings unlocked/u);
+  assert.doesNotMatch(getRenderedField(markup, 'Reasoning'), /disabled=""/u);
+  assert.doesNotMatch(getRenderedField(markup, 'KV cache quant'), /disabled=""/u);
+});
+
+test('an unidentified model directory says so and leaves every setting editable', () => {
+  const markup = renderPreset({ reasoning: 'on', profileStatus: { state: 'unidentified', error: 'model has no config.json' } });
+
+  assert.match(markup, /Could not identify the model: model has no config\.json/u);
+  assert.doesNotMatch(getRenderedField(markup, 'Reasoning'), /disabled=""/u);
+});
+
+test('applying recommended sampling hands the identified profile to the action', () => {
+  const applied: ModelProfile[] = [];
+  const container = renderLivePreset({}, { ...MODEL_PRESET_ACTIONS, applyRecommendedSampling: (profile) => { applied.push(profile); } }, identified(GLM_PROFILE));
+  const button = [...container.querySelectorAll('button')].find((entry) => entry.textContent === 'Apply');
+  if (!button) throw new Error('Apply button is missing');
+
+  fireEvent.click(button);
+
+  assert.deepEqual(applied, [GLM_PROFILE]);
 });
 
 test('the reasoning effort dropdown is hidden when reasoning is off', () => {
@@ -126,7 +192,11 @@ test('the reasoning effort dropdown is hidden when reasoning is off', () => {
 
 const DISK_CACHE_LABELS = ['Disk cache directory', 'Disk cache size (MiB)', 'Disk checkpoint spacing'] as const;
 
-function renderLivePreset(overrides: Partial<DashboardModelRuntimePreset>, actions: ModelPresetSettingsActions): HTMLElement {
+function renderLivePreset(
+  overrides: Partial<DashboardModelRuntimePreset>,
+  actions: ModelPresetSettingsActions,
+  modelProfileStatus: ModelProfileStatus = { state: 'no-path' },
+): HTMLElement {
   const config = getDefaultConfigObject();
   const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default config must include a model preset.');
@@ -138,6 +208,7 @@ function renderLivePreset(overrides: Partial<DashboardModelRuntimePreset>, actio
     settingsPathPickerBusyTarget: null,
     modelPresetActions: actions,
     runtimeStatus: null,
+    modelProfileStatus,
   })).container;
 }
 

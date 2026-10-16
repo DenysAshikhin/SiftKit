@@ -36,6 +36,7 @@ function render(overrides: Partial<SettingsTabProps> = {}): string {
     settingsSaving: false,
     settingsRestarting: false,
     settingsPathPickerBusyTarget: null,
+    modelProfileStatus: overrides.modelProfileStatus ?? { state: 'no-path' },
     requestSettingsAction: overrides.requestSettingsAction ?? (() => {}),
     generalActions: GENERAL_ACTIONS,
     toolPolicyActions: TOOL_POLICY_ACTIONS,

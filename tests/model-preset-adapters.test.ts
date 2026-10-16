@@ -170,7 +170,7 @@ test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => 
   try {
     const modelDir = join(baseDir, '3.6_27B');
     mkdirSync(modelDir, { recursive: true });
-    writeFileSync(join(modelDir, 'config.json'), JSON.stringify({ vision_config: {} }), { encoding: 'utf8' });
+    writeFileSync(join(modelDir, 'config.json'), JSON.stringify({ architectures: ['Qwen3_5ForConditionalGeneration'], vision_config: {} }), { encoding: 'utf8' });
     const preset = createModelPreset({
       Backend: 'exl3',
       ModelPath: modelDir,
@@ -191,7 +191,7 @@ test('EXL3 adapter emits TABBY_MODEL_VISION_OFFLOAD true when the preset offload
   try {
     const modelDir = join(baseDir, '3.6_27B');
     mkdirSync(modelDir, { recursive: true });
-    writeFileSync(join(modelDir, 'config.json'), JSON.stringify({ vision_config: {} }), { encoding: 'utf8' });
+    writeFileSync(join(modelDir, 'config.json'), JSON.stringify({ architectures: ['Qwen3_5ForConditionalGeneration'], vision_config: {} }), { encoding: 'utf8' });
     const preset = createModelPreset({
       Backend: 'exl3',
       ModelPath: modelDir,
@@ -385,6 +385,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   VisionOffload: MANAGED_ONLY,
   VisionImageRetention: MANAGED_ONLY,
   VisionMaxImagePixels: MANAGED_ONLY,
+  UnlockAllSettings: ALWAYS,
 } satisfies Record<ModelPresetField, PresetFieldExpectation>;
 
 test('every preset field states its availability for managed and external engines', () => {
@@ -393,8 +394,8 @@ test('every preset field states its availability for managed and external engine
 
   for (const field of ModelPresetFieldSchema.options) {
     const expected = PRESET_FIELD_EXPECTATIONS[field];
-    assert.deepEqual(getPresetFieldAvailability(managed, field), expected.managed, `managed/${field}`);
-    assert.deepEqual(getPresetFieldAvailability(external, field), expected.external, `external/${field}`);
+    assert.deepEqual(getPresetFieldAvailability(managed, field, null), expected.managed, `managed/${field}`);
+    assert.deepEqual(getPresetFieldAvailability(external, field, null), expected.external, `external/${field}`);
   }
 });
 
@@ -457,4 +458,50 @@ test('EXL3 adapter pins the allocator before Torch is imported', () => {
   assert.equal(env.PYTORCH_ALLOC_CONF, 'backend:native,expandable_segments:True');
   assert.equal(env.PYTORCH_CUDA_ALLOC_CONF, 'backend:native,expandable_segments:True');
   assert.equal(env.TABBY_MEMORY_CUDA_MALLOC_ASYNC, 'false');
+});
+
+test('EXL3 adapter rejects at launch thinking settings the chat template does not honor', () => {
+  const modelRoot = createManagedTempDir('exl3-effort-');
+  try {
+    const modelDirectory = join(modelRoot, 'GLM-5.3-Flash');
+    mkdirSync(modelDirectory, { recursive: true });
+    writeFileSync(join(modelDirectory, 'chat_template.jinja'),
+      "{%- set e = reasoning_effort if reasoning_effort in ['low', 'high'] else 'max' -%}");
+    const adapter = new Exl3PresetAdapter(modelRoot);
+    const preset = (ReasoningEffort: ModelRuntimePreset['ReasoningEffort'], overrides: Partial<ModelRuntimePreset> = {}) => (
+      createModelPreset({ ModelPath: modelDirectory, Reasoning: 'on', ReasoningEffort, ...overrides })
+    );
+
+    assert.throws(
+      () => adapter.validateTemplateThinking(preset('xhigh')),
+      /ReasoningEffort=xhigh is not distinguished by .*GLM-5\.3-Flash chat template; use low, high, max or UnlockAllSettings/u,
+    );
+    assert.throws(
+      () => adapter.validateTemplateThinking(preset('max', { Reasoning: 'off' })),
+      /Reasoning=off but .*GLM-5.3-Flash chat template ignores enable_thinking, so the model always thinks; set Reasoning=on or UnlockAllSettings/u,
+    );
+    assert.doesNotThrow(() => adapter.validateTemplateThinking(preset('max')));
+    assert.doesNotThrow(() => adapter.validateTemplateThinking(preset('xhigh', { UnlockAllSettings: true })));
+    assert.doesNotThrow(() => adapter.validateTemplateThinking(preset('xhigh', { Reasoning: 'off', UnlockAllSettings: true })));
+  } finally {
+    rmSync(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test('EXL3 adapter accepts any thinking setting when the model has no chat template', () => {
+  const modelRoot = createManagedTempDir('exl3-effort-');
+  try {
+    const modelDirectory = join(modelRoot, 'plain');
+    mkdirSync(modelDirectory, { recursive: true });
+    const adapter = new Exl3PresetAdapter(modelRoot);
+
+    assert.doesNotThrow(() => adapter.validateTemplateThinking(
+      createModelPreset({ ModelPath: modelDirectory, Reasoning: 'on', ReasoningEffort: 'high' }),
+    ));
+    assert.doesNotThrow(() => adapter.validateTemplateThinking(
+      createModelPreset({ ModelPath: modelDirectory, Reasoning: 'off' }),
+    ));
+  } finally {
+    rmSync(modelRoot, { recursive: true, force: true });
+  }
 });

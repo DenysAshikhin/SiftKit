@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.ts';
-import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, PRESET, SECOND_MODEL_PRESET, TWO_MODEL_DASHBOARD_CONFIG } from '../dashboard/tests/fixtures.ts';
+import { CUSTOM_PRESET, DASHBOARD_CONFIG, GLM_PROFILE, MANAGED_PRESET, PRESET, SECOND_MODEL_PRESET, TWO_MODEL_DASHBOARD_CONFIG } from '../dashboard/tests/fixtures.ts';
 
 test('settings draft editor replaces the assistant config as one validated value', () => {
   const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
@@ -245,6 +245,73 @@ test('the reasoning effort survives a round trip through the reasoning toggle', 
 
   const preset = editor.getConfig().Server.ModelPresets.Presets.find((entry) => entry.id === MANAGED_PRESET.id);
   assert.equal(preset?.ReasoningEffort, 'low');
+});
+
+function managedPreset(editor: DashboardSettingsDraftEditor) {
+  const preset = editor.getConfig().Server.ModelPresets.Presets.find((entry) => entry.id === MANAGED_PRESET.id);
+  if (!preset) throw new Error('Managed preset is missing');
+  return preset;
+}
+
+test('applying a GLM profile turns on the thinking it cannot disable and clears what it ignores', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+  const presetId = MANAGED_PRESET.id;
+  editor.apply({ type: 'set-model-reasoning-effort', presetId, value: 'xhigh' });
+  editor.apply({ type: 'set-model-boolean', presetId, field: 'NgramRam', value: true });
+  editor.apply({ type: 'set-model-kv-cache-quantization', presetId, value: 'q8_0/q4_0' });
+
+  editor.apply({ type: 'apply-model-profile', presetId, profile: GLM_PROFILE });
+
+  const preset = managedPreset(editor);
+  assert.equal(preset.Reasoning, 'on');
+  assert.equal(preset.MaintainPerStepThinking, true);
+  assert.equal(preset.ReasoningEffort, 'max');
+  assert.equal(preset.NgramRam, false);
+  assert.equal(preset.PreserveThinking, false);
+  assert.equal(preset.KvCacheQuantization, 'q8_0');
+});
+
+test('applying a profile clears launch features the model lacks and keeps supported choices', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+  const presetId = MANAGED_PRESET.id;
+  editor.apply({ type: 'set-model-reasoning', presetId, value: 'on' });
+  editor.apply({ type: 'set-model-reasoning-effort', presetId, value: 'low' });
+  editor.apply({ type: 'set-model-boolean', presetId, field: 'SpeculativeEnabled', value: true });
+  editor.apply({ type: 'set-model-boolean', presetId, field: 'VisionEnabled', value: true });
+  editor.apply({ type: 'set-model-boolean', presetId, field: 'VisionOffload', value: true });
+
+  editor.apply({ type: 'apply-model-profile', presetId, profile: { ...GLM_PROFILE, mtp: false, vision: false } });
+
+  const preset = managedPreset(editor);
+  assert.equal(preset.ReasoningEffort, 'low');
+  assert.equal(preset.SpeculativeEnabled, false);
+  assert.equal(preset.VisionEnabled, false);
+  assert.equal(preset.VisionOffload, false);
+});
+
+test('an unlocked preset ignores the applied profile', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+  const presetId = MANAGED_PRESET.id;
+  editor.apply({ type: 'set-model-boolean', presetId, field: 'UnlockAllSettings', value: true });
+  editor.apply({ type: 'set-model-boolean', presetId, field: 'NgramRam', value: true });
+
+  editor.apply({ type: 'apply-model-profile', presetId, profile: GLM_PROFILE });
+
+  const preset = managedPreset(editor);
+  assert.equal(preset.Reasoning, 'off');
+  assert.equal(preset.ReasoningEffort, 'xhigh');
+  assert.equal(preset.NgramRam, true);
+});
+
+test('applying recommended sampling sets only the values generation_config declares', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+
+  editor.apply({ type: 'apply-model-sampling', presetId: MANAGED_PRESET.id, profile: GLM_PROFILE });
+
+  const preset = managedPreset(editor);
+  assert.equal(preset.Temperature, 1.0);
+  assert.equal(preset.TopP, 0.95);
+  assert.equal(preset.TopK, MANAGED_PRESET.TopK);
 });
 
 function operationModel(editor: DashboardSettingsDraftEditor, presetId: string): string | null | undefined {

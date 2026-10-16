@@ -1,9 +1,11 @@
 import { z } from 'zod';
-import { ReasoningEffortSchema } from '@siftkit/contracts';
+import { ModelPresetFieldSchema, ReasoningEffortSchema } from '@siftkit/contracts';
 import type {
   ModelKvCacheQuantization,
   ModelPresetField,
+  ModelProfile,
   ModelRuntimePreset,
+  ReasoningEffort,
 } from '@siftkit/contracts';
 
 /** How SiftKit shapes OpenAI-style chat requests for TabbyAPI. */
@@ -124,6 +126,7 @@ const PRESET_FIELD_SUPPORT = {
   VisionOffload: 'managed-only',
   VisionImageRetention: 'managed-only',
   VisionMaxImagePixels: 'managed-only',
+  UnlockAllSettings: 'always',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
 
 const AVAILABLE = { visible: true, enabled: true, reason: null } as const;
@@ -133,6 +136,57 @@ const NEEDS_MANAGED_TABBY = {
   reason: 'Requires SiftKit-managed TabbyAPI',
 } as const;
 
+/** Why a field is ignored when the profiled model lacks the capability. */
+const CAPABILITY_REASONS = {
+  moe: 'Dense model: no routed experts to offload',
+  recurrent: 'No linear-attention layers, so no recurrent state',
+  mtp: 'No MTP head to draft with',
+  vision: 'No vision tower',
+  ngram: 'No n-gram embedding table',
+  thinkingToggle: 'Template ignores enable_thinking; the model always thinks',
+  preserveThinking: 'Template ignores preserve_thinking',
+  reasoningEffort: 'Template ignores reasoning_effort',
+} as const;
+type ProfileCapability = keyof typeof CAPABILITY_REASONS;
+
+/** Fields that do nothing unless the model directory's profile declares the named capability. */
+const PROFILE_REQUIREMENTS: Partial<Record<ModelPresetField, ProfileCapability>> = {
+  NcpuMoe: 'moe',
+  CacheRecurrentRam: 'recurrent',
+  DiskCacheCheckpointInterval: 'recurrent',
+  NgramRam: 'ngram',
+  Reasoning: 'thinkingToggle',
+  ReasoningEffort: 'reasoningEffort',
+  PreserveThinking: 'preserveThinking',
+  SpeculativeEnabled: 'mtp',
+  SpeculativeDraftMax: 'mtp',
+  SpeculativeDynamic: 'mtp',
+  VisionEnabled: 'vision',
+  VisionOffload: 'vision',
+  VisionImageRetention: 'vision',
+  VisionMaxImagePixels: 'vision',
+};
+
+function hasCapability(profile: ModelProfile, capability: ProfileCapability): boolean {
+  return capability === 'reasoningEffort' ? profile.reasoningEfforts.length > 0 : profile[capability];
+}
+
+/** Why the profiled model ignores `field`, or null when the field applies. */
+function getProfileReason(profile: ModelProfile, field: ModelPresetField): string | null {
+  const capability = PROFILE_REQUIREMENTS[field];
+  return capability === undefined || hasCapability(profile, capability) ? null : CAPABILITY_REASONS[capability];
+}
+
+/** Every field the profiled model ignores, whatever the preset's unlock or launch mode. */
+export function getProfileIgnoredFields(profile: ModelProfile): ModelPresetField[] {
+  return ModelPresetFieldSchema.options.filter((field) => getProfileReason(profile, field) !== null);
+}
+
+/** The profile constrains the form only while the preset has not unlocked every setting. */
+function getActiveProfile(preset: ModelRuntimePreset, profile: ModelProfile | null): ModelProfile | null {
+  return preset.UnlockAllSettings ? null : profile;
+}
+
 /**
  * Single source of truth for how a field appears on the settings form. Every decision the form
  * makes about a field comes from here, so the form never carries its own copy of the rules.
@@ -140,11 +194,32 @@ const NEEDS_MANAGED_TABBY = {
 export function getPresetFieldAvailability(
   preset: ModelRuntimePreset,
   field: ModelPresetField,
+  profile: ModelProfile | null,
 ): PresetFieldAvailability {
-  switch (PRESET_FIELD_SUPPORT[field]) {
-    case 'always':
-      return AVAILABLE;
-    case 'managed-only':
-      return preset.ExternalServerEnabled ? NEEDS_MANAGED_TABBY : AVAILABLE;
-  }
+  if (PRESET_FIELD_SUPPORT[field] === 'managed-only' && preset.ExternalServerEnabled) return NEEDS_MANAGED_TABBY;
+  const activeProfile = getActiveProfile(preset, profile);
+  const reason = activeProfile === null ? null : getProfileReason(activeProfile, field);
+  return reason === null ? AVAILABLE : { visible: true, enabled: false, reason };
+}
+
+/** Levels the template distinguishes; every level when unprofiled, unlocked, or unconstrained. */
+export function getReasoningEffortOptions(preset: ModelRuntimePreset, profile: ModelProfile | null): readonly ReasoningEffort[] {
+  const activeProfile = getActiveProfile(preset, profile);
+  return activeProfile === null || activeProfile.reasoningEfforts.length === 0
+    ? ReasoningEffortSchema.options
+    : activeProfile.reasoningEfforts;
+}
+
+/** MLA caches one latent sized by the K bits, so a split K/V mode equals its K-only mode. */
+const MLA_KV_CACHE_EQUIVALENTS: ReadonlyMap<ModelKvCacheQuantization, ModelKvCacheQuantization> = new Map([
+  ['q8_0/q4_0', 'q8_0'], ['q8_0/q5_0', 'q8_0'],
+]);
+
+/** The K-only mode an MLA model actually runs for `value`, or null when the option applies as named. */
+export function getMlaKvCacheEquivalent(
+  preset: ModelRuntimePreset,
+  profile: ModelProfile | null,
+  value: ModelKvCacheQuantization,
+): ModelKvCacheQuantization | null {
+  return getActiveProfile(preset, profile)?.mla ? MLA_KV_CACHE_EQUIVALENTS.get(value) ?? null : null;
 }

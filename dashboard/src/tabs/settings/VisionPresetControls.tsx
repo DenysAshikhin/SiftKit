@@ -7,6 +7,7 @@ import {
   estimateVisionPeakVramBytesForImagePixels,
   resolveEffectiveImagePixelCeiling,
   type ImageTokenBudget,
+  type ModelProfile,
 } from '@siftkit/contracts';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
 import { getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.ts';
@@ -46,14 +47,15 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-export function ModelPresetControl({ preset, field, label, className, children }: {
+export function ModelPresetControl({ preset, profile, field, label, className, children }: {
   preset: DashboardModelRuntimePreset;
+  profile: ModelProfile | null;
   field: ModelPresetField;
   label: string;
   className?: string;
   children: ReactNode;
 }) {
-  const availability = getPresetFieldAvailability(preset, field);
+  const availability = getPresetFieldAvailability(preset, field, profile);
   if (!availability.visible) {
     return null;
   }
@@ -69,6 +71,7 @@ export function ModelPresetControl({ preset, field, label, className, children }
 
 export type VisionPresetControlsProps = {
   preset: DashboardModelRuntimePreset;
+  profile: ModelProfile | null;
   modelPresetActions: ModelPresetSettingsActions;
   imageTokenBudget: ImageTokenBudget | null;
   gpuFreeBytes: number | null;
@@ -76,11 +79,12 @@ export type VisionPresetControlsProps = {
 
 export function VisionPresetControls({
   preset,
+  profile,
   modelPresetActions,
   imageTokenBudget,
   gpuFreeBytes,
 }: VisionPresetControlsProps) {
-  if (!getPresetFieldAvailability(preset, 'VisionEnabled').visible) {
+  if (!getPresetFieldAvailability(preset, 'VisionEnabled', profile).visible) {
     return null;
   }
 
@@ -99,7 +103,7 @@ export function VisionPresetControls({
 
   return (
     <>
-      <ModelPresetControl preset={preset} field="VisionEnabled" label="Vision enabled">
+      <ModelPresetControl preset={preset} profile={profile} field="VisionEnabled" label="Vision enabled">
         <label className="settings-live-toggle-control">
           <input
             type="checkbox"
@@ -114,7 +118,7 @@ export function VisionPresetControls({
       </ModelPresetControl>
       {preset.VisionEnabled ? (
         <>
-          <ModelPresetControl preset={preset} field="VisionOffload" label={VISION_OFFLOAD_LABEL}>
+          <ModelPresetControl preset={preset} profile={profile} field="VisionOffload" label={VISION_OFFLOAD_LABEL}>
             <label className="settings-live-toggle-control">
               <input
                 type="checkbox"
@@ -129,7 +133,7 @@ export function VisionPresetControls({
           </ModelPresetControl>
           {imageTokenBudget && effectivePixels !== null && imageTokens !== null ? (
             <>
-              <ModelPresetControl preset={preset} field="VisionMaxImagePixels" label="Max image size (MP)">
+              <ModelPresetControl preset={preset} profile={profile} field="VisionMaxImagePixels" label="Max image size (MP)">
                 <div className="settings-inline-readout">
                   <input
                     type="number"
@@ -194,7 +198,7 @@ export function VisionPresetControls({
                 The VRAM figure is the estimated peak while one image is encoded — transient headroom to keep free on top of the loaded model,
                 released once the image is encoded. It is not steady-state usage and not part of startup allocation.
               </p>
-              <ModelPresetControl preset={preset} field="VisionImageRetention" label="Vision image retention">
+              <ModelPresetControl preset={preset} profile={profile} field="VisionImageRetention" label="Vision image retention">
                 <input
                   type="number"
                   aria-label="Vision image retention"

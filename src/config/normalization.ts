@@ -580,6 +580,7 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
       input.VisionMaxImagePixels,
       Number(defaults.VisionMaxImagePixels ?? SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS),
     ),
+    UnlockAllSettings: input.UnlockAllSettings === true,
   };
 }
 

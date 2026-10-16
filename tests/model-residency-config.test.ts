@@ -38,5 +38,5 @@ test('IdleAction rejects an unrecognised value', () => {
 });
 
 test('IdleAction is visible on the preset form', () => {
-  assert.equal(getPresetFieldAvailability(presetWith('unload'), 'IdleAction').visible, true);
+  assert.equal(getPresetFieldAvailability(presetWith('unload'), 'IdleAction', null).visible, true);
 });

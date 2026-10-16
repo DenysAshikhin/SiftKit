@@ -1,13 +1,14 @@
 import { basename, dirname, extname, normalize } from 'node:path';
 import { spawn } from 'node:child_process';
+import { existsSync, statSync } from 'node:fs';
 import type { ManagedFilePickerTarget } from '@siftkit/contracts';
 
-export type ManagedFilePickerDialogOptions = {
-  title: string;
-  /** OpenFileDialog filter; null opens a directory picker instead. */
-  filter: string | null;
-  initialPath: string | null;
-};
+/** A folder dialog returns a directory; a file dialog filters with an OpenFileDialog filter. */
+export type ManagedFilePickerDialogOptions =
+  | { kind: 'folder'; title: string; initialPath: string | null }
+  | { kind: 'file'; title: string; filter: string; initialPath: string | null };
+type FileDialogOptions = Extract<ManagedFilePickerDialogOptions, { kind: 'file' }>;
+type FolderDialogOptions = Extract<ManagedFilePickerDialogOptions, { kind: 'folder' }>;
 export type ManagedFilePickerResult = {
   cancelled: boolean;
   path: string | null;
@@ -46,32 +47,46 @@ function buildInitialFileNameExpression(initialPath: string | null): string {
     : '$null';
 }
 
-function buildWindowsFolderDialogScript(options: ManagedFilePickerDialogOptions): string {
+/** File name pre-filled in the folder dialog; accepting it inside a folder selects that folder. */
+export const MODEL_FOLDER_PLACEHOLDER = 'Select folder';
+
+/** Explorer dialog that accepts either a folder (via the placeholder) or any file inside one. */
+export function buildWindowsFolderOrFileDialogScript(options: FolderDialogOptions): string {
   const initialDirectory = buildInitialDirectoryExpression(options.initialPath);
   return [
     'Add-Type -AssemblyName System.Windows.Forms',
-    '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
-    `$dialog.Description = ${toPowerShellSingleQuotedString(options.title)}`,
-    '$dialog.ShowNewFolderButton = $false',
+    '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
+    `$dialog.Title = ${toPowerShellSingleQuotedString(options.title)}`,
+    "$dialog.Filter = 'All files (*.*)|*.*'",
+    '$dialog.ValidateNames = $false',
+    '$dialog.CheckFileExists = $false',
+    '$dialog.CheckPathExists = $true',
+    '$dialog.Multiselect = $false',
+    `$dialog.FileName = ${toPowerShellSingleQuotedString(MODEL_FOLDER_PLACEHOLDER)}`,
     `$initialDirectory = ${initialDirectory}`,
     'if ($initialDirectory -and (Test-Path -LiteralPath $initialDirectory)) {',
-    '  $dialog.SelectedPath = $initialDirectory',
+    '  $dialog.InitialDirectory = $initialDirectory',
     '}',
     '$result = $dialog.ShowDialog()',
     'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
-    '  [Console]::Out.Write($dialog.SelectedPath)',
+    '  [Console]::Out.Write($dialog.FileName)',
     '}',
   ].join('\n');
 }
 
-function buildWindowsOpenFileDialogScript(options: ManagedFilePickerDialogOptions, filter: string): string {
+/** A picked directory is kept; a picked file or the placeholder resolves to its folder. */
+function resolveSelectedDirectory(selectedPath: string): string {
+  return existsSync(selectedPath) && statSync(selectedPath).isDirectory() ? selectedPath : dirname(selectedPath);
+}
+
+function buildWindowsOpenFileDialogScript(options: FileDialogOptions): string {
   const initialDirectory = buildInitialDirectoryExpression(options.initialPath);
   const initialFileName = buildInitialFileNameExpression(options.initialPath);
   return [
     'Add-Type -AssemblyName System.Windows.Forms',
     '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
     `$dialog.Title = ${toPowerShellSingleQuotedString(options.title)}`,
-    `$dialog.Filter = ${toPowerShellSingleQuotedString(filter)}`,
+    `$dialog.Filter = ${toPowerShellSingleQuotedString(options.filter)}`,
     '$dialog.CheckFileExists = $true',
     '$dialog.Multiselect = $false',
     `$initialDirectory = ${initialDirectory}`,
@@ -93,9 +108,9 @@ async function openWindowsFileDialog(options: ManagedFilePickerDialogOptions): P
   if (process.platform !== 'win32') {
     throw new Error('Native file picking is only supported on Windows.');
   }
-  const script = options.filter === null
-    ? buildWindowsFolderDialogScript(options)
-    : buildWindowsOpenFileDialogScript(options, options.filter);
+  const script = options.kind === 'folder'
+    ? buildWindowsFolderOrFileDialogScript(options)
+    : buildWindowsOpenFileDialogScript(options);
   return await new Promise<string | null>((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-STA', '-Command', script], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -126,13 +141,10 @@ export function getManagedFilePickerDialogOptions(
   initialPath: string | null,
 ): ManagedFilePickerDialogOptions {
   if (target === 'model-preset-path') {
-    return {
-      title: 'Select EXL3 model directory',
-      filter: null,
-      initialPath,
-    };
+    return { kind: 'folder', title: 'Select EXL3 model directory', initialPath };
   }
   return {
+    kind: 'file',
     title: 'Select autoload file',
     filter: 'Markdown (*.md)|*.md|Text (*.txt)|*.txt|All files (*.*)|*.*',
     initialPath,
@@ -144,9 +156,8 @@ export async function pickManagedFilePath(
   initialPath: string | null,
   runner: ManagedFileDialogRunner = openWindowsFileDialog,
 ): Promise<ManagedFilePickerResult> {
-  const selectedPath = await runner(getManagedFilePickerDialogOptions(target, initialPath));
-  return {
-    cancelled: !selectedPath,
-    path: selectedPath,
-  };
+  const options = getManagedFilePickerDialogOptions(target, initialPath);
+  const selectedPath = await runner(options);
+  if (!selectedPath) return { cancelled: true, path: null };
+  return { cancelled: false, path: options.kind === 'folder' ? resolveSelectedDirectory(selectedPath) : selectedPath };
 }

@@ -20,6 +20,7 @@ function render(preset: DashboardModelRuntimePreset, runtimeStatus: InferenceRun
     settingsPathPickerBusyTarget: null,
     modelPresetActions: MODEL_PRESET_ACTIONS,
     runtimeStatus,
+    modelProfileStatus: { state: 'no-path' },
   };
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, props));
 }

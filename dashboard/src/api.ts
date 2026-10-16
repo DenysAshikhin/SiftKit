@@ -6,7 +6,7 @@ import {
   SiftConfigSchema, RestartBackendResponseSchema,
   DashboardBenchmarkQuestionPresetsResponseSchema, DashboardBenchmarkQuestionPresetSchema,
   DashboardBenchmarkSessionsResponseSchema, DashboardBenchmarkSessionDetailSchema, DashboardBenchmarkAttemptSchema,
-  ManagedFilePickerResponseSchema, EngineConnectionTestResponseSchema, ChatSessionResponseSchema,
+  ManagedFilePickerResponseSchema, ModelProfileResponseSchema, EngineConnectionTestResponseSchema, ChatSessionResponseSchema,
   ChatSessionsResponseSchema,
   ChatMessageQueueResponseSchema,
   ChatQueueMessageResponseSchema,
@@ -40,6 +40,7 @@ import {
   type IdleSummaryResponse,
   type MetricsResponse,
   type ManagedFilePickerResponse,
+  type ModelProfileResponse,
   type ManagedFilePickerTarget,
   type EngineConnectionTestResponse,
   type RestartBackendResponse,
@@ -380,6 +381,14 @@ export function pickManagedFile(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ target, initialPath }),
+  });
+}
+
+export function getModelProfile(modelPath: string): Promise<ModelProfileResponse> {
+  return fetchJson('/dashboard/model-profile', ModelProfileResponseSchema, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelPath }),
   });
 }
 

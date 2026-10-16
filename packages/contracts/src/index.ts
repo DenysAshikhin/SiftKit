@@ -11,6 +11,7 @@ export * from './chat-projection.ts';
 export * from './benchmark.ts';
 export * from './system.ts';
 export * from './config.ts';
+export * from './model-profile.ts';
 export * from './orchestrator.ts';
 export * from './image.ts';
 export * from './assistant.ts';

@@ -9,7 +9,13 @@ import {
   getDefaultToolsForOperationMode,
   PRESET_TOOL_OPTIONS,
 } from './preset-editor.ts';
+import type { ModelPresetField, ModelProfile } from '@siftkit/contracts';
 import { cloneDashboardConfig } from './lib/format.ts';
+import {
+  getMlaKvCacheEquivalent,
+  getProfileIgnoredFields,
+  getReasoningEffortOptions,
+} from '../../src/inference-presets/preset-compatibility.ts';
 import {
   deriveRuntimeModelId,
   syncDerivedSettingsFields,
@@ -76,6 +82,10 @@ export type ModelBooleanField = Exclude<
   'ReasoningContent'
 >;
 
+function isModelBooleanField(preset: DashboardModelRuntimePreset, field: ModelPresetField): field is ModelBooleanField {
+  return field !== 'ReasoningContent' && typeof preset[field] === 'boolean';
+}
+
 export type DashboardSettingsDraftAction =
   | { type: 'set-assistant'; value: AssistantConfig }
   | { type: 'set-general-string'; field: GeneralStringField; value: string }
@@ -121,6 +131,8 @@ export type DashboardSettingsDraftAction =
   | { type: 'set-model-reasoning'; presetId: string; value: 'on' | 'off' }
   | { type: 'set-model-reasoning-effort'; presetId: string; value: ReasoningEffort }
   | { type: 'set-model-reasoning-content'; presetId: string; value: boolean }
+  | { type: 'apply-model-profile'; presetId: string; profile: ModelProfile }
+  | { type: 'apply-model-sampling'; presetId: string; profile: ModelProfile }
   | { type: 'add-model-preset' }
   | { type: 'delete-model-preset'; presetId: string };
 
@@ -272,6 +284,17 @@ export class DashboardSettingsDraftEditor {
       case 'set-model-reasoning-content':
         this.setModelReasoningContent(action.presetId, action.value);
         return;
+      case 'apply-model-profile':
+        this.applyModelProfile(action.presetId, action.profile);
+        return;
+      case 'apply-model-sampling': {
+        const preset = this.requireModelPreset(action.presetId);
+        const { temperature, topP, topK } = action.profile.sampling;
+        if (temperature !== null) preset.Temperature = temperature;
+        if (topP !== null) preset.TopP = topP;
+        if (topK !== null) preset.TopK = topK;
+        return;
+      }
       case 'add-model-preset':
         addModelPreset(this.config);
         return;
@@ -360,6 +383,23 @@ export class DashboardSettingsDraftEditor {
       return;
     }
     preset.MaintainPerStepThinking = true;
+  }
+
+  /** Brings a locked preset in line with its model: forced thinking on, ignored toggles off. */
+  private applyModelProfile(presetId: string, profile: ModelProfile): void {
+    const preset = this.requireModelPreset(presetId);
+    if (preset.UnlockAllSettings) return;
+    for (const field of getProfileIgnoredFields(profile)) {
+      if (field === 'Reasoning') {
+        if (preset.Reasoning === 'off') this.setModelReasoning(presetId, 'on');
+      } else if (isModelBooleanField(preset, field)) {
+        preset[field] = false;
+      }
+    }
+    const efforts = getReasoningEffortOptions(preset, profile);
+    const deepestEffort = efforts[efforts.length - 1];
+    if (deepestEffort !== undefined && !efforts.includes(preset.ReasoningEffort)) preset.ReasoningEffort = deepestEffort;
+    preset.KvCacheQuantization = getMlaKvCacheEquivalent(preset, profile, preset.KvCacheQuantization) ?? preset.KvCacheQuantization;
   }
 
   private setModelReasoningContent(presetId: string, enabled: boolean): void {

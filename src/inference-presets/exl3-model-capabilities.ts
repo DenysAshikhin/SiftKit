@@ -4,10 +4,6 @@ import { win32 } from 'node:path';
 import { z } from 'zod';
 import { parseJsonValueText } from '../lib/json.ts';
 
-const ModelConfigSchema = z.object({
-  vision_config: z.object({}).passthrough(),
-});
-
 const ResolvedPackageDirectorySchema = z.object({
   packageDirectory: z.string().min(1).nullable(),
 });
@@ -85,17 +81,6 @@ export class Exl3ModelCapabilities {
     packageLocator: Exl3PackageLocator = new InterpreterExl3PackageLocator(),
   ) {
     this.packageLocator = packageLocator;
-  }
-
-  hasVisionTower(modelDirectory: string): boolean {
-    try {
-      const config = parseJsonValueText(
-        readFileSync(win32.join(modelDirectory, 'config.json'), 'utf8'),
-      );
-      return ModelConfigSchema.safeParse(config).success;
-    } catch {
-      return false;
-    }
   }
 
   /** `pythonPath` is the configured interpreter whose resolved package source is authoritative. */

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { ModelRuntimePresetSchema, type ModelRuntimePreset } from '@siftkit/contracts';
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import type { JsonValue } from '../src/lib/json-types.ts';
-import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.ts';
+import { inspectModelDirectory } from '../src/inference-presets/model-profile-inspector.ts';
 import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.ts';
@@ -24,101 +24,35 @@ function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRu
   return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'exl3', ...overrides });
 }
 
-test('Exl3ModelCapabilities accepts valid vision_config object', () => {
+const ARCHITECTURES = ['Qwen3_5ForConditionalGeneration'];
+
+function profileVision(config: string): boolean {
   const dir = createTempDir('exl3-vision-');
   try {
-    writeConfig(dir, { vision_config: { hidden_size: 1024, num_layers: 24 } });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), true);
+    writeFileSync(join(dir, 'config.json'), config, { encoding: 'utf8' });
+    return inspectModelDirectory(dir).vision;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+test('the model profile reports a vision tower for any vision_config object, even an empty one', () => {
+  assert.equal(profileVision(JSON.stringify({ architectures: ARCHITECTURES, vision_config: { hidden_size: 1024, num_layers: 24 } })), true);
+  assert.equal(profileVision(JSON.stringify({ architectures: ARCHITECTURES, vision_config: {} })), true);
+  assert.equal(profileVision(JSON.stringify({ architectures: ARCHITECTURES, arch_name: REMOVED_BACKEND_ID })), false);
 });
 
-test('Exl3ModelCapabilities rejects missing vision_config key', () => {
+test('the model profile fails loudly on a missing, malformed, or mistyped config.json', () => {
   const dir = createTempDir('exl3-vision-');
   try {
-    writeConfig(dir, { arch_name: REMOVED_BACKEND_ID });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), false);
+    assert.throws(() => inspectModelDirectory(dir), /has no config.json/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test('Exl3ModelCapabilities rejects missing config.json', () => {
-  const dir = createTempDir('exl3-vision-');
-  try {
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('Exl3ModelCapabilities rejects malformed JSON in config.json', () => {
-  const dir = createTempDir('exl3-vision-');
-  try {
-    writeFileSync(join(dir, 'config.json'), '{ broken json', { encoding: 'utf8' });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('Exl3ModelCapabilities rejects non-object vision_config (string)', () => {
-  const dir = createTempDir('exl3-vision-');
-  try {
-    writeConfig(dir, { vision_config: 'not-an-object' });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('Exl3ModelCapabilities rejects array vision_config', () => {
-  const dir = createTempDir('exl3-vision-');
-  try {
-    writeConfig(dir, { vision_config: [1, 2, 3] });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('Exl3ModelCapabilities rejects null vision_config', () => {
-  const dir = createTempDir('exl3-vision-');
-  try {
-    writeConfig(dir, { vision_config: null });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('Exl3ModelCapabilities rejects top-level config that is not an object', () => {
-  const dir = createTempDir('exl3-vision-');
-  try {
-    writeFileSync(join(dir, 'config.json'), '[1,2]', { encoding: 'utf8' });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('Exl3ModelCapabilities empty vision_config object still counts as present', () => {
-  const dir = createTempDir('exl3-vision-');
-  try {
-    writeConfig(dir, { vision_config: {} });
-    const caps = new Exl3ModelCapabilities();
-    assert.equal(caps.hasVisionTower(dir), true);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  assert.throws(() => profileVision('{ broken json'));
+  assert.throws(() => profileVision('[1,2]'));
+  for (const visionConfig of ['not-an-object', [1, 2, 3], null]) {
+    assert.throws(() => profileVision(JSON.stringify({ architectures: ARCHITECTURES, vision_config: visionConfig })));
   }
 });
 
@@ -132,7 +66,7 @@ test('Exl3PresetAdapter validatePreset throws when VisionEnabled=true but no vis
   const baseDir = createTempDir('exl3-vision-');
   try {
     const modelDir = createModelDir(baseDir);
-    writeConfig(modelDir, { arch_name: REMOVED_BACKEND_ID });
+    writeConfig(modelDir, { architectures: ARCHITECTURES, arch_name: REMOVED_BACKEND_ID });
     const preset = createModelPreset({
       Backend: 'exl3',
       ModelPath: modelDir,
@@ -169,7 +103,7 @@ test('Exl3PresetAdapter validatePreset passes when VisionEnabled=true and vision
   const baseDir = createTempDir('exl3-vision-');
   try {
     const modelDir = createModelDir(baseDir);
-    writeConfig(modelDir, { vision_config: { hidden_size: 1024 } });
+    writeConfig(modelDir, { architectures: ARCHITECTURES, vision_config: { hidden_size: 1024 } });
     const preset = createModelPreset({
       Backend: 'exl3',
       ModelPath: modelDir,

@@ -22,6 +22,7 @@ const BUDGET = {
 
 const defaultProps: VisionPresetControlsProps = {
   preset: { ...MANAGED_PRESET, Backend: 'exl3', VisionEnabled: true, VisionImageRetention: 8, VisionMaxImagePixels: 0 },
+  profile: null,
   modelPresetActions: MODEL_PRESET_ACTIONS,
   imageTokenBudget: BUDGET,
   gpuFreeBytes: null,

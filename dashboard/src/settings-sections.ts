@@ -140,7 +140,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'PresencePenalty', layout: 'quarter', helpText: 'Penalizes tokens that have already appeared.' },
       { label: 'RepetitionPenalty', layout: 'quarter', helpText: 'Reduces repetition by damping reused token sequences.' },
       { label: 'Reasoning', layout: 'quarter', helpText: 'Controls whether model reasoning is enabled or disabled.' },
-      { label: 'Reasoning effort', layout: 'quarter', helpText: 'Sent as `reasoning_effort`. On Qwen3.8 templates, `xhigh` asks the model to validate assumptions and weigh alternatives, `low` asks for brief thinking, and `medium` injects no guidance at all. Models whose chat template ignores `reasoning_effort` are unaffected.' },
+      { label: 'Reasoning effort', layout: 'quarter', helpText: 'Sent as `reasoning_effort`. On Qwen3.8 templates, `xhigh` asks the model to validate assumptions and weigh alternatives, `low` asks for brief thinking, and `medium` injects no guidance at all. An identified model offers only the levels its chat template names; otherwise, or when unlocked, every level is offered.' },
       { label: 'Reasoning content', layout: 'quarter', helpText: 'When enabled, assistant history replays include non-empty `reasoning_content` alongside the visible assistant content.' },
       { label: 'Preserve thinking', layout: 'quarter', helpText: 'When enabled, historical thinking traces can be reused across turns.' },
       { label: 'Maintain per step thinking', layout: 'quarter', helpText: 'When enabled, all visible thinking blocks are retained. When disabled, only the latest thinking block remains in the transcript.' },

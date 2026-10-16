@@ -1,3 +1,4 @@
+import type { ModelProfile } from '@siftkit/contracts';
 import type { SettingsSectionId } from './settings-sections.ts';
 import type { DashboardModelRuntimePreset } from './types.ts';
 
@@ -18,6 +19,17 @@ export function getDirtyActionRequirement(isDirty: boolean, action: DirtyActionK
 // server is not owned by SiftKit, so there is nothing for it to restart.
 export function isBackendRestartSupported(activeModelPreset: DashboardModelRuntimePreset | null): boolean {
   return activeModelPreset !== null && !activeModelPreset.ExternalServerEnabled;
+}
+
+/** Identification of the selected preset's model directory. */
+export type ModelProfileStatus =
+  | { state: 'no-path' }
+  | { state: 'identifying' }
+  | { state: 'identified'; presetId: string; profile: ModelProfile }
+  | { state: 'unidentified'; error: string };
+
+export function getIdentifiedProfile(status: ModelProfileStatus): ModelProfile | null {
+  return status.state === 'identified' ? status.profile : null;
 }
 
 export type SettingsPathPickerBusyTarget =

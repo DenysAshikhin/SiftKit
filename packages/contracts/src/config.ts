@@ -9,11 +9,8 @@ export type ModelKvCacheQuantization = z.infer<typeof ModelKvCacheQuantizationSc
 
 const ReasoningSchema = z.enum(['on', 'off']);
 
-/**
- * Reasoning depth passed to the chat template as `reasoning_effort`. The Qwen3.8 template
- * collapses `high` into `xhigh`, so only the three levels it actually distinguishes are offered.
- */
-export const ReasoningEffortSchema = z.enum(['low', 'medium', 'xhigh']);
+/** Reasoning depth passed to the chat template as `reasoning_effort`; the union across known templates. */
+export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
 /** Matches the Qwen3.8 template's own default, so an unset preset renders what it always did. */
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'xhigh';
@@ -75,6 +72,8 @@ const ModelPresetSettingsShape = {
   HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), IdleAction: ModelIdleActionSchema,
   VisionEnabled: z.boolean(), VisionOffload: z.boolean(),
   VisionImageRetention: z.number().int().min(-1), VisionMaxImagePixels: z.number().int().min(0),
+  /** Ignores the model directory's profile, so every field and option stays editable. */
+  UnlockAllSettings: z.boolean(),
 };
 
 export const ModelPresetFieldSchema = z.enum([
@@ -85,7 +84,7 @@ export const ModelPresetFieldSchema = z.enum([
   'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
   'SleepIdleSeconds', 'IdleAction', 'VisionEnabled', 'VisionOffload', 'VisionImageRetention',
-  'VisionMaxImagePixels',
+  'VisionMaxImagePixels', 'UnlockAllSettings',
 ]);
 export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
 

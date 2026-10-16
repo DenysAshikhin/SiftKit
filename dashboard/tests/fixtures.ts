@@ -1,6 +1,7 @@
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types.ts';
 import type { ChatSessionResponse, ContextUsage } from '../src/types.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
+import type { ModelProfile } from '@siftkit/contracts';
 import type {
   AssistantSettingsActions,
   GeneralSettingsActions,
@@ -72,10 +73,19 @@ export const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   setReasoning() {},
   setReasoningEffort() {},
   setReasoningContent() {},
+  applyRecommendedSampling() {},
   addPreset() {},
   deletePreset() {},
   async pickModelPath() {},
   async testBaseUrl() {},
+};
+
+/** GLM-5.3-Flash-3.00bpw-hq as the inspector profiles the shipped model directory. */
+export const GLM_PROFILE: ModelProfile = {
+  name: 'GLM-5.3-Flash-3.00bpw-hq', architecture: 'Glm5NextForConditionalGeneration',
+  moe: true, recurrent: true, mtp: true, vision: true, ngram: false, mla: true,
+  reasoningEfforts: ['low', 'high', 'max'], thinkingToggle: false, preserveThinking: false,
+  sampling: { temperature: 1.0, topP: 0.95, topK: null },
 };
 
 export const PRESET = {
@@ -115,7 +125,7 @@ export const MANAGED_PRESET = {
   SpeculativeEnabled: false,
   SpeculativeDraftMax: 16, SpeculativeDynamic: true, ReasoningBudget: 128, ReasoningBudgetMessage: '',
   StartupTimeoutMs: 1000, HealthcheckTimeoutMs: 1000, HealthcheckIntervalMs: 500,
-  SleepIdleSeconds: 600, IdleAction: 'unload',
+  SleepIdleSeconds: 600, IdleAction: 'unload', UnlockAllSettings: false,
 } satisfies DashboardModelRuntimePreset;
 
 export const DASHBOARD_CONFIG = {

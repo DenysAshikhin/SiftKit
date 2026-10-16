@@ -81,6 +81,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     }
     try {
       if (!this.child || this.child.exitCode !== null) {
+        this.adapter.validateTemplateThinking(preset);
         this.vramBaselineUsedBytes = (await this.host.gpuMemory.read())?.usedBytes ?? null;
         this.spawnProcess(launchEnvironment);
       }

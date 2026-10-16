@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   getDashboardConfig,
   getDashboardHealth,
+  getModelProfile,
   pickManagedFile,
   restartBackend,
   testInferenceBaseUrl as testInferenceBaseUrlRequest,
@@ -29,6 +30,7 @@ import {
   getDirtyActionRequirement,
   isBackendRestartSupported,
   type DirtyContinuation,
+  type ModelProfileStatus,
   type SettingsPathPickerBusyTarget,
 } from '../settings-flow.ts';
 import { type SettingsSectionId } from '../settings-sections.ts';
@@ -95,6 +97,7 @@ export function useSettingsController(deps: {
   const [selectedSettingsPresetId, setSelectedSettingsPresetId] = useState<string | null>(null);
   const [pendingSettingsContinuation, setPendingSettingsContinuation] = useState<DirtyContinuation | null>(null);
   const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
+  const [modelProfileStatus, setModelProfileStatus] = useState<ModelProfileStatus>({ state: 'no-path' });
 
   const settingsDirty = dashboardConfig !== null
     && savedDashboardConfig !== null
@@ -145,6 +148,34 @@ export function useSettingsController(deps: {
   useEffect(() => {
     setSelectedSettingsPresetId((previous) => getFallbackPresetId(dashboardConfig?.Presets ?? [], previous));
   }, [dashboardConfig]);
+
+  const selectedModelPresetId = selectedModelPreset?.id ?? null;
+  const selectedModelPath = selectedModelPreset?.ModelPath ?? null;
+  const selectedModelUnlocked = selectedModelPreset?.UnlockAllSettings ?? false;
+  useEffect(() => {
+    if (selectedModelPresetId === null || selectedModelPath === null) {
+      setModelProfileStatus({ state: 'no-path' });
+      return;
+    }
+    let cancelled = false;
+    async function identifyModel(presetId: string, modelPath: string) {
+      setModelProfileStatus({ state: 'identifying' });
+      try {
+        const { profile } = await getModelProfile(modelPath);
+        if (!cancelled) setModelProfileStatus({ state: 'identified', presetId, profile });
+      } catch (error) {
+        if (!cancelled) setModelProfileStatus({ state: 'unidentified', error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    void identifyModel(selectedModelPresetId, selectedModelPath);
+    return () => { cancelled = true; };
+  }, [selectedModelPresetId, selectedModelPath]);
+
+  // Applies on identification and again whenever the preset is re-locked.
+  useEffect(() => {
+    if (modelProfileStatus.state !== 'identified' || selectedModelUnlocked) return;
+    applySettingsAction({ type: 'apply-model-profile', presetId: modelProfileStatus.presetId, profile: modelProfileStatus.profile });
+  }, [modelProfileStatus, selectedModelUnlocked]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent): void => {
@@ -342,6 +373,10 @@ export function useSettingsController(deps: {
     setReasoningContent(value) {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-reasoning-content', presetId, value });
+    },
+    applyRecommendedSampling(profile) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'apply-model-sampling', presetId, profile });
     },
     addPreset() {
       applySettingsAction({ type: 'add-model-preset' });
@@ -590,6 +625,7 @@ export function useSettingsController(deps: {
     settingsSaving,
     settingsRestarting,
     settingsPathPickerBusyTarget,
+    modelProfileStatus,
     requestSettingsAction,
     generalActions,
     toolPolicyActions,

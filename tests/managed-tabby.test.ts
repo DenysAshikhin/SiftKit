@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
@@ -404,6 +405,21 @@ test('managed Tabby waits for delayed MTP drafting announced on stderr', async (
       HealthcheckIntervalMs: 10,
     });
     assert.equal(fixture.runtime.getModelState(), 'ready');
+  });
+});
+
+test('managed Tabby refuses to launch a preset whose thinking settings the chat template ignores', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-template-thinking');
+    fs.mkdirSync(fixture.exl3Preset.ModelPath, { recursive: true });
+    fs.writeFileSync(path.join(fixture.exl3Preset.ModelPath, 'chat_template.jinja'),
+      "{%- set e = reasoning_effort if reasoning_effort in ['low', 'high'] else 'max' -%}");
+
+    await assert.rejects(
+      fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, Reasoning: 'on', ReasoningEffort: 'xhigh' }),
+      /ReasoningEffort=xhigh is not distinguished by .* chat template; use low, high, max or UnlockAllSettings/u,
+    );
+    assert.equal(fixture.runtime.getProcessState(), 'failed');
   });
 });
 
