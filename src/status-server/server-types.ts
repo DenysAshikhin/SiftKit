@@ -29,6 +29,7 @@ import type { RuntimeDatabase } from '../state/database-handle.ts';
 import type { DataProtector } from '../assistant/crypto/dpapi.ts';
 import type { GpuMemoryProbe } from './gpu-memory.ts';
 import type { ManagedEngineHost } from './engine-process.ts';
+import type { PromptTokenCounter } from '../providers/prompt-token-counter.ts';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.ts';
 
@@ -181,6 +182,8 @@ export type ServerContext = {
   readonly runtimeDatabase: RuntimeDatabase;
   /** Recovery reports per chat session, filled on the first read after this process started. */
   readonly chatSessionRecovery: ChatSessionRecoveryCache;
+  /** Engine-tokenized passthrough prompt counts, reused while a conversation appends messages. */
+  readonly passthroughPromptCounter: PromptTokenCounter;
   /** Reassigned by the owner heartbeat when the lease is lost and re-acquired under a new epoch. */
   chatRunOwnerEpoch: string;
   chatRuntimeOwner: import('../state/chat-runtime-owner.ts').ChatRuntimeOwner;

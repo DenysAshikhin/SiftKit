@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { tabbyTokenEncodeResponse } from './tabby-token-encode.ts';
 import { parseJsonValueText } from '../../src/lib/json.ts';
 import type { JsonObject } from '../../src/lib/json-types.ts';
 import { asObject } from './dashboard-http.ts';
@@ -52,7 +53,7 @@ export function startFakeChatServer(options: FakeChatServerOptions): Promise<Fak
         // out of the chat body index the assertions rely on.
         if (req.url === '/v1/token/encode' || req.url === '/tokenize') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ length: 32 }));
+          res.end(JSON.stringify(tabbyTokenEncodeResponse(32)));
           return;
         }
         bodies.push(raw);

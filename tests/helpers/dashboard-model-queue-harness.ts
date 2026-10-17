@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { tabbyTokenEncodeResponse } from './tabby-token-encode.ts';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -166,7 +167,7 @@ export class DashboardModelQueueHarness {
       }
       if (request.method === 'POST' && request.url === '/v1/token/encode') {
         response.setHeader('content-type', 'application/json');
-        response.end('{"count":10}');
+        response.end(JSON.stringify(tabbyTokenEncodeResponse(10)));
         return;
       }
       if (request.method === 'GET' && request.url === '/health') {

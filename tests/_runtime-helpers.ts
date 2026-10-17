@@ -1,6 +1,7 @@
 // Shared runtime test infrastructure barrel. Typed re-export surface for the
 // ~30 runtime test files. Server-harness primitives and engine fixtures live here.
 import assert from 'node:assert/strict';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -737,7 +738,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           return;
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Number(tokenCount) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Number(tokenCount))));
         return;
       }
       if (!Number.isFinite(options.tokenizeCharsPerToken) || Number(options.tokenizeCharsPerToken) <= 0) {
@@ -749,7 +750,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
         ? Math.max(1, Math.ceil(content.length / Number(options.tokenizeCharsPerToken)))
         : 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ count: tokenCount }));
+      res.end(JSON.stringify(tabbyTokenEncodeResponse(tokenCount)));
       return;
     }
 

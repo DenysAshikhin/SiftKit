@@ -9,7 +9,7 @@ import {
 } from '../planner-protocol.ts';
 import type { ChatMessage } from '../planner-chat-message.ts';
 import type { InferenceToolDefinition } from '../../llm-protocol/types.ts';
-import { IncrementalTokenCounter } from '../incremental-token-counter.ts';
+import { PromptTokenCounter } from '../../providers/prompt-token-counter.ts';
 import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.ts';
 import { renderWirePrompt, type WirePrompt } from '../wire-prompt.ts';
 import type { JsonLogger } from '../types.ts';
@@ -85,7 +85,7 @@ export class PromptPreparer {
     this.options = options;
   }
 
-  private readonly promptTokenCounter = new IncrementalTokenCounter();
+  private readonly promptTokenCounter = new PromptTokenCounter();
 
   /** Rendered once per preflight: its char length feeds the progress events that fire before the count. */
   private renderWirePromptForTurn(): WirePrompt {

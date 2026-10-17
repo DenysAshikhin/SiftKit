@@ -1,4 +1,4 @@
-export class OutputCapture {
+export class OutputCapture implements Disposable {
   readonly lines: readonly string[];
   private readonly collectedLines: string[] = [];
   private readonly originalWrite: NodeJS.WriteStream['write'];
@@ -36,6 +36,10 @@ export class OutputCapture {
     }
     this.buffer = '';
     this.stream.write = this.originalWrite;
+  }
+
+  [Symbol.dispose](): void {
+    this.restore();
   }
 
   private collect(chunk: string | Uint8Array): void {

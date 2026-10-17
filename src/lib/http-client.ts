@@ -525,10 +525,13 @@ function requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): 
         path: `${target.pathname}${target.search}`,
         method: options.method,
         agent: options.agent,
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
+        headers: {
+          ...options.headers,
+          ...(options.body ? {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(options.body, 'utf8'),
+          } : {}),
+        },
       },
       (response) => {
         let responseText = '';

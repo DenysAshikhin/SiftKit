@@ -1,4 +1,5 @@
 import test, { before, after } from 'node:test';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
@@ -60,7 +61,7 @@ async function runOneTurnAgainstServer(options: { plannerTools?: readonly Infere
       if (req.method === 'POST' && req.url === '/v1/token/encode') {
         const parsed = asObject(parseJsonValueText(body || '{}'));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(String(parsed.text || '').length / 4)) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.max(1, Math.ceil(String(parsed.text || '').length / 4)))));
         return;
       }
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {

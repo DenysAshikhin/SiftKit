@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,7 +14,7 @@ import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
 import { startStatusServer } from '../src/status-server/index.ts';
 import { writeConfig } from '../src/status-server/config-store.ts';
 import { readBody } from '../src/status-server/http-utils.ts';
-import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
 import { FakeTabbyModelState } from './helpers/tabby-fake.ts';
 import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
 import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
@@ -85,7 +86,7 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
       if (request.url === '/v1/token/encode' && request.method === 'POST') {
         tokenBodies.push(parseJsonValueText(await readBody(request)));
         response.setHeader('content-type', 'application/json');
-        response.end('{"tokens":[10,20]}');
+        response.end(JSON.stringify(tabbyTokenEncodeResponse(2)));
         return;
       }
       response.statusCode = 404;
@@ -142,9 +143,12 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
       assert.equal(tokenEncode.status, 200);
       assert.deepEqual(
         z.object({ tokens: z.array(z.number()), length: z.number() }).parse(await tokenEncode.json()),
-        { tokens: [10, 20], length: 2 },
+        tabbyTokenEncodeResponse(2),
       );
-      assert.deepEqual(tokenBodies, [{ text: 'first tokens' }]);
+      // The chat priced its prompt through the engine tokenizer before the explicit tokenize call.
+      assert.equal(tokenBodies.length, 2);
+      assert.deepEqual(asObject(tokenBodies[0]).text, [{ role: 'user', content: 'first' }]);
+      assert.deepEqual(tokenBodies[1], { text: 'first tokens' });
 
       await waitFor(() => unloadCount === 1);
       await waitFor(async () => {
@@ -238,6 +242,12 @@ function createFakeTabbyServer(
     }
     if (request.url === '/v1/chat/completions' && request.method === 'POST') {
       await onChat(parseJsonObjectText(await readBody(request)), response);
+      return;
+    }
+    if (request.url === '/v1/token/encode' && request.method === 'POST') {
+      await readBody(request);
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify(tabbyTokenEncodeResponse(2)));
       return;
     }
     response.statusCode = 404;

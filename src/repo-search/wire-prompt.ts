@@ -20,6 +20,8 @@ export type WirePromptInput = {
 /** The rendered prompt plus the image parts it left out, which the caller budgets separately. */
 export type WirePrompt = {
   text: string;
+  /** One ChatML block per message; `text` is these followed by the generation prompt. */
+  segments: string[];
   imageCount: number;
 };
 
@@ -47,8 +49,8 @@ export function renderWirePrompt(input: WirePromptInput): WirePrompt {
   const imageCount = input.messages.reduce((total, message) => total + countContentImages(message.content), 0);
 
   if (protocolMessages.length === 0) {
-    const leadingBlock = toolSchemas ? `${IM_START}system\n${toolSchemas}${IM_END}\n` : '';
-    return { text: leadingBlock + WIRE_GENERATION_PROMPT, imageCount };
+    const segments = toolSchemas ? [`${IM_START}system\n${toolSchemas}${IM_END}\n`] : [];
+    return { text: segments.join('') + WIRE_GENERATION_PROMPT, segments, imageCount };
   }
 
   const blocks = protocolMessages.map((message, index) => {
@@ -72,5 +74,5 @@ export function renderWirePrompt(input: WirePromptInput): WirePrompt {
     return `${IM_START}${message.role}\n${sections.join('\n')}${IM_END}\n`;
   });
 
-  return { text: blocks.join('') + WIRE_GENERATION_PROMPT, imageCount };
+  return { text: blocks.join('') + WIRE_GENERATION_PROMPT, segments: blocks, imageCount };
 }

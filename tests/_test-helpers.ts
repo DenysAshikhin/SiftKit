@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import http from 'node:http';
 import path from 'node:path';
 import { Writable } from 'node:stream';
@@ -425,12 +426,12 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
         const tokenCount = options.tokenizeTokenCount(content, parsed);
         if (Number.isFinite(tokenCount) && Number(tokenCount) >= 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ count: Math.trunc(Number(tokenCount)) }));
+          res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.trunc(Number(tokenCount)))));
           return;
         }
       } else if (Number.isFinite(options.tokenizeTokenCount) && Number(options.tokenizeTokenCount) >= 0) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.trunc(Number(options.tokenizeTokenCount)) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.trunc(Number(options.tokenizeTokenCount)))));
         return;
       }
       res.writeHead(503, { 'Content-Type': 'application/json' });

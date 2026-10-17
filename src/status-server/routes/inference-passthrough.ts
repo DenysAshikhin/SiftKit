@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 
 import type { ThroughputAuditIdentity, InferenceThroughput } from '@siftkit/contracts';
-import type { ModelRuntimePreset, SiftConfig } from '../../config/types.ts';
+import type { ModelRuntimePreset } from '../../config/types.ts';
 import { getConfiguredModel } from '../../config/getters.ts';
 import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-types.ts';
 import { parseJsonValueText } from '../../lib/json.ts';
@@ -25,7 +25,19 @@ import {
 import { auditInferenceThroughput, UNPUBLISHED_RATES } from '../inference-throughput-audit.ts';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.ts';
 import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.ts';
-import { estimateTokenCount } from '../../lib/token-estimate.ts';
+import {
+  countPassthroughPromptTokens,
+  PassthroughChatBodySchema,
+  type PassthroughChatBody,
+} from '../passthrough-chat-prompt.ts';
+import {
+  InferenceClient,
+  TABBY_TOKEN_ENCODE_PATH,
+  TabbyTokenEncodeResponseSchema,
+  type TokenEncodeTarget,
+} from '../../llm-protocol/inference-client.ts';
+import type { PromptTokenCounter } from '../../providers/prompt-token-counter.ts';
+import { z } from '../../lib/zod.ts';
 import { INFERENCE_REQUEST_COMPATIBILITY } from '../../inference-presets/preset-compatibility.ts';
 import { readConfig } from '../config-store.ts';
 import { serverLogger } from '../server-logger.ts';
@@ -40,9 +52,9 @@ import type { ModelRequestLock, ServerContext } from '../server-types.ts';
 
 const CHAT_PATH = '/v1/chat/completions';
 const MODELS_PATH = '/v1/models';
-const EXL3_TOKENIZE_PATH = '/v1/token/encode';
+const TokenizeRequestSchema = z.object({ text: z.string() }).loose();
+const inferenceClient = new InferenceClient();
 const CHAT_TIMEOUT_MS = 600_000;
-const TOKENIZE_TIMEOUT_MS = 60_000;
 const SSE_OBSERVE_LIMIT_CHARS = 256 * 1024;
 const JSON_OBSERVE_LIMIT_CHARS = 4 * 1024 * 1024;
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
@@ -53,7 +65,7 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
 function isInferencePath(pathname: string): boolean {
   return pathname === MODELS_PATH
     || pathname === CHAT_PATH
-    || pathname === EXL3_TOKENIZE_PATH;
+    || pathname === TABBY_TOKEN_ENCODE_PATH;
 }
 
 
@@ -79,11 +91,11 @@ function buildResponseHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders
 }
 
 /** The preset owns thinking; a caller's `chat_template_kwargs` is replaced, not merged. */
-function applyThinkingSettings(body: JsonObject, preset: ModelRuntimePreset): void {
+function buildThinkingKwargs(preset: ModelRuntimePreset): JsonObject {
   const compatibility = INFERENCE_REQUEST_COMPATIBILITY;
   const thinkingEnabled = preset.Reasoning === 'on';
   const reasoningContent = thinkingEnabled && preset.ReasoningContent;
-  body.chat_template_kwargs = {
+  return {
     enable_thinking: thinkingEnabled,
     ...(compatibility.reasoningContent && reasoningContent ? { reasoning_content: true } : {}),
     ...(reasoningContent && preset.PreserveThinking ? { preserve_thinking: true } : {}),
@@ -91,50 +103,59 @@ function applyThinkingSettings(body: JsonObject, preset: ModelRuntimePreset): vo
   };
 }
 
-function validateChatBody(bodyText: string): number {
-  const parsed = parseJsonValueText(bodyText);
-  if (!isJsonObject(parsed) || !Array.isArray(parsed.messages)) {
-    throw new Error('Expected a JSON object with a messages array.');
-  }
-  return parsed.messages.length;
+/** Parses a request body against its schema; a mismatch reads as the request's fault. */
+function parseRequestBody<T>(bodyText: string, schema: z.ZodType<T>): T {
+  const parsed = schema.safeParse(parseJsonValueText(bodyText));
+  if (!parsed.success) throw new Error(z.prettifyError(parsed.error));
+  return parsed.data;
 }
 
 type TranslatedChatBody = { text: string; usageOptIn: boolean };
 
 /** A caller expects usage on a non-streaming response or when it asked for a usage frame. */
-function readUsageOptIn(body: JsonObject): boolean {
-  if (body.stream !== true) return true;
-  return isJsonObject(body.stream_options) && body.stream_options.include_usage === true;
+function readUsageOptIn(body: PassthroughChatBody): boolean {
+  return body.stream !== true || body.stream_options?.include_usage === true;
 }
 
-function translateChatBody(bodyText: string, preset: ModelRuntimePreset, config: SiftConfig): TranslatedChatBody {
-  const parsed = parseJsonValueText(bodyText);
-  if (!isJsonObject(parsed) || !Array.isArray(parsed.messages)) {
-    throw new Error('Expected a JSON object with a messages array.');
-  }
+async function translateChatBody(
+  body: PassthroughChatBody,
+  preset: ModelRuntimePreset,
+  promptCounter: PromptTokenCounter,
+  target: TokenEncodeTarget,
+): Promise<TranslatedChatBody> {
   const defaults = buildPresetRequestDefaults(preset);
-  parsed.model = preset.Model ?? preset.id;
+  const model = preset.Model ?? preset.id;
+  const templateKwargs = buildThinkingKwargs(preset);
+  const callerMaxTokens = body.max_tokens;
   // The preset is authoritative for sampling; a caller may only lower the ceiling the
-  // context leaves once this prompt is accounted for. A passthrough caller supplies no
-  // measured count, so the prompt is priced with the local estimate.
-  parsed.max_tokens = resolveGenerationTokenLimit({
+  // context leaves once this prompt, as the engine tokenizes it, is accounted for.
+  const maxTokens = resolveGenerationTokenLimit({
     totalContextTokens: preset.NumCtx,
-    promptTokenCount: estimateTokenCount(config, JSON.stringify(parsed.messages)),
-    operationMaxTokens: typeof parsed.max_tokens === 'number'
-      && Number.isInteger(parsed.max_tokens)
-      && parsed.max_tokens >= 1
-      ? parsed.max_tokens
+    promptTokenCount: await countPassthroughPromptTokens(promptCounter, {
+      target,
+      model,
+      body,
+      templateKwargs,
+      totalContextTokens: preset.NumCtx,
+    }),
+    operationMaxTokens: typeof callerMaxTokens === 'number' && Number.isInteger(callerMaxTokens) && callerMaxTokens >= 1
+      ? callerMaxTokens
       : undefined,
   });
-  parsed.temperature = defaults.temperature;
-  parsed.top_p = defaults.topP;
-  parsed.top_k = defaults.topK;
-  parsed.min_p = defaults.minP;
-  parsed.presence_penalty = defaults.presencePenalty;
-  applyThinkingSettings(parsed, preset);
   const compatibility = INFERENCE_REQUEST_COMPATIBILITY;
-  parsed[compatibility.repetitionPenaltyKey] = defaults.repetitionPenalty;
-  return { text: JSON.stringify(parsed), usageOptIn: readUsageOptIn(parsed) };
+  const forwarded = {
+    ...body,
+    model,
+    chat_template_kwargs: templateKwargs,
+    max_tokens: maxTokens,
+    temperature: defaults.temperature,
+    top_p: defaults.topP,
+    top_k: defaults.topK,
+    min_p: defaults.minP,
+    presence_penalty: defaults.presencePenalty,
+    [compatibility.repetitionPenaltyKey]: defaults.repetitionPenalty,
+  };
+  return { text: JSON.stringify(forwarded), usageOptIn: readUsageOptIn(body) };
 }
 
 type UsageObserverKind = 'sse' | 'json' | 'none';
@@ -204,19 +225,6 @@ class PassthroughUsageObserver {
   }
 }
 
-function readTokenizeText(bodyText: string): string {
-  const parsed = parseJsonValueText(bodyText);
-  if (!isJsonObject(parsed)) throw new Error('Expected a JSON object.');
-  const text = parsed.text;
-  if (typeof text !== 'string') throw new Error("Expected 'text' to be a string.");
-  return text;
-}
-
-function getTokenArray(value: JsonValue): JsonValue[] | null {
-  if (!isJsonObject(value) || !Array.isArray(value.tokens)) return null;
-  return value.tokens;
-}
-
 type PassthroughAudit = { identity: ThroughputAuditIdentity; usageOptIn: boolean };
 
 async function proxyStreamingRequest(
@@ -266,31 +274,14 @@ async function proxyStreamingRequest(
   });
 }
 
-async function proxyTokenizeRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  baseUrl: string,
-  requestText: string,
-): Promise<void> {
-  const response = await fetch(new URL(EXL3_TOKENIZE_PATH, `${baseUrl.replace(/\/$/u, '')}/`), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
-    },
-    body: JSON.stringify({ text: requestText }),
-    signal: AbortSignal.timeout(TOKENIZE_TIMEOUT_MS),
-  });
-  const responseText = await response.text();
-  if (!response.ok) {
-    res.writeHead(response.status, { 'content-type': response.headers.get('content-type') ?? 'application/json' });
-    res.end(responseText);
+async function proxyTokenizeRequest(res: ServerResponse, target: TokenEncodeTarget, text: string): Promise<void> {
+  const response = await inferenceClient.postTokenEncode(target, { text });
+  if (response.statusCode >= 400) {
+    res.writeHead(response.statusCode, { 'content-type': 'application/json' });
+    res.end(response.rawText);
     return;
   }
-  const parsed = parseJsonValueText(responseText);
-  const tokens = getTokenArray(parsed);
-  if (!tokens) throw new Error('Upstream tokenization response did not contain a tokens array.');
-  sendJson(res, 200, { tokens, length: tokens.length });
+  sendJson(res, 200, TabbyTokenEncodeResponseSchema.parse(response.body));
 }
 
 // Deliberately no-wake. It reports the configured preset because that is the preset a
@@ -304,13 +295,12 @@ class ModelsEndpoint implements RouteEndpoint {
 
 class WorkloadEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, match: RouteMatch): Promise<void> {
-    let bodyText: string;
-    let requestText: string | null = null;
-    let chatMessageCount = 0;
+    let chatBody: PassthroughChatBody | null = null;
+    let tokenizeText: string | null = null;
     try {
-      bodyText = await readBody(req);
-      if (match.pathname === CHAT_PATH) chatMessageCount = validateChatBody(bodyText);
-      else requestText = readTokenizeText(bodyText);
+      const bodyText = await readBody(req);
+      if (match.pathname === CHAT_PATH) chatBody = parseRequestBody(bodyText, PassthroughChatBodySchema);
+      else tokenizeText = parseRequestBody(bodyText, TokenizeRequestSchema).text;
     } catch (error) {
       sendBodyReadError(res, toError(error), { error: error instanceof Error ? error.message : String(error) });
       return;
@@ -326,21 +316,22 @@ class WorkloadEndpoint implements RouteEndpoint {
     if (!lock) return;
     try {
       // Forward to the model admission granted, not whatever the config names now.
-      const { config: currentConfig, modelPreset: currentPreset } = lock.context;
+      const { modelPreset: currentPreset } = lock.context;
       const baseUrl = currentPreset.BaseUrl;
       if (!baseUrl) {
         sendJson(res, 503, { error: 'The active preset BaseUrl is not configured.' });
         return;
       }
-      if (match.pathname === CHAT_PATH) {
-        const translated = translateChatBody(bodyText, currentPreset, currentConfig);
+      const target = { baseUrl, authorization: req.headers.authorization };
+      if (chatBody !== null) {
+        const translated = await translateChatBody(chatBody, currentPreset, ctx.passthroughPromptCounter, target);
         const passthroughId = randomUUID();
         serverLogger.event({
           scope: 'proxy',
           id: passthroughId,
           event: 'forward',
           fields: `path=${CHAT_PATH} base_url=${baseUrl} `
-            + `messages=${chatMessageCount} body_chars=${translated.text.length}`,
+            + `messages=${chatBody.messages.length} body_chars=${translated.text.length}`,
         });
         await proxyStreamingRequest(ctx, req, res, baseUrl, CHAT_PATH, translated.text, {
           identity: {
@@ -353,8 +344,8 @@ class WorkloadEndpoint implements RouteEndpoint {
           },
           usageOptIn: translated.usageOptIn,
         });
-      } else if (requestText !== null) {
-        await proxyTokenizeRequest(req, res, baseUrl, requestText);
+      } else if (tokenizeText !== null) {
+        await proxyTokenizeRequest(res, target, tokenizeText);
       }
       ctx.idleSummary.pending = true;
     } catch (error) {
@@ -369,7 +360,7 @@ class WorkloadEndpoint implements RouteEndpoint {
 const ROUTES = new RouteTable([
   { method: 'GET', path: MODELS_PATH, endpoint: new ModelsEndpoint() },
   { method: 'POST', path: CHAT_PATH, endpoint: new WorkloadEndpoint() },
-  { method: 'POST', path: EXL3_TOKENIZE_PATH, endpoint: new WorkloadEndpoint() },
+  { method: 'POST', path: TABBY_TOKEN_ENCODE_PATH, endpoint: new WorkloadEndpoint() },
 ]);
 
 export async function handleInferencePassthroughRoute(

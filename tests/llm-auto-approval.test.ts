@@ -1,4 +1,5 @@
 import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import test, { before, after } from 'node:test';
 import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
@@ -425,7 +426,7 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
       if (req.method === 'POST' && req.url === '/v1/token/encode') {
         const parsed = asObject(parseJsonValueText(body || '{}'));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(String(parsed.text || '').length / 4)) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.max(1, Math.ceil(String(parsed.text || '').length / 4)))));
         return;
       }
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { tabbyTokenEncodeResponse } from './tabby-token-encode.ts';
 import http from 'node:http';
 import { PassThrough } from 'node:stream';
 
@@ -17,6 +18,8 @@ export type FakeTabbyOptions = {
   /** `GET /v1/model` answers "no model loaded" this many times before reporting the card. */
   initialUnloadedModelProbeCount?: number;
   tokenizeCharsPerToken?: number;
+  /** `POST /v1/token/encode` fails with 500. */
+  rejectTokenize?: boolean;
   /** Reported instead of the requested context, like a server that silently clamps it. */
   appliedMaxSeqLen?: number;
   /** `POST /v1/model/load` fails with 500 instead of loading. */
@@ -60,7 +63,32 @@ const LoadRequestSchema = z.object({
   chunk_size: z.number().optional(),
 }).loose();
 
-const EncodeRequestSchema = z.object({ text: z.string().optional() }).loose();
+const FakeContentPartSchema = z.object({ type: z.string(), text: z.string().optional() }).loose();
+const FakeMessageSchema = z.object({
+  role: z.string(),
+  content: z.union([z.string(), z.array(FakeContentPartSchema)]).nullable().optional(),
+}).loose();
+const EncodeRequestSchema = z.object({
+  text: z.union([z.string(), z.array(FakeMessageSchema)]).optional(),
+  chat_template_kwargs: JsonObjectSchema.optional(),
+}).loose();
+export type FakeChatMessage = z.infer<typeof FakeMessageSchema>;
+
+/** The fake engine's chat template: each message as `<|role|>` plus its text, then any tools as JSON. */
+export function renderFakeChatTemplate(messages: readonly FakeChatMessage[], tools?: JsonValue): string {
+  const rendered = messages.map((message) => {
+    const content = typeof message.content === 'string'
+      ? message.content
+      : (message.content ?? []).map((part) => part.text ?? '').join('');
+    return `<|${message.role}|>${content}`;
+  }).join('');
+  return tools === undefined ? rendered : `${rendered}${JSON.stringify(tools)}`;
+}
+
+/** How many tokens the fake engine reports for `text`. */
+export function countFakeTokens(text: string, charsPerToken: number): number {
+  return text.trim() ? Math.max(1, Math.ceil(text.length / charsPerToken)) : 0;
+}
 
 type ModelCard = { id: string; parameters: { max_seq_len: number; cache_size: number; chunk_size: number } };
 
@@ -156,6 +184,8 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
   readonly launches: EngineLaunchSpec[] = [];
   loadRequestCount = 0;
   modelProbeCount = 0;
+  /** Every `/v1/token/encode` body and its authorization header, in arrival order. */
+  readonly encodeRequests: { body: z.infer<typeof EncodeRequestSchema>; authorization: string | undefined }[] = [];
   /** 'unload' and 'terminate' in the order they happened. */
   readonly events: string[] = [];
   private readonly processes: FakeTabbyProcess[] = [];
@@ -315,9 +345,17 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
       return;
     }
     if (request.method === 'POST' && url === '/v1/token/encode') {
-      const text = EncodeRequestSchema.catch({}).parse(parseBody(await readBody(request))).text ?? '';
-      const count = text.trim() ? Math.max(1, Math.ceil(text.length / (this.options.tokenizeCharsPerToken ?? 4))) : 0;
-      sendJson(response, 200, { tokens: Array.from({ length: count }, (_, index) => index + 1), length: count });
+      const encode = EncodeRequestSchema.catch({}).parse(parseBody(await readBody(request)));
+      this.encodeRequests.push({ body: encode, authorization: request.headers.authorization });
+      if (this.options.rejectTokenize) {
+        sendJson(response, 500, { error: 'tokenizer unavailable' });
+        return;
+      }
+      const text = Array.isArray(encode.text)
+        ? renderFakeChatTemplate(encode.text, encode.chat_template_kwargs?.tools)
+        : encode.text ?? '';
+      const count = countFakeTokens(text, this.options.tokenizeCharsPerToken ?? 4);
+      sendJson(response, 200, tabbyTokenEncodeResponse(count));
       return;
     }
     if (request.method === 'POST' && url === '/v1/chat/completions') {

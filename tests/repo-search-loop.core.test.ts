@@ -1,4 +1,5 @@
 import test, { before, after } from 'node:test';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
@@ -383,7 +384,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
         const content = String(parsed.text || '');
         tokenizedContent.push(content);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.max(1, Math.ceil(content.length / 4)))));
       });
       return;
     }
@@ -991,7 +992,7 @@ test('runTaskLoop sends append-only chat requests without removed slot or cache 
         const parsed = JSON.parse(body || '{}');
         const content = String(parsed.text || '');
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.max(1, Math.ceil(content.length / 4)))));
       });
       return;
     }
@@ -1110,7 +1111,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         const parsed = JSON.parse(body || '{}');
         const content = String(parsed.text || '');
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.max(1, Math.ceil(content.length / 4)))));
       });
       return;
     }

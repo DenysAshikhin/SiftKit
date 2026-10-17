@@ -68,6 +68,7 @@ import { StatusEngineService } from './engine-service.ts';
 import { StatusRunRegistry } from './status-run-registry.ts';
 import { ChatSessionOperationRegistry } from './chat-session-operation-registry.ts';
 import { ChatSessionRecoveryCache } from './chat-session-recovery-cache.ts';
+import { PromptTokenCounter } from '../providers/prompt-token-counter.ts';
 import { createRequestHandler } from './routes.ts';
 import { flushTerminalMetadataForShutdown, waitForTerminalMetadataIdle } from './terminal-metadata.ts';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.ts';
@@ -283,6 +284,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     runtimeDatabasePath,
     runtimeDatabase,
     chatSessionRecovery: new ChatSessionRecoveryCache(runtimeDatabase),
+    passthroughPromptCounter: new PromptTokenCounter(),
     chatRunOwnerEpoch: chatRuntimeOwner.ownerEpoch,
     chatRuntimeOwner,
     server: null,

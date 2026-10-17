@@ -6,7 +6,11 @@ import {
 import { resolveGenerationTokenLimit } from '../lib/context-token-budget.ts';
 import { estimateTokenCount, estimateTokenCountFromCharacters } from '../lib/token-estimate.ts';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.ts';
-import { InferenceClient } from '../llm-protocol/inference-client.ts';
+import {
+  InferenceClient,
+  type TokenEncodeBody,
+  type TokenEncodeTarget,
+} from '../llm-protocol/inference-client.ts';
 import { getErrorMessage } from '../lib/errors.ts';
 import { HttpTimeoutError, InferenceHttpError } from '../lib/http-client.ts';
 import type {
@@ -236,36 +240,51 @@ export async function countInferenceTokensDetailed(
   content: string,
   options: CountInferenceTokensOptions = {},
 ): Promise<InferenceTokenCountResult> {
-  const timeoutMs = getPositiveTimeoutMs(options.timeoutMs, DEFAULT_INFERENCE_TOKENIZE_TIMEOUT_MS);
-  const retryMaxWaitMs = getPositiveTimeoutMs(options.retryMaxWaitMs, DEFAULT_INFERENCE_TOKENIZE_RETRY_MAX_WAIT_MS);
   if (!content.trim()) {
     return {
       tokenCount: 0,
       elapsedMs: 0,
       retryCount: 0,
-      timeoutMs,
-      retryMaxWaitMs,
+      timeoutMs: getPositiveTimeoutMs(options.timeoutMs, DEFAULT_INFERENCE_TOKENIZE_TIMEOUT_MS),
+      retryMaxWaitMs: getPositiveTimeoutMs(options.retryMaxWaitMs, DEFAULT_INFERENCE_TOKENIZE_RETRY_MAX_WAIT_MS),
       status: 'empty',
       httpStatusCode: null,
       errorMessage: null,
     };
   }
+  const result = await encodeInferenceTokensDetailed(
+    { baseUrl: getConfiguredEngineBaseUrl(config) },
+    { text: content },
+    options,
+  );
+  if (result.tokenCount !== null) {
+    tryRecordAccurateCharTokenObservation({
+      chars: content.length,
+      tokens: result.tokenCount,
+      updatedAtUtc: new Date().toISOString(),
+    });
+  }
+  return result;
+}
 
+/** Tokenizes one body on an explicit engine; failures are reported, never thrown. */
+export async function encodeInferenceTokensDetailed(
+  target: TokenEncodeTarget,
+  body: TokenEncodeBody,
+  options: CountInferenceTokensOptions = {},
+): Promise<InferenceTokenCountResult> {
+  const timeoutMs = getPositiveTimeoutMs(options.timeoutMs, DEFAULT_INFERENCE_TOKENIZE_TIMEOUT_MS);
+  const retryMaxWaitMs = getPositiveTimeoutMs(options.retryMaxWaitMs, DEFAULT_INFERENCE_TOKENIZE_RETRY_MAX_WAIT_MS);
   const startedAt = Date.now();
-  traceInference(`tokenize start chars=${content.length}`);
+  traceInference(`tokenize start chars=${JSON.stringify(body.text).length}`);
   try {
-    const response = await inferenceClient.countTokens(config, content, {
+    const response = await inferenceClient.encodeTokens(target, body, {
       requestTimeoutSeconds: timeoutMs / 1000,
       retryMaxWaitMs,
     });
-    tryRecordAccurateCharTokenObservation({
-      chars: content.length,
-      tokens: response.tokenCount,
-      updatedAtUtc: new Date().toISOString(),
-    });
-    traceInference(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${response.tokenCount}`);
+    traceInference(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${response.length}`);
     return {
-      tokenCount: response.tokenCount,
+      tokenCount: response.length,
       elapsedMs: Date.now() - startedAt,
       retryCount: 0,
       timeoutMs,

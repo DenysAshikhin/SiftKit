@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { tabbyTokenEncodeResponse } from './tabby-token-encode.ts';
 import { z } from 'zod';
 import { closeHttpServer, getAddressInfo } from './dashboard-http.ts';
 import type { JsonObject } from '../../src/lib/json-types.ts';
@@ -36,7 +37,7 @@ export class GatedChatBackend {
         if (request.url === '/v1/token/encode') {
           const text = TokenRequestSchema.parse(JSON.parse(body)).text;
           const overflow = this.overflowTokenText !== null && text.includes(this.overflowTokenText) && text.length > 1000;
-          response.end(JSON.stringify({ count: overflow ? 6000 : 10 }));
+          response.end(JSON.stringify(tabbyTokenEncodeResponse(overflow ? 6000 : 10)));
         } else response.end(JSON.stringify(request.url === '/v1/models' ? { object: 'list', data: [{ id: 'mock' }] } : { ok: true }));
         return;
       }

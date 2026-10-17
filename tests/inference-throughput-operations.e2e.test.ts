@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -497,7 +498,7 @@ function startFrameCountBackend(model: string, frames: (promptText: string) => n
         state.tokenizeRequests += 1;
         const text = String(asObject(JSON.parse(body)).text ?? '');
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(text.length / 4)) }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.max(1, Math.ceil(text.length / 4)))));
         return;
       }
       if (req.url === '/v1/chat/completions') {

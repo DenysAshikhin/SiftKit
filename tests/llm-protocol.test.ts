@@ -127,7 +127,7 @@ test('replay tool-call helper emits real tool protocol names and rejects unknown
   );
 });
 
-type CapturedRequest = { url: string; body?: string };
+type CapturedRequest = { url: string; body?: string; headers?: Record<string, string> };
 
 class CapturingHttpClient {
   readonly requests: CapturedRequest[] = [];
@@ -143,7 +143,11 @@ class CapturingHttpClient {
     if (options.url.includes('/v1/chat/completions')) {
       throw new Error('chat must not use requestJsonFull');
     }
-    this.requests.push({ url: options.url, ...(typeof options.body === 'string' ? { body: options.body } : {}) });
+    this.requests.push({
+      url: options.url,
+      ...(typeof options.body === 'string' ? { body: options.body } : {}),
+      ...(options.headers ? { headers: options.headers } : {}),
+    });
     const response = this.responses.shift();
     if (!response) {
       throw new Error(`no queued response for ${options.url}`);
@@ -208,6 +212,7 @@ function buildProtocolConfig(preserveThinking = false): SiftConfig {
 }
 
 const protocolConfig = buildProtocolConfig();
+const protocolTarget = { baseUrl: 'http://127.0.0.1:8097' };
 
 test('client builds chat request with thinking kwargs and tools', async () => {
   const http = new CapturingHttpClient();
@@ -239,18 +244,15 @@ test('client builds chat request with thinking kwargs and tools', async () => {
   assert.equal(body.tools[0].function.name, 'grep');
 });
 
-test('inference client covers token-count fallbacks, model fallbacks, and status errors', async () => {
+test('inference client counts tokens only from a TabbyAPI encode response, plus model fallbacks and status errors', async () => {
   const countClient = new InferenceClient(new CapturingHttpClient([
-    jsonResponse({ token_count: 7 }),
-    jsonResponse({ n_tokens: 8 }),
-    jsonResponse({ tokens: ['a', 'b', 'c'] }),
-    jsonResponse({}),
+    jsonResponse({ tokens: [4, 5, 6], length: 3 }),
+    jsonResponse({ count: 7 }),
   ]));
 
-  assert.equal((await countClient.countTokens(protocolConfig, 'a')).tokenCount, 7);
-  assert.equal((await countClient.countTokens(protocolConfig, 'b')).tokenCount, 8);
-  assert.equal((await countClient.countTokens(protocolConfig, 'c')).tokenCount, 3);
-  assert.equal((await countClient.countTokens(protocolConfig, 'd')).tokenCount, 0);
+  assert.equal((await countClient.encodeTokens(protocolTarget, { text: 'a' })).length, 3);
+  // Only TabbyAPI is a backend; any other response shape fails loudly instead of counting as 0.
+  await assert.rejects(() => countClient.encodeTokens(protocolTarget, { text: 'b' }, { retryMaxWaitMs: 0 }));
 
   const modelClient = new InferenceClient(new CapturingHttpClient([
     jsonResponse({ data: [{ id: '' }, { model: 'fallback-model' }] }),
@@ -366,17 +368,19 @@ test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
   });
 });
 
-test('EXL3 token counting uses the Tabby OpenAI token endpoint', async () => {
-  const config = buildProtocolConfig();
-  config.Server.ModelPresets.Presets[0].Backend = 'exl3';
-  config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
-  const http = new CapturingHttpClient([jsonResponse({ length: 50106, tokens: [1, 2] })]);
+test('EXL3 token encoding targets an explicit engine with its authorization and a templated body', async () => {
+  const http = new CapturingHttpClient([jsonResponse({ tokens: [1, 2], length: 2 })]);
+  const body = { text: [{ role: 'user', content: 'hi' }], chat_template_kwargs: { enable_thinking: false } };
 
-  const response = await new InferenceClient(http).countTokens(config, 'large prompt');
+  const response = await new InferenceClient(http).encodeTokens(
+    { baseUrl: 'http://127.0.0.1:9000/', authorization: 'Bearer key' },
+    body,
+  );
 
-  assert.equal(response.tokenCount, 50106);
-  assert.equal(http.requests[0]?.url, 'http://127.0.0.1:8098/v1/token/encode');
-  assert.deepEqual(JSON.parse(String(http.requests[0]?.body)), { text: 'large prompt' });
+  assert.equal(response.length, 2);
+  assert.equal(http.requests[0]?.url, 'http://127.0.0.1:9000/v1/token/encode');
+  assert.deepEqual(http.requests[0]?.headers, { authorization: 'Bearer key' });
+  assert.deepEqual(JSON.parse(String(http.requests[0]?.body)), body);
 });
 
 test('EXL3 forwards native tools and response format while parsing Qwen XML tool calls', async () => {
@@ -493,7 +497,7 @@ test('inference client covers chat HTTP errors and status success branches', asy
   await assert.rejects(
     () => new InferenceClient(new CapturingHttpClient([
       jsonResponse({ error: 'bad' }, 500, 'bad tokenize'),
-    ])).countTokens(protocolConfig, 'x', { retryMaxWaitMs: 0 }),
+    ])).encodeTokens(protocolTarget, { text: 'x' }, { retryMaxWaitMs: 0 }),
     /HTTP 500: bad tokenize/u,
   );
 

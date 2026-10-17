@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import assert from 'node:assert/strict';
 import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.ts';
 import fs from 'node:fs';
@@ -819,7 +820,7 @@ test('dashboard chat message route uses the runtime BaseUrl for exact inference 
     const content = String(parsed.text || '');
     tokenizedContents.push(content);
     response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ count: content === 'exact route user prompt' ? 23 : Math.max(1, Math.ceil(content.length / 4)) }));
+    response.end(JSON.stringify(tabbyTokenEncodeResponse(content === 'exact route user prompt' ? 23 : Math.max(1, Math.ceil(content.length / 4)))));
   });
   await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
   const tokenizerAddress = getAddressInfo(tokenizerServer);

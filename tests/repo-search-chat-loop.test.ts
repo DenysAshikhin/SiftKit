@@ -1,4 +1,5 @@
 import test, { before, after } from 'node:test';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
@@ -192,7 +193,7 @@ test('chat streams native content as raw progress and safe narration before the 
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/token/encode') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ count: 10 }));
+      res.end(JSON.stringify(tabbyTokenEncodeResponse(10)));
       return;
     }
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -255,7 +256,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/token/encode') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ count: 10 }));
+      res.end(JSON.stringify(tabbyTokenEncodeResponse(10)));
       return;
     }
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -332,7 +333,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/token/encode') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ count: 10 }));
+      res.end(JSON.stringify(tabbyTokenEncodeResponse(10)));
       return;
     }
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {

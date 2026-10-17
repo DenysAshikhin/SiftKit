@@ -1,5 +1,7 @@
 import {
   getActiveInferenceBackend,
+  getActiveModelPreset,
+  getConfiguredEngineBaseUrl,
   type SiftConfig,
 } from '../config/index.ts';
 import { estimateTokenCount } from '../lib/token-estimate.ts';
@@ -12,6 +14,8 @@ import {
   type CountInferenceTokensOptions,
   type InferenceTokenCountResult,
 } from '../providers/inference.ts';
+import { PromptTokenCounter } from '../providers/prompt-token-counter.ts';
+import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.ts';
 import type { WirePrompt } from './wire-prompt.ts';
 import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../config/constants.ts';
 
@@ -60,27 +64,39 @@ export async function countTokensWithFallback(config: SiftConfig | undefined, te
   return (await countTokensWithFallbackDetailed(config, text)).tokenCount;
 }
 
-/**
- * A delta-derived transcript count within this many tokens of the prompt
- * budget triggers one exact full recount before the overflow decision.
- * Delta counting drifts ≤ ~2 tokens per seam; this margin bounds a whole
- * run's drift with room to spare.
- */
-export const EXACT_RECOUNT_MARGIN_TOKENS = 2048;
+/** Most a wire block tokenized on its own can differ from its tokens inside the prompt: one seam. */
+export const WIRE_SEGMENT_DRIFT_TOKENS = 2;
 
-export type PromptTokenCounter = {
-  count(
-    config: SiftConfig | undefined,
-    text: string,
-    options?: { forceExact?: boolean },
-  ): Promise<TokenCountWithFallbackResult & { approximate: boolean }>;
-};
-
-const oneShotTokenCounter: PromptTokenCounter = {
-  async count(config, text) {
-    return { ...(await countTokensWithFallbackDetailed(config, text)), approximate: false };
-  },
-};
+/** Counts a wire prompt, reusing the counter's earlier counts; an unreachable engine yields the estimate. */
+async function countWirePromptTokens(
+  config: SiftConfig | undefined,
+  prompt: WirePrompt,
+  counter: PromptTokenCounter,
+  limitTokens: number,
+): Promise<TokenCountWithFallbackResult> {
+  if (!config) {
+    return countTokensWithFallbackDetailed(undefined, prompt.text);
+  }
+  const counted = await counter.count({
+    target: { baseUrl: getConfiguredEngineBaseUrl(config) },
+    contextKey: `model:${getActiveModelPreset(config).Model ?? 'unset'}`,
+    segments: prompt.segments.map((segment) => ({ identity: segment, text: segment })),
+    exactBody: { text: prompt.text },
+    limitTokens,
+    segmentDriftTokens: WIRE_SEGMENT_DRIFT_TOKENS,
+  });
+  if (!counted.ok) {
+    return { tokenCount: estimateTokenCount(config, prompt.text), source: 'estimate', inferenceTokenCount: counted.tokenization };
+  }
+  if (counted.driftTokens === 0 && counted.tokenization !== null) {
+    tryRecordAccurateCharTokenObservation({
+      chars: prompt.text.length,
+      tokens: counted.tokenCount,
+      updatedAtUtc: new Date().toISOString(),
+    });
+  }
+  return { tokenCount: counted.tokenCount, source: getActiveInferenceBackend(config), inferenceTokenCount: counted.tokenization };
+}
 
 // ---------------------------------------------------------------------------
 // Prompt token measurement
@@ -118,9 +134,10 @@ export type PromptTokenMeasurement = Omit<
 export async function countPlannerPromptTokens(options: {
   config?: SiftConfig;
   prompt: WirePrompt;
+  /** Reuses counts across a growing conversation; absent counts this prompt on its own. */
   promptTokenCounter?: PromptTokenCounter;
-  /** A delta-derived count at or above this triggers one exact recount; absent means never. */
-  exactRecountThresholdTokens?: number;
+  /** A reused count whose drift could reach this many prompt tokens is recounted exactly. */
+  maxPromptTokens?: number;
 }): Promise<PromptTokenMeasurement> {
   const promptText = options.prompt.text;
 
@@ -128,20 +145,12 @@ export async function countPlannerPromptTokens(options: {
   // rendered wire prompt carries no text for them, so each attachment gets a flat allowance.
   const imageTokenCount = options.prompt.imageCount * SIFT_IMAGE_TOKEN_ESTIMATE;
 
-  const promptCounter = options.promptTokenCounter ?? oneShotTokenCounter;
-  let tokenCount = await promptCounter.count(options.config, promptText);
-
-  // A delta-derived count is approximate; when it lands near the budget the
-  // overflow/compaction decision needs an exact number.
-  const provisionalPromptTokenCount = tokenCount.tokenCount + imageTokenCount;
-  if (
-    options.exactRecountThresholdTokens !== undefined
-    && tokenCount.approximate
-    && tokenCount.source !== 'estimate'
-    && provisionalPromptTokenCount >= options.exactRecountThresholdTokens
-  ) {
-    tokenCount = await promptCounter.count(options.config, promptText, { forceExact: true });
-  }
+  const tokenCount = await countWirePromptTokens(
+    options.config,
+    options.prompt,
+    options.promptTokenCounter ?? new PromptTokenCounter(),
+    (options.maxPromptTokens ?? Number.POSITIVE_INFINITY) - imageTokenCount,
+  );
 
   const inferenceTokenCount = tokenCount.inferenceTokenCount;
   return {
@@ -177,7 +186,7 @@ export async function preflightPlannerPromptBudget(options: {
     config: options.config,
     prompt: options.prompt,
     promptTokenCounter: options.promptTokenCounter,
-    exactRecountThresholdTokens: maxPromptTokens - EXACT_RECOUNT_MARGIN_TOKENS,
+    maxPromptTokens,
   });
   const overflowTokens = Math.max(measurement.promptTokenCount - maxPromptTokens, 0);
   return {

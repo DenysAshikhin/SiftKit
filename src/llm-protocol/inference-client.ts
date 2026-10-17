@@ -28,7 +28,12 @@ import {
 } from './stream-errors.ts';
 import { readStreamErrorFrame } from './stream-error-frame.ts';
 import { z } from '../lib/zod.ts';
-import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.ts';
+import {
+  JsonValueSchema,
+  type JsonSerializable,
+  type JsonValue,
+  type OptionalJsonValue,
+} from '../lib/json-types.ts';
 import {
   mergeInferenceThroughput,
   observeTabbyThroughput,
@@ -55,13 +60,25 @@ import type { InferenceActivityObserver } from '../lib/progress-writer.ts';
 
 type InferenceHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
-const RawTokenizeResponseSchema = z.object({
-  length: z.number().optional(),
-  count: z.number().optional(),
-  token_count: z.number().optional(),
-  n_tokens: z.number().optional(),
-  tokens: z.array(JsonValueSchema).optional(),
+/** TabbyAPI's token endpoint; the passthrough route serves the same path. */
+export const TABBY_TOKEN_ENCODE_PATH = '/v1/token/encode';
+
+/** TabbyAPI's `TokenEncodeResponse`. */
+export const TabbyTokenEncodeResponseSchema = z.object({
+  tokens: z.array(z.number()),
+  length: z.number().int().nonnegative(),
 });
+export type TabbyTokenEncodeResponse = z.infer<typeof TabbyTokenEncodeResponseSchema>;
+
+/** The engine a tokenize call goes to; the passthrough forwards its caller's authorization. */
+export type TokenEncodeTarget = { baseUrl: string; authorization?: string };
+
+/** Plain text, or chat messages TabbyAPI renders through the model's chat template first. */
+export type TokenEncodeBody =
+  | { text: string; add_bos_token?: boolean }
+  | { text: readonly JsonSerializable[]; chat_template_kwargs: JsonObject };
+
+export type TokenEncodeRequestOptions = { requestTimeoutSeconds?: number; retryMaxWaitMs?: number };
 
 const RawModelReferenceSchema = z.object({
   id: z.string().optional(),
@@ -145,34 +162,37 @@ export class InferenceClient {
     this.client = client;
   }
 
-  async countTokens(
-    config: SiftConfig,
-    content: string,
-    options: { requestTimeoutSeconds?: number; retryMaxWaitMs?: number } = {},
-  ): Promise<{ tokenCount: number; raw: JsonObject }> {
-    const baseUrl = getConfiguredEngineBaseUrl(config);
-    const response = await retryProviderRequest(async () => {
-      const nextResponse = await this.client.requestJsonFull({
-        url: `${baseUrl.replace(/\/$/u, '')}/v1/token/encode`,
+  /** One POST to the engine's token endpoint, retried while transient; the status is the caller's. */
+  async postTokenEncode(
+    target: TokenEncodeTarget,
+    body: TokenEncodeBody,
+    options: TokenEncodeRequestOptions = {},
+  ): Promise<{ statusCode: number; rawText: string; body: JsonValue }> {
+    return retryProviderRequest(async () => {
+      const response = await this.client.requestJsonFull({
+        url: `${target.baseUrl.replace(/\/$/u, '')}${TABBY_TOKEN_ENCODE_PATH}`,
         method: 'POST',
         timeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 30) * 1000,
-        body: JSON.stringify({ text: content }),
-      }, RawTokenizeResponseSchema);
-      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
-        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
+        body: JSON.stringify(body),
+        ...(target.authorization ? { headers: { authorization: target.authorization } } : {}),
+      }, JsonValueSchema);
+      if (isTransientProviderHttpResponse(response.statusCode, response.rawText)) {
+        throw buildTransientProviderHttpError(response.statusCode, response.rawText);
       }
-      return nextResponse;
+      return response;
     }, options.retryMaxWaitMs ? { maxWaitMs: options.retryMaxWaitMs } : undefined);
+  }
+
+  async encodeTokens(
+    target: TokenEncodeTarget,
+    body: TokenEncodeBody,
+    options: TokenEncodeRequestOptions = {},
+  ): Promise<TabbyTokenEncodeResponse> {
+    const response = await this.postTokenEncode(target, body, options);
     if (response.statusCode >= 400) {
       throw new Error(`HTTP ${response.statusCode}: ${response.rawText.trim()}`);
     }
-    const tokenCount = getUsageValue(response.body.length)
-      ?? getUsageValue(response.body.count)
-      ?? getUsageValue(response.body.token_count)
-      ?? getUsageValue(response.body.n_tokens)
-      ?? (Array.isArray(response.body.tokens) ? response.body.tokens.length : null)
-      ?? 0;
-    return { tokenCount, raw: toJsonObject(response.body) };
+    return TabbyTokenEncodeResponseSchema.parse(response.body);
   }
 
   async listModels(config: SiftConfig): Promise<string[]> {
@@ -578,8 +598,4 @@ const INVALID_FRAME_LOG_CHARS = 512;
 
 function getUsageValue(value: OptionalJsonValue): number | null {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
-}
-
-function toJsonObject(value: object): JsonObject {
-  return JsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
 }

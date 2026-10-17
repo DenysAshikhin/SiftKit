@@ -14,6 +14,7 @@ import { DEFAULT_IDLE_SUMMARY_DELAY_MS } from '../../src/status-server/server-op
 import { StatusRunRegistry } from '../../src/status-server/status-run-registry.ts';
 import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.ts';
 import { ChatSessionRecoveryCache } from '../../src/status-server/chat-session-recovery-cache.ts';
+import { PromptTokenCounter } from '../../src/providers/prompt-token-counter.ts';
 import { AppliedModelPresetState } from '../../src/status-server/applied-model-preset-state.ts';
 import { RecordingInferenceRuntime } from './recording-inference-runtime.ts';
 import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.ts';
@@ -49,6 +50,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     runtimeDatabasePath,
     runtimeDatabase,
     chatSessionRecovery: new ChatSessionRecoveryCache(runtimeDatabase),
+    passthroughPromptCounter: new PromptTokenCounter(),
     chatRuntimeOwner: new ChatRuntimeOwner(runtimeDatabase, 'test-owner', 1),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),

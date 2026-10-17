@@ -1,4 +1,5 @@
 import test, { before, after } from 'node:test';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
@@ -111,8 +112,14 @@ test('recordModelResponse uses the server tokenizer for text and thinking', asyn
         : content === 'exact thinking'
           ? 23
           : null;
+      // Unknown text: the tokenizer is unavailable, so the caller falls back to its estimate.
+      if (count === null) {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'tokenizer unavailable' }));
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ count }));
+      res.end(JSON.stringify(tabbyTokenEncodeResponse(count)));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

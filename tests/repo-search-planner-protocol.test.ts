@@ -1,4 +1,5 @@
 import { getActiveModelPreset } from '../src/config/getters.ts';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -878,7 +879,7 @@ test('approval verdicts extend the measured executing prompt without network tok
       if (req.url === '/v1/token/encode') {
         tokenizeRequestCount += 1;
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: 10 }));
+        res.end(JSON.stringify(tabbyTokenEncodeResponse(10)));
         return;
       }
       res.writeHead(404);

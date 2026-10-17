@@ -1,4 +1,5 @@
 import test, { before, after } from 'node:test';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
 const isolatedRuntime = new IsolatedRuntime();
@@ -31,7 +32,7 @@ function startFakeServer(): Promise<FakeServer> {
         if (req.url === '/v1/token/encode') {
           res.writeHead(200, { 'content-type': 'application/json' });
           const content = String(asObject(parseJsonValueText(body || '{}')).text || '');
-          res.end(JSON.stringify({ length: Math.ceil(content.length / 2) }));
+          res.end(JSON.stringify(tabbyTokenEncodeResponse(Math.ceil(content.length / 2))));
           return;
         }
         sendChatCompletionSse(res, {

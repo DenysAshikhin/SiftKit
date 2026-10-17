@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import test, { before, after } from 'node:test';
 import { IsolatedRuntime } from './helpers/isolated-runtime.ts';
 
@@ -127,7 +128,7 @@ test('the next actual provider request includes the complete tool batch followed
     request.on('end', () => {
       if (request.url === '/v1/token/encode' || request.url === '/tokenize') {
         response.writeHead(200, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ count: 500 }));
+        response.end(JSON.stringify(tabbyTokenEncodeResponse(500)));
         return;
       }
       captured.push(JsonObjectSchema.parse(parseJsonValueText(body)));
