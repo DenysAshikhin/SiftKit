@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ModelRuntimePresetSchema } from './config.ts';
+import { ModelPresetReferenceSchema, ModelRuntimePresetSchema } from './config.ts';
 import { ImageDataUrlSchema, ImageMetadataSchema, sumImageTokens } from './image.ts';
 import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.ts';
 
@@ -321,6 +321,8 @@ export type ChatSessionMode = z.infer<typeof ChatSessionModeSchema>;
 
 export const ChatSessionSchema = z.object({
   id: z.string(), title: z.string(), modelPresetId: z.string().trim().min(1),
+  modelPresetOverrideId: ModelPresetReferenceSchema,
+  defaultModelPreset: ModelRuntimePresetSchema.pick({ id: true, label: true }),
   modelPreset: ModelRuntimePresetSchema.optional(),
   model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
@@ -331,13 +333,20 @@ export const ChatSessionSchema = z.object({
 });
 export type ChatSession = z.infer<typeof ChatSessionSchema>;
 
+export const ChatSessionUpdateRequestSchema = ChatSessionSchema.pick({
+  title: true, thinkingEnabled: true, webSearchEnabled: true, presetId: true, planRepoRoot: true, modelPresetOverrideId: true,
+}).extend({
+  title: z.string().trim().min(1), presetId: z.string().trim().min(1), planRepoRoot: z.string().trim().min(1),
+}).partial().strict();
+export type ChatSessionUpdateRequest = z.infer<typeof ChatSessionUpdateRequestSchema>;
+
 /**
  * What the session rail needs: everything but the transcript, plus the last message's tool exit.
  * `model` and `contextWindowTokens` are config-resolved and belong to the detail, which is where
  * they are rendered; a summary therefore never needs the config.
  */
 export const ChatSessionSummarySchema = ChatSessionSchema
-  .omit({ messages: true, promptContext: true, sessionThroughput: true, modelPreset: true, model: true, contextWindowTokens: true })
+  .omit({ messages: true, promptContext: true, sessionThroughput: true, modelPreset: true, model: true, contextWindowTokens: true, defaultModelPreset: true })
   .extend({ lastToolCallExitCode: z.number().int().nullable() });
 export type ChatSessionSummary = z.infer<typeof ChatSessionSummarySchema>;
 

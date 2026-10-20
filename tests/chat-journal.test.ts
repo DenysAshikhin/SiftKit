@@ -27,7 +27,7 @@ function openFixture(prefix: string): Fixture {
   saveChatSession(runtimeRoot, {
     id: SESSION_ID,
     title: 'Journal session',
-    modelPresetId: 'preset-a',
+    modelPresetOverrideId: null, modelPresetId: 'preset-a',
     modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
     presetId: 'chat',
     mode: 'chat',
@@ -51,7 +51,7 @@ function runStart(overrides: Partial<ChatRunStart> = {}): ChatRunStart {
       operationKind: 'repo-agent',
       mode: 'chat',
       presetId: 'repo-agent',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       model: 'model-a',
       repoRoot: 'C:/repo',
       approval: 'interactive',

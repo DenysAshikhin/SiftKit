@@ -22,7 +22,8 @@ import { buildChatPromptContext } from '../src/status-server/chat-prompt-context
 import { resolveChatRunAllowedTools } from '../src/status-server/chat-operation-preset.ts';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
 import { normalizeConfig } from '../src/status-server/config-store.ts';
-import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
+import { estimateTokenCount, StoredChatSessionSchema, type ChatSession } from '../src/state/chat-sessions.ts';
+import { createTestChatSession } from './helpers/chat-sessions.ts';
 import { z } from '../src/lib/zod.ts';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.ts';
 import type { SiftConfig } from '../src/config/types.ts';
@@ -35,9 +36,6 @@ import {
   PersistedChatTranscriptMessageSchema,
 } from '@siftkit/contracts';
 
-// Brand a deliberately-partial session fixture as ChatSession at one boundary;
-// tests exercise only the fields they set.
-const ChatSessionSchema = z.custom<ChatSession>((value) => typeof value === 'object' && value !== null);
 const PartialChatMessageSchema = z.looseObject({
   id: z.string(),
   role: ChatTranscriptRoleSchema,
@@ -46,7 +44,7 @@ const PartialChatMessageSchema = z.looseObject({
   toolCallOutput: z.string().optional(),
   toolCallOutputSnippet: z.string().optional(),
 });
-const PartialChatSessionSchema = z.looseObject({
+const PartialChatSessionSchema = StoredChatSessionSchema.omit({ messages: true }).partial().extend({
   messages: z.array(PartialChatMessageSchema).optional(),
 });
 
@@ -80,7 +78,7 @@ function mockChatSession(session: object): ChatSession {
       content,
     });
   });
-  return ChatSessionSchema.parse({ modelPresetId: 'default', planRepoRoot: process.cwd(), ...parsed, messages });
+  return StoredChatSessionSchema.parse({ ...createTestChatSession(process.cwd()), ...parsed, messages: messages ?? [] });
 }
 
 function createConfig(overrides: JsonObject = {}): SiftConfig {
@@ -136,7 +134,7 @@ function createSession(): ChatSession {
   return mockChatSession({
     id: 'session-1',
     title: 'Session',
-    modelPresetId: 'default',
+    modelPresetOverrideId: null, modelPresetId: 'default',
     presetId: 'chat',
     mode: 'chat',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed-exl3', NumCtx: 8192 }),
@@ -265,10 +263,12 @@ test('buildChatPromptContext shows a plain chat session the web chat tools it is
 });
 
 test('buildChatPromptContext rejects a session without an exact preset id', () => {
+  const session = mockChatSession({ id: 'missing-preset', modelPresetId: 'default', mode: 'plan' });
+  delete session.presetId;
   assert.throws(
     () => buildChatPromptContext(
       createConfig(),
-      mockChatSession({ id: 'missing-preset', modelPresetId: 'default', mode: 'plan' }),
+      session,
     ),
     /Chat session presetId is required\./u,
   );
@@ -369,7 +369,7 @@ test('buildContextUsage sums stored session token fields instead of provider pro
   const session: ChatSession = {
     id: 'session-usage', presetId: 'chat',
     title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
-    modelPresetId: 'default',
+    modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed-exl3', NumCtx: 75000 }),
     planRepoRoot: 'C:/repo',
     messages: [
@@ -626,7 +626,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
   const session: ChatSession = {
     id: 'session-replay-usage', presetId: 'chat',
     title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
-    modelPresetId: 'historical-preset',
+    modelPresetOverrideId: null, modelPresetId: 'historical-preset',
     // The stored snapshot's window is historical; usage measures against the model the next run resolves to.
     modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }),
     planRepoRoot: 'C:/repo',

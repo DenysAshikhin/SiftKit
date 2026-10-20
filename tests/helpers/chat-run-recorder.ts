@@ -70,7 +70,7 @@ export function beginRepoAgentTestRun(
   const root = createManagedTempDir(prefix);
   const at = overrides.startedAtUtc ?? new Date().toISOString();
   saveChatSession(root, {
-    id: 'session', title: 'Run', modelPresetId: 'model', modelPreset: mockModelPreset(),
+    id: 'session', title: 'Run', modelPresetOverrideId: null, modelPresetId: 'model', modelPreset: mockModelPreset(),
     presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: at, updatedAtUtc: at, messages: [],
   });
   const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
@@ -78,7 +78,7 @@ export function beginRepoAgentTestRun(
     operationId: randomUUID(), sessionId: 'session', ownerEpoch: 'test-owner', operationKind: 'repo-agent',
     userMessageId: 'accepted-user', content: 'Find the answer', images: overrides.images ?? [], imageMeta: overrides.imageMeta ?? [],
     retainedHistoryRevision: 0, startedAtUtc: at, settings: {
-      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetId: 'model', model: 'mock', repoRoot: 'C:/repo',
+      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetOverrideId: null, modelPresetId: 'model', model: 'mock', repoRoot: 'C:/repo',
       approval: 'interactive', maxTurns: 200, thinkingEnabled: true, webSearchEnabled: false, contextWindowTokens: 4096,
     },
   });

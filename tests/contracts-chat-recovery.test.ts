@@ -116,6 +116,7 @@ test('effective settings record what a run executed under, including a null appr
     mode: 'chat',
     presetId: 'chat',
     modelPresetId: 'preset-a',
+    modelPresetOverrideId: null,
     model: null,
     repoRoot: 'C:/repo',
     approval: null,
@@ -125,6 +126,7 @@ test('effective settings record what a run executed under, including a null appr
     contextWindowTokens: 32_768,
   });
   assert.equal(settings.approval, null);
+  assert.throws(() => ChatRunEffectiveSettingsSchema.parse({ ...settings, modelPresetOverrideId: undefined }));
   assert.throws(() => ChatRunEffectiveSettingsSchema.parse({ ...settings, maxTurns: 0 }));
   assert.throws(() => ChatRunEffectiveSettingsSchema.parse({ ...settings, operationKind: 'summarize' }));
 });

@@ -47,6 +47,7 @@ function rewind(version: number, presetsJson: string): string {
     database.prepare('UPDATE app_config SET presets_json = ? WHERE id = 1').run(presetsJson);
     database.exec('DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs;');
     database.prepare('UPDATE runtime_schema SET version = ? WHERE id = 1').run(version);
+    database.exec('ALTER TABLE chat_sessions DROP COLUMN model_preset_override_id');
   });
   return dbPath;
 }

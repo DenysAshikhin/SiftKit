@@ -96,6 +96,7 @@ export const ModelRuntimePresetSchema = z.object({
   ...ModelPresetSettingsShape,
 }).strict();
 export type ModelRuntimePreset = z.infer<typeof ModelRuntimePresetSchema>;
+export const ModelPresetReferenceSchema = ModelRuntimePresetSchema.shape.id.trim().min(1).nullable();
 
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
 const DOT_SEGMENT = /(?:^|[\\/])\.{1,2}(?:[\\/]|$)/u;

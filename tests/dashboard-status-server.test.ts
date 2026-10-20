@@ -355,7 +355,7 @@ class ChatInferenceMetadataFixture {
 
   seedActiveSession(): void {
     saveChatSession(this.runtimeRoot, {
-      id: 'stale-active', title: 'Stale active session', modelPresetId: this.activePresetId,
+      id: 'stale-active', title: 'Stale active session', modelPresetOverrideId: null, modelPresetId: this.activePresetId,
       modelPreset: mockModelPreset({ id: this.activePresetId, Model: 'stale-model', NumCtx: 30_000 }), thinkingEnabled: true,
       planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
       createdAtUtc: '2026-07-21T00:00:00.000Z',
@@ -365,7 +365,7 @@ class ChatInferenceMetadataFixture {
 
   seedHistoricalSession(): void {
     saveChatSession(this.runtimeRoot, {
-      id: 'historical', title: 'Historical session', modelPresetId: 'historical-preset',
+      id: 'historical', title: 'Historical session', modelPresetOverrideId: null, modelPresetId: 'historical-preset',
       modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }), thinkingEnabled: true,
       planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
       createdAtUtc: '2026-07-20T00:00:00.000Z',

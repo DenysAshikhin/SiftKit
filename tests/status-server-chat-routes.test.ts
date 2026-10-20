@@ -10,6 +10,7 @@ import {
   updateChatMessageImageCaption,
   readChatSessionFromPath,
   saveChatSession,
+  saveChatSessionMetadata,
   getChatSessionPath,
 } from '../src/state/chat-sessions.ts';
 import { createTestChatSession } from './helpers/chat-sessions.ts';
@@ -20,7 +21,7 @@ import { z } from '../src/lib/zod.ts';
 import { getAddressInfo, requestJson, requestSse, asObject } from './helpers/dashboard-http.ts';
 import { configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo } from './helpers/dashboard-test-repo.ts';
 import path from 'node:path';
-import { writeConfig } from '../src/status-server/config-store.ts';
+import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
 import { getDefaultServerConfig } from './helpers/mock-config.ts';
 import { getConfigPath } from '../src/config/index.ts';
 import { getActiveModelPreset } from '../src/config/getters.ts';
@@ -557,6 +558,23 @@ test('caption route runs on the model its chat preset is assigned to, not the se
     });
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.caption, 'snapshot caption');
+  } finally {
+    await closeCaptionTestServer(harness.server, harness.previousCwd, harness.envBackup, harness.tempRoot);
+  }
+});
+
+test('caption route uses the chat model choice ahead of its operation preset', async () => {
+  const harness = await withCaptionServer({ routedPreset: true });
+  try {
+    const config = readConfig(getConfigPath());
+    config.Presets = config.Presets.map(preset => preset.id === 'chat' ? { ...preset, modelPresetId: 'caption-global' } : preset);
+    writeConfig(getConfigPath(), config);
+    saveChatSessionMetadata(harness.fixture.runtimeRoot, { ...harness.fixture.session, modelPresetOverrideId: 'caption-routed' });
+    const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`, {
+      method: 'POST', body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: [{ content: 'chosen vision model' }] }),
+    });
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.caption, 'chosen vision model');
   } finally {
     await closeCaptionTestServer(harness.server, harness.previousCwd, harness.envBackup, harness.tempRoot);
   }

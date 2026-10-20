@@ -511,7 +511,7 @@ function openSessionDatabase(prefix: string) {
   saveChatSession(runtimeRoot, {
     id: SESSION_ID,
     title: 'Replay session',
-    modelPresetId: 'preset-a',
+    modelPresetOverrideId: null, modelPresetId: 'preset-a',
     modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
     presetId: 'chat',
     mode: 'chat',
@@ -606,7 +606,7 @@ test('a submission lost before engine initialization continues from the previous
   ], contextRevision: 0, turnBoundary: 0 }]);
   store.finish({ operationId: first, ownerEpoch: OWNER_EPOCH, terminalCause: 'completed', updatedAtUtc: RECORDED_AT });
   const settings = {
-    operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetId: 'preset-a', model: 'model-a', repoRoot: 'C:/repo',
+    operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetOverrideId: null, modelPresetId: 'preset-a', model: 'model-a', repoRoot: 'C:/repo',
     approval: 'interactive', maxTurns: 120, thinkingEnabled: true, webSearchEnabled: false, contextWindowTokens: 4096,
   } as const;
   writeRun(store, [{ kind: 'run_started', sessionId: SESSION_ID, operationKind: 'repo-agent', runOrder: 2,

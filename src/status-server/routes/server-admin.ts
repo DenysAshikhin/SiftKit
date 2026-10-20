@@ -32,7 +32,7 @@ import {
   getPublishedStatusText,
   resumeModelRequestAdmission,
 } from '../server-ops.ts';
-import { InferenceRuntimeDashboardStatusSchema, ModelLifecycleRequestSchema, ModelLifecycleResponseSchema } from '@siftkit/contracts';
+import { ChatSessionSchema, InferenceRuntimeDashboardStatusSchema, ModelLifecycleRequestSchema, ModelLifecycleResponseSchema } from '@siftkit/contracts';
 import type { ModelLifecycleAction } from '@siftkit/contracts';
 import type { ServerContext } from '../server-types.ts';
 import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
@@ -232,6 +232,15 @@ export class ConfigUpdateEndpoint implements RouteEndpoint {
       nextConfig = isStrictConfigPayload(parsedBody)
         ? normalizeConfig(parsedBody)
         : normalizeConfig(mergeConfig(JsonValueSchema.parse(baseConfig), parsedBody));
+      const selections = ChatSessionSchema.pick({ title: true, modelPresetOverrideId: true }).array().parse(
+        ctx.runtimeDatabase.prepare(`SELECT title, model_preset_override_id AS modelPresetOverrideId
+          FROM chat_sessions WHERE model_preset_override_id IS NOT NULL`).all(),
+      );
+      const stranded = selections.filter(session => !nextConfig.Server.ModelPresets.Presets
+        .some(preset => preset.id === session.modelPresetOverrideId));
+      if (stranded.length > 0) {
+        throw new Error(`Model presets are selected by chats: ${stranded.map(session => session.title).join(', ')}. Change their model choices before deleting them.`);
+      }
     } catch (error) {
       sendJson(res, 400, { error: toError(error).message });
       return;

@@ -480,7 +480,7 @@ test('changing presets warns about context invalidation and updates only after c
       webPresets: [PRESET, REPO_AGENT_PRESET],
       onUpdateSessionPreset: async (presetId) => { updates.push(presetId); },
     })} />);
-    const selector = screen.getByRole('combobox');
+    const selector = screen.getByRole('combobox', { name: 'Preset' });
 
     fireEvent.change(selector, { target: { value: REPO_AGENT_PRESET.id } });
     assert.deepEqual(updates, []);
@@ -517,7 +517,7 @@ test('changing only preset metadata does not claim the model context is invalida
     })} />);
 
     await act(async () => {
-      fireEvent.change(screen.getByRole('combobox'), { target: { value: equivalentPreset.id } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Preset' }), { target: { value: equivalentPreset.id } });
     });
 
     assert.equal(warningCount, 0);

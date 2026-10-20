@@ -72,7 +72,7 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
   session: {
     id: 's1',
     title: 'Test',
-    modelPresetId: 'test-model',
+    modelPresetOverrideId: null, defaultModelPreset: { id: 'test-model', label: 'Test model' }, modelPresetId: 'test-model',
     model: null,
     contextWindowTokens: 100,
     planRepoRoot: 'C:/repo',

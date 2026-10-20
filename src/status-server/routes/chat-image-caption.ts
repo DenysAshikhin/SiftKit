@@ -15,6 +15,7 @@ import {
 import { getActiveModelPreset } from '../../config/getters.ts';
 import { readConfig } from '../config-store.ts';
 import { ChatOperationPresetSelector } from '../chat-operation-preset.ts';
+import { buildChatModelRequestIntent } from '../chat-model-selection.ts';
 import { getRuntimeRoot } from '../paths.ts';
 import { sendJson } from '../http-utils.ts';
 import {
@@ -99,12 +100,12 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
       return { failure: null };
     }
 
-    // A caption is a chat turn: it runs on the model the session's chat preset resolves to.
+    // Caption inference follows the chat's model choice, then its chat preset.
     const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(request.session, 'chat');
     let modelRequestLock: ModelRequestLock | null;
     try {
       modelRequestLock = await acquireWebUiModelRequest(ctx, 'dashboard_image_caption',
-        { presetId: selected.preset.id, model: null }, undefined, req, res);
+        buildChatModelRequestIntent(selected.session), undefined, req, res);
     } catch (error) {
       // Admission readies the model before granting; a refused target or failed load lands here.
       const message = toError(error).message;

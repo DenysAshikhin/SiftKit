@@ -13,7 +13,7 @@ const MEASURED: ChatTurnTokenRecord = {
 
 function thinkingSession(thinkingTokens: number, thinkingEnabled = true): ChatSession {
   return {
-    id: 'ctx', title: 'ctx', presetId: 'chat', modelPresetId: 'default',
+    id: 'ctx', title: 'ctx', presetId: 'chat', modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default' }),
     thinkingEnabled,
     planRepoRoot: 'C:/repo',

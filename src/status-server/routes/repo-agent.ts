@@ -104,6 +104,7 @@ export type StartRepoWorkerRunInput = {
   approvalMode: ApprovalMode;
   approvalDelivery: RepoAgentApprovalDelivery;
   model?: string | null;
+  modelPresetId?: string | null;
   maxTurns?: number;
   logFile?: string;
   images?: string[];
@@ -160,7 +161,7 @@ export function startRepoWorkerRun(ctx: ServerContext, input: StartRepoWorkerRun
     approvalMode: input.approvalMode,
     approvalDelivery: input.approvalDelivery,
     locks: new ServerModelLockAdapter(ctx, input.taskKind === 'repo-search' ? 'repo_search' : 'repo_agent', input.modelQueueTimeout,
-      { presetId: input.presetId, model: repoSearchRequest.model }),
+      { presetId: input.presetId, model: repoSearchRequest.model, modelPresetId: input.modelPresetId }),
     repository: input.repositoryAccess === null ? null
       : { gate: ctx.orchestratorRuns.repositoryGate, repoRoot: admission.repoRoot, access: input.repositoryAccess },
     approvalGates: ctx.approvalGates,

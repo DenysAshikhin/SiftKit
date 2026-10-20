@@ -36,6 +36,7 @@ import {
   type DashboardConfig,
   type DashboardHealth,
   type ChatSessionResponse,
+  type ChatSessionUpdateRequest,
   type ChatSessionsResponse,
   type IdleSummaryResponse,
   type MetricsResponse,
@@ -538,7 +539,7 @@ export function createChatSession(payload: {
 
 export function updateChatSession(
   sessionId: string,
-  payload: { title?: string; thinkingEnabled?: boolean; webSearchEnabled?: boolean; presetId?: string; planRepoRoot?: string }
+  payload: ChatSessionUpdateRequest,
 ): Promise<ChatSessionResponse> {
   return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, ChatSessionResponseSchema, {
     method: 'PUT',

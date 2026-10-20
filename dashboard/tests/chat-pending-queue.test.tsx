@@ -20,20 +20,26 @@ test('queue previews are ranked as pending, edit fetches full text, and conflict
     onEditQueueMessage: async () => { throw new Error('not_pending'); },
     onRemoveQueueMessage: async () => {},
   };
-  const view = render(<ChatPendingQueue queue={queue} {...actions} />);
+  const view = render(<ChatPendingQueue disabled={false} queue={queue} {...actions} />);
   assert.match(view.container.textContent ?? '', /1\. short preview/u);
   assert.equal(view.container.textContent?.includes('full text to edit'), false);
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Edit' })); });
   assert.equal(screen.getByDisplayValue('full text to edit').tagName, 'TEXTAREA');
+  view.rerender(<ChatPendingQueue disabled={true} queue={queue} {...actions} />);
+  for (const name of ['Force now', 'Edit', 'Remove', 'Save', 'Cancel']) {
+    assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), true);
+  }
+  assert.equal(screen.getByDisplayValue('full text to edit').hasAttribute('disabled'), true);
+  view.rerender(<ChatPendingQueue disabled={false} queue={queue} {...actions} />);
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })); });
   assert.match(screen.getByRole('alert').textContent ?? '', /not_pending/u);
   assert.ok(screen.getByDisplayValue('full text to edit'));
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Force now' })); });
   assert.equal(forces, 1);
   const force = { id: ID, operationId: ID, messageIds: [ID], successorOperationId: ID, phase: 'stopping' as const, failureDetail: null };
-  view.rerender(<ChatPendingQueue queue={{ ...queue, force }} {...actions} />);
+  view.rerender(<ChatPendingQueue disabled={false} queue={{ ...queue, force }} {...actions} />);
   assert.equal(screen.getByRole('button', { name: 'Stopping…' }).hasAttribute('disabled'), true);
   assert.equal(screen.getByRole('button', { name: 'Remove' }).hasAttribute('disabled'), true);
-  view.rerender(<ChatPendingQueue queue={{ ...queue, force: { ...force, phase: 'sending' } }} {...actions} />);
+  view.rerender(<ChatPendingQueue disabled={false} queue={{ ...queue, force: { ...force, phase: 'sending' } }} {...actions} />);
   assert.ok(screen.getByRole('button', { name: 'Sending…' }));
 });

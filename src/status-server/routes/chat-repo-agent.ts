@@ -77,12 +77,13 @@ export class StreamChatRepoAgentEndpoint extends ChatRepoRootOperationEndpoint<C
 
   protected describeRun(ctx: ServerContext, session: ChatSession, value: ChatRepoAgentRequest): ChatRunSubmission {
     // The session's own repo-agent preset supplies the default turn limit; other kinds run built-in.
-    const preset = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, 'repo-agent').preset;
-    const target = previewChatOperationTarget(ctx, preset.id);
+    const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, 'repo-agent');
+    const preset = selected.preset;
+    const target = previewChatOperationTarget(ctx, selected.session);
     return {
       target,
       settings: buildChatRunSettings({
-        session,
+        session: selected.session,
         target,
         operationKind: 'repo-agent',
         presetId: preset.id,
@@ -214,6 +215,7 @@ export async function executeChatRepoAgentOperation(options: {
     modelQueueTimeout: WEB_UI_MODEL_QUEUE_TIMEOUT,
     requestId: engineRequestId,
     presetId: settings.presetId,
+    modelPresetId: settings.modelPresetOverrideId,
     prompt: options.content,
     repoRoot: options.repoRoot,
     approvalMode: options.approval,

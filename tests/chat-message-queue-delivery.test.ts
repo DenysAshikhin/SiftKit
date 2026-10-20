@@ -40,7 +40,7 @@ function session(): ChatSession {
   return {
     id: 'session-1',
     title: 'Session',
-    modelPresetId: 'default',
+    modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'mock', NumCtx: 8192 }),
     planRepoRoot: process.cwd(),
     presetId: 'chat',

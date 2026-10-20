@@ -23,6 +23,7 @@ test('the 79 to 80 upgrade removes the orchestrator options from every stored pr
   withRuntimeDatabaseConnection(dbPath, (database) => {
     database.prepare('UPDATE app_config SET presets_json = ? WHERE id = 1').run(JSON.stringify(catalog79));
     database.prepare('UPDATE runtime_schema SET version = 79 WHERE id = 1').run();
+    database.exec('ALTER TABLE chat_sessions DROP COLUMN model_preset_override_id');
   });
   try {
     const database = getRuntimeDatabase(dbPath);

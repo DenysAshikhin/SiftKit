@@ -11,6 +11,7 @@ import {
   type ChatRepoStreamRequest,
   type ChatRepoAgentStreamRequest,
   type ChatQuestionReply,
+  type ChatSessionUpdateRequest,
 } from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.ts';
 import {
@@ -125,6 +126,8 @@ export function useChatSessions(deps: {
   // Transcripts fetched this page-load, by id. A session is fetched once and then read from here.
   const [loadedSessions, setLoadedSessions] = useState<ReadonlyMap<string, ChatSession>>(new Map());
   const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
+  const [sessionPreferencesSaving, setSessionPreferencesSaving] = useState(false);
+  const pendingSessionUpdate = useRef<ReturnType<typeof updateChatSession> | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
   const selectedSessionIdRef = useLatest(selectedSessionId);
   // Runtime state lives outside React so a streamed token re-renders only its subscribers.
@@ -433,7 +436,7 @@ export function useChatSessions(deps: {
   }
 
   async function deleteSession(): Promise<void> {
-    if (!selectedSessionId) {
+    if (!selectedSessionId || pendingSessionUpdate.current !== null) {
       return;
     }
     if (!deps.confirmDeleteSession()) {
@@ -451,59 +454,31 @@ export function useChatSessions(deps: {
     }
   }
 
-  async function updateSessionPreset(presetId: string): Promise<void> {
-    if (!selectedSessionId) {
-      return;
-    }
+  async function updateSessionPreferences(payload: ChatSessionUpdateRequest): Promise<void> {
+    if (!selectedSessionId || pendingSessionUpdate.current !== null) return;
+    const request = updateChatSession(selectedSessionId, payload);
+    pendingSessionUpdate.current = request;
+    setSessionPreferencesSaving(true);
     try {
-      const response = await updateChatSession(selectedSessionId, { presetId });
-      applySessionResponse(response);
+      applySessionResponse(await request);
     } catch (error) {
       recordSessionError(selectedSessionId, toError(error));
-    }
-  }
-
-  async function toggleThinking(enabled: boolean): Promise<void> {
-    if (!selectedSessionId) {
-      return;
-    }
-    try {
-      const response = await updateChatSession(selectedSessionId, { thinkingEnabled: enabled });
-      applySessionResponse(response);
-    } catch (error) {
-      recordSessionError(selectedSessionId, toError(error));
-    }
-  }
-
-  async function toggleWebSearch(enabled: boolean): Promise<void> {
-    if (!selectedSessionId) {
-      return;
-    }
-    try {
-      const response = await updateChatSession(selectedSessionId, { webSearchEnabled: enabled });
-      applySessionResponse(response);
-    } catch (error) {
-      recordSessionError(selectedSessionId, toError(error));
+    } finally {
+      pendingSessionUpdate.current = null;
+      setSessionPreferencesSaving(false);
     }
   }
 
   async function savePlanRepoRoot(planRepoRootInput: string, presetId: string | undefined): Promise<void> {
-    if (!selectedSessionId || !planRepoRootInput.trim()) {
-      return;
-    }
-    try {
-      const response = await updateChatSession(selectedSessionId, {
-        ...(presetId ? { presetId } : {}),
-        planRepoRoot: planRepoRootInput.trim(),
-      });
-      applySessionResponse(response);
-    } catch (error) {
-      recordSessionError(selectedSessionId, toError(error));
-    }
+    if (!planRepoRootInput.trim()) return;
+    await updateSessionPreferences({
+      ...(presetId ? { presetId } : {}),
+      planRepoRoot: planRepoRootInput.trim(),
+    });
   }
 
   async function condense(): Promise<void> {
-    if (!selectedSessionId) {
+    if (!selectedSessionId || pendingSessionUpdate.current !== null) {
       return;
     }
     try {
@@ -515,7 +490,7 @@ export function useChatSessions(deps: {
   }
 
   async function deleteMessage(messageId: string): Promise<ChatSessionResponse | null> {
-    if (!selectedSessionId || !messageId) {
+    if (!selectedSessionId || !messageId || pendingSessionUpdate.current !== null) {
       return null;
     }
     try {
@@ -529,7 +504,7 @@ export function useChatSessions(deps: {
   }
 
   async function deleteMessages(messageIds: string[]): Promise<ChatSessionResponse | null> {
-    if (!selectedSessionId || messageIds.length === 0) {
+    if (!selectedSessionId || messageIds.length === 0 || pendingSessionUpdate.current !== null) {
       return null;
     }
     try {
@@ -549,7 +524,7 @@ export function useChatSessions(deps: {
   }
 
   async function deleteMessageImage(messageId: string, imageIndex: number): Promise<ChatSessionResponse | null> {
-    if (!selectedSessionId || !messageId) {
+    if (!selectedSessionId || !messageId || pendingSessionUpdate.current !== null) {
       return null;
     }
     try {
@@ -657,7 +632,7 @@ export function useChatSessions(deps: {
   }
 
   async function sendMessage(): Promise<void> {
-    if (!selectedSession) {
+    if (!selectedSession || pendingSessionUpdate.current !== null) {
       return;
     }
     const inputs = readRuntimeInputs(selectedSession.id);
@@ -701,6 +676,7 @@ export function useChatSessions(deps: {
   }
 
   async function sendPlan(): Promise<void> {
+    if (pendingSessionUpdate.current !== null) return;
     const session = requireSelectedSession(selectedSession);
     const inputs = readRuntimeInputs(session.id);
     if (!inputs.draft) {
@@ -722,6 +698,7 @@ export function useChatSessions(deps: {
   }
 
   async function sendRepoSearch(): Promise<void> {
+    if (pendingSessionUpdate.current !== null) return;
     const session = requireSelectedSession(selectedSession);
     const inputs = readRuntimeInputs(session.id);
     if (!inputs.draft) {
@@ -743,6 +720,7 @@ export function useChatSessions(deps: {
   }
 
   async function sendRepoAgent(): Promise<void> {
+    if (pendingSessionUpdate.current !== null) return;
     const session = requireSelectedSession(selectedSession);
     const inputs = readRuntimeInputs(session.id);
     if (!inputs.draft) {
@@ -818,7 +796,7 @@ export function useChatSessions(deps: {
 
   async function forceQueue(): Promise<void> {
     const sessionId = selectedSessionId;
-    if (!sessionId || queueMutations.current.has(sessionId)) return;
+    if (!sessionId || pendingSessionUpdate.current !== null || queueMutations.current.has(sessionId)) return;
     const runtime = runtimeHub.getStore().get(sessionId);
     const operationId = runtime.queue?.activeOperationId ?? (runtime.activity.kind === 'local' ? runtime.activity.operationId : null);
     const request = forceSubmissions.current.get(sessionId) ?? { id: crypto.randomUUID(), operationId };
@@ -839,6 +817,7 @@ export function useChatSessions(deps: {
   }
 
   async function editQueueMessage(id: string, content: string, revision: number): Promise<void> {
+    if (pendingSessionUpdate.current !== null) throw new Error('Wait for session preferences to finish saving.');
     const sessionId = selectedSessionId;
     try {
       const { queue } = await editQueuedChatMessage(sessionId, id, content, revision);
@@ -847,6 +826,7 @@ export function useChatSessions(deps: {
   }
 
   async function removeQueueMessage(id: string): Promise<void> {
+    if (pendingSessionUpdate.current !== null) throw new Error('Wait for session preferences to finish saving.');
     const sessionId = selectedSessionId;
     try {
       const { queue } = await removeQueuedChatMessage(sessionId, id);
@@ -893,14 +873,13 @@ export function useChatSessions(deps: {
     selectedSessionId,
     selectedSession,
     selectedSessionLoading,
+    sessionPreferencesSaving,
     runtimeHub,
     selectSession,
     refreshSessions,
     createSession,
     deleteSession,
-    updateSessionPreset,
-    toggleThinking,
-    toggleWebSearch,
+    updateSessionPreferences,
     savePlanRepoRoot,
     condense,
     deleteMessage,

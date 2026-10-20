@@ -9,10 +9,11 @@ export type ChatPendingQueueActions = {
   onRemoveQueueMessage(id: string): Promise<void>;
 };
 
-export function ChatPendingQueue({ queue, ...actions }: ChatPendingQueueActions & { queue: ChatMessageQueueState | null }) {
+export function ChatPendingQueue({ queue, disabled, ...actions }: ChatPendingQueueActions & { queue: ChatMessageQueueState | null; disabled: boolean }) {
   const [editing, setEditing] = React.useState<ChatQueueEditableMessage | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const controlsBusy = busy || disabled;
   const pending = queue?.messages.filter((message) => message.state === 'pending') ?? [];
   const forcing = queue?.force?.phase === 'stopping' || queue?.force?.phase === 'sending';
   if (pending.length === 0 && !queue?.force && !error) return null;
@@ -39,7 +40,7 @@ export function ChatPendingQueue({ queue, ...actions }: ChatPendingQueueActions 
   return <section className="chat-pending-queue" aria-label="Pending messages">
     <div className="row">
       <strong>Pending messages ({pending.length})</strong>
-      {pending.length > 0 || forcing ? <button type="button" className="mini-btn" disabled={busy || forcing} onClick={() => { void actions.onForceQueue(); }}>
+      {pending.length > 0 || forcing ? <button type="button" className="mini-btn" disabled={controlsBusy || forcing} onClick={() => { void actions.onForceQueue(); }}>
         {queue?.force?.phase === 'stopping' ? 'Stopping…' : queue?.force?.phase === 'sending' ? 'Sending…' : 'Force now'}
       </button> : null}
     </div>
@@ -50,14 +51,14 @@ export function ChatPendingQueue({ queue, ...actions }: ChatPendingQueueActions 
       return <li key={message.id}>
         <span>{index + 1}. {message.preview}{message.contentChars > message.preview.length ? '…' : ''}</span>
         {message.imageCount > 0 ? <span> ({message.imageCount} images)</span> : null}
-        <button type="button" className="mini-btn" disabled={busy || frozen} onClick={() => { void edit(message.id); }}>Edit</button>
-        <button type="button" className="mini-btn" disabled={busy || frozen} onClick={() => { void remove(message.id); }}>Remove</button>
+        <button type="button" className="mini-btn" disabled={controlsBusy || frozen} onClick={() => { void edit(message.id); }}>Edit</button>
+        <button type="button" className="mini-btn" disabled={controlsBusy || frozen} onClick={() => { void remove(message.id); }}>Remove</button>
       </li>;
     })}</ol>
     {editing ? <div>
-      <textarea aria-label="Edit queued message" value={editing.content} onChange={(event) => setEditing({ ...editing, content: event.target.value })} />
-      <button type="button" disabled={busy || !editing.content.trim()} onClick={() => { void save(); }}>Save</button>
-      <button type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</button>
+      <textarea aria-label="Edit queued message" disabled={controlsBusy} value={editing.content} onChange={(event) => setEditing({ ...editing, content: event.target.value })} />
+      <button type="button" disabled={controlsBusy || !editing.content.trim()} onClick={() => { void save(); }}>Save</button>
+      <button type="button" disabled={controlsBusy} onClick={() => setEditing(null)}>Cancel</button>
     </div> : null}
     {error ? <p role="alert">{error}</p> : null}
   </section>;

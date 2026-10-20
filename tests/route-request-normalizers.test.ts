@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ChatSessionUpdateRequestSchema } from '@siftkit/contracts';
 import {
   parseDashboardRunLogDeleteRequest,
   parseRepoSearchRequest,
@@ -9,7 +10,6 @@ import {
   parseChatMessageRequest,
   parseChatRepoRequest,
   parseChatSessionCreateRequest,
-  parseChatSessionUpdateRequest,
 } from '../src/status-server/chat-route-request-normalizers.ts';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
 import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.ts';
@@ -84,7 +84,7 @@ test('core route request normalizers return typed values', () => {
 
 test('chat route request normalizers return typed values', () => {
   assert.deepEqual(parseChatSessionCreateRequest({ presetId: ' plan ', model: 'client-override' }), { presetId: 'plan' });
-  assert.deepEqual(parseChatSessionUpdateRequest({
+  assert.deepEqual(ChatSessionUpdateRequestSchema.parse({
     title: ' T ',
     thinkingEnabled: false,
     webSearchEnabled: true,

@@ -388,6 +388,7 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
       title TEXT NOT NULL,
       model_preset_id TEXT NOT NULL,
       model_preset_json TEXT,
+      model_preset_override_id TEXT,
       thinking_enabled INTEGER NOT NULL CHECK (thinking_enabled IN (0, 1)),
       web_search_enabled INTEGER NOT NULL DEFAULT 1 CHECK (web_search_enabled IN (0, 1)),
       preset_id TEXT,

@@ -48,7 +48,7 @@ export class ChatMessageImageNotFoundError extends Error {
 export type ChatMessage = PersistedChatTranscriptMessage;
 
 export const StoredChatSessionSchema = ChatSessionSchema.pick({
-  id: true, title: true, modelPresetId: true, thinkingEnabled: true, webSearchEnabled: true,
+  id: true, title: true, modelPresetId: true, modelPresetOverrideId: true, thinkingEnabled: true, webSearchEnabled: true,
   presetId: true, mode: true, planRepoRoot: true, promptContext: true,
   createdAtUtc: true, updatedAtUtc: true, messages: true,
 }).extend({
@@ -69,6 +69,7 @@ const SessionRowSchema = z.object({
   title: z.string(),
   model_preset_id: z.string().trim().min(1),
   model_preset_json: z.string().nullable(),
+  model_preset_override_id: StoredChatSessionSchema.shape.modelPresetOverrideId,
   thinking_enabled: z.number(),
   web_search_enabled: z.number(),
   preset_id: z.string().nullable(),
@@ -80,7 +81,7 @@ const SessionRowSchema = z.object({
 
 const SessionSummaryRowSchema = SessionRowSchema.extend({ last_tool_call_exit_code: z.number().int().nullable() });
 
-const SESSION_SELECT_COLUMNS = `id, title, model_preset_id, model_preset_json, thinking_enabled, web_search_enabled,
+const SESSION_SELECT_COLUMNS = `id, title, model_preset_id, model_preset_json, model_preset_override_id, thinking_enabled, web_search_enabled,
       preset_id, mode, plan_repo_root, created_at_utc, updated_at_utc`;
 
 const MessageRowSchema = z.object({
@@ -432,6 +433,7 @@ function mapSessionRow(session: z.infer<typeof SessionRowSchema>): Omit<ChatSess
     id: session.id,
     title: session.title,
     modelPresetId: session.model_preset_id,
+    modelPresetOverrideId: session.model_preset_override_id,
     modelPreset: parseModelPresetSnapshot(session.id, session.model_preset_id, session.model_preset_json),
     thinkingEnabled: session.thinking_enabled === 1,
     webSearchEnabled: session.web_search_enabled === 1,
@@ -695,6 +697,7 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
         title,
         model_preset_id,
         model_preset_json,
+        model_preset_override_id,
         thinking_enabled,
         web_search_enabled,
         preset_id,
@@ -702,11 +705,12 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
         plan_repo_root,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         model_preset_id = excluded.model_preset_id,
         model_preset_json = excluded.model_preset_json,
+        model_preset_override_id = excluded.model_preset_override_id,
         thinking_enabled = excluded.thinking_enabled,
         web_search_enabled = excluded.web_search_enabled,
         preset_id = excluded.preset_id,
@@ -718,6 +722,7 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
       typeof session.title === 'string' && session.title.trim() ? session.title.trim() : 'New Session',
       modelPresetId,
       modelPresetJson,
+      StoredChatSessionSchema.shape.modelPresetOverrideId.parse(session.modelPresetOverrideId),
       session.thinkingEnabled === false ? 0 : 1,
       session.webSearchEnabled === true ? 1 : 0,
       presetId,

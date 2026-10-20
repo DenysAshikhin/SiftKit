@@ -21,6 +21,12 @@ const message = {
   createdAtUtc: '2026-01-01T00:00:00Z', sourceRunId: null,
 };
 
+const SESSION_FIXTURE = {
+  id: 's1', title: 't', modelPresetId: 'preset-a', modelPresetOverrideId: null,
+  defaultModelPreset: { id: 'preset-a', label: 'Preset A' }, model: 'model-a', contextWindowTokens: 4096,
+  planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message], sessionThroughput: NO_SESSION_THROUGHPUT,
+};
+
 test('PersistedChatTranscriptMessageSchema accepts a minimal user message', () => {
   assert.deepEqual(PersistedChatTranscriptMessageSchema.parse(message), message);
 });
@@ -91,41 +97,35 @@ test('assistant narration and progress persist with the stopped transcript', () 
   assert.equal(PersistedChatTranscriptMessageSchema.safeParse({ ...narration, role: 'user' }).success, false);
   assert.equal(PersistedChatTranscriptMessageSchema.safeParse({ ...message, kind: 'assistant_bogus' }).success, false);
   assert.equal(ChatSessionSchema.safeParse({
-    id: 's1', title: 't', modelPresetId: 'preset-a', model: null, contextWindowTokens: 4096,
-    planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [narration, progress],
-    sessionThroughput: NO_SESSION_THROUGHPUT,
+    ...SESSION_FIXTURE, model: null, messages: [narration, progress],
   }).success, true);
 });
 
 test('ChatSessionSchema no longer carries a condensed summary', () => {
   const parsed = ChatSessionSchema.parse({
-    id: 's1', title: 't', modelPresetId: 'preset-a', model: 'model-a', contextWindowTokens: 4096,
-    planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
-    sessionThroughput: NO_SESSION_THROUGHPUT,
+    ...SESSION_FIXTURE, condensedSummary: 'obsolete summary',
   });
   assert.equal('condensedSummary' in parsed, false);
 });
 
 test('ChatSessionResponseSchema requires contextUsage', () => {
-  const session = {
-    id: 's1', title: 't', model: null, contextWindowTokens: 4096,
-    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
-  };
-  assert.throws(() => ChatSessionResponseSchema.parse({ session }));
+  assert.throws(() => ChatSessionResponseSchema.parse({ session: SESSION_FIXTURE }));
 });
 
 test('ChatSessionSchema requires modelPresetId', () => {
-  const session = {
-    id: 's1', title: 't', model: 'model-a', contextWindowTokens: 4096,
-    planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
-    sessionThroughput: NO_SESSION_THROUGHPUT,
-  };
+  const { modelPresetId: _modelPresetId, ...session } = SESSION_FIXTURE;
 
   assert.throws(() => ChatSessionSchema.parse(session));
   assert.equal(
     ChatSessionSchema.parse({ ...session, modelPresetId: 'preset-a' }).modelPresetId,
     'preset-a',
   );
+});
+
+test('ChatSessionSchema requires an explicit model choice and a resolved default', () => {
+  assert.throws(() => ChatSessionSchema.parse({ ...SESSION_FIXTURE, modelPresetOverrideId: undefined }));
+  assert.throws(() => ChatSessionSchema.parse({ ...SESSION_FIXTURE, defaultModelPreset: undefined }));
+  assert.equal(ChatSessionSchema.parse(SESSION_FIXTURE).modelPresetOverrideId, null);
 });
 
 test('ChatSessionBusyResponseSchema preserves the conflicting session', () => {

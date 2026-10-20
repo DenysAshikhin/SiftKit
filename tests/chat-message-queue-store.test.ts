@@ -135,6 +135,7 @@ function session(id: string): ChatSession {
     id,
     title: id,
     modelPresetId: 'default',
+    modelPresetOverrideId: null,
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed.exl3', NumCtx: 8192 }),
     planRepoRoot: 'C:/repo',
     presetId: 'chat',

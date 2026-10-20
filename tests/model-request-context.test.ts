@@ -75,6 +75,23 @@ test('operation with a model reference resolves the referenced profile', () => {
   assert.equal(config.Server.ModelPresets.ActivePresetId, PRESET_ROUTING_MODEL_A);
 });
 
+test('an explicit model preset overrides the operation reference by ID', () => {
+  const config = createPresetRoutingConfig();
+  const applied = findModelPreset(config, PRESET_ROUTING_MODEL_A);
+  const intent = { presetId: 'repo-search', model: null, modelPresetId: PRESET_ROUTING_MODEL_C };
+  const resolved = resolveModelRequestContext(config, applied, intent);
+  assert.equal(resolved.modelPreset.id, PRESET_ROUTING_MODEL_C);
+  assert.equal(getActiveModelPreset(resolved.config).id, PRESET_ROUTING_MODEL_C);
+  assert.equal(config.Server.ModelPresets.ActivePresetId, PRESET_ROUTING_MODEL_A);
+});
+
+test('a missing explicit model preset fails instead of using the operation default', () => {
+  const config = createPresetRoutingConfig();
+  const intent = { presetId: 'repo-search', model: null, modelPresetId: 'deleted-model' };
+  assert.throws(() => resolveModelRequestContext(config, getActiveModelPreset(config), intent),
+    /Model preset 'deleted-model' does not exist/u);
+});
+
 test('current-model resolution uses the applied selection at admission', () => {
   const config = createPresetRoutingConfig();
   const applied = config.Server.ModelPresets.Presets.find(preset => preset.id === 'model-c');

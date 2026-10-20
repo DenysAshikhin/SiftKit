@@ -10,7 +10,7 @@ test('readChatSessionSummaries returns metadata plus the last tool exit code, wi
   try {
     const preset = mockModelPreset();
     const base = {
-      modelPresetId: preset.id, modelPreset: preset, thinkingEnabled: true, webSearchEnabled: false,
+      modelPresetId: preset.id, modelPresetOverrideId: null, modelPreset: preset, thinkingEnabled: true, webSearchEnabled: false,
       presetId: 'chat', mode: 'chat' as const, planRepoRoot: 'C:/repo',
       createdAtUtc: '2026-09-01T00:00:00.000Z', updatedAtUtc: '2026-09-01T00:00:00.000Z',
     };

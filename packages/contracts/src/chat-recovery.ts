@@ -45,6 +45,7 @@ export const ChatRunEffectiveSettingsSchema = z.strictObject({
   /** The task preset actually selected for the run, after any mode-compatibility substitution. */
   presetId: z.string().trim().min(1),
   modelPresetId: z.string().trim().min(1),
+  modelPresetOverrideId: ChatSessionSchema.shape.modelPresetOverrideId,
   model: z.string().nullable(),
   repoRoot: z.string().trim().min(1),
   approval: ApprovalModeSchema.nullable(),

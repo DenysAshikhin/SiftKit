@@ -2,26 +2,30 @@ import { ChatSessionSchema, ChatSessionResponseSchema, ChatSessionSummarySchema,
 import type { SiftConfig } from '../config/types.ts';
 import { readChatMeasuredContext, type ChatSession, type StoredChatSessionSummary } from '../state/chat-sessions.ts';
 import { buildChatPromptContext } from './chat-prompt-context.ts';
-import { buildContextUsage, resolveChatSessionContextWindow, resolveChatSessionModel } from './chat.ts';
+import { buildContextUsage, resolveChatPreviewConfig } from './chat.ts';
+import { getActiveModelPreset, getConfiguredEngineNumCtx } from '../config/getters.ts';
 import { buildChatSessionThroughput } from './chat-turn-telemetry.ts';
 
 export function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return { ...session, promptContext: buildChatPromptContext(config, session) };
 }
 
-/**
- * The persisted session plus the three fields the wire derives rather than stores. The schema owns
- * the field list, so a new session column reaches the wire with its own edit; `modelPreset` is the
- * request-shaping payload the detail never renders, so it is the one field dropped on the way out.
- */
+/** Adds the resolved model choices, context capacity and throughput to the persisted transcript. */
 export function toWireChatSession(config: SiftConfig, session: ChatSession) {
   const messages = (session.messages ?? []).map(message => PersistedChatTranscriptMessageSchema.parse({ ...message, sourceRunId: message.sourceRunId ?? null }));
   const { modelPreset: _requestShapingPreset, ...persisted } = session;
+  const effectiveConfig = resolveChatPreviewConfig(config, session);
+  const selected = getActiveModelPreset(effectiveConfig);
+  const defaultPreset = session.modelPresetOverrideId === null ? selected
+    : getActiveModelPreset(resolveChatPreviewConfig(config, { ...session, modelPresetOverrideId: null }));
+  const model = selected.Model?.trim();
+  if (!model) throw new Error(`Chat session ${session.id} resolves to a model preset without a model.`);
   return ChatSessionSchema.parse({
     ...persisted,
     messages,
-    model: resolveChatSessionModel(config, session),
-    contextWindowTokens: resolveChatSessionContextWindow(config, session),
+    model,
+    defaultModelPreset: { id: defaultPreset.id, label: defaultPreset.label },
+    contextWindowTokens: getConfiguredEngineNumCtx(effectiveConfig),
     sessionThroughput: buildChatSessionThroughput(messages).rates,
   });
 }

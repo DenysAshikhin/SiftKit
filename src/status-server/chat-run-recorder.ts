@@ -482,6 +482,7 @@ export function buildChatRunSettings(input: {
     mode: input.session.mode ?? 'chat',
     presetId: input.presetId,
     modelPresetId: input.target.modelPreset.id,
+    modelPresetOverrideId: input.session.modelPresetOverrideId,
     model: input.target.modelPreset.Model ?? null,
     repoRoot: input.repoRoot,
     approval: input.approval,

@@ -10,6 +10,7 @@ import {
   getConfiguredEngineNumCtx,
 } from '../config/getters.ts';
 import { resolveModelRequestContext } from './model-request-context.ts';
+import { buildChatModelRequestIntent } from './chat-model-selection.ts';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.ts';
 import type { OptionalJsonValue } from '../lib/json-types.ts';
 import { resolveContextTokenBudget } from '../lib/context-token-budget.ts';
@@ -101,13 +102,9 @@ export function selectReplayableChatMessages(
 
 export type { ContextUsage } from '@siftkit/contracts';
 
-/**
- * The config the session's next turn would run on: its preset's model, or the current one. It is a
- * preview for display and budgets only; an operation executes on the snapshot its admission grants.
- */
+/** Resolves the chat choice or operation default for display and budgets; admission grants the execution snapshot. */
 export function resolveChatPreviewConfig(config: SiftConfig, session: ChatSession): SiftConfig {
-  if (!session.presetId) throw new Error('Chat session presetId is required.');
-  return resolveModelRequestContext(config, getActiveModelPreset(config), { presetId: session.presetId, model: null }).config;
+  return resolveModelRequestContext(config, getActiveModelPreset(config), buildChatModelRequestIntent(session)).config;
 }
 
 export function resolveChatSessionModel(config: SiftConfig, session: ChatSession): string {

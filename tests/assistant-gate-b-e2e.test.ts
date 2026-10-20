@@ -70,7 +70,7 @@ const SESSION: ChatSession = {
   id: 'chat_1',
     title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
     messages: [],
-  modelPresetId: 'default',
+  modelPresetOverrideId: null, modelPresetId: 'default',
   modelPreset: mockModelPreset({ id: 'default' }),
   planRepoRoot: 'C:/repo',
 };

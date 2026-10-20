@@ -42,6 +42,7 @@ import { serverLogger } from '../server-logger.ts';
 import type { ServerContext } from '../server-types.ts';
 import type { ModelRequestContext } from '../model-request-context.ts';
 import { ModelRequestTargetError, previewModelRequestTarget } from '../server-ops.ts';
+import { buildChatModelRequestIntent } from '../chat-model-selection.ts';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.ts';
 import { SseResponseWriter } from '../sse-response-writer.ts';
 import { buildChatSessionResponse } from '../chat-session-response.ts';
@@ -103,9 +104,9 @@ export type ChatSessionOperationRequest<TParsed> = {
 
 type AdmittedChatOperationRequest<TParsed> = Omit<ChatSessionOperationRequest<TParsed>, 'questionGate'>;
 
-/** The model an operation preset resolves to now; the run's admission re-resolves and records the real one. */
-export function previewChatOperationTarget(ctx: ServerContext, presetId: string): ModelRequestContext {
-  return previewModelRequestTarget(ctx, { presetId, model: null });
+/** Previews the chat's model choice; admission re-resolves and records the executed model. */
+export function previewChatOperationTarget(ctx: ServerContext, selection: Pick<ChatSession, 'presetId' | 'modelPresetOverrideId'>): ModelRequestContext {
+  return previewModelRequestTarget(ctx, buildChatModelRequestIntent(selection));
 }
 
 export function requireChatRunRecorder(request: { recorder: ChatRunRecorder | null }): ChatRunRecorder {

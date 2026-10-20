@@ -6,7 +6,7 @@ export function createTestChatSession(runtimeRoot: string): ChatSession {
   return {
     id: 'image-persist-session',
     title: 'Image persistence test',
-    modelPresetId: 'default',
+    modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed-exl3', NumCtx: 8192 }),
     thinkingEnabled: true,
     presetId: 'chat',

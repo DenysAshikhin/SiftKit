@@ -21,7 +21,7 @@ import {
 test('incident-scale journal: appends stay per-delta, reads are paged, and replay reproduces every full result', { timeout: 300_000 }, t => {
   const runtimeRoot = createManagedTempDir('chat-recovery-performance-');
   saveChatSession(runtimeRoot, {
-    id: PERFORMANCE_SESSION_ID, title: 'Performance', modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
+    id: PERFORMANCE_SESSION_ID, title: 'Performance', modelPresetOverrideId: null, modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
     presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: PERFORMANCE_AT, updatedAtUtc: PERFORMANCE_AT, messages: [],
   });
   const databasePath = performanceDatabasePath(runtimeRoot);

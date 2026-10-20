@@ -18,7 +18,7 @@ export const SETTINGS = {
   operationKind: 'repo-agent',
   mode: 'repo-search',
   presetId: 'repo-agent',
-  modelPresetId: 'preset-a',
+  modelPresetOverrideId: null, modelPresetId: 'preset-a',
   model: 'model-a',
   repoRoot: 'C:/repo',
   approval: 'interactive',
@@ -33,7 +33,7 @@ export function openSessionDatabase(prefix: string): { database: RuntimeDatabase
   saveChatSession(runtimeRoot, {
     id: SESSION_ID,
     title: 'Recorder session',
-    modelPresetId: 'preset-a',
+    modelPresetOverrideId: null, modelPresetId: 'preset-a',
     modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
     presetId: 'repo-agent',
     mode: 'repo-search',

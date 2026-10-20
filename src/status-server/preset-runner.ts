@@ -206,6 +206,7 @@ export class StatusPresetRunner {
       id: 'cli-ephemeral',
       title: preset.label,
       modelPresetId: modelPreset.id,
+      modelPresetOverrideId: null,
       modelPreset,
       thinkingEnabled,
       presetId: preset.id,

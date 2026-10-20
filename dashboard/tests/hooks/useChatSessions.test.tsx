@@ -59,6 +59,8 @@ const SESSION: ChatSession = {
   id: 's1',
   title: 'Session',
   modelPresetId: 'vision',
+  modelPresetOverrideId: null,
+  defaultModelPreset: { id: 'vision', label: 'Vision' },
   modelPreset: {
     ...MANAGED_PRESET,
     id: 'vision',
@@ -536,6 +538,61 @@ class ChatFetchFixture {
     this.restored = true;
     globalThis.fetch = this.originalFetch;
   }
+}
+
+for (const initialChange of [{ modelPresetOverrideId: 'chosen' }, { thinkingEnabled: false }]) {
+for (const status of [200, 503]) test(`a pending ${Object.keys(initialChange)[0]} save blocks mutations and submissions until status ${status}`, async () => {
+  const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE } });
+  const fetchFixture = globalThis.fetch;
+  const gate: { resolve?: (response: Response) => void } = {};
+  const pending = new Promise<Response>(resolve => { gate.resolve = resolve; });
+  let updates = 0;
+  let deletes = 0;
+  globalThis.fetch = (input, init) => {
+    if (String(input) === '/dashboard/chat/sessions/s1' && init?.method === 'PUT') { updates += 1; return pending; }
+    if (init?.method === 'DELETE') { deletes += 1; return Promise.resolve(new Response(null, { status: 204 })); }
+    return fetchFixture(input, init);
+  };
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0, buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.equal(hook.result.current.selectedSession?.id, 's1'));
+    act(() => hook.result.current.setSessionDraft('s1', 'preserved draft'));
+    let saving = Promise.resolve();
+    act(() => { saving = hook.result.current.updateSessionPreferences(initialChange); });
+    await waitFor(() => assert.equal(hook.result.current.sessionPreferencesSaving, true));
+    await act(async () => {
+      await hook.result.current.updateSessionPreferences({ modelPresetOverrideId: 'other' });
+      await hook.result.current.updateSessionPreferences({ thinkingEnabled: true });
+      await hook.result.current.updateSessionPreferences({ webSearchEnabled: false });
+      await hook.result.current.updateSessionPreferences({ presetId: 'other-preset' });
+      await hook.result.current.savePlanRepoRoot('C:/other-repo', undefined);
+      await hook.result.current.deleteSession();
+      await hook.result.current.sendMessage();
+      await hook.result.current.sendPlan();
+      await hook.result.current.sendRepoSearch();
+      await hook.result.current.sendRepoAgent();
+      await hook.result.current.forceQueue();
+      await assert.rejects(hook.result.current.editQueueMessage('queued', 'changed', 1), /preferences to finish saving/u);
+      await assert.rejects(hook.result.current.removeQueueMessage('queued'), /preferences to finish saving/u);
+    });
+    assert.equal(updates, 1);
+    assert.equal(deletes, 0);
+    assert.equal(fixture.streamRequestCount, 0);
+    assert.equal(fixture.forcedBodies.length, 0);
+    assert.equal(hook.result.current.runtimeHub.getStore().get('s1').draft, 'preserved draft');
+    await act(async () => {
+      assert.ok(gate.resolve);
+      gate.resolve(new Response(JSON.stringify(status === 200
+        ? { session: { ...SESSION, ...initialChange }, contextUsage: CONTEXT_USAGE }
+        : { error: 'Model save failed.' }), { status }));
+      await saving;
+    });
+    assert.equal(hook.result.current.sessionPreferencesSaving, false);
+    assert.equal(hook.result.current.selectedSession?.modelPresetOverrideId, status === 200 && 'modelPresetOverrideId' in initialChange ? 'chosen' : null);
+    assert.equal(hook.result.current.selectedSession?.thinkingEnabled, status === 200 && 'thinkingEnabled' in initialChange ? false : SESSION.thinkingEnabled);
+    hook.unmount();
+  } finally { fixture.restore(); }
+});
 }
 
 for (const queueStatus of [200, 409]) test(`busy submission queues server-side and ${queueStatus === 200 ? 'clears only the submitted draft' : 'preserves a rejected draft'}`, async () => {

@@ -7,6 +7,7 @@ import { ChatMessageQueueEndpoint,ChatMessageQueueForceEndpoint,ChatMessageQueue
  */
 import {
 StopChatOperationRequestSchema,
+ChatSessionUpdateRequestSchema,
 type ChatQueueOperationKind,
 type ChatSessionsResponse,
 type ImageMetadata,
@@ -54,7 +55,6 @@ type ChatRepoOperationRequest,
 import type { ChatMessageRequest } from '../chat-route-request-normalizers.ts';
 import {
 parseChatSessionCreateRequest,
-parseChatSessionUpdateRequest,
 } from '../chat-route-request-normalizers.ts';
 import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.ts';
 import type { QuestionGate } from '../../repo-search/engine/question-gate.ts';
@@ -96,7 +96,7 @@ UncancelledModelWaitError,
 acquireWebUiModelRequest,
 releaseModelRequest,
 } from '../server-ops.ts';
-import type { ModelRequestIntent } from '../../lib/model-request-intent.ts';
+import { buildChatModelRequestIntent } from '../chat-model-selection.ts';
 import type { ModelRequestLock,ServerContext } from '../server-types.ts';
 import { SseResponseWriter } from '../sse-response-writer.ts';
 import { ChatImageCaptionEndpoint } from './chat-image-caption.ts';
@@ -152,12 +152,7 @@ export function validateQueuedChatImages(ctx: ServerContext, session: ChatSessio
   images: string[]): void {
   const operation = operationKind === 'message' ? 'chat' : operationKind;
   const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, operation);
-  admitChatImagesForConfig(previewChatOperationTarget(ctx, selected.preset.id).config, images);
-}
-
-/** The operation preset the run was submitted under decides its model at admission. */
-function chatRunIntent(recorder: ChatRunRecorder): ModelRequestIntent {
-  return { presetId: recorder.settings.presetId, model: null };
+  admitChatImagesForConfig(previewChatOperationTarget(ctx, selected.session).config, images);
 }
 
 export function formatChatEngineError(error: Error | string): string {
@@ -263,7 +258,7 @@ async function acquireChatModelRequest(
   const recorder = requireChatRunRecorder(request);
   let lock: ModelRequestLock | null;
   try {
-    lock = await acquireWebUiModelRequest(ctx, lockKind, chatRunIntent(recorder), recorder.abortSignal, req, res);
+    lock = await acquireWebUiModelRequest(ctx, lockKind, buildChatModelRequestIntent(recorder.settings), recorder.abortSignal, req, res);
   } catch (error) {
     const message = toError(error).message;
     sendJson(res, error instanceof ModelRequestTargetError ? 400 : 503, { error: message });
@@ -303,7 +298,7 @@ async function openChatOperationStream<TParsed extends { content: string; images
   const recorder = requireChatRunRecorder(request);
   let modelRequestLock: ModelRequestLock | null;
   try {
-    modelRequestLock = await acquireWebUiModelRequest(ctx, lockKind, chatRunIntent(recorder), recorder.abortSignal);
+    modelRequestLock = await acquireWebUiModelRequest(ctx, lockKind, buildChatModelRequestIntent(recorder.settings), recorder.abortSignal);
   } catch (error) {
     return fail(error instanceof ModelRequestTargetError ? 400 : 503, toError(error).message);
   }
@@ -493,11 +488,12 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Session mode is derived from presetId.' });
       return;
     }
-    const updateRequest = parseChatSessionUpdateRequest(parsedBody);
-    if (requestReader.value('presetId') !== undefined && !updateRequest.presetId) {
-      sendJson(res, 400, { error: 'Expected a non-empty presetId.' });
+    const parsedUpdate = ChatSessionUpdateRequestSchema.safeParse(parsedBody);
+    if (!parsedUpdate.success) {
+      sendJson(res, 400, { error: parsedUpdate.error.message });
       return;
     }
+    const updateRequest = parsedUpdate.data;
     const updated: ChatSession = { ...session, updatedAtUtc: new Date().toISOString() };
     if (updateRequest.title) {
       updated.title = updateRequest.title;
@@ -509,6 +505,18 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
       updated.webSearchEnabled = updateRequest.webSearchEnabled;
     }
     const currentConfig = readConfig(ctx.configPath);
+    if (updateRequest.modelPresetOverrideId !== undefined) {
+      if (ctx.chatSessionOperations.getActive(sessionId) !== undefined) {
+        sendJson(res, 409, { error: 'Stop the active operation before changing the model.' });
+        return;
+      }
+      const selectedId = updateRequest.modelPresetOverrideId;
+      if (selectedId !== null && !currentConfig.Server.ModelPresets.Presets.some(preset => preset.id === selectedId)) {
+        sendJson(res, 400, { error: `Model preset '${selectedId}' does not exist.` });
+        return;
+      }
+      updated.modelPresetOverrideId = selectedId;
+    }
     const presets = PresetCatalog.fromPresets(currentConfig.Presets);
     if (updateRequest.presetId) {
       try {
@@ -652,7 +660,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     try {
       preset = presets.requireById(createRequest.presetId);
       // A new session previews the model its preset resolves to now, as a pass-through host reports it.
-      previewConfig = await applyHostEngineRuntimeSettings(previewChatOperationTarget(ctx, preset.id).config);
+      previewConfig = await applyHostEngineRuntimeSettings(previewChatOperationTarget(ctx, { presetId: preset.id, modelPresetOverrideId: null }).config);
       responseConfig = await applyHostEngineRuntimeSettings(currentConfig);
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -662,6 +670,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       id: randomUUID(),
       title: createRequest.title || 'New Session',
       modelPresetId: getActiveModelPreset(previewConfig).id,
+      modelPresetOverrideId: null,
       modelPreset: getActiveModelPreset(previewConfig),
       thinkingEnabled: getConfiguredReasoning(previewConfig) !== 'off',
       webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
@@ -832,7 +841,7 @@ function describeChatMessageRun(
   webToolsAllowed: boolean,
 ): ChatRunSubmission {
   const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, 'chat');
-  const target = previewChatOperationTarget(ctx, selected.preset.id);
+  const target = previewChatOperationTarget(ctx, selected.session);
   const webSearchEnabled = webToolsAllowed && (value.webSearchOverride === 'on'
     ? true
     : value.webSearchOverride === 'off'
@@ -1014,7 +1023,7 @@ abstract class ChatRepoOperationEndpoint extends ChatRepoRootOperationEndpoint<R
   /** A repository operation records the root it ran against and the turn limit the engine gets. */
   protected describeRun(ctx: ServerContext, session: ChatSession, value: ResolvedChatRepoRequest): ChatRunSubmission {
     const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, this.operationKind);
-    const target = previewChatOperationTarget(ctx, selected.preset.id);
+    const target = previewChatOperationTarget(ctx, selected.session);
     return {
       target,
       settings: buildChatRunSettings({
@@ -1177,7 +1186,7 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
   protected describeRun(ctx: ServerContext, session: ChatSession): ChatRunSubmission {
     // Condense summarizes under the session's own preset; it selects no task preset of its own.
     if (!session.presetId) throw new Error('Chat session presetId is required.');
-    const target = previewChatOperationTarget(ctx, session.presetId);
+    const target = previewChatOperationTarget(ctx, session);
     return {
       target,
       settings: buildChatRunSettings({

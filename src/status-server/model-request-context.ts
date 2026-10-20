@@ -25,7 +25,11 @@ export function resolveModelRequestContext(
     ? null
     : PresetCatalog.fromPresets(config.Presets).requireById(intent.presetId);
   let modelPreset = applied;
-  if (operationPreset !== null && operationPreset.modelPresetId !== null) {
+  if (intent.modelPresetId != null) {
+    const selected = config.Server.ModelPresets.Presets.find(preset => preset.id === intent.modelPresetId);
+    if (selected === undefined) throw new Error(`Model preset '${intent.modelPresetId}' does not exist.`);
+    modelPreset = selected;
+  } else if (operationPreset !== null && operationPreset.modelPresetId !== null) {
     const referenced = config.Server.ModelPresets.Presets
       .find((preset) => preset.id === operationPreset.modelPresetId);
     if (referenced === undefined) {

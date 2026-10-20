@@ -11,7 +11,7 @@ function createFixture() {
   const runtimeRoot = createManagedTempDir('siftkit-recovery-cache-');
   const preset = mockModelPreset();
   saveChatSession(runtimeRoot, {
-    id: 'session-a', title: 'A', modelPresetId: preset.id, modelPreset: preset, thinkingEnabled: true, webSearchEnabled: false,
+    id: 'session-a', title: 'A', modelPresetOverrideId: null, modelPresetId: preset.id, modelPreset: preset, thinkingEnabled: true, webSearchEnabled: false,
     presetId: 'chat', mode: 'chat', planRepoRoot: 'C:/repo',
     createdAtUtc: '2026-09-01T00:00:00.000Z', updatedAtUtc: '2026-09-01T00:00:00.000Z', messages: [],
   });

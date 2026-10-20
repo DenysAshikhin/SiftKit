@@ -35,7 +35,8 @@ export function msg(overrides: Partial<ChatMessage>): ChatMessage {
 }
 
 export const SESSION_A = {
-  id: 'session-a', title: 'Session A', modelPresetId: 'test-model', model: 'test-model', contextWindowTokens: 100, planRepoRoot: 'C:/repo',
+  id: 'session-a', title: 'Session A', modelPresetId: 'test-model', modelPresetOverrideId: null,
+  defaultModelPreset: { id: 'test-model', label: 'Test model' }, model: 'test-model', contextWindowTokens: 100, planRepoRoot: 'C:/repo',
   thinkingEnabled: true, presetId: PRESET.id, mode: 'chat',  createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
   sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
   messages: [msg({ id: 'a1', kind: 'assistant_answer', content: 'Hello from the assistant.' })],
@@ -66,11 +67,13 @@ export function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps 
     selectedSessionId,
     selectedSession: selectedSessionId === SESSION_B.id ? SESSION_B : SESSION_A,
     selectedSessionLoading: false,
+    sessionPreferencesSaving: false,
     runtimeHub: new ChatRuntimeHub(defaultStore),
     sessionPromptCacheStats: { cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null },
     lastTurnTelemetry: { promptTokensPerSecond: null, generationTokensPerSecond: null, ttftMs: null },
     webPresets: [PRESET],
     selectedChatPreset: PRESET,
+    modelPresets: [],
     chatMode: 'chat',
     isDirectChatMode: true,
     isRepoToolMode: false,
@@ -80,6 +83,7 @@ export function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps 
     onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {}, onChangePlanMaxTurns: () => {},
     onChangeDraft: () => {}, onCreateSession: async () => {}, onDeleteSession: async () => {},
     onUpdateSessionPreset: async () => {}, onToggleThinking: async () => {}, onToggleWebSearchEnabled: async () => {},
+    onUpdateSessionModel: async () => {},
     onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
     onDeleteMessageImage: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},

@@ -200,6 +200,7 @@ export function seedLegacyChatDatabase(
     `);
     insertFixtureRows(database, options);
     database.prepare('UPDATE runtime_schema SET version = ? WHERE id = 1').run(LEGACY_FIXTURE_MARKER_VERSION);
+    database.exec('ALTER TABLE chat_sessions DROP COLUMN model_preset_override_id');
   });
 }
 

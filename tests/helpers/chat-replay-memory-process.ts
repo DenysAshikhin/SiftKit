@@ -54,7 +54,7 @@ export function recordSyntheticRun(databasePath: string): ChatRunRecorder {
     operationId: randomUUID(), sessionId: PERFORMANCE_SESSION_ID, ownerEpoch: PERFORMANCE_OWNER_EPOCH, operationKind: 'repo-agent',
     userMessageId: 'user-1', content: 'exercise the journal at incident scale', images: [], imageMeta: [],
     settings: {
-      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetId: 'preset-a', model: 'model-a',
+      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetOverrideId: null, modelPresetId: 'preset-a', model: 'model-a',
       repoRoot: 'C:/repo', approval: 'off', maxTurns: 120, thinkingEnabled: false, webSearchEnabled: false, contextWindowTokens: 4096,
     },
     retainedHistoryRevision: 0, startedAtUtc: PERFORMANCE_AT,
@@ -112,7 +112,7 @@ export function runChatReplayMemoryProcess(config: ReplayMemoryConfig): void {
   let result: ReplayMemoryResult;
   if (config.mode === 'generate') {
     saveChatSession(config.runtimeRoot, {
-      id: PERFORMANCE_SESSION_ID, title: 'Performance', modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
+      id: PERFORMANCE_SESSION_ID, title: 'Performance', modelPresetOverrideId: null, modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: PERFORMANCE_AT, updatedAtUtc: PERFORMANCE_AT, messages: [],
     });
     const recorder = recordSyntheticRun(databasePath);

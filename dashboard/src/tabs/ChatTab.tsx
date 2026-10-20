@@ -53,7 +53,7 @@ import type {
   DashboardPreset,
   DashboardPresetExecutionFamily,
 } from '../types.ts';
-import type { ChatMessage, ChatToolCallMessage } from '../types.ts';
+import type { ChatMessage, ChatToolCallMessage, DashboardModelRuntimePreset } from '../types.ts';
 
 const GROUNDING_STATUS_LABELS: Record<'ungrounded' | 'snippet_only' | 'fetched', string> = {
   ungrounded: 'No web evidence',
@@ -73,11 +73,13 @@ export type ChatTabProps = ChatPendingQueueActions & {
   selectedSessionId: string;
   selectedSession: ChatSession | null;
   selectedSessionLoading: boolean;
+  sessionPreferencesSaving: boolean;
   runtimeHub: ChatRuntimeHub;
   sessionPromptCacheStats: ChatSessionStats;
   lastTurnTelemetry: LastTurnTelemetry;
   webPresets: DashboardPreset[];
   selectedChatPreset: DashboardPreset | null;
+  modelPresets: Pick<DashboardModelRuntimePreset, 'id' | 'label'>[];
   chatMode: DashboardPresetExecutionFamily | null;
   isDirectChatMode: boolean;
   isRepoToolMode: boolean;
@@ -92,6 +94,7 @@ export type ChatTabProps = ChatPendingQueueActions & {
   onCreateSession(): Promise<void>;
   onDeleteSession(): Promise<void>;
   onUpdateSessionPreset(presetId: string): Promise<void>;
+  onUpdateSessionModel(modelPresetId: string | null): Promise<void>;
   onToggleThinking(enabled: boolean): Promise<void>;
   onToggleWebSearchEnabled(enabled: boolean): Promise<void>;
   onSavePlanRepoRoot(): Promise<void>;
@@ -164,11 +167,13 @@ export function ChatTab({
   selectedSessionId,
   selectedSession,
   selectedSessionLoading,
+  sessionPreferencesSaving,
   runtimeHub,
   sessionPromptCacheStats,
   lastTurnTelemetry,
   webPresets,
   selectedChatPreset,
+  modelPresets,
   chatMode,
   isDirectChatMode,
   isRepoToolMode,
@@ -183,6 +188,7 @@ export function ChatTab({
   onCreateSession,
   onDeleteSession,
   onUpdateSessionPreset,
+  onUpdateSessionModel,
   onToggleThinking,
   onToggleWebSearchEnabled,
   onSavePlanRepoRoot,
@@ -239,6 +245,7 @@ export function ChatTab({
   );
   const runtimes = useChatRuntimeSelector(runtimeHub, (store) => store.runtimes);
   const selectedSessionBusy = isSessionBusy(runtime);
+  const sessionControlsBusy = selectedSessionBusy || sessionPreferencesSaving;
   const queueMode = selectedSessionBusy || Boolean(runtime?.queue?.messages.some((message) => message.state === 'pending'));
   const ownsActiveOperation = runtime?.activity.kind === 'local';
   const invalidRepoAgentTurns = chatMode === 'repo-agent'
@@ -249,9 +256,9 @@ export function ChatTab({
   const [orchestratorPlanPath, setOrchestratorPlanPath] = React.useState('');
   const orchestratorLive = orchestrator.state !== null && !isOrchestratorTerminalPhase(orchestrator.state.phase);
   // The orchestrator needs a saved repository and accepts a task, a plan path, or both.
-  const sendBlocked = chatMode === 'orchestrator'
+  const sendBlocked = sessionPreferencesSaving || (chatMode === 'orchestrator'
     ? savedRepoRoot === '' || orchestratorLive || selectedChatPreset === null || (!draft.trim() && !orchestratorPlanPath.trim())
-    : recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0);
+    : recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0));
 
   const [compactingSessionId, setCompactingSessionId] = React.useState<string | null>(null);
   const compacting = compactingSessionId === selectedSessionId;
@@ -316,6 +323,7 @@ export function ChatTab({
   }
 
   function dispatchSend(): void {
+    if (sessionPreferencesSaving) return;
     if (chatMode === 'orchestrator') { startOrchestratorRun(); return; }
     if (invalidRepoAgentTurns || recoveryBlocked) {
       return;
@@ -348,7 +356,7 @@ export function ChatTab({
     onDeleteMessageImage: (messageId: string, imageIndex: number) => latestRowActions.current.onDeleteMessageImage(messageId, imageIndex),
     onDeleteTurn: (messageIds: string[]) => latestRowActions.current.onDeleteTurn(messageIds),
   }), [latestRowActions]);
-  const transcriptRows = { sessionId: selectedSessionId, isDirectChatMode, chatBusy: selectedSessionBusy, ...rowActions };
+  const transcriptRows = { sessionId: selectedSessionId, isDirectChatMode, chatBusy: sessionControlsBusy, ...rowActions };
 
   return (
     <>
@@ -380,22 +388,38 @@ export function ChatTab({
         {selectedSession ? (
           <>
             <div className="chat-head">
-              <span>Preset</span>
+              <label htmlFor="chat-operation-preset">Preset</label>
               <select
+                id="chat-operation-preset"
                 value={selectedChatPreset?.id || ''}
                 onChange={(event) => changePreset(event.target.value)}
-                disabled={selectedSessionBusy || webPresets.length === 0}
+                disabled={sessionControlsBusy || webPresets.length === 0}
               >
                 {webPresets.length === 0 ? <option value="">No presets</option> : null}
                 {webPresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>{preset.label}</option>
                 ))}
               </select>
+              {chatMode !== 'orchestrator' ? <>
+              <label htmlFor="chat-model-preset">Model</label>
+              <select
+                id="chat-model-preset"
+                aria-label="Model"
+                className="chat-model-select"
+                value={selectedSession.modelPresetOverrideId === null ? '' : selectedSession.modelPresetOverrideId}
+                onChange={(event) => { void onUpdateSessionModel(event.target.value || null); }}
+                disabled={sessionControlsBusy || modelPresets.length === 0}
+                title="Choose a model for this chat, or follow the operation preset's default."
+              >
+                <option value="">Use preset default · {selectedSession.defaultModelPreset.label}</option>
+                {modelPresets.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+              </select>
+              </> : null}
               <button
                 type="button"
                 className={webSearchEnabled ? 'hchip on' : 'hchip'}
                 onClick={() => { void onToggleWebSearchEnabled(!webSearchEnabled); }}
-                disabled={selectedSessionBusy}
+                disabled={sessionControlsBusy}
               >
                 web search
               </button>
@@ -404,7 +428,7 @@ export function ChatTab({
                   type="button"
                   className={isThinkingEnabledForCurrentSession ? 'hchip on' : 'hchip'}
                   onClick={() => { void onToggleThinking(!isThinkingEnabledForCurrentSession); }}
-                  disabled={selectedSessionBusy}
+                  disabled={sessionControlsBusy}
                 >
                   per-step thinking
                 </button>
@@ -413,12 +437,12 @@ export function ChatTab({
                 type="button"
                 className="ghost-btn"
                 onClick={() => { void compactNow(); }}
-                disabled={selectedSessionBusy || compacting || !hasCompactableHistory}
+                disabled={sessionControlsBusy || compacting || !hasCompactableHistory}
                 title="Summarize the conversation so far to free context"
               >
                 {compacting ? 'Compacting…' : 'Compact'}
               </button>
-              <button type="button" className="ghost-btn" onClick={() => { void onDeleteSession(); }} disabled={selectedSessionBusy || !selectedSessionId}>
+              <button type="button" className="ghost-btn" onClick={() => { void onDeleteSession(); }} disabled={sessionControlsBusy || !selectedSessionId}>
                 Delete
               </button>
             </div>
@@ -493,7 +517,7 @@ export function ChatTab({
             {chatError ? (
               <div className="err-banner">
                 <span>{chatError}</span>
-                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={recoveryBlocked || selectedSessionBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
+                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={recoveryBlocked || sessionControlsBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
                 <a className="mini-btn" href={runLogsHref(null)}>Open logs</a>
               </div>
             ) : null}
@@ -506,7 +530,7 @@ export function ChatTab({
               </div>
             ) : null}
 
-            <ChatPendingQueue key={selectedSessionId} queue={runtime?.queue ?? null}
+            <ChatPendingQueue key={selectedSessionId} queue={runtime?.queue ?? null} disabled={sessionPreferencesSaving}
               onForceQueue={onForceQueue} onLoadQueueMessage={onLoadQueueMessage}
               onEditQueueMessage={onEditQueueMessage} onRemoveQueueMessage={onRemoveQueueMessage} />
             <div className="composer">
@@ -524,9 +548,9 @@ export function ChatTab({
                     placeholder="Repo folder path…"
                     value={planRepoRootInput}
                     onChange={(event) => onChangePlanRepoRoot(event.target.value)}
-                    disabled={selectedSessionBusy}
+                    disabled={sessionControlsBusy}
                   />
-                  <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={selectedSessionBusy || !planRepoRootInput.trim()}>
+                  <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={sessionControlsBusy || !planRepoRootInput.trim()}>
                     Directory
                   </button>
                   {chatMode === 'repo-agent' && runtime ? (
@@ -540,7 +564,7 @@ export function ChatTab({
                         key={selectedSessionId}
                         value={planMaxTurnsInput}
                         defaultMaxTurns={selectedChatPreset?.maxTurns ?? REPO_AGENT_DEFAULT_MAX_TURNS}
-                        disabled={selectedSessionBusy}
+                        disabled={sessionControlsBusy}
                         onChange={onChangePlanMaxTurns}
                       />
                     </>

@@ -17,7 +17,7 @@ const OWNER_EPOCH = 'owner-fault:1';
 export function openSessionDatabase(prefix: string): { database: RuntimeDatabase; databasePath: string } {
   const runtimeRoot = createManagedTempDir(prefix);
   saveChatSession(runtimeRoot, {
-    id: SESSION_ID, title: 'Storage faults', modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
+    id: SESSION_ID, title: 'Storage faults', modelPresetOverrideId: null, modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
     presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: AT, updatedAtUtc: AT, messages: [],
   });
   const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
@@ -30,7 +30,7 @@ export function beginProposedRun(databasePath: string): ChatRunRecorder {
     operationId: randomUUID(), sessionId: SESSION_ID, ownerEpoch: OWNER_EPOCH, operationKind: 'repo-agent',
     userMessageId: 'user-1', content: 'exercise storage faults', images: [], imageMeta: [],
     settings: {
-      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetId: 'preset-a', model: 'model-a',
+      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetOverrideId: null, modelPresetId: 'preset-a', model: 'model-a',
       repoRoot: 'C:/repo', approval: 'interactive', maxTurns: 120, thinkingEnabled: false, webSearchEnabled: false, contextWindowTokens: 4096,
     },
     retainedHistoryRevision: 0, startedAtUtc: AT,

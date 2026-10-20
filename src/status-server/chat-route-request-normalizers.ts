@@ -9,14 +9,6 @@ export type ChatSessionCreateRequest = {
   title?: string;
 };
 
-export type ChatSessionUpdateRequest = {
-  title: string | undefined;
-  thinkingEnabled: boolean | undefined;
-  webSearchEnabled: boolean | undefined;
-  presetId: string | undefined;
-  planRepoRoot: string | undefined;
-};
-
 export type ChatMessageRequest = {
   content: string;
   images: string[];
@@ -31,11 +23,6 @@ export type ChatRepoRequest = {
   repoRoot: string | undefined;
   maxTurns: number | undefined;
 };
-
-function optionalBoolean(reader: JsonRecordReader, key: string): boolean | undefined {
-  const value = reader.value(key);
-  return typeof value === 'boolean' ? value : undefined;
-}
 
 /** Admission-time limits are validated, never coerced: a malformed value is a rejected request. */
 const ChatRunLimitsSchema = z.object({
@@ -62,17 +49,6 @@ export function parseChatSessionCreateRequest(body: JsonObject): ChatSessionCrea
   }
   return {
     ...request,
-  };
-}
-
-export function parseChatSessionUpdateRequest(body: JsonObject): ChatSessionUpdateRequest {
-  const reader = new JsonRecordReader(body);
-  return {
-    title: reader.optionalString('title'),
-    thinkingEnabled: optionalBoolean(reader, 'thinkingEnabled'),
-    webSearchEnabled: optionalBoolean(reader, 'webSearchEnabled'),
-    presetId: reader.optionalString('presetId'),
-    planRepoRoot: reader.optionalString('planRepoRoot'),
   };
 }
 

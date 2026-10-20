@@ -24,7 +24,7 @@ test('a route handler throw answers 500 and leaves the status server serving', a
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Unreadable Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ id: 'preset-a', Model: 'model-a', NumCtx: 4096 }),
       presetId: 'chat',
       mode: 'chat',

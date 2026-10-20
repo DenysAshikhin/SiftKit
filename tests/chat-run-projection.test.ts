@@ -30,7 +30,7 @@ function openSession(prefix: string): { runtimeRoot: string; database: RuntimeDa
   saveChatSession(runtimeRoot, {
     id: SESSION_ID,
     title: 'Projection session',
-    modelPresetId: 'preset-a',
+    modelPresetOverrideId: null, modelPresetId: 'preset-a',
     modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
     presetId: 'repo-agent',
     mode: 'repo-search',
@@ -67,7 +67,7 @@ function runEvents(userMessageId = 'user-1'): ChatJournalEvent[] {
         operationKind: 'repo-agent',
         mode: 'repo-search',
         presetId: 'repo-agent',
-        modelPresetId: 'preset-a',
+        modelPresetOverrideId: null, modelPresetId: 'preset-a',
         model: 'model-a',
         repoRoot: 'C:/repo',
         approval: 'interactive',

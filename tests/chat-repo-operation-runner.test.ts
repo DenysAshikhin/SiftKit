@@ -174,7 +174,7 @@ function createSession(): ChatSession {
   return {
     id: 'session-1',
     title: 'Session',
-    modelPresetId: 'default',
+    modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'test-model', NumCtx: 4096 }),
     thinkingEnabled: true,
     webSearchEnabled: false,

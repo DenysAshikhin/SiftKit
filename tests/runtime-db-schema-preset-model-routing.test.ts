@@ -109,7 +109,7 @@ function rewindToVersion74(
         model_preset_id, operation_preset_json, terminal_state, title, flushed_at_utc
       ) VALUES (?, ?, 'repo_search', 'repo_search', 'repo-search', 'repo-search', 'default', ?, 'completed', 'Historical run', '2026-09-01T00:00:00.000Z')
     `).run('run-1', 'request-1', JSON.stringify(HISTORIC_REPO_SEARCH));
-    database.exec('DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 74 WHERE id = 1;');
+    database.exec('ALTER TABLE chat_sessions DROP COLUMN model_preset_override_id; DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 74 WHERE id = 1;');
   });
 }
 

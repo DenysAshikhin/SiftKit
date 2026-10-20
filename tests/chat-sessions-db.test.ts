@@ -62,7 +62,7 @@ function saveCompactionSession(runtimeRoot: string, messages: ChatMessage[]): Ch
   const session: ChatSession = {
     id: 'compaction-session',
     title: 'Compaction session',
-    modelPresetId: 'default',
+    modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default' }),
     thinkingEnabled: true,
     presetId: 'chat',
@@ -121,7 +121,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'DB Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       presetId: 'chat',
@@ -188,7 +188,7 @@ test('chat sessions round-trip the full model preset snapshot', () => {
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Snapshot Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({
         id: 'preset-a',
         Model: 'snap-model',
@@ -221,7 +221,7 @@ test('reading a chat session row without a preset snapshot fails loudly', () => 
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Legacy Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       presetId: 'chat',
       mode: 'chat',
@@ -254,7 +254,7 @@ test('a preset snapshot written before a field existed loads with that field def
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Pre-field Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ id: 'preset-a', Model: 'model-a', NumCtx: 4096 }),
       presetId: 'chat',
       mode: 'chat',
@@ -289,7 +289,7 @@ test('a preset snapshot carrying a field this repo removed still fails loudly', 
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Unsupported Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ id: 'preset-a', Model: 'model-a', NumCtx: 4096 }),
       presetId: 'chat',
       mode: 'chat',
@@ -323,7 +323,7 @@ test('chat sessions persist webSearchEnabled', () => {
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Web Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       webSearchEnabled: true,
@@ -353,7 +353,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Timeline Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       presetId: 'repo-search',
@@ -407,7 +407,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
     const session: ChatSession = {
       id: 'typed-session',
       title: 'Typed Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       webSearchEnabled: false,
@@ -483,7 +483,7 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Delete Me',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
       planRepoRoot: 'C:/repo',
       presetId: 'chat',
@@ -506,7 +506,7 @@ test('saveChatSession rejects a missing preset id instead of deriving it from mo
       () => saveChatSession(runtimeRoot, {
         id: 'missing-preset',
         title: 'Missing preset',
-        modelPresetId: 'preset-a',
+        modelPresetOverrideId: null, modelPresetId: 'preset-a',
         modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
         planRepoRoot: 'C:/repo',
         mode: 'plan',
@@ -527,7 +527,7 @@ test('chat messages round-trip their image data URIs', () => {
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Image Session',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       presetId: 'chat',
@@ -638,7 +638,7 @@ test('stopped transcript segments round-trip through the chat database', () => {
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Stopped transcript',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       presetId: 'chat',
       mode: 'chat',
@@ -728,7 +728,7 @@ function completedToolRow(requestId: string, toolCallId: string, options: { outp
 
 function stoppedTurnSession(id: string, createdAtUtc: string): ChatSession {
   return {
-    id, title: 'Stopped writer', modelPresetId: 'default',
+    id, title: 'Stopped writer', modelPresetId: 'default', modelPresetOverrideId: null,
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed.exl3', NumCtx: 8192 }),
     planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat', createdAtUtc, updatedAtUtc: createdAtUtc, messages: [],
   };
@@ -773,7 +773,7 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
     saveChatSession(runtimeRoot, {
       id: 'stopped-after-migration',
       title: 'Stopped after migration',
-      modelPresetId: 'preset-a',
+      modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       presetId: 'chat',
       mode: 'chat',
@@ -831,7 +831,7 @@ test('a tool row with no recorded execution state is refused instead of inferred
   const runtimeRoot = createManagedTempDir('siftkit-tool-state-required-');
   const at = '2026-09-10T12:19:37.005Z';
   saveChatSession(runtimeRoot, {
-    id: 'state-required', title: 'State required', modelPresetId: 'preset-a',
+    id: 'state-required', title: 'State required', modelPresetOverrideId: null, modelPresetId: 'preset-a',
     modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }), presetId: 'chat', mode: 'chat',
     planRepoRoot: 'C:/repo', createdAtUtc: at, updatedAtUtc: at,
     messages: [{
