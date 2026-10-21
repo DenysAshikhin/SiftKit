@@ -13,6 +13,8 @@ class TestRuntime extends ManagedInferenceRuntime {
     super('exl3');
   }
 
+  replaceEngineConfig(): never { throw new Error('Engine replacement is not used by this fixture.'); }
+
   async startProcess(): Promise<void> {
     this.transitionProcessTo('starting');
     this.transitionProcessTo('ready');
@@ -111,4 +113,26 @@ test('Tabby residency normalizes the endpoint the HTTP client actually uses', ()
     runtime.getPresetResidencyKey({ ...preset, BaseUrl: 'HTTP://EXAMPLE.invalid:80/ignored?unused=1#fragment' }),
     runtime.getPresetResidencyKey({ ...preset, BaseUrl: 'http://example.invalid' }),
   );
+});
+
+test('Tabby engine replacement updates complete launch identity without mutating configuration snapshots', () => {
+  const config = createPresetRoutingConfig();
+  const [source] = config.Server.ModelPresets.Presets;
+  assert.ok(source);
+  const preset = { ...source, ModelPath: 'Z:\\different-model-root\\model-a' };
+  const initial = structuredClone(config.Server.Engines.Exl3);
+  const runtime = new ManagedTabbyRuntime(initial, new InferenceRunFlushQueue(), NEVER_LAUNCHING_ENGINE_HOST);
+  const next = {
+    ...initial, Entrypoint: 'new-tabby.py', ModelRoot: 'Z:\\different-model-root',
+    Environment: { EXL3_MOE_CPU_THREADS: '8' },
+  };
+  const previous = runtime.replaceEngineConfig(next);
+  assert.deepEqual(previous, config.Server.Engines.Exl3);
+  assert.deepEqual(initial, config.Server.Engines.Exl3);
+  const expected = new ManagedTabbyRuntime(next, new InferenceRunFlushQueue(), NEVER_LAUNCHING_ENGINE_HOST);
+  const key = runtime.getPresetResidencyKey(preset);
+  assert.equal(key, expected.getPresetResidencyKey(preset));
+  next.Environment.EXL3_MOE_CPU_THREADS = '16';
+  previous.Environment.EXL3_MOE_CPU_THREADS = '32';
+  assert.equal(runtime.getPresetResidencyKey(preset), key);
 });

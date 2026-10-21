@@ -76,6 +76,10 @@ Validated 2026-10-11 with `D:\AI\exl3-disk-cache` (50 GiB budget), `CacheRam` 20
 
 ### CPU-MoE host-core affinity
 
+Set **Tabby/EXL3 CPU threads** in **Settings → General** to choose the CPU worker count for offloaded MoE experts across managed presets. Leave it blank for EXL3's automatic selection. Save settings, then click **Restart backend** to apply. This writes `EXL3_MOE_CPU_THREADS` in `Server.Engines.Exl3.Environment`; external servers must be configured separately.
+
+Managed launches apply an explicit count to both EXL3 and Tabby's model setting, so Tabby's config cannot override the chosen count. Blank mode removes inherited CPU-thread overrides. Restart applies the complete saved engine configuration; if startup fails, the running engine returns to its previous configuration while the saved settings remain available for correction.
+
 With CPU-offloaded experts the worker pool pins one compute thread per physical core. Since `production-20261006` the default pool size is physical cores minus `EXL3_MOE_HOST_CORES` (default `1`): on the 7900X, 11 workers on LPs 0–20 (even), and once the worker starts the Tabby process is confined to the freed core (LPs 22–23, mask `0xC00000`). This keeps the host from preempting a pinned worker, which otherwise stalls every per-phase barrier. Flash Next decode: +15% mean without MTP (19.7 → 22.7 T/s), +26% with MTP=1 (19.6 → 24.8 T/s); see the [benchmark record](analysis/2026-10-06-exl3-host-core-affinity.md). Dense presets (no CPU experts) are unaffected. To restore the previous placement for a preset, set `EXL3_MOE_HOST_CORES=0` in `Server.Engines.Exl3.Environment`.
 
 ## Configuring a preset

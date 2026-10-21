@@ -42,9 +42,10 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
     id: 'general',
     icon: 'â—‰',
     title: 'General',
-    summary: 'Version, policy, and default prompt framing.',
+    summary: 'Version, inference CPU threads, policy, and default prompt framing.',
     fields: [
       { label: 'Version', layout: 'quarter', helpText: 'Stored config schema version for this SiftKit installation.' },
+      { label: 'Tabby/EXL3 CPU threads', layout: 'quarter', helpText: 'CPU worker threads used for offloaded MoE experts across all managed Tabby/EXL3 presets. Leave blank for automatic selection. Save settings, then use Restart backend to apply. External inference servers are configured separately.' },
       { label: 'Policy Mode', layout: 'quarter', helpText: 'Controls how assertive SiftKit should be. Conservative favors visible evidence and lower-risk compression; aggressive allows bolder decisions.' },
       { label: 'Raw log retention', layout: 'quarter', helpText: 'Keeps raw runtime logs and request artifacts instead of trimming them more aggressively.' },
       { label: 'Expand reads', layout: 'half', helpText: 'When enabled, repeated narrow file reads can be expanded before execution. When disabled, SiftKit runs the requested read window unchanged while still tracking overlap.' },

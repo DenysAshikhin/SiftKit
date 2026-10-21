@@ -162,7 +162,15 @@ export const Exl3EngineConfigSchema = z.object({
   AdminApiKey: z.string(),
   ShutdownTimeoutMs: z.number().positive(),
   /** Extra variables for the engine process (e.g. EXL3_MOE_PINNED_ARENA); preset-derived keys win. */
-  Environment: z.record(z.string(), z.string()),
+  Environment: z.record(z.string(), z.string()).superRefine((environment, context) => {
+    const threads = environment.EXL3_MOE_CPU_THREADS;
+    if (threads !== undefined && (!/^[1-9]\d*$/u.test(threads) || !Number.isSafeInteger(Number(threads)))) {
+      context.addIssue({
+        code: 'custom', path: ['EXL3_MOE_CPU_THREADS'],
+        message: 'Tabby/EXL3 CPU threads must be a positive integer; remove the value for automatic selection.',
+      });
+    }
+  }),
 }).strict();
 export type Exl3EngineConfig = z.infer<typeof Exl3EngineConfigSchema>;
 

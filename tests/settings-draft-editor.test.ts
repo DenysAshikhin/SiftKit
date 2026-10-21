@@ -14,6 +14,20 @@ test('settings draft editor replaces the assistant config as one validated value
   assert.equal(DASHBOARD_CONFIG.Assistant.Enabled, false);
 });
 
+test('general CPU threads edits the engine environment and clearing restores automatic selection', () => {
+  const initial = structuredClone(DASHBOARD_CONFIG);
+  Object.assign(initial.Server.Engines.Exl3.Environment, { OTHER_SETTING: 'keep' });
+  const editor = new DashboardSettingsDraftEditor(initial);
+  editor.apply({ type: 'set-exl3-cpu-threads', value: '8' });
+  assert.deepEqual(editor.getConfig().Server.Engines.Exl3.Environment, {
+    OTHER_SETTING: 'keep', EXL3_MOE_CPU_THREADS: '8',
+  });
+  assert.deepEqual(initial.Server.Engines.Exl3.Environment, { OTHER_SETTING: 'keep' });
+
+  editor.apply({ type: 'set-exl3-cpu-threads', value: '' });
+  assert.deepEqual(editor.getConfig().Server.Engines.Exl3.Environment, { OTHER_SETTING: 'keep' });
+});
+
 test('settings draft editor applies general, policy, interactive, and web-search actions', () => {
   const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
 

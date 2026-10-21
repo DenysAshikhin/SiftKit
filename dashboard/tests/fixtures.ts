@@ -19,6 +19,7 @@ export const ASSISTANT_ACTIONS: AssistantSettingsActions = {
 export const GENERAL_ACTIONS: GeneralSettingsActions = {
   setString() {},
   setBoolean() {},
+  setExl3CpuThreads() {},
 };
 
 export const TOOL_POLICY_ACTIONS: ToolPolicySettingsActions = {

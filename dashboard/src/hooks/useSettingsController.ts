@@ -214,6 +214,9 @@ export function useSettingsController(deps: {
     setBoolean(field, value) {
       applySettingsAction({ type: 'set-general-boolean', field, value });
     },
+    setExl3CpuThreads(value) {
+      applySettingsAction({ type: 'set-exl3-cpu-threads', value });
+    },
   };
 
   const toolPolicyActions: ToolPolicySettingsActions = {

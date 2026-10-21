@@ -156,3 +156,33 @@ test('rejects a config payload that normalization refuses', async () => {
     await server.close();
   }
 });
+
+test('PUT /config persists CPU threads, rejects invalid counts, and supports automatic selection', async () => {
+  const server = await DashboardTestServer.start('siftkit-config-cpu-threads-');
+  try {
+    const config = await readConfigBody(server.baseUrl);
+    const engine = asObject(asObject(asObject(config.Server).Engines).Exl3);
+    engine.Environment = { EXL3_MOE_CPU_THREADS: '8', OTHER_SETTING: 'keep' };
+    const saved = await requestJson(`${server.baseUrl}/config`, { method: 'PUT', body: JSON.stringify(config) });
+    assert.equal(saved.statusCode, 200);
+    const persisted = await readConfigBody(server.baseUrl);
+    assert.deepEqual(asObject(asObject(asObject(persisted.Server).Engines).Exl3).Environment, engine.Environment);
+
+    for (const value of ['0', '-1', '1.5', 'invalid']) {
+      engine.Environment = { EXL3_MOE_CPU_THREADS: value };
+      const rejected = await requestJson(`${server.baseUrl}/config`, { method: 'PUT', body: JSON.stringify(config) });
+      assert.equal(rejected.statusCode, 400, `must reject ${value}`);
+    }
+    const unchanged = await readConfigBody(server.baseUrl);
+    assert.deepEqual(asObject(asObject(asObject(unchanged.Server).Engines).Exl3).Environment,
+      { EXL3_MOE_CPU_THREADS: '8', OTHER_SETTING: 'keep' });
+
+    engine.Environment = { OTHER_SETTING: 'keep' };
+    const automatic = await requestJson(`${server.baseUrl}/config`, { method: 'PUT', body: JSON.stringify(config) });
+    assert.equal(automatic.statusCode, 200);
+    const reloaded = await readConfigBody(server.baseUrl);
+    assert.deepEqual(asObject(asObject(asObject(reloaded.Server).Engines).Exl3).Environment, { OTHER_SETTING: 'keep' });
+  } finally {
+    await server.close();
+  }
+});

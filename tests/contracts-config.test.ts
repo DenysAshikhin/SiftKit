@@ -56,6 +56,31 @@ test('SiftConfigSchema accepts the default config (conformance)', () => {
   assert.doesNotThrow(() => SiftConfigSchema.parse(getDefaultConfigObject()));
 });
 
+test('EXL3 CPU threads accepts positive integers and automatic selection', () => {
+  const engine = getDefaultConfigObject().Server.Engines.Exl3;
+  for (const value of ['1', '8', '128']) {
+    const parsed = Exl3EngineConfigSchema.parse({
+      ...engine, Environment: { EXL3_MOE_CPU_THREADS: value, OTHER_SETTING: 'keep' },
+    });
+    assert.equal(parsed.Environment.EXL3_MOE_CPU_THREADS, value);
+    assert.equal(parsed.Environment.OTHER_SETTING, 'keep');
+  }
+  assert.doesNotThrow(() => Exl3EngineConfigSchema.parse({ ...engine, Environment: {} }));
+});
+
+test('EXL3 CPU threads rejects invalid explicit counts', () => {
+  const engine = getDefaultConfigObject().Server.Engines.Exl3;
+  for (const value of ['', '0', '-1', '1.5', 'eight', '1e2', '9007199254740992']) {
+    const result = Exl3EngineConfigSchema.safeParse({
+      ...engine, Environment: { EXL3_MOE_CPU_THREADS: value },
+    });
+    assert.equal(result.success, false, `must reject ${JSON.stringify(value)}`);
+    if (!result.success) {
+      assert.deepEqual(result.error.issues[0]?.path, ['Environment', 'EXL3_MOE_CPU_THREADS']);
+    }
+  }
+});
+
 test('RestartBackendResponseSchema accepts ok with no config', () => {
   assert.doesNotThrow(() => RestartBackendResponseSchema.parse({ ok: true, restarted: false }));
 });

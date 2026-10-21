@@ -22,6 +22,7 @@ test('settings tooltip labels include the documented fields', () => {
     SETTINGS_TOOLTIP_LABELS,
     [
       'Version',
+      'Tabby/EXL3 CPU threads',
       'Policy Mode',
       'Raw log retention',
       'Expand reads',

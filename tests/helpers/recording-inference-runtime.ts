@@ -1,4 +1,5 @@
-import type { InferenceBackendId, ModelRuntimePreset } from '../../src/config/types.ts';
+import type { Exl3EngineConfig, InferenceBackendId, ModelRuntimePreset } from '../../src/config/types.ts';
+import { getDefaultConfigObject } from '../../src/config/defaults.ts';
 import { ManagedInferenceRuntime } from '../../src/status-server/managed-inference-runtime.ts';
 
 /**
@@ -7,6 +8,7 @@ import { ManagedInferenceRuntime } from '../../src/status-server/managed-inferen
  */
 export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
   preparedPreset: ModelRuntimePreset | null = null;
+  engineConfig = getDefaultConfigObject().Server.Engines.Exl3;
   private residentResidencyKey: string | null = null;
 
   private readonly events: string[];
@@ -25,6 +27,12 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
   async startProcess(): Promise<void> {
     this.events.push(`start:${this.id}`);
     this.transitionProcessTo('ready');
+  }
+
+  replaceEngineConfig(engine: Exl3EngineConfig): Exl3EngineConfig {
+    const previous = this.engineConfig;
+    this.engineConfig = structuredClone(engine);
+    return structuredClone(previous);
   }
 
   async stopProcess(): Promise<void> {

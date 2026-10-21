@@ -30,6 +30,12 @@ function getBaseUrl(preset: ModelRuntimePreset): string {
   return new URL(preset.BaseUrl ?? 'http://127.0.0.1:8098').origin;
 }
 
+function withoutCpuThreadOverrides(environment: Readonly<NodeJS.ProcessEnv>) {
+  return Object.fromEntries(Object.entries(environment).filter(([key]) => (
+    key.toUpperCase() !== 'EXL3_MOE_CPU_THREADS' && key.toUpperCase() !== 'TABBY_MODEL_CPU_MOE_THREADS'
+  )));
+}
+
 export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private child: EngineProcess | null = null;
   private stopping = false;
@@ -42,23 +48,22 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private residentResidencyKey: string | null = null;
   private loadPromise: Promise<void> | null = null;
   private vramBaselineUsedBytes: number | null = null;
-  private readonly adapter: Exl3PresetAdapter;
+  private adapter: Exl3PresetAdapter;
   private readonly capabilities: Exl3ModelCapabilities;
 
-  private readonly engine: Exl3EngineConfig;
+  private engine: Exl3EngineConfig;
   private readonly flushQueue: InferenceRunFlushQueue;
   private readonly host: ManagedEngineHost;
-  private readonly client: TabbyModelClient;
+  private client: TabbyModelClient;
 
   constructor(
     engine: Exl3EngineConfig,
     flushQueue: InferenceRunFlushQueue,
     host: ManagedEngineHost,
-    client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3');
-    this.client = client;
-    this.engine = engine;
+    this.client = new TabbyModelClient(engine.AdminApiKey);
+    this.engine = structuredClone(engine);
     this.flushQueue = flushQueue;
     this.host = host;
     this.adapter = new Exl3PresetAdapter(engine.ModelRoot);
@@ -94,6 +99,15 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       }
       throw error;
     }
+  }
+
+  replaceEngineConfig(engine: Exl3EngineConfig): Exl3EngineConfig {
+    if (this.getProcessState() !== 'stopped') throw new Error('Engine configuration can only change while stopped.');
+    const previous = this.engine;
+    this.engine = structuredClone(engine);
+    this.adapter = new Exl3PresetAdapter(engine.ModelRoot);
+    this.client = new TabbyModelClient(engine.AdminApiKey);
+    return structuredClone(previous);
   }
 
   async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
@@ -278,7 +292,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       command: launch.pythonPath,
       args: [launch.entrypoint],
       workingDirectory: launch.workingDirectory,
-      environment: { ...process.env, ...launch.environment },
+      environment: { ...withoutCpuThreadOverrides(process.env), ...launch.environment },
     });
     this.child = child;
     recorder.attachEngineStdout(child.stdout);
@@ -384,12 +398,18 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   // Use the same effective launch environment for identity and process creation.
   private getEngineIdentity(launchEnvironment: Exl3LaunchEnvironment) {
+    const cpuThreads = this.engine.Environment.EXL3_MOE_CPU_THREADS;
+    const environment = {
+      ...withoutCpuThreadOverrides(this.engine.Environment),
+      ...launchEnvironment,
+      ...(cpuThreads === undefined ? {} : { EXL3_MOE_CPU_THREADS: cpuThreads, TABBY_MODEL_CPU_MOE_THREADS: cpuThreads }),
+    };
     return {
       pythonPath: this.engine.PythonPath,
       entrypoint: this.engine.Entrypoint,
       workingDirectory: this.engine.WorkingDirectory,
       environment: Object.fromEntries(
-        Object.entries({ ...this.engine.Environment, ...launchEnvironment })
+        Object.entries(environment)
           .sort(([left], [right]) => left.localeCompare(right)),
       ),
     };

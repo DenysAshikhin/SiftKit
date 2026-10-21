@@ -4,7 +4,7 @@ import type {
   InferenceRuntimeStatus,
   ModelLifecycleActionResult,
 } from '@siftkit/contracts';
-import type { ModelRuntimePreset, SiftConfig } from '../config/types.ts';
+import type { Exl3EngineConfig, ModelRuntimePreset, SiftConfig } from '../config/types.ts';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
 import type { ModelRequestLock } from './server-types.ts';
 import type { AppliedModelPresetState } from './applied-model-preset-state.ts';
@@ -352,9 +352,13 @@ export class PresetRuntimeCoordinator {
     const runtime = this.runtime;
     const forceRestart = kind === 'restart';
     const reuseResidency = !forceRestart && this.hasReadyResidency(target);
+    let previousEngine: Exl3EngineConfig | null = null;
     try {
       if (!reuseResidency) await runtime.unloadPreset();
-      if (forceRestart) await runtime.stopProcess();
+      if (forceRestart) {
+        await runtime.stopProcess();
+        previousEngine = runtime.replaceEngineConfig(expected.Server.Engines.Exl3);
+      }
       await runtime.ensurePresetReady(target);
       this.publishReadyPreset(target);
       // Persist before admission reopens so a joined readiness check never sees the old selection; compare-and-set keeps a newer save.
@@ -375,6 +379,7 @@ export class PresetRuntimeCoordinator {
         if (forceRestart && runtime.getProcessState() !== 'stopped') {
           await runtime.stopProcess();
         }
+        if (previousEngine !== null) runtime.replaceEngineConfig(previousEngine);
         // Restore the previous selection only while the config is unchanged; a newer save keeps its intent.
         const restored = restorePreviousModelSelection(this.configPath, expected, previous);
         await runtime.ensurePresetReady(previous);

@@ -542,17 +542,74 @@ test('managed Tabby forwards the engine environment beneath the preset environme
   await withTempEnv(async (root) => {
     await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-engine-env', {
       EXL3_MOE_PINNED_ARENA: '1',
+      EXL3_MOE_CPU_THREADS: '8',
       TABBY_MODEL_CHUNK_SIZE: '4',   // preset-owned: must not override the preset's value
     });
     await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
 
     const recorded = z.object({
       EXL3_MOE_PINNED_ARENA: z.string(),
+      EXL3_MOE_CPU_THREADS: z.string(),
+      TABBY_MODEL_CPU_MOE_THREADS: z.string(),
       TABBY_MODEL_CHUNK_SIZE: z.string(),
     }).parse(launchEngineVariables(fixture.launcher.launches[0]));
     assert.equal(recorded.EXL3_MOE_PINNED_ARENA, '1');
+    assert.equal(recorded.EXL3_MOE_CPU_THREADS, '8');
+    assert.equal(recorded.TABBY_MODEL_CPU_MOE_THREADS, '8');
     assert.equal(recorded.TABBY_MODEL_CHUNK_SIZE, '1024');
   });
+});
+
+test('managed Tabby rejects replacing engine configuration while a model is running', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-reconfigure-running');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    const before = fixture.runtime.getPresetResidencyKey(fixture.exl3Preset);
+    assert.throws(() => fixture.runtime.replaceEngineConfig(getDefaultConfigObject().Server.Engines.Exl3), /stopped/u);
+    assert.equal(fixture.runtime.getPresetResidencyKey(fixture.exl3Preset), before);
+    assert.equal(fixture.launcher.liveProcessCount, 1);
+  });
+});
+
+test('managed Tabby automatic CPU selection ignores inherited thread overrides', async () => {
+  const previousExl3 = process.env.EXL3_MOE_CPU_THREADS;
+  const previousTabby = process.env.TABBY_MODEL_CPU_MOE_THREADS;
+  process.env.EXL3_MOE_CPU_THREADS = '9';
+  process.env.TABBY_MODEL_CPU_MOE_THREADS = '10';
+  try {
+    await withTempEnv(async (root) => {
+      await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-auto-cpu');
+      await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+      const recorded = launchEngineVariables(fixture.launcher.launches[0]);
+      assert.equal(recorded.EXL3_MOE_CPU_THREADS, undefined);
+      assert.equal(recorded.TABBY_MODEL_CPU_MOE_THREADS, undefined);
+    });
+  } finally {
+    if (previousExl3 === undefined) delete process.env.EXL3_MOE_CPU_THREADS;
+    else process.env.EXL3_MOE_CPU_THREADS = previousExl3;
+    if (previousTabby === undefined) delete process.env.TABBY_MODEL_CPU_MOE_THREADS;
+    else process.env.TABBY_MODEL_CPU_MOE_THREADS = previousTabby;
+  }
+});
+
+test('managed Tabby automatic CPU selection removes mixed-case Windows environment overrides', async () => {
+  const cpuKeys = ['EXL3_MOE_CPU_THREADS', 'TABBY_MODEL_CPU_MOE_THREADS'];
+  const inherited = Object.entries(process.env).filter(([key]) => cpuKeys.includes(key.toUpperCase()));
+  for (const [key] of inherited) delete process.env[key];
+  process.env.exl3_moe_cpu_threads = '9';
+  process.env.Tabby_Model_Cpu_Moe_Threads = '10';
+  try {
+    await withTempEnv(async (root) => {
+      await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-auto-cpu-case');
+      await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+      const launch = fixture.launcher.launches[0];
+      assert.ok(launch);
+      assert.deepEqual(Object.keys(launch.environment).filter(key => cpuKeys.includes(key.toUpperCase())), []);
+    });
+  } finally {
+    for (const key of Object.keys(process.env)) if (cpuKeys.includes(key.toUpperCase())) delete process.env[key];
+    Object.assign(process.env, Object.fromEntries(inherited));
+  }
 });
 
 test('managed Tabby overrides conflicting inherited allocator settings', async () => {

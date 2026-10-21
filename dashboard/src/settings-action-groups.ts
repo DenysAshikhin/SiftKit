@@ -31,6 +31,7 @@ export type AssistantSettingsActions = {
 export type GeneralSettingsActions = {
   setString(field: GeneralStringField, value: string): void;
   setBoolean(field: GeneralBooleanField, value: boolean): void;
+  setExl3CpuThreads(value: string): void;
 };
 
 export type ToolPolicySettingsActions = {

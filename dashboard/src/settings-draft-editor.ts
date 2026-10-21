@@ -90,6 +90,7 @@ export type DashboardSettingsDraftAction =
   | { type: 'set-assistant'; value: AssistantConfig }
   | { type: 'set-general-string'; field: GeneralStringField; value: string }
   | { type: 'set-general-boolean'; field: GeneralBooleanField; value: boolean }
+  | { type: 'set-exl3-cpu-threads'; value: string }
   | { type: 'set-threshold-integer'; field: ThresholdIntegerField; value: number }
   | {
       type: 'set-operation-tool-enabled';
@@ -154,6 +155,12 @@ export class DashboardSettingsDraftEditor {
       case 'set-general-boolean':
         this.config[action.field] = action.value;
         return;
+      case 'set-exl3-cpu-threads': {
+        const environment = this.config.Server.Engines.Exl3.Environment;
+        if (action.value === '') delete environment.EXL3_MOE_CPU_THREADS;
+        else environment.EXL3_MOE_CPU_THREADS = action.value;
+        return;
+      }
       case 'set-threshold-integer':
         this.config.Thresholds[action.field] = action.value;
         return;

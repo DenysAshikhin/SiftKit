@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
 import { z } from 'zod';
+import { RestartBackendResponseSchema, SiftConfigSchema } from '@siftkit/contracts';
 import { writeConfig } from '../src/status-server/config-store.ts';
 
 import {
@@ -17,6 +18,7 @@ import {
 } from './_runtime-helpers.ts';
 import { testHttpAgent } from './helpers/http-agent.ts';
 import { launchEngineVariables } from './helpers/in-process-tabby.ts';
+import type { EngineLaunchSpec, EngineProcess, EngineProcessLauncher } from '../src/status-server/engine-process.ts';
 
 interface ModelsResponse {
   data: { id: string }[];
@@ -35,6 +37,25 @@ const RestartFailureResponseSchema = z.object({
   restarted: z.boolean(),
   error: z.string(),
 }).passthrough();
+
+class CpuRejectingLauncher implements EngineProcessLauncher {
+  readonly attempts: EngineLaunchSpec[] = [];
+  private readonly delegate: EngineProcessLauncher;
+
+  constructor(delegate: EngineProcessLauncher) {
+    this.delegate = delegate;
+  }
+
+  launch(spec: EngineLaunchSpec): EngineProcess {
+    this.attempts.push(spec);
+    if (spec.environment.EXL3_MOE_CPU_THREADS === '8') throw new Error('CPU thread count rejected');
+    return this.delegate.launch(spec);
+  }
+
+  terminate(process: EngineProcess): void {
+    this.delegate.terminate(process);
+  }
+}
 
 function requestJsonAllowError<T>(
   url: string,
@@ -134,6 +155,85 @@ test('real status server backend restart endpoint restarts the managed engine an
       configPath: runtimeDbPath,
       managedEngineHost: managed.host,
     });
+  });
+});
+
+test('saving CPU threads takes effect on backend restart and clearing restores automatic selection', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    await using enginePortLease = await acquireChildPortLease('status-server-cpu-threads');
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
+    const config = getDefaultConfig();
+    applyManagedScriptConfig(config, managed);
+    config.Server.Engines.Exl3.Environment = { EXL3_MOE_CPU_THREADS: '4' };
+    writeConfig(runtimeDbPath, config);
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      assert.equal(launchEngineVariables(managed.launcher.launches[0]).EXL3_MOE_CPU_THREADS, '4');
+      const loaded = await requestJsonAllowError(new URL('/config?skip_ready=1', statusUrl).toString(), SiftConfigSchema);
+      assert.equal(loaded.statusCode, 200);
+      const savedConfig = loaded.body;
+      savedConfig.Server.Engines.Exl3.Environment.EXL3_MOE_CPU_THREADS = '8';
+      savedConfig.Server.Engines.Exl3.Entrypoint = 'restarted-tabby.py';
+      const saved = await requestJsonAllowError(new URL('/config', statusUrl).toString(), SiftConfigSchema, {
+        method: 'PUT', body: JSON.stringify(savedConfig),
+      });
+      assert.equal(saved.statusCode, 200);
+      assert.equal(managed.launcher.launches.length, 1, 'saving must not restart the engine');
+
+      const restarted = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), RestartBackendResponseSchema, {
+        method: 'POST',
+      });
+      assert.equal(restarted.statusCode, 200);
+      assert.equal(restarted.body.restarted, true);
+      assert.equal(managed.launcher.launches.length, 2);
+      assert.equal(launchEngineVariables(managed.launcher.launches[1]).EXL3_MOE_CPU_THREADS, '8');
+      assert.deepEqual(managed.launcher.launches[1]?.args, ['restarted-tabby.py']);
+
+      delete savedConfig.Server.Engines.Exl3.Environment.EXL3_MOE_CPU_THREADS;
+      const automatic = await requestJsonAllowError(new URL('/config', statusUrl).toString(), SiftConfigSchema, {
+        method: 'PUT', body: JSON.stringify(savedConfig),
+      });
+      assert.equal(automatic.statusCode, 200);
+      assert.equal(automatic.body.Server.Engines.Exl3.Environment.EXL3_MOE_CPU_THREADS, undefined);
+      const restartedAutomatic = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), RestartBackendResponseSchema, {
+        method: 'POST',
+      });
+      assert.equal(restartedAutomatic.statusCode, 200);
+      assert.equal(restartedAutomatic.body.restarted, true);
+      assert.equal(managed.launcher.launches.length, 3);
+      assert.equal(launchEngineVariables(managed.launcher.launches[2]).EXL3_MOE_CPU_THREADS, undefined);
+    }, { statusPath: runtimeDbPath, configPath: runtimeDbPath, managedEngineHost: managed.host });
+  });
+});
+
+test('a failed CPU configuration restart restores the previous engine configuration', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    await using enginePortLease = await acquireChildPortLease('status-server-cpu-rollback');
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
+    const launcher = new CpuRejectingLauncher(managed.host.launcher);
+    const config = getDefaultConfig();
+    applyManagedScriptConfig(config, managed);
+    config.Server.Engines.Exl3.Environment = { EXL3_MOE_CPU_THREADS: '4' };
+    writeConfig(runtimeDbPath, config);
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const loaded = await requestJsonAllowError(new URL('/config?skip_ready=1', statusUrl).toString(), SiftConfigSchema);
+      loaded.body.Server.Engines.Exl3.Environment.EXL3_MOE_CPU_THREADS = '8';
+      loaded.body.Server.Engines.Exl3.Entrypoint = 'rejected-tabby.py';
+      const saved = await requestJsonAllowError(new URL('/config', statusUrl).toString(), SiftConfigSchema, {
+        method: 'PUT', body: JSON.stringify(loaded.body),
+      });
+      assert.equal(saved.statusCode, 200);
+      const restarted = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), RestartFailureResponseSchema, {
+        method: 'POST',
+      });
+      assert.equal(restarted.statusCode, 503);
+      assert.match(restarted.body.error, /CPU thread count rejected/u);
+      assert.deepEqual(launcher.attempts.map(attempt => attempt.environment.EXL3_MOE_CPU_THREADS), ['4', '8', '4']);
+      assert.deepEqual(managed.launcher.launches[1]?.args, [managed.engine.Entrypoint]);
+      assert.equal(managed.launcher.liveProcessCount, 1);
+    }, { statusPath: runtimeDbPath, configPath: runtimeDbPath, managedEngineHost: { ...managed.host, launcher } });
   });
 });
 

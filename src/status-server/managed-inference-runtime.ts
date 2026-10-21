@@ -2,6 +2,7 @@ import type {
   InferenceBackendId,
   InferenceModelState,
   InferenceProcessState,
+  Exl3EngineConfig,
   ModelRuntimePreset,
 } from '../config/types.ts';
 
@@ -17,6 +18,7 @@ export abstract class ManagedInferenceRuntime {
   }
 
   abstract stopProcess(): Promise<void>;
+  abstract replaceEngineConfig(engine: Exl3EngineConfig): Exl3EngineConfig;
   abstract ensurePresetReady(preset: ModelRuntimePreset): Promise<void>;
   abstract unloadPreset(): Promise<void>;
 

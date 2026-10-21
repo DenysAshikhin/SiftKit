@@ -16,6 +16,8 @@ class FakeRuntime extends ManagedInferenceRuntime {
     super('exl3');
   }
 
+  replaceEngineConfig(): never { throw new Error('Engine replacement is not used by this fixture.'); }
+
   async stopProcess(): Promise<void> {
     this.transitionModelTo('unloaded');
     this.transitionProcessTo('stopped');

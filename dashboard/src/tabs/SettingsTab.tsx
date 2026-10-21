@@ -123,6 +123,17 @@ export function SettingsTab(props: SettingsTabProps) {
             onChange={(event) => generalActions.setString('Version', event.target.value)}
           />
         ))}
+        {renderField('general', 'Tabby/EXL3 CPU threads', (
+          <input
+            aria-label="Tabby/EXL3 CPU threads"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="Automatic"
+            value={dashboardConfig.Server.Engines.Exl3.Environment.EXL3_MOE_CPU_THREADS ?? ''}
+            onChange={(event) => generalActions.setExl3CpuThreads(event.target.value)}
+          />
+        ))}
         {renderField('general', 'Policy Mode', (
           <select
             value={dashboardConfig.PolicyMode}
