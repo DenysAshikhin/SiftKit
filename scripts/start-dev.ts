@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import path from 'node:path';
 
 import { httpClient } from '../src/lib/http-client.ts';
 import {
@@ -10,7 +11,7 @@ import {
 import { resolveDashboardLaunch } from './start-dev-dashboard.ts';
 import { isBackendReadyStatusCode } from './start-dev-health.ts';
 import { buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse } from './start-dev-ports.ts';
-import { DEV_CHILD_STOP_TIMEOUT_MS, stopChildGracefully, stopChildProcessTree, waitForChildExit } from './start-dev-process.ts';
+import { stopChildProcessTree, stopStatusChild } from './start-dev-process.ts';
 
 type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv; ipc?: boolean };
 
@@ -35,7 +36,9 @@ function startProcess(command: string, args: string[], options: SpawnOptions = {
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const useStableStatus = process.argv.includes('--stable');
 // Spawned directly, not through npm, so the IPC shutdown message reaches it.
-const statusEntry = useStableStatus ? 'src/status-server/main.ts' : 'scripts/start-dev-status.ts';
+const statusEntry = useStableStatus
+  ? path.join(import.meta.dirname, '..', 'src', 'status-server', 'main.ts')
+  : path.join(import.meta.dirname, 'start-dev-status.ts');
 const ASSISTANT_SHELL_WATCH_INTERVAL_MS = 5000;
 let statusProcess: ChildProcess | null = null;
 let dashboardProcess: ChildProcess | null = null;
@@ -61,11 +64,7 @@ async function shutdown(signalName: 'SIGINT' | 'SIGTERM'): Promise<void> {
   for (const child of [dashboardProcess, assistantShellProcess]) {
     stopChildProcessTree(child);
   }
-  // Ctrl-C reached the status server through the console; any other stop is requested over IPC.
-  if (statusProcess !== null) {
-    if (signalName === 'SIGINT') await waitForChildExit(statusProcess, DEV_CHILD_STOP_TIMEOUT_MS);
-    else await stopChildGracefully(statusProcess, DEV_CHILD_STOP_TIMEOUT_MS);
-  }
+  if (statusProcess !== null) await stopStatusChild(statusProcess, signalName);
   process.exit(signalName === 'SIGINT' ? 130 : 0);
 }
 

@@ -239,6 +239,23 @@ test('the rail picks up a session the server created elsewhere, busy with its ru
   }
 });
 
+// A session keeps its run link after the run settles; skipping the attach for it lost every later chat turn's reattach.
+test('a session that has shown a run still reattaches its chat turn, and an idle journal keeps its run busy', async () => {
+  const runId = '6c1f0e2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b';
+  const linked: ChatSession = { ...SESSION, orchestratorRunId: runId };
+  const fixture = new ChatFetchFixture({ session: linked, sessions: [linked],
+    activeOperations: [{ sessionId: 's1', operationKind: 'orchestrator', operationId: runId, startedAtUtc: '2026-10-23T00:00:00.000Z' }],
+    detailResponse: { session: linked, contextUsage: CONTEXT_USAGE }, streamResponse: { session: linked, contextUsage: CONTEXT_USAGE } });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.ok(fixture.attachRequestCount >= 1, 'the journal is attached like any session'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    assert.deepEqual(hook.result.current.runtimeHub.getStore().get('s1').activity, { kind: 'remote', operationKind: 'orchestrator' },
+      'an idle journal says nothing about the run');
+  } finally { fixture.restore(); }
+});
+
 test('a terminal refresh failure retains the committed live view for retry', async () => {
   const committedBody = snapshotBody({ terminalCause: 'completed', messages: [createLiveMessage('answer', 'assistant_answer', 'assistant', 'committed answer')] })
     + terminalBody();

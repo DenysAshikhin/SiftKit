@@ -85,7 +85,7 @@ CompositeRepoSearchProgressWriter,
 RepoSearchToolLogProgressWriter,
 } from '../operation-progress-writers.ts';
 import { getRuntimeRoot } from '../paths.ts';
-import { buildNewChatSession } from '../new-chat-session.ts';
+import { buildNewChatSession, resolveNewSessionModelConfig } from '../new-chat-session.ts';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.ts';
 import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.ts';
 import { RouteTable,type RouteEndpoint,type RouteMatch } from '../route-table.ts';
@@ -655,10 +655,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     let session: ChatSession;
     let responseConfig: SiftConfig;
     try {
-      // A new session previews the model its preset resolves to now, as a pass-through host reports it.
-      const previewConfig = await applyHostEngineRuntimeSettings(
-        previewChatOperationTarget(ctx, { presetId: createRequest.presetId, modelPresetOverrideId: null }).config,
-      );
+      const previewConfig = await resolveNewSessionModelConfig(ctx, createRequest.presetId);
       session = buildNewChatSession(currentConfig, previewConfig, createRequest.presetId, createRequest.title || 'New Session', process.cwd());
       responseConfig = await applyHostEngineRuntimeSettings(currentConfig);
     } catch (error) {

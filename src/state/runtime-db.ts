@@ -31,6 +31,7 @@ const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
 export const CURRENT_SCHEMA_VERSION = 83;
+const RUNTIME_DATABASE_FILE = 'runtime.sqlite';
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -145,7 +146,12 @@ export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {
 }
 
 export function getRuntimeDatabasePath(startPath: string = process.cwd()): string {
-  return join(getRepoRuntimeRoot(startPath), 'runtime.sqlite');
+  return join(getRepoRuntimeRoot(startPath), RUNTIME_DATABASE_FILE);
+}
+
+/** The database a runtime root holds. */
+export function getRuntimeRootDatabase(runtimeRoot: string): RuntimeDatabase {
+  return getRuntimeDatabase(join(runtimeRoot, RUNTIME_DATABASE_FILE));
 }
 
 /**

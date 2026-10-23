@@ -15,10 +15,10 @@ import {
   ChatSessionSchema,
   ChatRunTerminalCauseSchema,
   InferenceThroughputSchema,
-  OrchestratorPhaseSchema,
-  isOrchestratorTerminalPhase,
+  ActiveChatOperationSchema,
+  ORCHESTRATOR_TERMINAL_PHASES,
 } from '@siftkit/contracts';
-import type { ChatSessionOperationKind, ChatTurnTokenRecord, ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
+import type { ActiveChatOperation, ChatSessionOperationKind, ChatTurnTokenRecord, ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { z } from '../lib/zod.ts';
 import type { ModelRuntimePreset } from '../config/types.ts';
 import { normalizeModelRuntimePresetRecord } from '../config/normalization.ts';
@@ -26,7 +26,7 @@ import {
   toNullableNonNegativeInteger,
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.ts';
-import { getRuntimeDatabase } from './runtime-db.ts';
+import { getRuntimeRootDatabase } from './runtime-db.ts';
 import type { RuntimeDatabase } from './database-handle.ts';
 import { ChatJournalStore } from './chat-journal.ts';
 import { chatMetadataKey } from './chat-metadata-keys.ts';
@@ -86,13 +86,6 @@ const SessionSummaryRowSchema = SessionRowSchema.extend({ last_tool_call_exit_co
 
 const SESSION_SELECT_COLUMNS = `id, title, model_preset_id, model_preset_json, model_preset_override_id, thinking_enabled, web_search_enabled,
       preset_id, mode, plan_repo_root, orchestrator_run_id, created_at_utc, updated_at_utc`;
-
-const ChatSessionOrchestratorActivityRowSchema = z.object({
-  session_id: z.string(), run_id: z.string(), phase: OrchestratorPhaseSchema, created_at_utc: z.string(),
-});
-
-/** A session showing an orchestrator run that has not reached a terminal phase. */
-export type ChatSessionOrchestratorRun = { sessionId: string; runId: string; startedAtUtc: string };
 
 const MessageRowSchema = z.object({
   id: z.string(),
@@ -159,10 +152,6 @@ type MessageImageRow = z.infer<typeof MessageImageRowSchema>;
 const MessageImageRemovalRowSchema = MessageImageRowSchema.extend({
   removed_image_count: z.number().nullable(),
 });
-
-function getSessionDatabase(runtimeRoot: string): ReturnType<typeof getRuntimeDatabase> {
-  return getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite'));
-}
 
 function parseSessionId(targetPath: string): string | null {
   const raw = String(targetPath || '').trim();
@@ -327,7 +316,7 @@ export function getChatSessionsRoot(runtimeRoot: string): string {
 }
 
 export function listChatSessionPaths(runtimeRoot: string): string[] {
-  const database = getSessionDatabase(runtimeRoot);
+  const database = getRuntimeRootDatabase(runtimeRoot);
   const rows = z.array(SessionIdRowSchema).parse(
     database.prepare('SELECT id FROM chat_sessions ORDER BY updated_at_utc DESC').all(),
   );
@@ -391,11 +380,11 @@ const CHAT_MESSAGE_SELECT_COLUMNS = [
   'position',
 ].join(', ');
 function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | null {
-  return readChatSessionFromDatabase(getSessionDatabase(runtimeRoot), sessionId);
+  return readChatSessionFromDatabase(getRuntimeRootDatabase(runtimeRoot), sessionId);
 }
 
 /** Reads an already-open, current-schema database without opening or migrating another file. */
-export function readChatSessionFromDatabase(database: ReturnType<typeof getRuntimeDatabase>, sessionId: string): ChatSession | null {
+export function readChatSessionFromDatabase(database: RuntimeDatabase, sessionId: string): ChatSession | null {
   const row = database.prepare(`SELECT ${SESSION_SELECT_COLUMNS} FROM chat_sessions WHERE id = ?`).get(sessionId);
   if (row === undefined || row === null) {
     return null;
@@ -427,7 +416,7 @@ const MEASURES_NEXT_PROMPT = {
  * Null when that run did not complete, does not measure the next prompt, or a baseline/history edit came after it.
  */
 export function readChatMeasuredContext(runtimeRoot: string, sessionId: string): ChatTurnTokenRecord | null {
-  const store = new ChatJournalStore(getSessionDatabase(runtimeRoot));
+  const store = new ChatJournalStore(getRuntimeRootDatabase(runtimeRoot));
   const latest = store.listSessionRuns(sessionId)
     .filter(run => run.recordKind !== 'execution' || run.terminalCause !== null)
     .at(-1);
@@ -458,7 +447,7 @@ function mapSessionRow(session: z.infer<typeof SessionRowSchema>): Omit<ChatSess
 
 /** One query for the whole rail: no transcripts, only what a session row plus its last message says. */
 export function readChatSessionSummaries(runtimeRoot: string): StoredChatSessionSummary[] {
-  const rows = getSessionDatabase(runtimeRoot).prepare(`
+  const rows = getRuntimeRootDatabase(runtimeRoot).prepare(`
     SELECT ${SESSION_SELECT_COLUMNS},
       (SELECT tool_call_exit_code FROM chat_messages WHERE session_id = chat_sessions.id ORDER BY position DESC LIMIT 1) AS last_tool_call_exit_code
     FROM chat_sessions
@@ -499,7 +488,7 @@ export function deleteChatSession(runtimeRoot: string, sessionId: string): boole
   if (!normalizedId) {
     return false;
   }
-  const database = getSessionDatabase(runtimeRoot);
+  const database = getRuntimeRootDatabase(runtimeRoot);
   return database.transaction(() => {
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(normalizedId);
     database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(chatMetadataKey.queue(normalizedId));
@@ -516,7 +505,7 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
   if (!normalizedSessionId || !normalizedMessageId) {
     return null;
   }
-  const database = getSessionDatabase(runtimeRoot);
+  const database = getRuntimeRootDatabase(runtimeRoot);
   return database.transaction(() => {
   const current = readSessionById(runtimeRoot, normalizedSessionId);
   if (!current || !Array.isArray(current.messages)) {
@@ -563,7 +552,7 @@ export function updateChatMessageImageCaption(
     throw new Error('Image caption is required.');
   }
 
-  const database = getSessionDatabase(runtimeRoot);
+  const database = getRuntimeRootDatabase(runtimeRoot);
   const rowValue = database.prepare(`
     SELECT id, images, image_meta
     FROM chat_messages
@@ -602,7 +591,7 @@ export function updateChatMessageImageCaption(
 }
 
 function touchChatSession(runtimeRoot: string, sessionId: string): void {
-  getSessionDatabase(runtimeRoot)
+  getRuntimeRootDatabase(runtimeRoot)
     .prepare('UPDATE chat_sessions SET updated_at_utc = ? WHERE id = ?')
     .run(new Date().toISOString(), sessionId);
 }
@@ -628,7 +617,7 @@ export function deleteChatMessageImage(
     throw new Error('Image index must be a non-negative integer.');
   }
 
-  const database = getSessionDatabase(runtimeRoot);
+  const database = getRuntimeRootDatabase(runtimeRoot);
   database.transaction(() => {
   const rowValue = database.prepare(`
     SELECT id, images, image_meta, removed_image_count
@@ -674,7 +663,7 @@ export function deleteChatMessageImage(
  */
 export function saveChatSession(runtimeRoot: string, session: ChatSession): void {
   const messages = z.array(PersistedChatTranscriptMessageSchema).parse(session.messages ?? []);
-  const database = getSessionDatabase(runtimeRoot);
+  const database = getRuntimeRootDatabase(runtimeRoot);
   database.transaction(() => {
     saveChatSessionMetadata(runtimeRoot, session);
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(session.id.trim());
@@ -700,7 +689,8 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
   const mode = normalizeMode(session.mode);
   const presetId = requirePresetId(session.presetId);
 
-  const database = getSessionDatabase(runtimeRoot);
+  const database = getRuntimeRootDatabase(runtimeRoot);
+  // orchestrator_run_id is not written here: linkChatSessionToOrchestratorRun is its one writer, so a stale snapshot cannot unlink a run.
   database.transaction(() => {
     database.prepare(`
       INSERT INTO chat_sessions (
@@ -714,10 +704,9 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
         preset_id,
         mode,
         plan_repo_root,
-        orchestrator_run_id,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         model_preset_id = excluded.model_preset_id,
@@ -728,7 +717,6 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
         preset_id = excluded.preset_id,
         mode = excluded.mode,
         plan_repo_root = excluded.plan_repo_root,
-        orchestrator_run_id = excluded.orchestrator_run_id,
         updated_at_utc = excluded.updated_at_utc
     `).run(
       sessionId,
@@ -741,7 +729,6 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
       presetId,
       mode,
       resolve(session.planRepoRoot),
-      session.orchestratorRunId === null ? null : ChatSessionSchema.shape.orchestratorRunId.parse(session.orchestratorRunId),
       typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim() ? session.createdAtUtc : now,
       typeof session.updatedAtUtc === 'string' && session.updatedAtUtc.trim() ? session.updatedAtUtc : now,
     );
@@ -751,8 +738,7 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
 
 /** Whether a session exists; a caller that names one for an operation needs it to be real. */
 export function chatSessionExists(database: RuntimeDatabase, sessionId: string): boolean {
-  const row = database.prepare('SELECT id FROM chat_sessions WHERE id = ?').get(sessionId);
-  return row !== undefined && row !== null;
+  return database.prepare('SELECT id FROM chat_sessions WHERE id = ?').get(sessionId) !== undefined;
 }
 
 /** The session whose board shows this run, if any; a run belongs to exactly one session. */
@@ -768,18 +754,16 @@ export function linkChatSessionToOrchestratorRun(database: RuntimeDatabase, sess
   if (changed !== 1) throw new Error(`Chat session ${sessionId} does not exist to link to orchestrator run ${runId}.`);
 }
 
-/** Sessions whose board shows a run that has not settled; the rail shows each as busy. */
-export function listActiveChatSessionOrchestratorRuns(database: RuntimeDatabase): ChatSessionOrchestratorRun[] {
-  const rows = database.prepare(`
-    SELECT chat_sessions.id AS session_id, chat_sessions.orchestrator_run_id AS run_id,
-      orchestrator_runs.phase AS phase, orchestrator_runs.created_at_utc AS created_at_utc
+/** Sessions whose board shows a run that has not settled, as the busy work the rail reports; the run ID is the operation. */
+export function listActiveChatSessionOrchestratorRuns(database: RuntimeDatabase): ActiveChatOperation[] {
+  return z.array(ActiveChatOperationSchema).parse(database.prepare(`
+    SELECT chat_sessions.id AS sessionId, 'orchestrator' AS operationKind, orchestrator_runs.run_id AS operationId,
+      orchestrator_runs.created_at_utc AS startedAtUtc
     FROM chat_sessions
     JOIN orchestrator_runs ON orchestrator_runs.run_id = chat_sessions.orchestrator_run_id
+    WHERE orchestrator_runs.phase NOT IN (SELECT value FROM json_each(?))
     ORDER BY chat_sessions.updated_at_utc DESC, chat_sessions.rowid DESC
-  `).all();
-  return z.array(ChatSessionOrchestratorActivityRowSchema).parse(rows)
-    .filter((row) => !isOrchestratorTerminalPhase(row.phase))
-    .map((row) => ({ sessionId: row.session_id, runId: row.run_id, startedAtUtc: row.created_at_utc }));
+  `).all(JSON.stringify(ORCHESTRATOR_TERMINAL_PHASES)));
 }
 
 /**
@@ -787,7 +771,7 @@ export function listActiveChatSessionOrchestratorRuns(database: RuntimeDatabase)
  * projected on its own lands after the rows already there instead of renumbering them.
  */
 export function insertChatMessages(
-  database: ReturnType<typeof getRuntimeDatabase>,
+  database: RuntimeDatabase,
   sessionId: string,
   messages: readonly PersistedChatTranscriptMessage[],
   startPosition: number,
@@ -927,7 +911,7 @@ export function insertChatMessages(
 
 /** The transcript rows one run owns, in display order, so a rebuild can replace exactly those. */
 export function readChatRunMessages(
-  database: ReturnType<typeof getRuntimeDatabase>,
+  database: RuntimeDatabase,
   sessionId: string,
   sourceRunId: string,
 ): PersistedChatTranscriptMessage[] {
@@ -941,7 +925,7 @@ export function readChatRunMessages(
 }
 
 /** Like sourceRequestId, outcome is derived from the journal owner rather than stored in message content. */
-function attachRunOutcomes(database: ReturnType<typeof getRuntimeDatabase>, sessionId: string, messages: ChatMessage[]): ChatMessage[] {
+function attachRunOutcomes(database: RuntimeDatabase, sessionId: string, messages: ChatMessage[]): ChatMessage[] {
   const rows = z.array(z.object({ operation_id: z.string(), terminal_cause: ChatRunTerminalCauseSchema, detail: z.string().nullable() })).parse(database.prepare(`
     SELECT operation_id, terminal_cause,
       (SELECT CASE WHEN json_valid(body_json) THEN CASE WHEN json_type(body_json, '$.detail') = 'text'
@@ -961,7 +945,7 @@ function attachRunOutcomes(database: ReturnType<typeof getRuntimeDatabase>, sess
 
 /** The position a new run's rows start at: after everything already written for the session. */
 export function nextChatMessagePosition(
-  database: ReturnType<typeof getRuntimeDatabase>,
+  database: RuntimeDatabase,
   sessionId: string,
 ): number {
   const row = z.object({ next: z.number().int() }).parse(database.prepare(

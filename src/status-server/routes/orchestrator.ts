@@ -58,7 +58,7 @@ export class OrchestratorStartEndpoint implements RouteEndpoint {
       return;
     }
     try {
-      sendJson(res, 202, OrchestratorRun.start(ctx, parsed.data));
+      sendJson(res, 202, await OrchestratorRun.start(ctx, parsed.data));
     } catch (error) {
       sendJson(res, 400, { error: toError(error).message });
     }

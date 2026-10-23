@@ -18,6 +18,7 @@ import { OrchestratorRunStore } from '../../src/orchestrator/run-store.ts';
 import { parseJsonText } from '../../src/lib/json.ts';
 import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
 import { linkChatSessionToOrchestratorRun, listActiveChatSessionOrchestratorRuns } from '../../src/state/chat-sessions.ts';
+import { seedRunLogThroughput } from '../helpers/run-log-throughput.ts';
 import { startHarness, type StreamedOperationHarness } from '../helpers/streamed-op-harness.ts';
 
 const RailSchema = z.object({ sessions: z.array(ChatSessionSummarySchema) });
@@ -223,11 +224,7 @@ test('a session showing a run reports that run\'s prefill and decode rates', asy
   linkChatSessionToOrchestratorRun(getRuntimeDatabase(), sessionId, created.runId);
   const phaseRunId = randomUUID();
   store.update(created.runId, created.revision, { phase: 'completed', phaseRunIds: [phaseRunId] }, { message: 'Done.' });
-  const metric = (tokenCount: number, durationMs: number) => ({ tokenCount, durationMs, tabbyWeightedTokens: tokenCount,
-    tabbyDurationMs: durationMs, requestCount: 1, missingInternalRequests: 0, missingTabbyRequests: 0 });
-  getRuntimeDatabase().prepare(`INSERT INTO run_logs (run_id, request_id, run_kind, run_group, terminal_state, title, source_paths_json, flushed_at_utc, throughput_json)
-    VALUES (?, ?, 'repo_search', 'repo_search', 'completed', 'run', '[]', '2026-10-23T00:00:00.000Z', ?)`)
-    .run(phaseRunId, phaseRunId, JSON.stringify({ pp: metric(1_500, 1_000), decode: metric(80, 2_000) }));
+  seedRunLogThroughput(getRuntimeDatabase(), phaseRunId, [1_500, 1_000], [80, 2_000]);
 
   const response = await fetch(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`);
   assert.equal(response.status, 200);

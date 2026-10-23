@@ -3,10 +3,10 @@ import { readdirSync, statSync, watch } from 'node:fs';
 import path from 'node:path';
 
 import { ShutdownMessageSchema } from '../src/status-server/shutdown-message.ts';
-import { stopChildGracefully, stopChildProcessTree, waitForChildExit } from './start-dev-process.ts';
+import { stopChildProcessTree, stopStatusChild } from './start-dev-process.ts';
 
 export type FileStamp = { mtimeMs: number; size: number };
-export type RestarterOptions = { entry: string; args: string[]; roots: string[]; extensions: string[]; stopTimeoutMs: number };
+export type RestarterOptions = { entry: string; args: string[]; roots: string[]; extensions: string[] };
 
 const RESTART_DEBOUNCE_MS = 200;
 
@@ -62,7 +62,7 @@ export function superviseWithRestarts(options: RestarterOptions): void {
     restartInFlight = true;
     do {
       restartQueued = false;
-      await stopChildGracefully(child, options.stopTimeoutMs);
+      await stopStatusChild(child, 'SIGTERM');
       if (!stopping) child = startChild();
     } while (restartQueued && !stopping);
     restartInFlight = false;
@@ -90,23 +90,21 @@ export function superviseWithRestarts(options: RestarterOptions): void {
   const stamps = snapshotSources(options.roots, options.extensions);
   let child = startChild();
 
-  // A console Ctrl-C already reached the child, so it is awaited; a launcher's request is forwarded.
-  const stopAll = async (forwardShutdown: boolean, exitCode: number): Promise<void> => {
+  const stopAll = async (signal: 'SIGINT' | 'SIGTERM'): Promise<void> => {
     stopping = true;
     for (const watcher of watchers) watcher.close();
     if (restartTimer !== null) clearTimeout(restartTimer);
-    if (forwardShutdown) await stopChildGracefully(child, options.stopTimeoutMs);
-    else await waitForChildExit(child, options.stopTimeoutMs);
-    process.exit(exitCode);
+    await stopStatusChild(child, signal);
+    process.exit(signal === 'SIGINT' ? 130 : 0);
   };
 
   process.on('message', (message) => {
-    if (ShutdownMessageSchema.safeParse(message).success && !stopping) void stopAll(true, 0);
+    if (ShutdownMessageSchema.safeParse(message).success && !stopping) void stopAll('SIGTERM');
   });
-  process.on('SIGTERM', () => { if (!stopping) void stopAll(true, 0); });
+  process.on('SIGTERM', () => { if (!stopping) void stopAll('SIGTERM'); });
   process.on('SIGINT', () => {
     if (!stopping) {
-      void stopAll(false, 130);
+      void stopAll('SIGINT');
       return;
     }
     stopChildProcessTree(child);

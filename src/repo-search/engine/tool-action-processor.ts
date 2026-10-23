@@ -153,9 +153,10 @@ type FittedToolOutcome = {
  * are derived here rather than passed alongside each other.
  */
 const REPEAT_KINDS = {
-  exact: { reason: 'duplicate command', trigger: 'consecutive_duplicates', isSemantic: false },
-  semantic: { reason: 'semantic duplicate command', trigger: 'semantic_repetition', isSemantic: true },
-  exhausted_read: { reason: 'exhausted read', trigger: 'exhausted_read', isSemantic: false },
+  exact: { reason: 'duplicate command', trigger: 'consecutive_duplicates', isSemantic: false, isRepeatedCommand: true },
+  semantic: { reason: 'semantic duplicate command', trigger: 'semantic_repetition', isSemantic: true, isRepeatedCommand: true },
+  // A new read of lines already shown; its body says so, and it is no repeated command.
+  exhausted_read: { reason: 'exhausted read', trigger: 'exhausted_read', isSemantic: false, isRepeatedCommand: false },
 } as const;
 
 type RepeatKind = keyof typeof REPEAT_KINDS;
@@ -807,14 +808,13 @@ export class ToolActionProcessor {
   ): void {
     const { toolAction, normalizedToolName, command, fingerprint } = context;
     const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
-    const { reason, trigger, isSemantic } = REPEAT_KINDS[options.kind];
+    const { reason, trigger, isSemantic, isRepeatedCommand } = REPEAT_KINDS[options.kind];
     const anchorToolCallId = duplicates.replayAnchorToolCallId;
     const registration = duplicates.registerDuplicate(
       options.duplicateFingerprint,
       anchorToolCallId !== null && transcript.hasToolResult(anchorToolCallId),
     );
-    // An exhausted read asks for lines already shown; its body says so, and it is no repeated command.
-    const repeatSummary = options.kind === 'exhausted_read' ? null : buildRepeatedToolCallSummary(normalizedToolName, registration.count);
+    const repeatSummary = isRepeatedCommand ? buildRepeatedToolCallSummary(normalizedToolName, registration.count) : null;
     const duplicateMessage = [options.bodyText, repeatSummary].filter((part) => part !== null && part !== '').join('\n');
     counters.rejectedCalls += 1;
     this.recordRejectionEvidence(turn, state, context.progressToolCallId, duplicateMessage);

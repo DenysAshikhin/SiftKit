@@ -67,7 +67,7 @@ class RestarterProcess {
       env: {
         ...process.env,
         RESTARTER_URL: restarterUrl(),
-        RESTARTER_OPTIONS: JSON.stringify({ entry, args: [], roots: [sourceRoot], extensions: ['.ts'], stopTimeoutMs: 10_000 }),
+        RESTARTER_OPTIONS: JSON.stringify({ entry, args: [], roots: [sourceRoot], extensions: ['.ts'] }),
       },
       stdio: ['ignore', 'pipe', 'inherit', 'ipc'],
     });

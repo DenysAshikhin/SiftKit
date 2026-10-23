@@ -44,7 +44,9 @@ import { readConfig } from '../status-server/config-store.ts';
 import type { OrchestratorLiveRun, RepositoryAccess, RepositoryLease } from '../status-server/orchestrator-runs.ts';
 import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
 import type { ServerContext } from '../status-server/server-types.ts';
-import { requireChatSessionForStart, showRunInChatSession } from './chat-sessions.ts';
+import { chatSessionExists } from '../state/chat-sessions.ts';
+import { resolveNewSessionModelConfig } from '../status-server/new-chat-session.ts';
+import { showRunInChatSession } from './chat-sessions.ts';
 import { findUnrunnableChecks } from './check-preflight.ts';
 import { buildDriftCorrectionWork, validateDriftReview } from './drift-review.ts';
 import {
@@ -168,15 +170,19 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   }
 
   /** Creates (or returns the existing parent for) a submission; only a new parent starts work. Every run shows in a chat session. */
-  static start(ctx: ServerContext, request: OrchestratorStartRequest): OrchestratorRunState {
+  static async start(ctx: ServerContext, request: OrchestratorStartRequest): Promise<OrchestratorRunState> {
     const config = readConfig(ctx.configPath);
     requireOrchestratorPreset(config, request.presetId);
+    // Resolved before any write, so creating the run and linking its session stay one synchronous step.
+    const modelConfig = await resolveNewSessionModelConfig(ctx, request.presetId);
     if (!existsSync(request.repoRoot) || !statSync(request.repoRoot).isDirectory()) {
       throw new Error(`Repository folder '${request.repoRoot}' does not exist.`);
     }
-    if (request.sessionId !== null) requireChatSessionForStart(ctx, request.sessionId);
+    if (request.sessionId !== null && !chatSessionExists(ctx.runtimeDatabase, request.sessionId)) {
+      throw new Error(`Chat session '${request.sessionId}' does not exist.`);
+    }
     const state = ctx.orchestratorRunStore.create(request);
-    showRunInChatSession(ctx, config, request, state.runId);
+    showRunInChatSession(ctx, config, modelConfig, request, state.runId);
     if (!isOrchestratorTerminalPhase(state.phase) && ctx.orchestratorRuns.get(state.runId) === undefined && state.revision === 0) {
       new OrchestratorRun(ctx, state, config);
     }

@@ -10,6 +10,7 @@ import {
   readChatSessionFromPath,
   getChatSessionPath,
   deleteChatSession,
+  linkChatSessionToOrchestratorRun,
 } from '../src/state/chat-sessions.ts';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.ts';
 import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
@@ -213,6 +214,27 @@ test('chat sessions round-trip the full model preset snapshot', () => {
     assert.equal(loaded?.modelPreset.NumCtx, 12_345);
     assert.equal(loaded?.modelPreset.Temperature, 0.5);
     assert.equal(loaded?.modelPreset.Reasoning, 'on');
+  });
+});
+
+// The link has one writer; a save from a snapshot taken before a run started used to unlink it.
+test('saving a session snapshot taken before a run was linked keeps the run link', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const runId = '0b9e1c52-8f0a-4a4e-9a51-3c1f2d6b7e10';
+    const stale: ChatSession = {
+      id: 'session-stale-link', title: 'Before', modelPresetOverrideId: null, modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({ id: 'preset-a' }), presetId: 'chat', mode: 'chat', planRepoRoot: repoRoot,
+      orchestratorRunId: null, createdAtUtc: new Date().toISOString(), updatedAtUtc: new Date().toISOString(), messages: [],
+    };
+    saveChatSession(runtimeRoot, stale);
+    linkChatSessionToOrchestratorRun(getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')), stale.id, runId);
+
+    saveChatSession(runtimeRoot, { ...stale, title: 'After' });
+
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, stale.id));
+    assert.equal(loaded?.title, 'After');
+    assert.equal(loaded?.orchestratorRunId, runId);
   });
 });
 

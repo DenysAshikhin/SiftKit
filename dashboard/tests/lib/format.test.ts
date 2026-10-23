@@ -65,11 +65,10 @@ test('getLastTurnTelemetry skips assistant turns that carry no timings', () => {
   assert.equal(stats.promptTokensPerSecond, 2048);
 });
 
-// A run's session has no turns; without this its speed chips stayed blank for the whole run.
-test('getLastTurnTelemetry shows the rates of the orchestrator run a session shows', () => {
+// A run's session has no turns; without the fallback its speed chips stayed blank for the whole run.
+test('getLastTurnTelemetry falls back to the session rates when no turn was measured', () => {
   const session: ChatSession = {
-    ...sessionWith([]),
-    orchestratorRunId: '0b9e1c52-8f0a-4a4e-9a51-3c1f2d6b7e10',
+    ...sessionWith([BASE_MESSAGE]),
     sessionThroughput: { promptTokensPerSecond: 1500, generationTokensPerSecond: 40 },
   };
   assert.deepEqual(getLastTurnTelemetry(session), { promptTokensPerSecond: 1500, generationTokensPerSecond: 40, ttftMs: null });

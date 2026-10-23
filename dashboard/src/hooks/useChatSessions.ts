@@ -294,10 +294,8 @@ export function useChatSessions(deps: {
 
   useEffect(() => {
     // A turn this client started already renders its own frames; latching on again would double
-    // every one of them. A session showing an orchestrator run has no journal run to latch onto;
-    // its board follows the run itself, and an idle journal would clear the run's busy mark.
-    if (!selectedSessionId || selectedSession === null || selectedSession.orchestratorRunId !== null
-      || ownedSubmissions.current.has(selectedSessionId)) {
+    // every one of them.
+    if (!selectedSessionId || selectedSession === null || ownedSubmissions.current.has(selectedSessionId)) {
       return;
     }
     const sessionId = selectedSessionId;
@@ -373,7 +371,7 @@ export function useChatSessions(deps: {
         if (cancelled) {
           return;
         }
-        runtimeHub.apply({ kind: 'approval-clear', sessionId }, { kind: 'remote-clear', sessionId });
+        runtimeHub.apply({ kind: 'approval-clear', sessionId }, { kind: 'journal-idle', sessionId });
       }
     })();
     return () => {

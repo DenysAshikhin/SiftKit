@@ -85,6 +85,8 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'detach'; sessionId: string }
   | { kind: 'remote-begin'; sessionId: string; operationKind: ChatSessionActivityKind }
   | { kind: 'remote-clear'; sessionId: string }
+  // The journal has no operation; an orchestrator run is not a journal operation, so it stays busy.
+  | { kind: 'journal-idle'; sessionId: string }
   | { kind: 'approval-clear'; sessionId: string }
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[]; submissionId?: ChatSubmissionId }
   /** The run settled; the stored session is refreshed through REST, so the live view retires. */
@@ -255,6 +257,10 @@ function applyTransition(state: SessionState, transition: ChatSessionRuntimeTran
       return { runtime: { ...runtime, activity: { kind: 'remote', operationKind: transition.operationKind } }, live };
     case 'remote-clear':
       return runtime.activity.kind === 'remote'
+        ? { runtime: { ...runtime, activity: { kind: 'idle' }, error: null }, live }
+        : state;
+    case 'journal-idle':
+      return runtime.activity.kind === 'remote' && runtime.activity.operationKind !== 'orchestrator'
         ? { runtime: { ...runtime, activity: { kind: 'idle' }, error: null }, live }
         : state;
     case 'approval-clear':

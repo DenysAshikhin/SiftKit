@@ -7,6 +7,7 @@ import type { OrchestratorChildWork, OrchestratorStartRequest } from '@siftkit/c
 import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { seedRunLogThroughput } from './helpers/run-log-throughput.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function openStore(t: TestContext): { store: OrchestratorRunStore; dbPath: string } {
@@ -156,16 +157,6 @@ test('a stopped run aborts its open tasks and abandons unsettled attempts; untou
   assert.deepEqual(aborted.attempts.map((entry) => entry.status), ['abandoned']);
 });
 
-function metric(tokenCount: number, durationMs: number) {
-  return { tokenCount, durationMs, tabbyWeightedTokens: tokenCount, tabbyDurationMs: durationMs, requestCount: 1, missingInternalRequests: 0, missingTabbyRequests: 0 };
-}
-
-function seedRunLogThroughput(dbPath: string, runId: string, pp: [number, number], decode: [number, number]): void {
-  getRuntimeDatabase(dbPath).prepare(`INSERT INTO run_logs (run_id, request_id, run_kind, run_group, terminal_state, title, source_paths_json, flushed_at_utc, throughput_json)
-    VALUES (?, ?, 'repo_search', 'repo_search', 'completed', 'run', '[]', '2026-10-23T00:00:00.000Z', ?)`)
-    .run(runId, runId, JSON.stringify({ pp: metric(...pp), decode: metric(...decode) }));
-}
-
 // An orchestrator session has no chat turns; its speed is its parent phases' and children's inference.
 test('a run reports the merged throughput of its own phase runs and its children, ignoring unrelated runs', (t) => {
   const { store, dbPath } = openStore(t);
@@ -173,9 +164,10 @@ test('a run reports the merged throughput of its own phase runs and its children
   const phaseRunId = randomUUID();
   store.update(state.runId, state.revision, { phaseRunIds: [phaseRunId] }, { message: 'Phase run recorded.' });
   const attempt = store.reserveAttempt(state.runId, state.revision + 1, 'inspect', implementationWork());
-  seedRunLogThroughput(dbPath, phaseRunId, [1_000, 1_000], [100, 2_000]);
-  seedRunLogThroughput(dbPath, attempt.childRunId, [3_000, 1_000], [300, 2_000]);
-  seedRunLogThroughput(dbPath, randomUUID(), [9_000, 1], [9_000, 1]);
+  const database = getRuntimeDatabase(dbPath);
+  seedRunLogThroughput(database, phaseRunId, [1_000, 1_000], [100, 2_000]);
+  seedRunLogThroughput(database, attempt.childRunId, [3_000, 1_000], [300, 2_000]);
+  seedRunLogThroughput(database, randomUUID(), [9_000, 1], [9_000, 1]);
 
   const throughput = store.readThroughput(state.runId);
   assert.equal(throughput.pp.tokenCount, 4_000);

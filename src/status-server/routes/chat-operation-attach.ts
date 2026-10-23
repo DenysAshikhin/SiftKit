@@ -64,14 +64,6 @@ export class GetChatOperationStreamEndpoint implements RouteEndpoint {
 
 export class GetActiveChatOperationsEndpoint implements RouteEndpoint {
   handle(ctx: ServerContext, _req: IncomingMessage, res: ServerResponse): void {
-    // A session whose board shows a run that has not settled is doing work, exactly as a session with
-    // a live chat operation is; the run's own ID is what the session reports busy with.
-    const orchestratorWork = listActiveChatSessionOrchestratorRuns(ctx.runtimeDatabase).map((activity) => ({
-      sessionId: activity.sessionId,
-      operationKind: 'orchestrator' as const,
-      operationId: activity.runId,
-      startedAtUtc: activity.startedAtUtc,
-    }));
     sendJson(res, 200, ActiveChatOperationsResponseSchema.parse({
       operations: [
         ...ctx.chatSessionOperations.listActive().map((lease) => ({
@@ -80,7 +72,7 @@ export class GetActiveChatOperationsEndpoint implements RouteEndpoint {
           operationId: lease.operationId,
           startedAtUtc: new Date(lease.startedAtMs).toISOString(),
         })),
-        ...orchestratorWork,
+        ...listActiveChatSessionOrchestratorRuns(ctx.runtimeDatabase),
       ],
     }));
   }

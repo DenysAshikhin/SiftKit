@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-
 import { ChatSessionSchema, ChatSessionResponseSchema, ChatSessionSummarySchema, PersistedChatTranscriptMessageSchema, type ChatRecoveryReport, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import type { SiftConfig } from '../config/types.ts';
 import { readChatMeasuredContext, type ChatSession, type StoredChatSessionSummary } from '../state/chat-sessions.ts';
@@ -9,7 +7,7 @@ import { getActiveModelPreset, getConfiguredEngineNumCtx } from '../config/gette
 import { buildChatSessionThroughput } from './chat-turn-telemetry.ts';
 import { calculateThroughputRates } from '../lib/inference-throughput.ts';
 import { OrchestratorRunStore } from '../orchestrator/run-store.ts';
-import { getRuntimeDatabase } from '../state/runtime-db.ts';
+import { getRuntimeRootDatabase } from '../state/runtime-db.ts';
 
 export function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return { ...session, promptContext: buildChatPromptContext(config, session) };
@@ -18,7 +16,7 @@ export function withPromptContext(config: SiftConfig, session: ChatSession): Cha
 /** A run's session has no chat turns; its rates are the run's parent phases and children. */
 function readSessionThroughputRates(runtimeRoot: string, session: ChatSession, messages: readonly PersistedChatTranscriptMessage[]) {
   if (session.orchestratorRunId === null) return buildChatSessionThroughput(messages).rates;
-  const store = new OrchestratorRunStore(getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite')));
+  const store = new OrchestratorRunStore(getRuntimeRootDatabase(runtimeRoot));
   return calculateThroughputRates(store.readThroughput(session.orchestratorRunId));
 }
 
