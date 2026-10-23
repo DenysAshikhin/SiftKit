@@ -1,6 +1,6 @@
 # Orchestrator board explorer: design
 
-**Status:** approved 2026-10-23. **Mockup:** option B in `C:\tmp\siftkit-board-mockups\b-split-explorer.html`, drawn from the stored data of the 4 orchestrator runs.
+**Status:** approved 2026-10-23. Live flows (goal 6, §2.3) were added the same day. **Mockup:** option B in `C:\tmp\siftkit-board-mockups\b-split-explorer.html`, drawn from the stored data of the 4 orchestrator runs.
 
 ## Problem
 
@@ -19,11 +19,12 @@ The Chat tab's orchestrator board shows a run while it is live, but a finished r
 3. The board stays condensed. The task list on the left never moves. One task's or one agent's detail opens in a pane on the right.
 4. Whether each acceptance criterion was met is exact: the reviewer judges every criterion, and the board never infers it.
 5. Child runs never become chat sessions. Today this already holds, and a test will now enforce it.
+6. Everything is live. The flow of a running agent streams as it happens: its thinking, its progress lines, each tool call as it starts and finishes, and its answer. This holds for the planner, reviewers and final verifier as well as workers. A finished agent's flow can be opened immediately, with no wait for its run log to be flushed.
 
 ## Non-goals
 
 - Diffs, folding long user prompts, and Logs-tab changes.
-- Live streaming of a running agent's flow. A running agent keeps today's live card (recent tools, turn, context), and its full flow is available once its run log is flushed.
+- Live full tool output. While an agent runs, a tool call shows the engine's output snippet (`tool_result.outputSnippet`). The full output appears once the agent's transcript is stored.
 
 ## 1. Server data
 
@@ -125,11 +126,47 @@ This returns `OrchestratorAgentFlow`, parsed from that agent's `run_logs.repo_se
 ```
 
 - **Parsing:** in `src/orchestrator/agent-flow.ts`, using the transcript event schemas already in `src/repo-search/live-snapshot/schemas.ts`. Turn elapsed time is from the preceding `provider_request_start`. Tool duration runs from `turn_command_start` to `turn_command_result`, matched by `toolCallId` and turn. Events the flow does not use are skipped.
+- **Source:** the stored transcript when it exists. Otherwise the in-memory live flow from §2.3, whether the agent is running or has finished but is not yet flushed. The response carries `live: boolean`, which is true while the agent runs.
 - **Errors:**
   - 404 when the run is unknown, or `agentRunId` is neither a phase run nor an attempt of the run;
-  - 409 `{ error: 'flow not recorded yet' }` when the run log row or its transcript is missing;
+  - 409 `{ error: 'flow not recorded' }` only when neither the stored transcript nor a live flow exists, such as an agent from before a server restart whose run log was never flushed;
   - a transcript line that fails its schema is a 500 naming the run and line. Corrupt transcripts are not skipped silently.
-- **Cost:** tool output is returned whole. The board fetches a flow only when its fold is opened.
+- **Cost:** tool output is returned whole. The board fetches a flow when that agent is shown in the pane.
+
+### 2.3 Live flows
+
+**Building the flow in memory.** `src/orchestrator/live-flows.ts` holds `OrchestratorLiveFlows`, one per run, owned by the `OrchestratorRun`. It keeps an `OrchestratorAgentFlow` for every agent of the run that is running, or that has finished but whose transcript is not stored yet. One reducer, `reduceAgentFlow(flow, event)`, folds `RepoSearchProgressEvent`s into the same shape §2.2 produces from a transcript:
+
+| Event | Effect on the flow |
+|---|---|
+| `llm_start` | Opens turn `turn` and stamps its start. |
+| `prompt` | Sets the turn's `promptTokens`. |
+| `thinking` | Replaces the turn's `thinking`. The event carries the turn's full thinking so far, not a delta. |
+| `narration`, `answer` | Replaces the turn's `text`. |
+| `progress_update` | Sets the turn's `progress`. |
+| `tool_start` | Appends a running tool: command, with `exitCode: null`. |
+| `tool_result` | Completes that tool: exit code, `output` = `outputSnippet`, duration from the two events' `elapsedMs`. |
+| `approval_request`, `approval_auto` | Appends to the turn's `approvals`. |
+| `llm_end` | Stamps the turn's `elapsedMs`. |
+| `usage` | Sets the turn's `thinkingTokens` from `record.thinkingTokens`. |
+
+Other events change nothing. A tool still running shows `exitCode: null` and `output: ''`.
+
+**Where the events come from:**
+
+- **Workers:** `OrchestratorLiveActivity.track` attaches with `wantsLiveText: true` and feeds every event to both `reduceChildActivity` and `reduceAgentFlow`.
+- **Phase agents:** `OrchestratorPhaseRunner.infer` takes a `phaseRunId`-keyed sink. `PhaseLeaseWriter` reports `wantsLiveText: true`. Its `write` renews the lease, as today, and feeds the event to the sink.
+
+**Lifetime.** A flow is created when its agent starts: at `askParent`'s commit of the phase run, or at the attempt's `markAttemptRunning`. It is marked finished when the agent settles. It is dropped when the run's terminal flush has stored every agent's transcript, or when the run object is released, whichever comes first.
+
+**Stream: `POST /orchestrator/agents/live { runId, agentRunId }`.** This is an SSE stream, like `/orchestrator/events`:
+
+- The first frame is `{ kind: 'flow', flow }`, the full current flow.
+- Each later frame is `{ kind: 'turn', turn }`, the whole changed turn object, sent at most every 250 ms per agent with the latest state of that turn.
+- The stream ends with `{ kind: 'finished', flow }` when the agent settles, and then closes.
+- 404 when the run is unknown or the agent does not belong to it. 409 when the agent has no live flow (it finished and was flushed), in which case the client reads §2.2.
+
+**Activity frame.** `OrchestratorActivity` gains `agents: [{ agentRunId, turn, waitingForModel }]` for every running agent, phase agents included. The board can then mark which chips are live without opening streams.
 
 ## 3. Dashboard: board B
 
@@ -179,7 +216,19 @@ Every agent pane starts with a one-line purpose, then a verdict banner (PASS/FAI
 - **Planner:** "Planned N tasks" with the plan goal, a task table (preset, dependencies, writes, checks), its notes, and the constraints in a fold.
 - **Task spec:** steps with their expected results, "Checked by", "Done when", and the may-write and reads paths.
 
-The **flow** fold fetches §2.2 when it is opened. It shows the last 8 turns, with a "show N earlier turns" button. Each turn line shows the progress text (or the answer summary), tool counts, context tokens and duration. A turn opens to:
+**Live agents:**
+
+- **Selection:** while the run is live, the default selection is the most recently started running agent, which is the planner during planning. Once the user picks something, their pick stays.
+- **Pane of a running agent:**
+  - the verdict banner reads "Running · turn N/M · context X%" (from the activity frame);
+  - the flow section is open, subscribed to §2.3, and follows the newest turn;
+  - the current turn's thinking is expanded and grows as it streams;
+  - tools appear as they start and settle;
+  - while the agent runs, a tool's output is labelled "snippet; full output when the agent finishes".
+- **When the agent settles,** the pane reads §2.2 again and renders the finished layout (verdict, findings, checklist).
+- **Left list:** chips and the planner and final-verifier rows of running agents show a spinner. A phase run or attempt appears as soon as it is committed.
+
+The **flow** section fetches §2.2 for a finished agent when the agent is shown. It shows the last 8 turns, with a "show N earlier turns" button. Each turn line shows the progress text (or the answer summary), tool counts, context tokens and duration. A turn opens to:
 
 - its thinking, folded;
 - each tool call, opening to its output;
@@ -209,6 +258,11 @@ Each has a **raw JSON** fold. Any other answer renders through the existing `Mar
   - `evaluateAttempt` problems.
 - **Schema upgrade:** the 4 data shapes in §1.4, the count-mismatch throw, and a real schema-83 file reopening at 84.
 - **`agent-flow.ts`:** parsing a transcript fixture with thinking, tools, a rejection, approvals and a final answer; a malformed line throws.
+- **`live-flows.ts`:**
+  - `reduceAgentFlow` over an event sequence for each row of the §2.3 table;
+  - a run fixture whose live flow, once finished, matches the §2.2 flow parsed from the same run's transcript, except tool outputs (snippet versus full);
+  - flows are dropped after the terminal flush.
+- **Process test, live stream:** a running phase agent's stream sends `flow`, then `turn` frames as the agent thinks and calls a tool, then `finished`. A stream for an unknown agent returns 404.
 - **Process test:** the two endpoints against a run with a phase run and an attempt (200 / 404 / 409).
 - **Run test:** a run commits `phaseRuns` with the right labels, task and attempt, and records the attempt's typed review.
 - **Dashboard tests:**
@@ -216,5 +270,7 @@ Each has a **raw JSON** fold. Any other answer renders through the existing `Mar
   - each pane kind;
   - the failure details fold;
   - stepper durations;
-  - the flow fold (fetches on open, last 8 turns plus earlier, JSON answer rendering, 409 message).
+  - the flow fold (fetches on open, last 8 turns plus earlier, JSON answer rendering, 409 message);
+  - a running agent's pane: subscribes to the live stream, applies `turn` frames, follows the newest turn, and switches to the finished layout on `finished`;
+  - the default selection follows the running agent until the user picks one.
 - **Rail invariant:** after a run with children, the session list holds exactly the run's one session.
