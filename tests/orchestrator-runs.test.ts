@@ -25,7 +25,7 @@ function openStore(t: TestContext): OrchestratorRunStore {
 }
 
 function createRun(store: OrchestratorRunStore): OrchestratorRunState {
-  return store.create({ submissionId: randomUUID(), repoRoot: createManagedTempDir('siftkit-orchestrator-runs-repo-'), presetId: 'orchestrator',
+  return store.create({ submissionId: randomUUID(), sessionId: null, repoRoot: createManagedTempDir('siftkit-orchestrator-runs-repo-'), presetId: 'orchestrator',
     approval: 'auto', task: 'Inspect the README.', planPath: null });
 }
 

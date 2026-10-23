@@ -516,6 +516,7 @@ function openSessionDatabase(prefix: string) {
     presetId: 'chat',
     mode: 'chat',
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     createdAtUtc: RECORDED_AT,
     updatedAtUtc: RECORDED_AT,
     messages: [],

@@ -76,6 +76,7 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
     model: null,
     contextWindowTokens: 100,
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     createdAtUtc: '2026-06-03T00:00:00.000Z',
     updatedAtUtc: '2026-06-03T00:00:00.000Z',
     sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },

@@ -11,7 +11,7 @@ import { getDefaultServerConfig } from './helpers/mock-config.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.ts';
 import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
-import { ORCHESTRATOR_RUNS_78_SQL } from '../src/state/schema-upgrades/orchestrator-runs.ts';
+import { ORCHESTRATOR_RUNS_78_SQL, upgradeOrchestratorRepoKey } from '../src/state/schema-upgrades/orchestrator-runs.ts';
 import { canonicalRepositoryKey } from '../src/lib/repository-key.ts';
 
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
@@ -137,7 +137,7 @@ test('the upgrade chain from 77 creates the same orchestrator run tables as a fr
   const upgradedPath = rewind(77, JSON.stringify(CATALOG_77));
   try {
     const fresh = orchestratorSchema(freshPath);
-    assert.ok(fresh.columns.flat().some((column) => column.table === 'orchestrator_runs' && column.name === 'repo_key'));
+    assert.ok(!fresh.columns.flat().some((column) => column.table === 'orchestrator_runs' && column.name === 'repo_key'));
     assert.deepEqual(orchestratorSchema(upgradedPath), fresh);
   } finally {
     closeAllRuntimeDatabases();
@@ -149,18 +149,15 @@ const RepoKeyRowsSchema = z.array(z.object({ run_id: z.string(), repo_key: z.str
 test('the 78 to 79 upgrade keys stored runs by repository identity and leaves vanished repositories unkeyed', () => {
   const repo = createManagedTempDir('siftkit-orchestrator-key-repo-');
   const dbPath = rewind(77, JSON.stringify(CATALOG_77));
-  withRuntimeDatabaseConnection(dbPath, (database) => {
+  // Schema 83 drops repo_key again, so the 78 to 79 step is checked on its own.
+  const rows = withRuntimeDatabaseConnection(dbPath, (database) => {
     database.exec(ORCHESTRATOR_RUNS_78_SQL);
     const insert = database.prepare(`INSERT INTO orchestrator_runs
       (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc) VALUES (?, ?, 'd', 0, 'failed', ?, 'a', 'a')`);
     insert.run('present', 's1', JSON.stringify({ request: { repoRoot: `${repo}${path.sep}` } }));
     insert.run('vanished', 's2', JSON.stringify({ request: { repoRoot: path.join(repo, 'gone') } }));
-    database.prepare('UPDATE runtime_schema SET version = 78 WHERE id = 1').run();
+    upgradeOrchestratorRepoKey(database);
+    return RepoKeyRowsSchema.parse(database.prepare('SELECT run_id, repo_key FROM orchestrator_runs ORDER BY run_id').all());
   });
-  try {
-    const rows = RepoKeyRowsSchema.parse(getRuntimeDatabase(dbPath).prepare('SELECT run_id, repo_key FROM orchestrator_runs ORDER BY run_id').all());
-    assert.deepEqual(rows, [{ run_id: 'present', repo_key: canonicalRepositoryKey(repo) }, { run_id: 'vanished', repo_key: null }]);
-  } finally {
-    closeAllRuntimeDatabases();
-  }
+  assert.deepEqual(rows, [{ run_id: 'present', repo_key: canonicalRepositoryKey(repo) }, { run_id: 'vanished', repo_key: null }]);
 });

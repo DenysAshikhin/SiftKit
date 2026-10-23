@@ -555,6 +555,9 @@ export function buildReadExecution(
   }
 
   const selectedLines = plan.lines.slice(plan.effectiveStartLine - 1, plan.effectiveEndLineExclusive - 1);
+  const numberedText = formatNumberedTextBlock(selectedLines, plan.effectiveStartLine).trim();
+  // Marking the last line stops models from probing past it.
+  const lineCount = plan.totalEndLineExclusive - 1;
   return {
     ok: true,
     requestedCommand: plan.requestedCommand,
@@ -564,7 +567,9 @@ export function buildReadExecution(
       plan.effectiveEndLineExclusive - plan.effectiveStartLine,
     ),
     exitCode: 0,
-    output: formatNumberedTextBlock(selectedLines, plan.effectiveStartLine).trim(),
+    output: plan.effectiveEndLineExclusive === plan.totalEndLineExclusive
+      ? `${numberedText}\n(end of file: ${lineCount} line${lineCount === 1 ? '' : 's'})`
+      : numberedText,
     toolType: toolName,
     outputUnit: 'lines',
     readFile,

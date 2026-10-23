@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test, { type TestContext } from 'node:test';
 
 import {
+  ChatSessionSummarySchema,
   ORCHESTRATOR_ACTIVITY_FRAME,
   OrchestratorActivitySchema,
   OrchestratorPlanPreparationSchema,
@@ -111,7 +112,7 @@ async function startHarness(t: TestContext, prefix: string): Promise<Harness> {
 
 async function startRun(context: Harness, approval: ApprovalMode, submissionId = randomUUID()): Promise<OrchestratorRunState> {
   const response = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId, repoRoot: context.repo, presetId: 'orchestrator', approval, task: 'Add a greeting module.', planPath: null,
+    submissionId, sessionId: null, repoRoot: context.repo, presetId: 'orchestrator', approval, task: 'Add a greeting module.', planPath: null,
   }) });
   assert.equal(response.statusCode, 202, JSON.stringify(response.body));
   return OrchestratorRunStateSchema.parse(response.body);
@@ -174,6 +175,15 @@ test('a child approval unloads the child model for the parent decision and reloa
   const childRequests = engine.repoSearchRequests.filter((request) => request.taskKind !== 'orchestrator');
   assert.deepEqual([...new Set(childRequests.map((request) => request.requestId))], [state.attempts[0]?.childRunId],
     'the child transcript is keyed by its reserved child run ID');
+
+  // The run belongs to the one chat session that shows it; the workers it dispatched belong to none.
+  const rail = z.object({ sessions: z.array(ChatSessionSummarySchema) }).parse(
+    (await requestJson(`${context.baseUrl}/dashboard/chat/sessions`)).body);
+  assert.deepEqual(rail.sessions.filter((session) => session.orchestratorRunId !== null)
+    .map((session) => session.orchestratorRunId), [started.runId], 'one run, one session showing it');
+  assert.equal(rail.sessions.some((session) => state.attempts.some((attempt) =>
+    attempt.childRunId === session.id || attempt.childRunId === session.orchestratorRunId)), false,
+    'a worker run gets no chat session of its own');
 });
 
 test('a task that fails verification twice stops after two implementation children and never starts its dependent', async (t) => {
@@ -309,7 +319,7 @@ test('a duplicate submission returns the same parent and abort stops a parked ch
   const started = await startRun(context, 'interactive', submissionId);
   assert.equal((await startRun(context, 'interactive', submissionId)).runId, started.runId);
   const conflicting = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId, repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: 'Something else.', planPath: null }) });
+    submissionId, sessionId: null, repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: 'Something else.', planPath: null }) });
   assert.equal(conflicting.statusCode, 400);
 
   await waitForApproval(context, started.runId);
@@ -372,7 +382,7 @@ test('a supplied adequate plan is kept as is, and malformed parent output gets e
   engine.parent.push(driftReview('clean'));
 
   const response = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId: randomUUID(), repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: null, planPath: 'docs/plan.md' }) });
+    submissionId: randomUUID(), sessionId: null, repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: null, planPath: 'docs/plan.md' }) });
   const { state, events } = await followRun(context, OrchestratorRunStateSchema.parse(response.body).runId);
 
   assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
@@ -411,12 +421,12 @@ test('a blocked plan and a missing plan file fail precisely before any child sta
   assert.match(blocked.state.failure?.message ?? '', /two different modules/u);
 
   const response = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId: randomUUID(), repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: null, planPath: 'docs/missing.md' }) });
+    submissionId: randomUUID(), sessionId: null, repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: null, planPath: 'docs/missing.md' }) });
   const missing = await followRun(context, OrchestratorRunStateSchema.parse(response.body).runId);
   assert.equal(missing.state.failure?.code, 'plan_not_found');
   assert.equal(engine.prompts('children').length, 0);
   const rejected = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId: randomUUID(), repoRoot: context.repo, presetId: 'repo-agent', approval: 'off', task: 'x', planPath: null }) });
+    submissionId: randomUUID(), sessionId: null, repoRoot: context.repo, presetId: 'repo-agent', approval: 'off', task: 'x', planPath: null }) });
   assert.equal(rejected.statusCode, 400);
   assert.match(String(rejected.body.error), /not an orchestrator/u);
 });

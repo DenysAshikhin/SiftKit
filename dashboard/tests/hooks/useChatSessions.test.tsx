@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { z } from 'zod';
 import { chatProjectionCapture, chatSnapshotFrames, projectionPackets, singleRecordFrames, terminalRecord } from '../chat-snapshot-fixture.ts';
 import { createLiveMessage } from '../../src/lib/chat-live-messages.ts';
@@ -71,6 +71,7 @@ const SESSION: ChatSession = {
   model: null,
   contextWindowTokens: 100,
   planRepoRoot: 'C:/repo',
+  orchestratorRunId: null,
   createdAtUtc: '2026-06-03T12:00:00.000Z',
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
   sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
@@ -210,6 +211,32 @@ test('a broken attach refetches and reconnects without resubmitting the user tur
     assert.equal(fixture.streamRequestCount, 0);
     assert.ok(fixture.detailRequestCount >= 2);
   } finally { fixture.restore(); }
+});
+
+test('the rail picks up a session the server created elsewhere, busy with its run, without a reload', async () => {
+  const runId = '6c1f0e2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b';
+  const cliSession: ChatSession = { ...SESSION, id: 's-cli', title: 'Add a greeting module.', presetId: 'orchestrator', orchestratorRunId: runId };
+  const listed: ChatSession[] = [SESSION];
+  const active: ActiveChatOperation[] = [];
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const fixture = new ChatFetchFixture({ session: SESSION, sessions: listed, activeOperations: active,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE } });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.deepEqual(hook.result.current.sessions.map((session) => session.id), ['s1']));
+
+    listed.push(cliSession);
+    active.push({ sessionId: 's-cli', operationKind: 'orchestrator', operationId: runId, startedAtUtc: '2026-10-23T00:00:00.000Z' });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+
+    await waitFor(() => assert.deepEqual(hook.result.current.sessions.map((session) => session.id), ['s1', 's-cli']));
+    assert.deepEqual(hook.result.current.runtimeHub.getStore().get('s-cli').activity, { kind: 'remote', operationKind: 'orchestrator' });
+    assert.equal(hook.result.current.selectedSessionId, 's1', 'a new session never steals the selection');
+  } finally {
+    vi.useRealTimers();
+    fixture.restore();
+  }
 });
 
 test('a terminal refresh failure retains the committed live view for retry', async () => {

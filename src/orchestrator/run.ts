@@ -44,6 +44,7 @@ import { readConfig } from '../status-server/config-store.ts';
 import type { OrchestratorLiveRun, RepositoryAccess, RepositoryLease } from '../status-server/orchestrator-runs.ts';
 import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
 import type { ServerContext } from '../status-server/server-types.ts';
+import { requireChatSessionForStart, showRunInChatSession } from './chat-sessions.ts';
 import { findUnrunnableChecks } from './check-preflight.ts';
 import { buildDriftCorrectionWork, validateDriftReview } from './drift-review.ts';
 import {
@@ -166,11 +167,16 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     this.registered = true;
   }
 
-  /** Creates (or returns the existing parent for) a submission; only a new parent starts work. */
+  /** Creates (or returns the existing parent for) a submission; only a new parent starts work. Every run shows in a chat session. */
   static start(ctx: ServerContext, request: OrchestratorStartRequest): OrchestratorRunState {
     const config = readConfig(ctx.configPath);
     requireOrchestratorPreset(config, request.presetId);
+    if (!existsSync(request.repoRoot) || !statSync(request.repoRoot).isDirectory()) {
+      throw new Error(`Repository folder '${request.repoRoot}' does not exist.`);
+    }
+    if (request.sessionId !== null) requireChatSessionForStart(ctx, request.sessionId);
     const state = ctx.orchestratorRunStore.create(request);
+    showRunInChatSession(ctx, config, request, state.runId);
     if (!isOrchestratorTerminalPhase(state.phase) && ctx.orchestratorRuns.get(state.runId) === undefined && state.revision === 0) {
       new OrchestratorRun(ctx, state, config);
     }

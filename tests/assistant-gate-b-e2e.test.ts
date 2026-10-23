@@ -73,6 +73,7 @@ const SESSION: ChatSession = {
   modelPresetOverrideId: null, modelPresetId: 'default',
   modelPreset: mockModelPreset({ id: 'default' }),
   planRepoRoot: 'C:/repo',
+  orchestratorRunId: null,
 };
 
 test('Gate B: conversation, correction, projection, retrieval, and opt-out work end to end', async () => {

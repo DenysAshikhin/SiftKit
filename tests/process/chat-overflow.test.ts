@@ -13,7 +13,7 @@ const TASK = { id: 'task', title: UNBROKEN, dependsOn: [], workerPresetId: 'repo
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const CHILD_ID = '00000000-0000-4000-8000-000000000002';
 const RUN = OrchestratorRunStateSchema.parse({
-  runId: RUN_ID, request: { submissionId: RUN_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: UNBROKEN, planPath: null },
+  runId: RUN_ID, request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: UNBROKEN, planPath: null },
   revision: 3, phase: 'approval_required', planPath: `C:/repo/${HOSTILE_PATH}plan.md`, planHash: 'h',
   plan: { goal: UNBROKEN, constraints: [], tasks: [TASK], finalVerification: [CHECK] },
   tasks: [{ taskId: TASK.id, status: 'correcting_drift', reviewedDigests: ['d'], driftReview: { taskId: TASK.id, changeDigest: 'd', scopePaths: [],
@@ -29,10 +29,10 @@ const RUN = OrchestratorRunStateSchema.parse({
     command: `rm -rf ${HOSTILE_PATH}`, reviewPayload: UNBROKEN },
 });
 
-/** Serves the page at /page/ and the one orchestrator run it lists; its event stream closes at once on the same state. */
+/** Serves the page at /page/ and the one orchestrator run its session names; its event stream closes at once on the same state. */
 function serve(bundles: ReadonlyMap<string, Map<string, string>>): Promise<http.Server> {
   const routes = new Map([
-    ['/orchestrator/runs', { contentType: 'application/json', body: JSON.stringify({ runs: [RUN] }) }],
+    ['/orchestrator/status', { contentType: 'application/json', body: JSON.stringify(RUN) }],
     ['/orchestrator/events', { contentType: 'text/event-stream', body: `event: result
 data: ${JSON.stringify(RUN)}
 

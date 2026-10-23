@@ -24,7 +24,7 @@ const message = {
 const SESSION_FIXTURE = {
   id: 's1', title: 't', modelPresetId: 'preset-a', modelPresetOverrideId: null,
   defaultModelPreset: { id: 'preset-a', label: 'Preset A' }, model: 'model-a', contextWindowTokens: 4096,
-  planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message], sessionThroughput: NO_SESSION_THROUGHPUT,
+  planRepoRoot: 'C:/repo', orchestratorRunId: null, createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message], sessionThroughput: NO_SESSION_THROUGHPUT,
 };
 
 test('PersistedChatTranscriptMessageSchema accepts a minimal user message', () => {
@@ -126,6 +126,13 @@ test('ChatSessionSchema requires an explicit model choice and a resolved default
   assert.throws(() => ChatSessionSchema.parse({ ...SESSION_FIXTURE, modelPresetOverrideId: undefined }));
   assert.throws(() => ChatSessionSchema.parse({ ...SESSION_FIXTURE, defaultModelPreset: undefined }));
   assert.equal(ChatSessionSchema.parse(SESSION_FIXTURE).modelPresetOverrideId, null);
+});
+
+test('ChatSessionSchema states the orchestrator run it shows: a run id, or an explicit null', () => {
+  const runId = '0b9e1c52-8f0a-4a4e-9a51-3c1f2d6b7e10';
+  assert.equal(ChatSessionSchema.parse({ ...SESSION_FIXTURE, orchestratorRunId: runId }).orchestratorRunId, runId);
+  assert.throws(() => ChatSessionSchema.parse({ ...SESSION_FIXTURE, orchestratorRunId: undefined }));
+  assert.throws(() => ChatSessionSchema.parse({ ...SESSION_FIXTURE, orchestratorRunId: 'not-a-run-id' }));
 });
 
 test('ChatSessionBusyResponseSchema preserves the conflicting session', () => {

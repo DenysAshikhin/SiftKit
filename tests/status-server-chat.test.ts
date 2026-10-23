@@ -372,6 +372,7 @@ test('buildContextUsage sums stored session token fields instead of provider pro
     modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed-exl3', NumCtx: 75000 }),
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     messages: [
       {
         id: 'user-1',
@@ -630,6 +631,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
     // The stored snapshot's window is historical; usage measures against the model the next run resolves to.
     modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }),
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
       {

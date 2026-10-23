@@ -3,7 +3,7 @@ import {
   LIVE_USER_MESSAGE_ID,
   upsertLiveMessageInto,
 } from './chat-live-messages.ts';
-import type { ChatMessage, ChatSessionOperationKind, ContextUsage } from '../types.ts';
+import type { ChatMessage, ChatSessionActivityKind, ChatSessionOperationKind, ContextUsage } from '../types.ts';
 import {
   DEFAULT_APPROVAL_MODE,
   type ApprovalMode,
@@ -24,7 +24,8 @@ import type { PendingImage } from './downscale-image.ts';
 export type ChatSessionActivity =
   | { kind: 'idle' }
   | { kind: 'local'; operationKind: ChatSessionOperationKind; operationId: string }
-  | { kind: 'remote'; operationKind: ChatSessionOperationKind };
+  // A remote session may be working on an orchestrator run, which has no journal operation of its own.
+  | { kind: 'remote'; operationKind: ChatSessionActivityKind };
 
 export type SubmittedChatInput = { content: string; images: PendingImage[] };
 
@@ -82,7 +83,7 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string; submissionId?: ChatSubmissionId }
   | { kind: 'attach'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
   | { kind: 'detach'; sessionId: string }
-  | { kind: 'remote-begin'; sessionId: string; operationKind: ChatSessionOperationKind }
+  | { kind: 'remote-begin'; sessionId: string; operationKind: ChatSessionActivityKind }
   | { kind: 'remote-clear'; sessionId: string }
   | { kind: 'approval-clear'; sessionId: string }
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[]; submissionId?: ChatSubmissionId }

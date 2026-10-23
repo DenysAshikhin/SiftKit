@@ -35,6 +35,7 @@ function openSession(prefix: string): { runtimeRoot: string; database: RuntimeDa
     presetId: 'repo-agent',
     mode: 'repo-search',
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     createdAtUtc: AT,
     updatedAtUtc: AT,
     messages: [],

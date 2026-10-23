@@ -14,6 +14,7 @@ function createSession(presetId: string, mode: ChatSessionMode = 'chat'): ChatSe
     modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default' }),
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     presetId,
     mode,
   };

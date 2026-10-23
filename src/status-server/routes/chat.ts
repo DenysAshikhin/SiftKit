@@ -17,7 +17,6 @@ import type { IncomingMessage,ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import {
 getActiveModelPreset,
-getConfiguredReasoning,
 notifyStatusBackend,
 type SiftConfig
 } from '../../config/index.ts';
@@ -86,6 +85,7 @@ CompositeRepoSearchProgressWriter,
 RepoSearchToolLogProgressWriter,
 } from '../operation-progress-writers.ts';
 import { getRuntimeRoot } from '../paths.ts';
+import { buildNewChatSession } from '../new-chat-session.ts';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.ts';
 import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.ts';
 import { RouteTable,type RouteEndpoint,type RouteMatch } from '../route-table.ts';
@@ -651,36 +651,20 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected a non-empty presetId.' });
       return;
     }
-    const now = new Date().toISOString();
     const currentConfig = readConfig(ctx.configPath);
-    const presets = PresetCatalog.fromPresets(currentConfig.Presets);
-    let preset: SiftPreset;
-    let previewConfig: SiftConfig;
+    let session: ChatSession;
     let responseConfig: SiftConfig;
     try {
-      preset = presets.requireById(createRequest.presetId);
       // A new session previews the model its preset resolves to now, as a pass-through host reports it.
-      previewConfig = await applyHostEngineRuntimeSettings(previewChatOperationTarget(ctx, { presetId: preset.id, modelPresetOverrideId: null }).config);
+      const previewConfig = await applyHostEngineRuntimeSettings(
+        previewChatOperationTarget(ctx, { presetId: createRequest.presetId, modelPresetOverrideId: null }).config,
+      );
+      session = buildNewChatSession(currentConfig, previewConfig, createRequest.presetId, createRequest.title || 'New Session', process.cwd());
       responseConfig = await applyHostEngineRuntimeSettings(currentConfig);
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    const session: ChatSession = {
-      id: randomUUID(),
-      title: createRequest.title || 'New Session',
-      modelPresetId: getActiveModelPreset(previewConfig).id,
-      modelPresetOverrideId: null,
-      modelPreset: getActiveModelPreset(previewConfig),
-      thinkingEnabled: getConfiguredReasoning(previewConfig) !== 'off',
-      webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
-      presetId: preset.id,
-      mode: presets.deriveChatSessionMode(preset.id),
-      planRepoRoot: process.cwd(),
-      createdAtUtc: now,
-      updatedAtUtc: now,
-      messages: [],
-    };
     saveChatSessionMetadata(runtimeRoot, session);
     sendJson(res, 200, buildChatSessionResponse(responseConfig, runtimeRoot, session));
     return;

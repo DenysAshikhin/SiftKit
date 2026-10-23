@@ -32,6 +32,7 @@ function openFixture(prefix: string): Fixture {
     presetId: 'chat',
     mode: 'chat',
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     createdAtUtc: CREATED_AT,
     updatedAtUtc: CREATED_AT,
     messages: [],

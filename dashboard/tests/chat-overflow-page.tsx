@@ -6,7 +6,7 @@ import { ChatTab } from '../src/tabs/ChatTab.tsx';
 import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
 import { chatSnapshot } from './chat-snapshot-fixture.ts';
 import { HOSTILE_PATH, OVERFLOW_PRESENT, SHORT_ANSWER, SHORT_QUESTION, UNBROKEN, type OverflowReport } from './chat-overflow-content.ts';
-import { REPO_AGENT_PRESET, SESSION_A, buildDefaultStore, buildProps, msg, orchestratorProps } from './chat-tab-fixture.ts';
+import { ORCHESTRATOR_SESSION, REPO_AGENT_PRESET, SESSION_A, buildDefaultStore, buildProps, msg, orchestratorProps } from './chat-tab-fixture.ts';
 
 /** Real ChatTab scenarios filled with content that cannot wrap; tests/process/chat-overflow.test.ts drives this page in headless Chrome. */
 const WIDE_TABLE = [
@@ -52,7 +52,10 @@ const SCENARIOS = {
   question: buildProps({ selectedSession: SESSION, runtimeHub: questionHub() }),
   approval: buildProps({ selectedSession: SESSION, runtimeHub: approvalHub(), chatMode: 'repo-agent', isRepoToolMode: true,
     isDirectChatMode: false, webPresets: [REPO_AGENT_PRESET], selectedChatPreset: REPO_AGENT_PRESET }),
-  orchestrator: orchestratorProps({ selectedSession: { ...SESSION, planRepoRoot: 'C:/repo' } }),
+  // The orchestrator scenario shows the board of the run its session names, so it selects that session.
+  orchestrator: orchestratorProps({ selectedSessionId: ORCHESTRATOR_SESSION.id,
+    selectedSession: { ...SESSION, id: ORCHESTRATOR_SESSION.id, planRepoRoot: 'C:/repo',
+      orchestratorRunId: ORCHESTRATOR_SESSION.orchestratorRunId } }),
 };
 
 declare global {

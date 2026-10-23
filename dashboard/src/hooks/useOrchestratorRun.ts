@@ -13,14 +13,24 @@ import {
   abortOrchestrator,
   decideOrchestrator,
   followOrchestrator,
-  listOrchestratorRuns,
+  readOrchestratorRun,
   startOrchestrator,
 } from '../orchestrator-api.ts';
 
-export type OrchestratorStartInput = { presetId: string; approval: ApprovalMode; task: string | null; planPath: string | null };
+export type OrchestratorStartInput = {
+  sessionId: string;
+  repoRoot: string;
+  presetId: string;
+  approval: ApprovalMode;
+  task: string | null;
+  planPath: string | null;
+};
 
-/** Shows the repository's latest parent run, follows it and its live activity, and forwards the user's controls. */
-export function useOrchestratorRun(repoRoot: string | null) {
+/**
+ * Shows one session's own parent run, by the run ID that session records, and follows its progress and
+ * live activity. A run started elsewhere reaches the board only through the session it belongs to.
+ */
+export function useOrchestratorRun(runId: string | null) {
   const [state, setState] = React.useState<OrchestratorRunState | null>(null);
   const [activity, setActivity] = React.useState<OrchestratorActivity | null>(null);
   // The last phase that was real work, so an approval pause or a stop still shows where the run was.
@@ -73,17 +83,16 @@ export function useOrchestratorRun(repoRoot: string | null) {
     setWorkPhase(null);
     setLastMessage(null);
     setError(null);
-    if (repoRoot === null) return undefined;
+    if (runId === null) return undefined;
     let cancelled = false;
-    listOrchestratorRuns(repoRoot).then((runs) => {
-      const latest = runs[0];
-      if (!cancelled && latest !== undefined) attach(latest);
+    readOrchestratorRun(runId).then((state) => {
+      if (!cancelled) attach(state);
     }, (caught) => { if (!cancelled) setError(toError(caught).message); });
     return () => {
       cancelled = true;
       follow.current?.abort();
     };
-  }, [repoRoot, attach]);
+  }, [runId, attach]);
 
   return {
     state,
@@ -92,9 +101,8 @@ export function useOrchestratorRun(repoRoot: string | null) {
     lastMessage,
     error,
     start(input: OrchestratorStartInput): Promise<void> {
-      if (repoRoot === null) throw new Error('An orchestrator run needs a repository folder.');
       setLastMessage(null);
-      return startOrchestrator({ submissionId: crypto.randomUUID(), repoRoot, ...input })
+      return startOrchestrator({ submissionId: crypto.randomUUID(), ...input })
         .then(attach, (caught) => setError(toError(caught).message));
     },
     decide(decision: RepoAgentDecision): Promise<void> {

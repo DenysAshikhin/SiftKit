@@ -358,6 +358,7 @@ class ChatInferenceMetadataFixture {
       id: 'stale-active', title: 'Stale active session', modelPresetOverrideId: null, modelPresetId: this.activePresetId,
       modelPreset: mockModelPreset({ id: this.activePresetId, Model: 'stale-model', NumCtx: 30_000 }), thinkingEnabled: true,
       planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
+      orchestratorRunId: null,
       createdAtUtc: '2026-07-21T00:00:00.000Z',
       updatedAtUtc: '2026-07-21T00:00:00.000Z', messages: [],
     });
@@ -368,6 +369,7 @@ class ChatInferenceMetadataFixture {
       id: 'historical', title: 'Historical session', modelPresetOverrideId: null, modelPresetId: 'historical-preset',
       modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }), thinkingEnabled: true,
       planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
+      orchestratorRunId: null,
       createdAtUtc: '2026-07-20T00:00:00.000Z',
       updatedAtUtc: '2026-07-20T00:00:00.000Z', messages: [],
     });

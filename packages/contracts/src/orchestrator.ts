@@ -105,6 +105,8 @@ export type OrchestratorChildWork = z.infer<typeof OrchestratorChildWorkSchema>;
 
 export const OrchestratorStartRequestSchema = z.object({
   submissionId: z.string().uuid(),
+  /** The chat session the run belongs to; null when the start came from no session and needs one. */
+  sessionId: z.string().uuid().nullable(),
   repoRoot: z.string().trim().min(1),
   presetId: z.string().trim().min(1),
   approval: ApprovalModeSchema,
@@ -280,8 +282,6 @@ export type OrchestratorDecideRequest = z.infer<typeof OrchestratorDecideRequest
 export const OrchestratorAbortRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 export type OrchestratorAbortRequest = z.infer<typeof OrchestratorAbortRequestSchema>;
 
-export const OrchestratorRunListSchema = z.object({ runs: z.array(OrchestratorRunStateSchema) }).strict();
-export type OrchestratorRunList = z.infer<typeof OrchestratorRunListSchema>;
 
 /** How many of a child's latest tool calls the live view keeps. */
 export const ORCHESTRATOR_RECENT_TOOL_LIMIT = 4;

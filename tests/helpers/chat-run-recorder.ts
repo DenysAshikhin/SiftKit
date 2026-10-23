@@ -71,7 +71,7 @@ export function beginRepoAgentTestRun(
   const at = overrides.startedAtUtc ?? new Date().toISOString();
   saveChatSession(root, {
     id: 'session', title: 'Run', modelPresetOverrideId: null, modelPresetId: 'model', modelPreset: mockModelPreset(),
-    presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: at, updatedAtUtc: at, messages: [],
+    presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', orchestratorRunId: null, createdAtUtc: at, updatedAtUtc: at, messages: [],
   });
   const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
   const recorder = ChatRunRecorder.begin(database, {

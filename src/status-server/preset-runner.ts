@@ -212,6 +212,7 @@ export class StatusPresetRunner {
       presetId: preset.id,
       mode: 'chat',
       planRepoRoot: getRepoRoot(request),
+      orchestratorRunId: null,
       createdAtUtc: now,
       updatedAtUtc: now,
       messages: [],

@@ -17,6 +17,7 @@ function thinkingSession(thinkingTokens: number, thinkingEnabled = true): ChatSe
     modelPreset: mockModelPreset({ id: 'default' }),
     thinkingEnabled,
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     createdAtUtc: '2026-09-04T00:00:00.000Z', updatedAtUtc: '2026-09-04T00:00:00.000Z',
     messages: [
       {

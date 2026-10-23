@@ -10,9 +10,9 @@ import {
 import { resolveDashboardLaunch } from './start-dev-dashboard.ts';
 import { isBackendReadyStatusCode } from './start-dev-health.ts';
 import { buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse } from './start-dev-ports.ts';
-import { stopChildProcessTree } from './start-dev-process.ts';
+import { DEV_CHILD_STOP_TIMEOUT_MS, stopChildGracefully, stopChildProcessTree, waitForChildExit } from './start-dev-process.ts';
 
-type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
+type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv; ipc?: boolean };
 
 function startProcess(command: string, args: string[], options: SpawnOptions = {}): ChildProcess {
   // On Windows, .cmd/.bat files can't be spawned directly without a shell. Avoid
@@ -21,7 +21,7 @@ function startProcess(command: string, args: string[], options: SpawnOptions = {
   const spawnCommand = isWindowsCmd ? 'cmd.exe' : command;
   const spawnArgs = isWindowsCmd ? ['/d', '/s', '/c', command, ...args] : args;
   const child = spawn(spawnCommand, spawnArgs, {
-    stdio: 'inherit',
+    stdio: options.ipc ? ['inherit', 'inherit', 'inherit', 'ipc'] : 'inherit',
     cwd: options.cwd || process.cwd(),
     env: options.env || process.env,
     windowsHide: true,
@@ -34,7 +34,8 @@ function startProcess(command: string, args: string[], options: SpawnOptions = {
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const useStableStatus = process.argv.includes('--stable');
-const statusScript = useStableStatus ? 'start:status:stable:server' : 'start:status';
+// Spawned directly, not through npm, so the IPC shutdown message reaches it.
+const statusEntry = useStableStatus ? 'src/status-server/main.ts' : 'scripts/start-dev-status.ts';
 const ASSISTANT_SHELL_WATCH_INTERVAL_MS = 5000;
 let statusProcess: ChildProcess | null = null;
 let dashboardProcess: ChildProcess | null = null;
@@ -44,20 +45,28 @@ let previousAssistantEnabled: boolean | null = null;
 let reuseExistingDashboard = false;
 
 let shuttingDown = false;
-function shutdown(signalName: string): void {
+async function shutdown(signalName: 'SIGINT' | 'SIGTERM'): Promise<void> {
   if (shuttingDown) {
+    // A second Ctrl-C stops waiting for the graceful shutdown.
+    if (signalName === 'SIGINT') {
+      for (const child of [statusProcess, dashboardProcess, assistantShellProcess]) stopChildProcessTree(child);
+      process.exit(130);
+    }
     return;
   }
   shuttingDown = true;
   if (assistantShellWatcher !== null) {
     clearInterval(assistantShellWatcher);
   }
-  for (const child of [statusProcess, dashboardProcess, assistantShellProcess]) {
+  for (const child of [dashboardProcess, assistantShellProcess]) {
     stopChildProcessTree(child);
   }
-  setTimeout(() => {
-    process.exit(signalName === 'SIGINT' ? 130 : 0);
-  }, 150);
+  // Ctrl-C reached the status server through the console; any other stop is requested over IPC.
+  if (statusProcess !== null) {
+    if (signalName === 'SIGINT') await waitForChildExit(statusProcess, DEV_CHILD_STOP_TIMEOUT_MS);
+    else await stopChildGracefully(statusProcess, DEV_CHILD_STOP_TIMEOUT_MS);
+  }
+  process.exit(signalName === 'SIGINT' ? 130 : 0);
 }
 
 function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
@@ -161,11 +170,11 @@ void (async () => {
     }
   }
 
-  statusProcess = startProcess(npmCommand, ['run', statusScript]);
+  statusProcess = startProcess(process.execPath, [statusEntry], { ipc: true });
   statusProcess.on('exit', (code) => {
     if (!shuttingDown) {
       process.stderr.write(`[start-dev] Status server exited with code ${code ?? 0}; stopping dashboard.\n`);
-      shutdown('SIGTERM');
+      void shutdown('SIGTERM');
     }
   });
 
@@ -189,10 +198,10 @@ void (async () => {
   dashboardProcess.on('exit', (code) => {
     if (!shuttingDown) {
       process.stderr.write(`[start-dev] Dashboard exited with code ${code ?? 0}; stopping status server.\n`);
-      shutdown('SIGTERM');
+      void shutdown('SIGTERM');
     }
   });
 })();
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => { void shutdown('SIGINT'); });
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });

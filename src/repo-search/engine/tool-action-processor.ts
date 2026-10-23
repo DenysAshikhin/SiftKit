@@ -813,8 +813,9 @@ export class ToolActionProcessor {
       options.duplicateFingerprint,
       anchorToolCallId !== null && transcript.hasToolResult(anchorToolCallId),
     );
-    const repeatSummary = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
-    const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
+    // An exhausted read asks for lines already shown; its body says so, and it is no repeated command.
+    const repeatSummary = options.kind === 'exhausted_read' ? null : buildRepeatedToolCallSummary(normalizedToolName, registration.count);
+    const duplicateMessage = [options.bodyText, repeatSummary].filter((part) => part !== null && part !== '').join('\n');
     counters.rejectedCalls += 1;
     this.recordRejectionEvidence(turn, state, context.progressToolCallId, duplicateMessage);
     commands.push({

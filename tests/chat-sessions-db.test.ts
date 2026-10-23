@@ -68,6 +68,7 @@ function saveCompactionSession(runtimeRoot: string, messages: ChatMessage[]): Ch
     presetId: 'chat',
     mode: 'chat',
     planRepoRoot: runtimeRoot,
+    orchestratorRunId: null,
     createdAtUtc: COMPACTION_FIXTURE_TIMESTAMP,
     updatedAtUtc: COMPACTION_FIXTURE_TIMESTAMP,
     messages,
@@ -127,6 +128,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [{
@@ -199,6 +201,7 @@ test('chat sessions round-trip the full model preset snapshot', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -226,6 +229,7 @@ test('reading a chat session row without a preset snapshot fails loudly', () => 
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -259,6 +263,7 @@ test('a preset snapshot written before a field existed loads with that field def
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -294,6 +299,7 @@ test('a preset snapshot carrying a field this repo removed still fails loudly', 
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -330,6 +336,7 @@ test('chat sessions persist webSearchEnabled', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -359,6 +366,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
       presetId: 'repo-search',
       mode: 'repo-search',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [{
@@ -414,6 +422,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
       presetId: 'repo-search',
       mode: 'repo-search',
       planRepoRoot: runtimeRoot,
+      orchestratorRunId: null,
       createdAtUtc: '2026-01-01T00:00:00.000Z',
       updatedAtUtc: '2026-01-01T00:00:00.000Z',
       messages: [{
@@ -486,6 +495,7 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
       modelPresetOverrideId: null, modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
       planRepoRoot: 'C:/repo',
+      orchestratorRunId: null,
       presetId: 'chat',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
@@ -509,6 +519,7 @@ test('saveChatSession rejects a missing preset id instead of deriving it from mo
         modelPresetOverrideId: null, modelPresetId: 'preset-a',
         modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
         planRepoRoot: 'C:/repo',
+        orchestratorRunId: null,
         mode: 'plan',
         createdAtUtc: new Date().toISOString(),
         updatedAtUtc: new Date().toISOString(),
@@ -533,6 +544,7 @@ test('chat messages round-trip their image data URIs', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [{
@@ -643,6 +655,7 @@ test('stopped transcript segments round-trip through the chat database', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
+      orchestratorRunId: null,
       createdAtUtc: savedAt,
       updatedAtUtc: savedAt,
       messages: [
@@ -731,6 +744,7 @@ function stoppedTurnSession(id: string, createdAtUtc: string): ChatSession {
     id, title: 'Stopped writer', modelPresetId: 'default', modelPresetOverrideId: null,
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed.exl3', NumCtx: 8192 }),
     planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat', createdAtUtc, updatedAtUtc: createdAtUtc, messages: [],
+    orchestratorRunId: null,
   };
 }
 
@@ -778,6 +792,7 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: 'C:/repo',
+      orchestratorRunId: null,
       createdAtUtc: savedAt,
       updatedAtUtc: savedAt,
       messages: [
@@ -834,6 +849,7 @@ test('a tool row with no recorded execution state is refused instead of inferred
     id: 'state-required', title: 'State required', modelPresetOverrideId: null, modelPresetId: 'preset-a',
     modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }), presetId: 'chat', mode: 'chat',
     planRepoRoot: 'C:/repo', createdAtUtc: at, updatedAtUtc: at,
+    orchestratorRunId: null,
     messages: [{
       id: 'tool', role: 'assistant', kind: 'assistant_tool_call', content: 'rg physics',
       inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,

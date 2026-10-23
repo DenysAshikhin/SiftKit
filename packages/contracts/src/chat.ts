@@ -327,6 +327,8 @@ export const ChatSessionSchema = z.object({
   model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
   mode: ChatSessionModeSchema.optional(), planRepoRoot: z.string(),
+  /** The orchestrator run this session shows on its board; null for every other session. */
+  orchestratorRunId: z.string().uuid().nullable(),
   createdAtUtc: z.string(), updatedAtUtc: z.string(),
   sessionThroughput: ThroughputRatesSchema,
   messages: z.array(PersistedChatTranscriptMessageSchema), promptContext: ChatPromptContextSchema.optional(),
@@ -367,6 +369,12 @@ export type ContextUsage = z.infer<typeof ContextUsageSchema>;
 
 export const ChatSessionOperationKindSchema = z.enum(['message', 'plan', 'repo-search', 'repo-agent', 'condense']);
 export type ChatSessionOperationKind = z.infer<typeof ChatSessionOperationKindSchema>;
+/**
+ * What a session is doing on the server right now: its journal kinds, or an orchestrator run. An
+ * orchestrator run has no journal run of its own, so its own run ID is what the session reports busy.
+ */
+export const ChatSessionActivityKindSchema = z.union([ChatSessionOperationKindSchema, z.literal('orchestrator')]);
+export type ChatSessionActivityKind = z.infer<typeof ChatSessionActivityKindSchema>;
 export const ChatSessionBusyResponseSchema = z.object({
   error: z.literal('Chat session already has an active operation.'),
   sessionId: z.string().min(1),
@@ -615,7 +623,7 @@ export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;
 
 export const ActiveChatOperationSchema = z.strictObject({
   sessionId: z.string().min(1),
-  operationKind: ChatSessionOperationKindSchema,
+  operationKind: ChatSessionActivityKindSchema,
   operationId: ChatOperationIdSchema,
   startedAtUtc: z.string().datetime(),
 });

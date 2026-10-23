@@ -98,6 +98,7 @@ export type ChatTabProps = ChatPendingQueueActions & {
   onToggleThinking(enabled: boolean): Promise<void>;
   onToggleWebSearchEnabled(enabled: boolean): Promise<void>;
   onSavePlanRepoRoot(): Promise<void>;
+  onRefreshSelectedSession(): Promise<void>;
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
@@ -192,6 +193,7 @@ export function ChatTab({
   onToggleThinking,
   onToggleWebSearchEnabled,
   onSavePlanRepoRoot,
+  onRefreshSelectedSession,
   onDeleteMessage,
   onDeleteTurn,
   onDeleteMessageImage,
@@ -251,10 +253,16 @@ export function ChatTab({
   const invalidRepoAgentTurns = chatMode === 'repo-agent'
     && !PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success;
   const savedRepoRoot = selectedSession?.planRepoRoot.trim() ?? '';
-  const orchestrator = useOrchestratorRun(chatMode === 'orchestrator' && savedRepoRoot !== '' ? savedRepoRoot : null);
+  // The board shows the run this session records, never whichever run the folder happens to have.
+  const orchestrator = useOrchestratorRun(chatMode === 'orchestrator' ? selectedSession?.orchestratorRunId ?? null : null);
   const [orchestratorApproval, setOrchestratorApproval] = React.useState<ApprovalMode>('auto');
   const [orchestratorPlanPath, setOrchestratorPlanPath] = React.useState('');
   const orchestratorLive = orchestrator.state !== null && !isOrchestratorTerminalPhase(orchestrator.state.phase);
+  // Each committed revision may link a new run or finish a phase or child whose rates the session folds.
+  const orchestratorRevision = orchestrator.state === null ? null : `${orchestrator.state.runId}:${orchestrator.state.revision}`;
+  React.useEffect(() => {
+    if (orchestratorRevision !== null) void onRefreshSelectedSession();
+  }, [orchestratorRevision]);
   // The orchestrator needs a saved repository and accepts a task, a plan path, or both.
   const sendBlocked = sessionPreferencesSaving || (chatMode === 'orchestrator'
     ? savedRepoRoot === '' || orchestratorLive || selectedChatPreset === null || (!draft.trim() && !orchestratorPlanPath.trim())
@@ -315,11 +323,19 @@ export function ChatTab({
   }
 
   function startOrchestratorRun(): void {
-    if (sendBlocked || selectedChatPreset === null) return;
+    if (sendBlocked || selectedChatPreset === null || selectedSession === null || savedRepoRoot === '') return;
     const task = draft.trim();
     const planPath = orchestratorPlanPath.trim();
-    void orchestrator.start({ presetId: selectedChatPreset.id, approval: orchestratorApproval, task: task || null, planPath: planPath || null })
-      .then(() => onChangeDraft(''));
+    void orchestrator.start({
+      sessionId: selectedSession.id,
+      repoRoot: savedRepoRoot,
+      presetId: selectedChatPreset.id,
+      approval: orchestratorApproval,
+      task: task || null,
+      planPath: planPath || null,
+    }).then(() => {
+      onChangeDraft('');
+    });
   }
 
   function dispatchSend(): void {

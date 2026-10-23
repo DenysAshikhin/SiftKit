@@ -130,6 +130,7 @@ export function useChatController(deps: {
     onToggleThinking: thinkingEnabled => chatSessionsHook.updateSessionPreferences({ thinkingEnabled }),
     onToggleWebSearchEnabled: webSearchEnabled => chatSessionsHook.updateSessionPreferences({ webSearchEnabled }),
     onSavePlanRepoRoot: () => chatSessionsHook.savePlanRepoRoot(readSelectedRuntime()?.planRepoRootInput ?? '', selectedChatPreset?.id),
+    onRefreshSelectedSession: () => chatSessionsHook.refreshSelectedSession(),
     onDeleteMessage: onDeleteChatMessage,
     onDeleteTurn: onDeleteChatTurn,
     onDeleteMessageImage: onDeleteChatMessageImage,

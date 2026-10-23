@@ -37,7 +37,7 @@ function runState(statuses: Record<string, OrchestratorTaskStatus>, overrides: P
     planTask('after', 'repo-search', ['write'])];
   return OrchestratorRunStateSchema.parse({
     runId: RUN_ID,
-    request: { submissionId: RUN_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'Go', planPath: null },
+    request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'Go', planPath: null },
     revision: 1, phase: 'executing', planPath: 'plan.md', planHash: 'h',
     plan: { goal: 'Go', constraints: [], tasks, finalVerification: [CHECK] },
     tasks: tasks.map((task) => ({ taskId: task.id, status: statuses[task.id] ?? 'pending', driftReview: null, reviewedDigests: [] })),

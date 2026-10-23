@@ -33,6 +33,9 @@ import { serverLogger } from './server-logger.ts';
  */
 export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
 
+/** Oldest pending log age at which a run flushes despite activity: agent loops never leave the engine idle. */
+export const PENDING_FLUSH_MAX_DEFER_MS = 30_000;
+
 /** The flush worker is this module's sibling source file; Node runs it without a build. */
 export function getShippedFlushWorkerPath(): string {
   return join(moduleDirname(import.meta.url), 'inference-run-flush-worker.ts');
@@ -68,6 +71,7 @@ export type InferenceRunFlushWorkerLaunch = {
 
 export type InferenceRunFlushQueueOptions = {
   idleDelayMs?: number;
+  maxDeferMs?: number;
   closeFlushWaitMs?: number;
   flushWorker?: InferenceRunFlushWorkerLaunch;
 };
@@ -88,6 +92,7 @@ export type InferenceRunFlushQueueSnapshot = {
 
 export class InferenceRunFlushQueue {
   private readonly idleDelayMs: number;
+  private readonly maxDeferMs: number;
   private readonly flushWorkerLaunch: InferenceRunFlushWorkerLaunch | null;
   /**
    * How long `close` gives an in-flight flush to finish, so the worker is never terminated with its
@@ -132,6 +137,7 @@ export class InferenceRunFlushQueue {
     this.idleDelayMs = Number.isFinite(configuredIdleDelayMs)
       ? Math.max(0, Math.trunc(configuredIdleDelayMs))
       : 0;
+    this.maxDeferMs = normalizeTimeoutMs(options.maxDeferMs ?? PENDING_FLUSH_MAX_DEFER_MS);
     const configuredCloseFlushWaitMs = Number(options.closeFlushWaitMs ?? SHUTDOWN_CLOSE_FLUSH_WAIT_MS);
     this.closeFlushWaitMs = Number.isFinite(configuredCloseFlushWaitMs)
       ? Math.max(0, Math.trunc(configuredCloseFlushWaitMs))
@@ -444,13 +450,14 @@ export class InferenceRunFlushQueue {
   }
 
   private getIdleWaitMs(fallbackStartedAtMs: number, pendingCharacters: number): number {
-    if (this.shuttingDown || pendingCharacters >= PENDING_FLUSH_HIGH_WATER_CHARACTERS) {
+    const deferLeftMs = this.maxDeferMs - (Date.now() - fallbackStartedAtMs);
+    if (this.shuttingDown || pendingCharacters >= PENDING_FLUSH_HIGH_WATER_CHARACTERS || deferLeftMs <= 0) {
       return 0;
     }
     if (this.activeModelRequest || this.modelRequestQueueLength > 0) {
-      return deferredDrainWaitMs(this.idleDelayMs);
+      return Math.min(deferredDrainWaitMs(this.idleDelayMs), deferLeftMs);
     }
-    return elapsedIdleWaitMs(this.idleDelayMs, this.lastModelRequestFinishedAtMs, fallbackStartedAtMs);
+    return Math.min(elapsedIdleWaitMs(this.idleDelayMs, this.lastModelRequestFinishedAtMs, fallbackStartedAtMs), deferLeftMs);
   }
 
   private flushInWorker(

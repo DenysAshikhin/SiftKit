@@ -30,7 +30,6 @@ import {
   OrchestratorAbortEndpoint,
   OrchestratorDecideEndpoint,
   OrchestratorEventsEndpoint,
-  OrchestratorListEndpoint,
   OrchestratorStartEndpoint,
   OrchestratorStatusEndpoint,
 } from './orchestrator.ts';
@@ -55,7 +54,6 @@ const CORE_ROUTES = new RouteTable([
   { method: 'POST', path: '/orchestrator/decide', endpoint: new OrchestratorDecideEndpoint() },
   { method: 'POST', path: '/orchestrator/abort', endpoint: new OrchestratorAbortEndpoint() },
   { method: 'GET', path: /^\/orchestrator\/status(?:\?.*)?$/u, endpoint: new OrchestratorStatusEndpoint() },
-  { method: 'GET', path: /^\/orchestrator\/runs(?:\?.*)?$/u, endpoint: new OrchestratorListEndpoint() },
   { method: 'POST', path: '/summary', endpoint: new SummaryEndpoint() },
   { method: 'POST', path: /^\/status\/complete(?:\?.*)?$/u, endpoint: new StatusCompleteEndpoint() },
   { method: 'POST', path: '/status', endpoint: STATUS_POST_ENDPOINT },

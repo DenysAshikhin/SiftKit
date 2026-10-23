@@ -1,6 +1,7 @@
 import { startStatusServer } from './index.ts';
 import { getErrorMessage } from '../lib/errors.ts';
 import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from './shutdown-budget.ts';
+import { ShutdownMessageSchema } from './shutdown-message.ts';
 
 const server = startStatusServer({
   disableManagedEngineStartup: process.argv.includes('--disable-managed-engine-startup'),
@@ -46,3 +47,7 @@ process.on('exit', () => { server.shutdownEngineForProcessExitSync?.(); });
 process.on('SIGINT', () => { shutdown('SIGINT'); });
 process.on('SIGTERM', () => { shutdown('SIGTERM'); });
 process.on('SIGUSR2', () => { shutdown('SIGUSR2'); });
+// A console Ctrl-C may reach this process alongside the launcher's message; one shutdown is enough.
+process.on('message', (message) => {
+  if (ShutdownMessageSchema.safeParse(message).success && !shuttingDown) shutdown('SIGTERM');
+});

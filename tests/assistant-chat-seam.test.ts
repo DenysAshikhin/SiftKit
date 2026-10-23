@@ -19,6 +19,7 @@ const SESSION: ChatSession = {
   modelPresetOverrideId: null, modelPresetId: 'default',
   modelPreset: mockModelPreset({ id: 'default' }),
   planRepoRoot: 'C:/repo',
+  orchestratorRunId: null,
 };
 
 class StubAssistant {

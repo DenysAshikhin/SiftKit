@@ -4,7 +4,6 @@ import {
   OrchestratorActivitySchema,
   OrchestratorDecideRequestSchema,
   OrchestratorProgressSchema,
-  OrchestratorRunListSchema,
   OrchestratorRunStateSchema,
   OrchestratorStartRequestSchema,
   type OrchestratorActivity,
@@ -25,9 +24,10 @@ export async function startOrchestrator(request: OrchestratorStartRequest): Prom
   return parseJsonResponse(await postJson('/orchestrator', JSON.stringify(OrchestratorStartRequestSchema.parse(request))), OrchestratorRunStateSchema);
 }
 
-export async function listOrchestratorRuns(repoRoot: string): Promise<OrchestratorRunState[]> {
-  const response = await fetch(`/orchestrator/runs?repoRoot=${encodeURIComponent(repoRoot)}`);
-  return (await parseJsonResponse(response, OrchestratorRunListSchema)).runs;
+/** The run one session shows, by the ID the session records. */
+export async function readOrchestratorRun(runId: string): Promise<OrchestratorRunState> {
+  const response = await fetch(`/orchestrator/status?runId=${encodeURIComponent(runId)}`);
+  return parseJsonResponse(response, OrchestratorRunStateSchema);
 }
 
 export async function decideOrchestrator(request: OrchestratorDecideRequest): Promise<OrchestratorRunState> {

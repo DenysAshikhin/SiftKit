@@ -12,6 +12,7 @@ export function createTestChatSession(runtimeRoot: string): ChatSession {
     presetId: 'chat',
     mode: 'chat',
     planRepoRoot: runtimeRoot,
+    orchestratorRunId: null,
     createdAtUtc: timestamp,
     updatedAtUtc: timestamp,
     messages: [],

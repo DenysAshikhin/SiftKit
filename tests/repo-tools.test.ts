@@ -173,6 +173,22 @@ test('planRead returns a numbered window and honours limit as a line count', () 
   assert.equal(execution.output, '2: alpha\n3: line3');
 });
 
+// Without an end marker models probed past the last line and hit exhausted-read rejections.
+test('a read window that reaches the last line says the file ends there', () => {
+  const root = makeRepo();
+  const policy = buildIgnorePolicy(root);
+  const readOutput = (args: Record<string, string | number>): string => {
+    const plan = planRead(args, root, policy);
+    assert.ok(!isFailedReadPlan(plan));
+    const execution = buildReadExecution('read', plan);
+    assert.ok(execution.ok);
+    return execution.output;
+  };
+  assert.equal(readOutput({ path: 'src/a.ts', offset: 2, limit: 2 }), '2: alpha\n3: line3');
+  assert.equal(readOutput({ path: 'src/a.ts', offset: 4 }), '4: alpha\n5: line5\n(end of file: 5 lines)');
+  assert.equal(readOutput({ path: 'src/nested/b.ts', offset: 1, limit: 10 }), '1: alpha nested\n(end of file: 1 line)');
+});
+
 test('read skips already-returned ranges instead of re-reading them', () => {
   const root = makeRepo();
   const stateByPath = new Map<string, FileReadState>();

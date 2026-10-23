@@ -62,6 +62,8 @@ import type { PendingImage } from '../lib/downscale-image.ts';
 import { waitForAbortableDelay } from '../lib/abortable-delay.ts';
 
 const CHAT_ATTACH_RECONNECT_MS = 1000;
+/** How often the rail is re-read, so work the server started on its own appears without a reload. */
+const SESSION_LIST_POLL_MS = 3000;
 
 type OwnedChatSubmission =
   | { operationKind: 'message'; payload: ChatMessageStreamRequest }
@@ -170,6 +172,14 @@ export function useChatSessions(deps: {
     runtimeHub.apply({ kind: 'failure', sessionId, message: error.message });
   }
 
+  // The listing is the rail's only source, and a run started elsewhere (the CLI, another tab) is
+  // known to no one here until the next read of it.
+  const [pollToken, setPollToken] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setPollToken((token) => token + 1), SESSION_LIST_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -215,7 +225,7 @@ export function useChatSessions(deps: {
     return () => {
       cancelled = true;
     };
-  }, [deps.refreshToken]);
+  }, [deps.refreshToken, pollToken]);
 
   useEffect(() => {
     if (!selectedSessionId || loadedSessionsRef.current.has(selectedSessionId)) {
@@ -284,8 +294,10 @@ export function useChatSessions(deps: {
 
   useEffect(() => {
     // A turn this client started already renders its own frames; latching on again would double
-    // every one of them.
-    if (!selectedSessionId || selectedSession === null || ownedSubmissions.current.has(selectedSessionId)) {
+    // every one of them. A session showing an orchestrator run has no journal run to latch onto;
+    // its board follows the run itself, and an idle journal would clear the run's busy mark.
+    if (!selectedSessionId || selectedSession === null || selectedSession.orchestratorRunId !== null
+      || ownedSubmissions.current.has(selectedSessionId)) {
       return;
     }
     const sessionId = selectedSessionId;
@@ -417,6 +429,19 @@ export function useChatSessions(deps: {
       }
     } catch (error) {
       recordSessionError(selectedSessionId, toError(error));
+    }
+  }
+
+  /** Re-reads the selected session's detail, so a link the server made while it was cached shows. */
+  async function refreshSelectedSession(): Promise<void> {
+    const sessionId = selectedSessionIdRef.current;
+    if (sessionId === '') {
+      return;
+    }
+    try {
+      applySessionResponse(await getChatSession(sessionId));
+    } catch (error) {
+      recordSessionError(sessionId, toError(error));
     }
   }
 
@@ -877,6 +902,7 @@ export function useChatSessions(deps: {
     runtimeHub,
     selectSession,
     refreshSessions,
+    refreshSelectedSession,
     createSession,
     deleteSession,
     updateSessionPreferences,

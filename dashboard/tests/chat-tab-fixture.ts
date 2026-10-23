@@ -37,6 +37,7 @@ export function msg(overrides: Partial<ChatMessage>): ChatMessage {
 export const SESSION_A = {
   id: 'session-a', title: 'Session A', modelPresetId: 'test-model', modelPresetOverrideId: null,
   defaultModelPreset: { id: 'test-model', label: 'Test model' }, model: 'test-model', contextWindowTokens: 100, planRepoRoot: 'C:/repo',
+  orchestratorRunId: null,
   thinkingEnabled: true, presetId: PRESET.id, mode: 'chat',  createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
   sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
   messages: [msg({ id: 'a1', kind: 'assistant_answer', content: 'Hello from the assistant.' })],
@@ -84,7 +85,7 @@ export function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps 
     onChangeDraft: () => {}, onCreateSession: async () => {}, onDeleteSession: async () => {},
     onUpdateSessionPreset: async () => {}, onToggleThinking: async () => {}, onToggleWebSearchEnabled: async () => {},
     onUpdateSessionModel: async () => {},
-    onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
+    onSavePlanRepoRoot: async () => {}, onRefreshSelectedSession: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
     onDeleteMessageImage: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
     onSendRepoAgent: async () => {}, onSubmitRepoAgentDecision: async () => {}, onAnswerQuestion: async () => {},
@@ -104,8 +105,14 @@ export function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps 
 export const ORCHESTRATOR_CHAT_PRESET = { ...REPO_AGENT_PRESET, id: 'orchestrator', label: 'Orchestrator', presetKind: 'orchestrator',
   operationMode: 'read-only' } satisfies DashboardPreset;
 export const ORCHESTRATOR_RUN_ID = '4f9c1f9a-0000-4000-8000-0000000000aa';
+/** The session whose board the orchestrator fixtures show: like any session the server mints, its id is a UUID. */
+export const ORCHESTRATOR_SESSION = {
+  ...SESSION_A, id: '4f9c1f9a-0000-4000-8000-0000000000ac', orchestratorRunId: ORCHESTRATOR_RUN_ID,
+} satisfies ChatSession;
 
 export function orchestratorProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
   return buildProps({ chatMode: 'orchestrator', isRepoToolMode: true, isDirectChatMode: false,
-    webPresets: [ORCHESTRATOR_CHAT_PRESET], selectedChatPreset: ORCHESTRATOR_CHAT_PRESET, ...overrides });
+    webPresets: [ORCHESTRATOR_CHAT_PRESET], selectedChatPreset: ORCHESTRATOR_CHAT_PRESET,
+    // A board shows the run its session records, so an orchestrator session names the run it shows.
+    selectedSession: ORCHESTRATOR_SESSION, ...overrides });
 }

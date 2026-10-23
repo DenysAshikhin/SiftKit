@@ -270,10 +270,8 @@ export const ORCHESTRATOR_RUNS_SCHEMA_SQL = `
     phase TEXT NOT NULL,
     state_json TEXT NOT NULL,
     created_at_utc TEXT NOT NULL,
-    updated_at_utc TEXT NOT NULL,
-    repo_key TEXT
+    updated_at_utc TEXT NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_orchestrator_runs_repo_key ON orchestrator_runs (repo_key, created_at_utc);
   CREATE TABLE IF NOT EXISTS orchestrator_attempts (
     run_id TEXT NOT NULL REFERENCES orchestrator_runs(run_id) ON DELETE CASCADE,
     task_id TEXT NOT NULL,
@@ -394,6 +392,7 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
       preset_id TEXT,
       mode TEXT NOT NULL CHECK (mode IN ('chat', 'plan', 'repo-search')),
       plan_repo_root TEXT NOT NULL,
+      orchestrator_run_id TEXT,
       created_at_utc TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
     );

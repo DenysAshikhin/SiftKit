@@ -19,6 +19,7 @@ import { upgradeOrchestratorOptions } from './schema-upgrades/orchestrator-optio
 import { upgradeOrchestratorRepoKey, upgradeOrchestratorRuns } from './schema-upgrades/orchestrator-runs.ts';
 import { upgradeChatStatusNarration } from './schema-upgrades/chat-status-narration.ts';
 import { upgradeExplicitChatModelSelection } from './schema-upgrades/chat-model-selection.ts';
+import { upgradeOrchestratorSessionLinks } from './schema-upgrades/orchestrator-session-links.ts';
 import type { RuntimeDatabase } from './database-handle.ts';
 export type { RuntimeDatabase } from './database-handle.ts';
 
@@ -29,7 +30,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 82;
+export const CURRENT_SCHEMA_VERSION = 83;
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -55,6 +56,7 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 79, apply: upgradeOrchestratorOptions },
   { from: 80, apply: database => database.exec('ALTER TABLE chat_sessions ADD COLUMN model_preset_override_id TEXT') },
   { from: 81, apply: upgradeExplicitChatModelSelection },
+  { from: 82, apply: upgradeOrchestratorSessionLinks },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

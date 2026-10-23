@@ -56,7 +56,7 @@ export async function runOrchestratorCli(options: {
   const { invocation, stdout, stderr } = options;
   switch (invocation.kind) {
     case 'start': {
-      const state = await api.startOrchestrator({ submissionId: randomUUID(), repoRoot: invocation.repoRoot,
+      const state = await api.startOrchestrator({ submissionId: randomUUID(), sessionId: null, repoRoot: invocation.repoRoot,
         presetId: invocation.presetId, approval: invocation.approval, task: invocation.task, planPath: invocation.planPath });
       stderr.write(`[orchestrator] run ${state.runId} started; reattach with: siftkit orchestrator attach ${state.runId}\n`);
       return follow(api, state.runId, 0, stdout, stderr);

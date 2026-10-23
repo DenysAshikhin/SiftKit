@@ -18,7 +18,7 @@ const TASK = {
 function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunState {
   return OrchestratorRunStateSchema.parse({
     runId: RUN_ID,
-    request: { submissionId: RUN_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'Greet', planPath: null },
+    request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'Greet', planPath: null },
     revision: 3, phase: 'executing', planPath: 'C:/repo/.siftkit/orchestrator/plan.md', planHash: 'h',
     plan: { goal: 'Greet', constraints: [], tasks: [TASK], finalVerification: [CHECK] },
     tasks: [{ taskId: TASK.id, status: 'running', driftReview: null, reviewedDigests: [] }],

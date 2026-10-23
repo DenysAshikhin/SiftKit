@@ -181,6 +181,7 @@ function createSession(): ChatSession {
     presetId: 'summary',
     mode: 'chat',
     planRepoRoot: process.cwd(),
+    orchestratorRunId: null,
     createdAtUtc: '2026-07-28T00:00:00.000Z',
     updatedAtUtc: '2026-07-28T00:00:00.000Z',
     messages: [],

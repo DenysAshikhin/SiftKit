@@ -18,7 +18,7 @@ function openStore(t: TestContext): { store: OrchestratorRunStore; dbPath: strin
 const REPO = createManagedTempDir('siftkit-orchestrator-store-repo-');
 
 function startRequest(overrides: Partial<OrchestratorStartRequest> = {}): OrchestratorStartRequest {
-  return { submissionId: randomUUID(), repoRoot: REPO, presetId: 'orchestrator', approval: 'auto',
+  return { submissionId: randomUUID(), sessionId: null, repoRoot: REPO, presetId: 'orchestrator', approval: 'auto',
     task: 'Inspect the README.', planPath: null, ...overrides };
 }
 
@@ -142,17 +142,6 @@ test('a malformed stored row fails loudly instead of reading as a default', (t) 
   assert.throws(() => store.read(randomUUID()), /Unknown orchestrator run/u);
 });
 
-test('recent runs are found by repository identity, not by how its path is spelled', (t) => {
-  const { store } = openStore(t);
-  const first = store.create(startRequest());
-  store.create(startRequest({ repoRoot: createManagedTempDir('siftkit-orchestrator-store-other-') }));
-  const second = store.create(startRequest({ repoRoot: `${REPO}${path.sep}` }));
-  const spelled = `${REPO}${path.sep}.${path.sep}`;
-  assert.deepEqual(store.listRecent(spelled, 10).map((state) => state.runId), [second.runId, first.runId]);
-  assert.deepEqual(store.listRecent(REPO, 1).map((state) => state.runId), [second.runId]);
-  assert.throws(() => store.create(startRequest({ repoRoot: path.join(REPO, 'missing') })), /ENOENT/u);
-});
-
 test('a stopped run aborts its open tasks and abandons unsettled attempts; untouched tasks stay pending', (t) => {
   const { store } = openStore(t);
   let state = planned(store);
@@ -165,4 +154,32 @@ test('a stopped run aborts its open tasks and abandons unsettled attempts; untou
 
   assert.deepEqual(aborted.tasks.map((task) => [task.taskId, task.status]), [['inspect', 'aborted'], ['follow-up', 'pending']]);
   assert.deepEqual(aborted.attempts.map((entry) => entry.status), ['abandoned']);
+});
+
+function metric(tokenCount: number, durationMs: number) {
+  return { tokenCount, durationMs, tabbyWeightedTokens: tokenCount, tabbyDurationMs: durationMs, requestCount: 1, missingInternalRequests: 0, missingTabbyRequests: 0 };
+}
+
+function seedRunLogThroughput(dbPath: string, runId: string, pp: [number, number], decode: [number, number]): void {
+  getRuntimeDatabase(dbPath).prepare(`INSERT INTO run_logs (run_id, request_id, run_kind, run_group, terminal_state, title, source_paths_json, flushed_at_utc, throughput_json)
+    VALUES (?, ?, 'repo_search', 'repo_search', 'completed', 'run', '[]', '2026-10-23T00:00:00.000Z', ?)`)
+    .run(runId, runId, JSON.stringify({ pp: metric(...pp), decode: metric(...decode) }));
+}
+
+// An orchestrator session has no chat turns; its speed is its parent phases' and children's inference.
+test('a run reports the merged throughput of its own phase runs and its children, ignoring unrelated runs', (t) => {
+  const { store, dbPath } = openStore(t);
+  const state = planned(store);
+  const phaseRunId = randomUUID();
+  store.update(state.runId, state.revision, { phaseRunIds: [phaseRunId] }, { message: 'Phase run recorded.' });
+  const attempt = store.reserveAttempt(state.runId, state.revision + 1, 'inspect', implementationWork());
+  seedRunLogThroughput(dbPath, phaseRunId, [1_000, 1_000], [100, 2_000]);
+  seedRunLogThroughput(dbPath, attempt.childRunId, [3_000, 1_000], [300, 2_000]);
+  seedRunLogThroughput(dbPath, randomUUID(), [9_000, 1], [9_000, 1]);
+
+  const throughput = store.readThroughput(state.runId);
+  assert.equal(throughput.pp.tokenCount, 4_000);
+  assert.equal(throughput.pp.durationMs, 2_000);
+  assert.equal(throughput.decode.tokenCount, 400);
+  assert.equal(throughput.decode.durationMs, 4_000);
 });

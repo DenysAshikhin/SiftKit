@@ -15,6 +15,8 @@ import {
   ChatSessionSchema,
   ChatRunTerminalCauseSchema,
   InferenceThroughputSchema,
+  OrchestratorPhaseSchema,
+  isOrchestratorTerminalPhase,
 } from '@siftkit/contracts';
 import type { ChatSessionOperationKind, ChatTurnTokenRecord, ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { z } from '../lib/zod.ts';
@@ -49,7 +51,7 @@ export type ChatMessage = PersistedChatTranscriptMessage;
 
 export const StoredChatSessionSchema = ChatSessionSchema.pick({
   id: true, title: true, modelPresetId: true, modelPresetOverrideId: true, thinkingEnabled: true, webSearchEnabled: true,
-  presetId: true, mode: true, planRepoRoot: true, promptContext: true,
+  presetId: true, mode: true, planRepoRoot: true, orchestratorRunId: true, promptContext: true,
   createdAtUtc: true, updatedAtUtc: true, messages: true,
 }).extend({
   /** Full request-shaping preset captured when the session was created. */
@@ -75,6 +77,7 @@ const SessionRowSchema = z.object({
   preset_id: z.string().nullable(),
   mode: z.string(),
   plan_repo_root: z.string(),
+  orchestrator_run_id: z.string().nullable(),
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
 });
@@ -82,7 +85,14 @@ const SessionRowSchema = z.object({
 const SessionSummaryRowSchema = SessionRowSchema.extend({ last_tool_call_exit_code: z.number().int().nullable() });
 
 const SESSION_SELECT_COLUMNS = `id, title, model_preset_id, model_preset_json, model_preset_override_id, thinking_enabled, web_search_enabled,
-      preset_id, mode, plan_repo_root, created_at_utc, updated_at_utc`;
+      preset_id, mode, plan_repo_root, orchestrator_run_id, created_at_utc, updated_at_utc`;
+
+const ChatSessionOrchestratorActivityRowSchema = z.object({
+  session_id: z.string(), run_id: z.string(), phase: OrchestratorPhaseSchema, created_at_utc: z.string(),
+});
+
+/** A session showing an orchestrator run that has not reached a terminal phase. */
+export type ChatSessionOrchestratorRun = { sessionId: string; runId: string; startedAtUtc: string };
 
 const MessageRowSchema = z.object({
   id: z.string(),
@@ -440,6 +450,7 @@ function mapSessionRow(session: z.infer<typeof SessionRowSchema>): Omit<ChatSess
     presetId: requirePresetId(session.preset_id),
     mode: normalizeMode(session.mode),
     planRepoRoot: session.plan_repo_root,
+    orchestratorRunId: session.orchestrator_run_id,
     createdAtUtc: session.created_at_utc,
     updatedAtUtc: session.updated_at_utc,
   };
@@ -703,9 +714,10 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
         preset_id,
         mode,
         plan_repo_root,
+        orchestrator_run_id,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         model_preset_id = excluded.model_preset_id,
@@ -716,6 +728,7 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
         preset_id = excluded.preset_id,
         mode = excluded.mode,
         plan_repo_root = excluded.plan_repo_root,
+        orchestrator_run_id = excluded.orchestrator_run_id,
         updated_at_utc = excluded.updated_at_utc
     `).run(
       sessionId,
@@ -728,11 +741,45 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
       presetId,
       mode,
       resolve(session.planRepoRoot),
+      session.orchestratorRunId === null ? null : ChatSessionSchema.shape.orchestratorRunId.parse(session.orchestratorRunId),
       typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim() ? session.createdAtUtc : now,
       typeof session.updatedAtUtc === 'string' && session.updatedAtUtc.trim() ? session.updatedAtUtc : now,
     );
 
   }).immediate();
+}
+
+/** Whether a session exists; a caller that names one for an operation needs it to be real. */
+export function chatSessionExists(database: RuntimeDatabase, sessionId: string): boolean {
+  const row = database.prepare('SELECT id FROM chat_sessions WHERE id = ?').get(sessionId);
+  return row !== undefined && row !== null;
+}
+
+/** The session whose board shows this run, if any; a run belongs to exactly one session. */
+export function sessionShowingOrchestratorRun(database: RuntimeDatabase, runId: string): string | null {
+  const row = database.prepare('SELECT id FROM chat_sessions WHERE orchestrator_run_id = ?').get(runId);
+  return row === undefined ? null : SessionIdRowSchema.parse(row).id;
+}
+
+/** Points a session's board at an orchestrator run; the session is the only place the link is kept. */
+export function linkChatSessionToOrchestratorRun(database: RuntimeDatabase, sessionId: string, runId: string): void {
+  const changed = database.prepare('UPDATE chat_sessions SET orchestrator_run_id = ?, updated_at_utc = ? WHERE id = ?')
+    .run(runId, new Date().toISOString(), sessionId).changes;
+  if (changed !== 1) throw new Error(`Chat session ${sessionId} does not exist to link to orchestrator run ${runId}.`);
+}
+
+/** Sessions whose board shows a run that has not settled; the rail shows each as busy. */
+export function listActiveChatSessionOrchestratorRuns(database: RuntimeDatabase): ChatSessionOrchestratorRun[] {
+  const rows = database.prepare(`
+    SELECT chat_sessions.id AS session_id, chat_sessions.orchestrator_run_id AS run_id,
+      orchestrator_runs.phase AS phase, orchestrator_runs.created_at_utc AS created_at_utc
+    FROM chat_sessions
+    JOIN orchestrator_runs ON orchestrator_runs.run_id = chat_sessions.orchestrator_run_id
+    ORDER BY chat_sessions.updated_at_utc DESC, chat_sessions.rowid DESC
+  `).all();
+  return z.array(ChatSessionOrchestratorActivityRowSchema).parse(rows)
+    .filter((row) => !isOrchestratorTerminalPhase(row.phase))
+    .map((row) => ({ sessionId: row.session_id, runId: row.run_id, startedAtUtc: row.created_at_utc }));
 }
 
 /**

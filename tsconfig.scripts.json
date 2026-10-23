@@ -9,6 +9,8 @@
     "scripts/recover-web-chat.ts",
     "scripts/build-exllamav3-wheel.ts",
     "scripts/dashboard-stamp.ts",
+    "scripts/start-dev.ts",
+    "scripts/start-dev-status.ts",
     "scripts/purge-temp-dirs.ts",
     "scripts/purge-temp-dirs-main.ts",
     "scripts/extract-invalid-action-corpus.ts",

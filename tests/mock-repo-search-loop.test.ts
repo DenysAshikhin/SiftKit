@@ -756,6 +756,7 @@ test('runTaskLoop rejects a read whose whole range was already returned', async 
   assert.equal(rejected.length, 1);
   assert.equal(rejected[0].reason, 'exhausted read');
   assert.match(String(rejected[0].output), /Lines 1-3 of target\.ts were already returned in this run/u);
+  assert.doesNotMatch(String(rejected[0].output), /duplicate command/u, 'a new read of returned lines is not a repeated command');
   assert.equal(result.reason, 'finish');
 });
 

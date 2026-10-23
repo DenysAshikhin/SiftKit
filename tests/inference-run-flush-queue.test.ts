@@ -143,6 +143,27 @@ test('inference run flush queue pauses while a model request is active and drain
   });
 });
 
+// An agent loop never leaves the engine idle for the idle delay, so its log used to reach the DB only at stop.
+test('a run kept busy by back-to-back requests still flushes once its log is max-defer old', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'busy-run\n' });
+    const queue = new InferenceRunFlushQueue({ idleDelayMs: 60_000, maxDeferMs: 150 });
+
+    try {
+      queue.setModelRequestState({ active: true, queueLength: 0 });
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      assert.equal(queue.getSnapshot().completedCount, 0, 'a fresh log still waits for the engine to go idle');
+
+      await queue.waitForIdle(2_000);
+      assert.equal(readInferenceRunLogTextByStream(run.id).engine_stdout, 'busy-run\n');
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
 test('inference run flush queue does not log repeated active-request drain waits', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });

@@ -65,24 +65,6 @@ export class OrchestratorStartEndpoint implements RouteEndpoint {
   }
 }
 
-const RECENT_RUN_LIMIT = 10;
-
-/** Recent parents of one repository, newest first; a reloaded surface reattaches to them. */
-export class OrchestratorListEndpoint implements RouteEndpoint {
-  async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
-    const repoRoot = new URL(req.url || '/', 'http://localhost').searchParams.get('repoRoot')?.trim() ?? '';
-    if (repoRoot === '') {
-      sendJson(res, 400, { error: 'Expected a repoRoot.' });
-      return;
-    }
-    try {
-      sendJson(res, 200, { runs: ctx.orchestratorRunStore.listRecent(repoRoot, RECENT_RUN_LIMIT) });
-    } catch (error) {
-      sendJson(res, 400, { error: `Cannot list orchestrator runs for '${repoRoot}': ${toError(error).message}` });
-    }
-  }
-}
-
 export class OrchestratorStatusEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
     const runId = OrchestratorStatusQuerySchema.safeParse(new URL(req.url || '/', 'http://localhost').searchParams.get('runId'));

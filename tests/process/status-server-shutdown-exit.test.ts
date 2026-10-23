@@ -29,6 +29,8 @@ import {
   SHUTDOWN_PERSISTENCE_STAGE_COUNT,
   SHUTDOWN_PERSISTENCE_TIMEOUT_MS,
 } from '../../src/status-server/shutdown-budget.ts';
+import { SHUTDOWN_MESSAGE } from '../../src/status-server/shutdown-message.ts';
+import { ChatRuntimeOwnerSchema } from '../../src/state/chat-runtime-owner.ts';
 import { countRunLogs, installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from '../helpers/runtime-database-probe.ts';
 import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.ts';
 
@@ -114,7 +116,7 @@ class StatusServerProcess {
         SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: String(DEFERRED_IDLE_DELAY_MS),
         SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS: String(DEFERRED_IDLE_DELAY_MS),
       },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
     });
     const server = new StatusServerProcess(child, tempRoot);
     try {
@@ -174,6 +176,16 @@ class StatusServerProcess {
 
   requestShutdown(): void {
     this.child.stdin?.write('shutdown\n');
+  }
+
+  /** The dev launcher's stop request: Windows cannot signal a child, so it arrives over IPC. */
+  sendShutdownMessage(): void {
+    this.child.send(SHUTDOWN_MESSAGE);
+  }
+
+  readChatOwnerLeaseExpiryMs(): number {
+    return withRuntimeDatabaseConnection(this.runtimeDatabasePath, database => Date.parse(
+      ChatRuntimeOwnerSchema.parse(database.prepare('SELECT * FROM chat_runtime_owner WHERE id = 1').get()).lease_expires_at_utc));
   }
 
   async waitForExit(): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
@@ -236,6 +248,18 @@ test('a rejected shutdown persistence stage exits non-zero and reports the failu
     true,
     'the shutdown chain must release its handles even when a stage rejected',
   );
+});
+
+// A dev restart used to force-kill the server: the chat lease stayed held for 30s and the engine could be orphaned.
+test('an IPC shutdown message runs the graceful shutdown and releases the chat runtime lease', async t => {
+  const server = await StatusServerProcess.start();
+  t.after(async () => { await server.stop(); });
+
+  server.sendShutdownMessage();
+  const { code } = await server.waitForExit();
+  assert.equal(code, 0, `stderr:
+${server.stderrText}`);
+  assert.ok(server.readChatOwnerLeaseExpiryMs() <= Date.now(), 'the next server can take the lease at once');
 });
 
 // Budget inversion: the forced-exit watchdog used to fire at 15s while two 10s stages plus the

@@ -73,12 +73,15 @@ test('actionable reviews need complete findings and clean reviews carry none', (
   assert.equal(OrchestratorDriftReviewSchema.safeParse({ ...base, status: 'not_required', reason: 'no_code_changes' }).success, true);
 });
 
-test('a start request needs a task or a plan path', () => {
-  const request = { submissionId: '6f9f2d7c-3b2e-4c0a-9a1f-2d3e4f5a6b7c', repoRoot: 'C:/repo', presetId: 'orchestrator',
+test('a start request needs a task or a plan path and states which session it came from', () => {
+  const request = { submissionId: '6f9f2d7c-3b2e-4c0a-9a1f-2d3e4f5a6b7c', sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator',
     approval: 'interactive', task: null, planPath: null };
   assert.equal(OrchestratorStartRequestSchema.safeParse(request).success, false);
   assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, task: 'Do it.' }).success, true);
   assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, planPath: 'docs/plan.md' }).success, true);
+  assert.equal(OrchestratorStartRequestSchema.parse({ ...request, task: 'Do it.', sessionId: RUN_ID }).sessionId, RUN_ID);
+  // A start that names no session at all is not a start: 'no session of mine' has to be said out loud.
+  assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, task: 'Do it.', sessionId: undefined }).success, false);
 });
 
 const RUN_ID = '6f9f2d7c-3b2e-4c0a-9a1f-2d3e4f5a6b7c';

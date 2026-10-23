@@ -113,7 +113,7 @@ export function runChatReplayMemoryProcess(config: ReplayMemoryConfig): void {
   if (config.mode === 'generate') {
     saveChatSession(config.runtimeRoot, {
       id: PERFORMANCE_SESSION_ID, title: 'Performance', modelPresetOverrideId: null, modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
-      presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: PERFORMANCE_AT, updatedAtUtc: PERFORMANCE_AT, messages: [],
+      presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', orchestratorRunId: null, createdAtUtc: PERFORMANCE_AT, updatedAtUtc: PERFORMANCE_AT, messages: [],
     });
     const recorder = recordSyntheticRun(databasePath);
     recorder.finish({ terminalCause: 'approval_timeout', detail: 'No approval decision was received.', usage: null, recoveryStatus: 'recovery_needed' });

@@ -18,7 +18,7 @@ export function openSessionDatabase(prefix: string): { database: RuntimeDatabase
   const runtimeRoot = createManagedTempDir(prefix);
   saveChatSession(runtimeRoot, {
     id: SESSION_ID, title: 'Storage faults', modelPresetOverrideId: null, modelPresetId: 'preset-a', modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
-    presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: AT, updatedAtUtc: AT, messages: [],
+    presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', orchestratorRunId: null, createdAtUtc: AT, updatedAtUtc: AT, messages: [],
   });
   const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
   return { database: getRuntimeDatabase(databasePath), databasePath };

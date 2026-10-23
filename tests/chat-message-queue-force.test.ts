@@ -241,6 +241,7 @@ function session(): ChatSession {
     modelPresetOverrideId: null, modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'mock', NumCtx: 8192 }),
     planRepoRoot: process.cwd(),
+    orchestratorRunId: null,
     presetId: 'chat',
     mode: 'chat',
     createdAtUtc: now,

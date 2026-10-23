@@ -8,6 +8,7 @@ import { SseResponseWriter } from '../sse-response-writer.ts';
 import type { ServerContext } from '../server-types.ts';
 import type { RouteEndpoint, RouteMatch } from '../route-table.ts';
 import { ChatJournalStore } from '../../state/chat-journal.ts';
+import { listActiveChatSessionOrchestratorRuns } from '../../state/chat-sessions.ts';
 import { closeOrphanedChatRun } from '../chat-run-recovery.ts';
 
 export function streamRecordedChatOperation(
@@ -63,13 +64,24 @@ export class GetChatOperationStreamEndpoint implements RouteEndpoint {
 
 export class GetActiveChatOperationsEndpoint implements RouteEndpoint {
   handle(ctx: ServerContext, _req: IncomingMessage, res: ServerResponse): void {
+    // A session whose board shows a run that has not settled is doing work, exactly as a session with
+    // a live chat operation is; the run's own ID is what the session reports busy with.
+    const orchestratorWork = listActiveChatSessionOrchestratorRuns(ctx.runtimeDatabase).map((activity) => ({
+      sessionId: activity.sessionId,
+      operationKind: 'orchestrator' as const,
+      operationId: activity.runId,
+      startedAtUtc: activity.startedAtUtc,
+    }));
     sendJson(res, 200, ActiveChatOperationsResponseSchema.parse({
-      operations: ctx.chatSessionOperations.listActive().map((lease) => ({
-        sessionId: lease.sessionId,
-        operationKind: lease.operationKind,
-        operationId: lease.operationId,
-        startedAtUtc: new Date(lease.startedAtMs).toISOString(),
-      })),
+      operations: [
+        ...ctx.chatSessionOperations.listActive().map((lease) => ({
+          sessionId: lease.sessionId,
+          operationKind: lease.operationKind,
+          operationId: lease.operationId,
+          startedAtUtc: new Date(lease.startedAtMs).toISOString(),
+        })),
+        ...orchestratorWork,
+      ],
     }));
   }
 }

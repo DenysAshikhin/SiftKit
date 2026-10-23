@@ -258,6 +258,10 @@ export function getLastTurnTelemetry(session: ChatSession | null): LastTurnTelem
   if (!session || !Array.isArray(session.messages)) {
     return empty;
   }
+  // A run's session has no turns; the server folds its rates from the run's phases and children.
+  if (session.orchestratorRunId !== null) {
+    return { ...session.sessionThroughput, ttftMs: null };
+  }
   for (let index = session.messages.length - 1; index >= 0; index -= 1) {
     const message = session.messages[index];
     if (!message || message.role !== 'assistant') {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  InferenceThroughputSchema,
   ORCHESTRATOR_MAX_ATTEMPTS,
   ORCHESTRATOR_TERMINAL_PHASES,
   OrchestratorAttemptResultSchema,
@@ -10,6 +11,7 @@ import {
   OrchestratorStartRequestSchema,
   isOrchestratorOpenTaskStatus,
   isOrchestratorTerminalPhase,
+  type InferenceThroughput,
   type OrchestratorAttempt,
   type OrchestratorAttemptResult,
   type OrchestratorChildPurpose,
@@ -21,9 +23,9 @@ import {
   type OrchestratorTaskState,
 } from '@siftkit/contracts';
 
+import { mergeInferenceThroughput } from '../lib/inference-throughput.ts';
 import { digestStableJson } from '../lib/json-digest.ts';
 import { parseJsonValueText } from '../lib/json.ts';
-import { canonicalRepositoryKey } from '../lib/repository-key.ts';
 import { z } from '../lib/zod.ts';
 import type { RuntimeDatabase } from '../state/database-handle.ts';
 
@@ -36,6 +38,7 @@ const AttemptRowsSchema = z.array(z.object({ attempt_json: z.string() }));
 const EventRowsSchema = z.array(z.object({ event_json: z.string() }));
 const MaxSequenceRowSchema = z.object({ sequence: z.number().int().nullable() });
 const RunIdRowsSchema = z.array(z.object({ run_id: z.string() }));
+const ThroughputRowsSchema = z.array(z.object({ throughput_json: z.string() }));
 const TERMINAL_PHASES_SQL = ORCHESTRATOR_TERMINAL_PHASES.map((phase) => `'${phase}'`).join(', ');
 
 /** Fields a transition may change; identity, plan, and attempts change only through their methods. */
@@ -80,10 +83,9 @@ export class OrchestratorRunStore {
         tasks: [], phaseRunIds: [], approval: null, failure: null, createdAtUtc: now, updatedAtUtc: now,
       });
       this.database.prepare(`
-        INSERT INTO orchestrator_runs (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc, repo_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(state.runId, request.submissionId, digest, state.revision, state.phase, JSON.stringify(state), now, now,
-        canonicalRepositoryKey(request.repoRoot));
+        INSERT INTO orchestrator_runs (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(state.runId, request.submissionId, digest, state.revision, state.phase, JSON.stringify(state), now, now);
       this.appendEvent(state, { message: 'Orchestrator run created.' });
       return this.read(state.runId);
     })();
@@ -96,18 +98,21 @@ export class OrchestratorRunStore {
     return OrchestratorRunStateSchema.parse({ ...stored, attempts: this.readAttempts(runId) });
   }
 
+  /** The parent's phase runs and every child's measured inference, merged; runs still in flight add nothing yet. */
+  readThroughput(runId: string): InferenceThroughput {
+    const state = this.read(runId);
+    const runIds = [...state.phaseRunIds, ...state.attempts.map((attempt) => attempt.childRunId)];
+    const rows = ThroughputRowsSchema.parse(this.database.prepare(
+      'SELECT throughput_json FROM run_logs WHERE run_id IN (SELECT value FROM json_each(?)) AND throughput_json IS NOT NULL',
+    ).all(JSON.stringify(runIds)));
+    return mergeInferenceThroughput(rows.map((row) => InferenceThroughputSchema.parse(parseJsonValueText(row.throughput_json))));
+  }
+
   /** Nonterminal parents, for startup reconciliation. */
   listActive(): OrchestratorRunState[] {
     return RunIdRowsSchema.parse(this.database.prepare(
       `SELECT run_id FROM orchestrator_runs WHERE phase NOT IN (${TERMINAL_PHASES_SQL}) ORDER BY created_at_utc, rowid`,
     ).all()).map((row) => this.read(row.run_id));
-  }
-
-  /** The most recent parents of one repository (by identity, not path spelling), newest first. */
-  listRecent(repoRoot: string, limit: number): OrchestratorRunState[] {
-    return RunIdRowsSchema.parse(this.database.prepare(
-      'SELECT run_id FROM orchestrator_runs WHERE repo_key = ? ORDER BY created_at_utc DESC, rowid DESC LIMIT ?',
-    ).all(canonicalRepositoryKey(repoRoot), limit)).map((row) => this.read(row.run_id));
   }
 
   /** Saves a (re)validated plan; a task that already has attempts can never be dropped or renamed. */

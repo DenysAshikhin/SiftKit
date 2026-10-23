@@ -23,7 +23,7 @@ import type { PendingImage } from '../src/lib/downscale-image.ts';
 import { buildUsageFrame } from './usage-frame.ts';
 import { chatSnapshot } from './chat-snapshot-fixture.ts';
 import { applyLiveTranscript, liveTranscriptSnapshot, type LiveTranscriptStep } from './live-transcript-fixture.ts';
-import { ORCHESTRATOR_RUN_ID, PRESET, REPO_AGENT_PRESET, SESSION_A, SESSION_B, buildDefaultStore, buildProps, msg, orchestratorProps, type ChatTabProps } from './chat-tab-fixture.ts';
+import { ORCHESTRATOR_RUN_ID, ORCHESTRATOR_SESSION, PRESET, REPO_AGENT_PRESET, SESSION_A, SESSION_B, buildDefaultStore, buildProps, msg, orchestratorProps, type ChatTabProps } from './chat-tab-fixture.ts';
 import { createLiveMessage } from '../src/lib/chat-live-messages.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -531,16 +531,16 @@ test('orchestrator mode starts a run for the saved repository and shows its live
   const bodies: Array<[string, string]> = [];
   const originalFetch = globalThis.fetch;
   const drafts: string[] = [];
+  const refreshes: number[] = [];
   const running = OrchestratorRunStateSchema.parse({
     runId: ORCHESTRATOR_RUN_ID,
-    request: { submissionId: ORCHESTRATOR_RUN_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
+    request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
     revision: 1, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], phaseRunIds: [],
     approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
   });
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     bodies.push([url, typeof init?.body === 'string' ? init.body : '']);
-    if (url.startsWith('/orchestrator/runs')) return new Response(JSON.stringify({ runs: [] }));
     if (url === '/orchestrator') return new Response(JSON.stringify(running), { status: 202 });
     if (url === '/orchestrator/events') return new Response(`event: result
 data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
@@ -549,7 +549,12 @@ data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
     throw new Error(`Unexpected fetch ${url}`);
   };
   try {
-    renderComponent(<ChatTab {...orchestratorProps({ onChangeDraft: (value) => { drafts.push(value); } })} />);
+    renderComponent(<ChatTab {...orchestratorProps({
+      // A session that has never run has no board of its own until this press makes one.
+      selectedSession: { ...ORCHESTRATOR_SESSION, orchestratorRunId: null },
+      onChangeDraft: (value) => { drafts.push(value); },
+      onRefreshSelectedSession: () => { refreshes.push(1); return Promise.resolve(); },
+    })} />);
     await act(async () => { await Promise.resolve(); });
     fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Run orchestrator' })); });
@@ -557,8 +562,9 @@ data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
     const start = bodies.find(([url]) => url === '/orchestrator');
     const request = JSON.parse(start?.[1] ?? '{}');
     assert.deepEqual({ ...request, submissionId: null },
-      { submissionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null });
+      { submissionId: null, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null });
     assert.deepEqual(drafts, ['']);
+    assert.deepEqual(refreshes, [1], 'the started session is re-read, so its rail row picks up the new run');
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -570,7 +576,7 @@ test('orchestrator mode hands the live activity and the last work phase to the r
     steps: [{ instruction: 'Write it.', expectedResult: 'It exists.' }], verification: [check], acceptance: ['Greets.'], temporaryPaths: [] };
   const running = OrchestratorRunStateSchema.parse({
     runId: ORCHESTRATOR_RUN_ID,
-    request: { submissionId: ORCHESTRATOR_RUN_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
+    request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
     revision: 2, phase: 'approval_required', planPath: 'plan.md', planHash: 'h',
     plan: { goal: 'Greet', constraints: [], tasks: [task], finalVerification: [check] },
     tasks: [{ taskId: 'greet', status: 'running', driftReview: null, reviewedDigests: [] }], attempts: [], phaseRunIds: [],
@@ -583,7 +589,7 @@ test('orchestrator mode hands the live activity and the last work phase to the r
   const encoder = new TextEncoder();
   globalThis.fetch = async (input) => {
     const url = String(input);
-    if (url.startsWith('/orchestrator/runs')) return new Response(JSON.stringify({ runs: [running] }));
+    if (url.startsWith('/orchestrator/status')) return new Response(JSON.stringify(running));
     if (url === '/orchestrator/events') return new Response(new ReadableStream<Uint8Array>({ start(controller) {
       controller.enqueue(encoder.encode(`event: progress\ndata: ${JSON.stringify({ events: [event], state: running })}\n\n`));
       controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(activity)}\n\n`));
@@ -596,6 +602,36 @@ test('orchestrator mode hands the live activity and the last work phase to the r
     const steps = screen.getAllByRole('listitem', { name: /step$/u }).map((step) => step.getAttribute('data-status'));
     assert.deepEqual(steps, ['done', 'done', 'now', 'todo', 'todo'], 'the approval pause still shows the Execute step');
     view.unmount();
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+// The session's speed folds the run's finished phases and children, so it is re-read as the run commits progress.
+test('orchestrator mode re-reads its session each time the run commits a new revision', async () => {
+  const originalFetch = globalThis.fetch;
+  const refreshes: number[] = [];
+  const running = OrchestratorRunStateSchema.parse({
+    runId: ORCHESTRATOR_RUN_ID,
+    request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'hi', planPath: null },
+    revision: 2, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], phaseRunIds: [],
+    approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
+  });
+  const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'completed', message: 'Done.',
+    taskId: null, purpose: null, attempt: null, childRunId: null };
+  const encoder = new TextEncoder();
+  let events: ReadableStreamDefaultController<Uint8Array> | null = null;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.startsWith('/orchestrator/status')) return new Response(JSON.stringify(running));
+    if (url === '/orchestrator/events') return new Response(new ReadableStream<Uint8Array>({ start(controller) { events = controller; } }));
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  try {
+    renderComponent(<ChatTab {...orchestratorProps({ onRefreshSelectedSession: () => { refreshes.push(1); return Promise.resolve(); } })} />);
+    await waitFor(() => { assert.equal(refreshes.length, 1, 'the loaded revision is read once'); });
+    assert.ok(events);
+    events.enqueue(encoder.encode(`event: progress\ndata: ${JSON.stringify({ events: [event], state: { ...running, revision: 3, phase: 'completed' } })}\n\n`));
+    await screen.findByText('completed');
+    await waitFor(() => { assert.equal(refreshes.length, 2, 'one read per committed revision'); });
   } finally { globalThis.fetch = originalFetch; }
 });
 

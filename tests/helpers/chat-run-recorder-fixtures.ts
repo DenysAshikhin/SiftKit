@@ -38,6 +38,7 @@ export function openSessionDatabase(prefix: string): { database: RuntimeDatabase
     presetId: 'repo-agent',
     mode: 'repo-search',
     planRepoRoot: 'C:/repo',
+    orchestratorRunId: null,
     createdAtUtc: AT,
     updatedAtUtc: AT,
     messages: [],
