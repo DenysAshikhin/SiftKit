@@ -122,8 +122,14 @@ This returns `OrchestratorAgentFlow`, parsed from that agent's `run_logs.repo_se
             promptTokens: number | null, thinkingTokens: number | null, elapsedMs: number | null,
             tools: [{ toolName, command, exitCode: number | null, rejection: string | null, output: string, durationMs: number | null }],
             approvals: [{ verdict, reason }] }],
+  prompt: { system: string[], user: string },
   finalOutput: string | null }
 ```
+
+`prompt` is everything the agent was given:
+
+- **Stored flows:** taken from the turn-1 `turn_new_messages` event. Each `system` message is one entry of `prompt.system` (the autoloaded instruction files and the engine's system context), and the `user` message is `prompt.user`. For a phase agent, `prompt.user` is the full `buildParentPrompt` text: the shared run block, the phase instructions and the answer schema. For a worker, it is the `buildImplementationInstruction` or drift-correction text.
+- **Live flows:** both parts are set when the flow is created. `askParent` passes its prompt and the run's `systemContext`; `superviseChild` passes the instruction and the system context the child engine was started with.
 
 - **Parsing:** in `src/orchestrator/agent-flow.ts`, using the transcript event schemas already in `src/repo-search/live-snapshot/schemas.ts`. Turn elapsed time is from the preceding `provider_request_start`. Tool duration runs from `turn_command_start` to `turn_command_result`, matched by `toolCallId` and turn. Events the flow does not use are skipped.
 - **Source:** the stored transcript when it exists. Otherwise the in-memory live flow from §2.3, whether the agent is running or has finished but is not yet flushed. The response carries `live: boolean`, which is true while the agent runs.
@@ -216,6 +222,16 @@ Every agent pane starts with a one-line purpose, then a verdict banner (PASS/FAI
 - **Planner:** "Planned N tasks" with the plan goal, a task table (preset, dependencies, writes, checks), its notes, and the constraints in a fold.
 - **Task spec:** steps with their expected results, "Checked by", "Done when", and the may-write and reads paths.
 
+**Prompt.** Every agent pane has a **Prompt** section between the agent meta line and the flow. It is collapsed, with the one-line purpose as its summary. Opened, it shows:
+
+- `prompt.user`, laid out by its parts:
+  - for a phase agent: "Run context" (the shared run block, with the saved plan in its own fold), "Phase instructions" as wrapped prose, and "Answer schema", with the JSON schema pretty-printed in a fold;
+  - for a worker: the instruction as wrapped text, with its "Read:", "Allowed to modify:", "Steps:", "Verification you must run and pass:" and "Acceptance:" blocks as headed lists;
+  - text matching no known part as wrapped text, never dropped.
+- `prompt.system`, each entry folded under its first line, for example "Autoloaded file: …\AGENTS_mini.md".
+
+The parts are split on the exact headings the prompt builders in `src/orchestrator/prompts.ts` emit. Those headings become exported constants used by both the builders and the dashboard, so the two cannot drift.
+
 **Live agents:**
 
 - **Selection:** while the run is live, the default selection is the most recently started running agent, which is the planner during planning. Once the user picks something, their pick stays.
@@ -272,5 +288,7 @@ Each has a **raw JSON** fold. Any other answer renders through the existing `Mar
   - stepper durations;
   - the flow fold (fetches on open, last 8 turns plus earlier, JSON answer rendering, 409 message);
   - a running agent's pane: subscribes to the live stream, applies `turn` frames, follows the newest turn, and switches to the finished layout on `finished`;
-  - the default selection follows the running agent until the user picks one.
+  - the default selection follows the running agent until the user picks one;
+  - the Prompt section splits a phase prompt and a worker instruction into their parts, keeps unmatched text, and folds each system message.
+- **Prompt parts:** `agent-flow.ts` reads `prompt` from turn-1 `turn_new_messages`. A live flow carries the same prompt the agent was started with.
 - **Rail invariant:** after a run with children, the session list holds exactly the run's one session.
