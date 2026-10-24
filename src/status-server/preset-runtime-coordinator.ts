@@ -55,14 +55,18 @@ export class PresetRuntimeCoordinator {
     return this.runtime;
   }
 
+  // The startup load is a residency action: a request arriving mid-load waits, so no switch races it on the runtime.
   async initialize(): Promise<void> {
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.runtime;
+    this.beginResidencyAction();
     try {
       await runtime.ensurePresetReady(preset);
     } catch (error) {
       this.fail('process-start', error instanceof Error ? error.message : String(error));
       throw error;
+    } finally {
+      this.endResidencyAction();
     }
   }
 

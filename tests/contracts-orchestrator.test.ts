@@ -69,10 +69,13 @@ test('a handoff report is an agent status with its deviations or anchored search
   assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, status: 'done' }).success, false);
   assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, deviations: ['Also changed src/b.ts.'] }).success, false);
   assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, deviations: [{ what: 'Skipped step 2.', why: ' ' }] }).success, false);
-  const finding = { claim: 'One caller.', evidence: [{ path: 'src/a.ts', line: 3 }], confidence: 'high' };
-  const search = { kind: 'search', understood: 'Find callers.', unknowns: [], findings: [finding] };
+  const finding = { claim: 'One caller.', evidence: [{ path: 'src/a.ts', line: 3 }] };
+  const search = { kind: 'search', unknowns: [], findings: [finding] };
   assert.equal(OrchestratorHandoffReportSchema.safeParse(search).success, true);
   assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...search, findings: [{ ...finding, evidence: [] }] }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...search, understood: 'Find callers.' }).success, false, 'no restated question');
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...search, findings: [{ ...finding, confidence: 'high' }] }).success, false,
+    'no confidence grade');
 });
 
 test('a dispatch starts one or two children and a review judges every criterion with code evidence', () => {

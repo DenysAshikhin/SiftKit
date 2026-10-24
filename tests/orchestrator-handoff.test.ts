@@ -47,15 +47,29 @@ test('a completed attempt without deviations says so in one line', () => {
   assert.match(text, /Status: completed\nDeviations: none\./u);
 });
 
-test('a search report renders its graded findings and unknowns', () => {
-  const text = renderAttemptForParent(result({ outcome: 'passed', checks: [], findings: [], changedPaths: [], report: {
-    kind: 'search', understood: 'Where saves happen.',
-    findings: [{ claim: 'save() lives in store.ts', evidence: [{ path: 'src/store.ts', line: 9 }], confidence: 'high' }],
+test('a search report renders only its findings and unknowns: no citation repeats, empty changes, or evidence checks', () => {
+  const evidence: OrchestratorCheckResult = { check: { kind: 'evidence', instruction: 'Cite the store.', paths: ['src/store.ts'] },
+    executed: false, exitCode: null, timedOut: false, output: '' };
+  const text = renderAttemptForParent(result({ outcome: 'passed', checks: [evidence], findings: [], changedPaths: [], report: {
+    kind: 'search',
+    findings: [{ claim: 'save() at src/store.ts:9', evidence: [{ path: 'src/store.ts', line: 9 }] }],
     unknowns: ['Whether the CLI saves.'],
   } }), []);
-  assert.match(text, /Changes: none\./u);
-  assert.match(text, /- \[high\] save\(\) lives in store\.ts \(src\/store\.ts:9\)/u);
-  assert.match(text, /Unknowns:\n- Whether the CLI saves\./u);
+  assert.equal(text, [
+    '## store (implementation attempt 1): passed, worker completed, 3 submission(s)',
+    'Findings:\n- save() at src/store.ts:9',
+    'Unknowns:\n- Whether the CLI saves.',
+  ].join('\n'));
+});
+
+test('an agent attempt still names empty changes and lists only command checks', () => {
+  const evidence: OrchestratorCheckResult = { check: { kind: 'evidence', instruction: 'Read the diff.', paths: ['src/store.ts'] },
+    executed: false, exitCode: null, timedOut: false, output: '' };
+  const text = renderAttemptForParent(result({ checks: [passing, evidence] }), []);
+  assert.match(text, /Changes: none\.\n/u);
+  assert.match(text, /Checks \(the gate's last run\):\n- pass `npm test`$/u);
+  const onlyEvidence = renderAttemptForParent(result({ checks: [evidence] }), []);
+  assert.doesNotMatch(onlyEvidence, /Checks|Read the diff/u);
 });
 
 test('without a usable report the tail of the final answer stands in for it', () => {

@@ -7,6 +7,7 @@ import {
   type OrchestratorAttemptResult,
   type OrchestratorCheckResult,
   type OrchestratorCitation,
+  type OrchestratorCommandCheck,
   type OrchestratorHandoffReport,
 } from '@siftkit/contracts';
 
@@ -33,8 +34,9 @@ const REPORT_TEMPLATES: Record<HandoffKind, string> = {
     deviations: [{ what: 'a step skipped or done differently, a file changed beyond the expected ones, or work left undone', why: 'the reason' }],
   }),
   search: JSON.stringify({
-    kind: 'search', understood: 'one-paragraph restatement of the question',
-    findings: [{ claim: 'what you found', evidence: [{ path: 'src/file.ts', line: 1 }], confidence: 'high | medium | low' }],
+    kind: 'search',
+    findings: [{ claim: 'where something is and what it does: one path:line per function or symbol; no field lists, no code',
+      evidence: [{ path: 'src/file.ts', line: 1 }] }],
     unknowns: ['what you could not determine'],
   }),
 };
@@ -103,20 +105,19 @@ export function parseHandoffReport(answer: string, kind: HandoffKind, repoRoot: 
 export function renderAttemptForParent(result: OrchestratorAttemptResult, diffstat: readonly DiffstatEntry[]): string {
   const checkFailures = new Set(result.checks.map((check) => orchestratorCheckFailure(check)));
   const findings = result.findings.filter((finding) => !checkFailures.has(finding));
+  const commandChecks = result.checks.filter(isCommandCheck);
+  // A search changes nothing, so only a writer's empty diffstat is news.
+  const showChanges = diffstat.length > 0 || result.report?.kind !== 'search';
   return [
     `## ${result.taskId} (${result.purpose} attempt ${result.attempt}): ${result.outcome}, worker ${result.workerStatus}, `
       + `${result.submissions} submission(s)`,
     ...(result.report === null
       ? [`No usable report. End of the final answer:\n${result.workerOutput.slice(-FINAL_ANSWER_TAIL_CHARS)}`]
       : renderReport(result.report)),
-    renderChanges(diffstat),
+    ...(showChanges ? [renderChanges(diffstat)] : []),
     ...(findings.length > 0 ? [`Host findings:\n${findings.map((finding) => `- ${finding}`).join('\n')}`] : []),
-    ...(result.checks.length > 0 ? [`Checks (the gate's last run):\n${result.checks.map(renderCheck).join('\n')}`] : []),
+    ...(commandChecks.length > 0 ? [`Checks (the gate's last run):\n${commandChecks.map(renderCheck).join('\n')}`] : []),
   ].join('\n');
-}
-
-function cite(evidence: readonly OrchestratorCitation[]): string {
-  return evidence.length === 0 ? '' : ` (${evidence.map((citation) => `${citation.path}:${citation.line}`).join(', ')})`;
 }
 
 function list(title: string, entries: readonly string[]): string[] {
@@ -125,9 +126,8 @@ function list(title: string, entries: readonly string[]): string[] {
 
 function renderReport(report: OrchestratorHandoffReport): string[] {
   if (report.kind === 'search') {
-    return [`Understood: ${report.understood}`,
-      ...list('Findings', report.findings.map((finding) => `[${finding.confidence}] ${finding.claim}${cite(finding.evidence)}`)),
-      ...list('Unknowns', report.unknowns)];
+    // Claims name their own anchors; the evidence list only lets the host verify them.
+    return [...list('Findings', report.findings.map((finding) => finding.claim)), ...list('Unknowns', report.unknowns)];
   }
   return [`Status: ${report.status}`, ...(report.deviations.length === 0 ? ['Deviations: none.']
     : list('Deviations', report.deviations.map((deviation) => `${deviation.what} Why: ${deviation.why}`)))];
@@ -142,8 +142,13 @@ function renderChanges(diffstat: readonly DiffstatEntry[]): string {
   }).join('\n')}`;
 }
 
-function renderCheck(check: OrchestratorCheckResult): string {
-  if (check.check.kind === 'evidence') return `- evidence for your review: ${check.check.instruction}`;
+type CommandCheckResult = OrchestratorCheckResult & { check: OrchestratorCommandCheck };
+
+function isCommandCheck(check: OrchestratorCheckResult): check is CommandCheckResult {
+  return check.check.kind === 'command';
+}
+
+function renderCheck(check: CommandCheckResult): string {
   const failure = orchestratorCheckFailure(check);
   if (failure === null) return `- pass \`${check.check.command}\``;
   return `- FAIL \`${check.check.command}\` ${!check.executed ? 'never ran' : check.timedOut ? 'timed out' : `exited ${check.exitCode ?? 'unknown'}`}\n`

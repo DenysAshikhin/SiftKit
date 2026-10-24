@@ -134,7 +134,7 @@ test('only the whole report is limited: a long field in a report under the limit
 
 test('a search report whose citation does not resolve is sent back naming it', async () => {
   const gate = submission(new ScriptedHost([], []), makeOrchestratorTask({ id: 'survey' }), 'search');
-  const report = { kind: 'search', understood: 'Survey.', findings: [{ claim: 'greeting exists', evidence: [{ path: 'src/greeting.ts', line: 40 }], confidence: 'high' }], unknowns: [] };
+  const report = { kind: 'search', findings: [{ claim: 'greeting exists', evidence: [{ path: 'src/greeting.ts', line: 40 }] }], unknowns: [] };
   const verdict = await gate.review(JSON.stringify(report));
   assert.match(verdict.kind === 'reject' ? verdict.message : '', /src\/greeting\.ts:40 is past the end/u);
 });
@@ -159,7 +159,7 @@ test('an attempt that ends on unusable reports keeps its last judged submission 
 test('a searcher report needs no command checks', async () => {
   const search = makeOrchestratorTask({ id: 'survey' });
   const gate = submission(new ScriptedHost([0], []), search, 'search');
-  const report = { kind: 'search', understood: 'Survey.', findings: [{ claim: 'greeting exists', evidence: [{ path: 'src/greeting.ts', line: 1 }], confidence: 'high' }], unknowns: [] };
+  const report = { kind: 'search', findings: [{ claim: 'greeting exists', evidence: [{ path: 'src/greeting.ts', line: 1 }] }], unknowns: [] };
   assert.equal((await gate.review(JSON.stringify(report))).kind, 'accept');
   assert.equal(gate.record()?.outcome, 'passed');
 });

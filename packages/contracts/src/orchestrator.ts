@@ -153,13 +153,11 @@ export const OrchestratorAgentReportSchema = z.object({
 }).strict();
 export type OrchestratorAgentReport = z.infer<typeof OrchestratorAgentReportSchema>;
 
-/** A searcher's findings, each anchored and graded, plus what it could not determine. */
+/** A searcher's map of where things are, each finding anchored, plus what it could not determine. */
 export const OrchestratorSearchReportSchema = z.object({
   kind: z.literal('search'),
-  understood: z.string().trim().min(1),
   findings: z.array(z.object({
     claim: z.string().trim().min(1), evidence: z.array(OrchestratorCitationSchema).min(1),
-    confidence: z.enum(['high', 'medium', 'low']),
   }).strict()),
   unknowns: z.array(z.string().trim().min(1)),
 }).strict();

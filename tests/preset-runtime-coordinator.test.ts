@@ -162,6 +162,29 @@ test('preset coordinator drains by preset and swaps the resident model without a
   }
 });
 
+test('a request for another model during the startup load waits for it, then switches', async () => {
+  const fixture = createBlockingCoordinator();
+  const { coordinator, runtime, events, configPath } = fixture;
+  const alt = readConfig(configPath).Server.ModelPresets.Presets.find((preset) => preset.id === 'exl3-alt');
+  assert.ok(alt);
+  try {
+    runtime.setBlockedTransition('ensure');
+    const startup = coordinator.initialize();
+    await runtime.transitionStarted.promise;
+    assert.equal(coordinator.canGrantModelRequest(), false, 'no request is admitted while the startup load runs');
+    const request = coordinator.ensureRequestPresetReady(alt);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, [], 'the switch does not touch the runtime until the startup load ends');
+    runtime.releaseTransition();
+    await Promise.all([startup, request]);
+    assert.deepEqual(events, ['start:exl3', 'load:exl3-main', 'unload:exl3', 'load:exl3-alt']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
+    assert.equal(coordinator.canGrantModelRequest(), true);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
 test('pending switch waits until the active requests drain to zero', async () => {
   const fixture = createCoordinator();
   const { coordinator, configPath } = fixture;

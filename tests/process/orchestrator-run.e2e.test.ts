@@ -108,8 +108,8 @@ function writeFile(content: string, file = TARGET): MockPlannerResponseInput {
 
 const AGENT_REPORT: MockPlannerResponseInput = { content: JSON.stringify({ kind: 'agent', status: 'completed', deviations: [] }) };
 
-const SEARCH_REPORT: MockPlannerResponseInput = { content: JSON.stringify({ kind: 'search', understood: 'Report app.',
-  findings: [{ claim: 'app is 1.', evidence: [{ path: 'src/app.ts', line: 1 }], confidence: 'high' }], unknowns: [] }) };
+const SEARCH_REPORT: MockPlannerResponseInput = { content: JSON.stringify({ kind: 'search',
+  findings: [{ claim: 'app is 1.', evidence: [{ path: 'src/app.ts', line: 1 }] }], unknowns: [] }) };
 
 /** A writer that creates the greeting, approved by its own reviewer, and reports. */
 const WRITER: MockPlannerResponseInput[] = [writeFile(GREETING), APPROVING_VERDICT, AGENT_REPORT];
