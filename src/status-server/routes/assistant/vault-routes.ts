@@ -1,7 +1,7 @@
 import {
   VaultCreateNoteRequestSchema, VaultDeleteRequestSchema, VaultGraphQuerySchema, VaultLocalGraphQuerySchema,
   VaultNoteListQuerySchema, VaultRenameRequestSchema, VaultResolveQuerySchema, VaultRestoreRequestSchema,
-  VaultReviewQuerySchema, VaultRevisionNumberSchema, VaultSearchQuerySchema, VaultTreeQuerySchema, VaultUpdateNoteRequestSchema,
+  VaultReviewQuerySchema, VaultRevisionNumberSchema, VAULT_LOCAL_GRAPH_CAP, VaultSearchQuerySchema, VaultTreeQuerySchema, VaultUpdateNoteRequestSchema,
   type VaultDeleteResponse, type VaultNoteListResponse, type VaultResolveResponse, type VaultRevisionListResponse,
   type VaultTreeResponse, type VaultWriteMeta, type VaultWriteSource,
 } from '@siftkit/contracts';
@@ -13,7 +13,6 @@ import {
   assistantRoute, body, id, queryParams, sendArchive,
 } from './helpers.ts';
 
-const LOCAL_GRAPH_NODE_CAP = 160;
 const YOU: VaultWriteSource = { actor: 'you', sourceRef: null };
 
 const youMeta = (summary: string): VaultWriteMeta => ({ ...YOU, summary });
@@ -85,7 +84,7 @@ export const vaultGraphEndpoint = assistantRoute(({ service, res, url }) => {
 
 export const vaultLocalGraphEndpoint = assistantRoute(({ service, res, match, url }) => {
   const query = queryParams(url, VaultLocalGraphQuerySchema);
-  sendJson(res, 200, service.vaultGraph.local(id(match), query.depth, LOCAL_GRAPH_NODE_CAP));
+  sendJson(res, 200, service.vaultGraph.local(id(match), query.depth, VAULT_LOCAL_GRAPH_CAP));
 });
 
 export const vaultReviewEndpoint = assistantRoute(({ service, res, url }) => {

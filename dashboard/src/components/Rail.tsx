@@ -13,7 +13,7 @@ export const RAIL_ITEMS: readonly RailItem[] = [
   },
   { tab: 'chat', label: 'Chat', title: 'Chat', icon: <path d="M3 4h14v9H8l-4 4v-4H3z" /> },
   {
-    tab: 'assistant', label: 'Memory', title: 'Assistant Memory',
+    tab: 'assistant', label: 'Memory', title: 'Memory vault',
     icon: <><circle cx="10" cy="10" r="7" /><path d="M7 10h6M10 7v6" /></>,
   },
   {

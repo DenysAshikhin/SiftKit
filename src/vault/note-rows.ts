@@ -8,7 +8,6 @@ import { VaultNotFoundError } from './errors.ts';
 const StringListSchema = z.array(z.string());
 
 /** Link targets, titles and aliases all compare on this key. */
-export const vaultKey = (text: string): string => text.trim().toLowerCase();
 
 export const VaultNoteRowSchema = z.object({
   id: z.string(),

@@ -5,6 +5,7 @@
 @import "./styles/chat.css";
 @import "./styles/runs.css";
 @import "./styles/assistant.css";
+@import "./styles/vault.css";
 @import "./styles/orchestrator.css";
 
 .pending-images { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0; }

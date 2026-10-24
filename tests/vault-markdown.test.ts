@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseNoteBody, splitValues } from '@siftkit/contracts';
+import {
+  parseFactRow, parseNoteBody, splitValues, vaultKey, VAULT_LINK_PATTERN, VAULT_TAG_PATTERN,
+} from '@siftkit/contracts';
 
 const ENTITY = [
   'Visual Studio Code is a tool you use. It runs on [[Windows]].',
@@ -77,4 +79,19 @@ test('parseNoteBody handles an empty body and a body without a lead', () => {
 
 test('splitValues trims and drops empty parts', () => {
   assert.deepEqual(splitValues(' [[A]] ·  b  · '), ['[[A]]', 'b']);
+});
+
+test('vaultKey trims and lowercases a title or alias', () => {
+  assert.equal(vaultKey('  Foo Bar '), 'foo bar');
+});
+
+test('parseFactRow splits a bold label from its values, else null', () => {
+  assert.deepEqual(parseFactRow('**Uses** [[A]] · b'), { label: 'Uses', rest: '[[A]] · b' });
+  assert.equal(parseFactRow('plain'), null);
+});
+
+test('the shared link and tag patterns match the dialect', () => {
+  const links = [...'x [[A|b]] ![[c.png]] #t'.matchAll(VAULT_LINK_PATTERN)];
+  assert.deepEqual(links.map((match) => [match[1], match[2], match[3]]), [['', 'A', 'b'], ['!', 'c.png', undefined]]);
+  assert.deepEqual([...'x #t y#no'.matchAll(VAULT_TAG_PATTERN)].map((match) => match[1]), ['t']);
 });

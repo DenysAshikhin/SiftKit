@@ -1,5 +1,5 @@
 import {
-  parseNoteBody, rewriteLinks,
+  parseNoteBody, rewriteLinks, vaultKey,
   type VaultNote, type VaultNoteInput, type VaultNoteKind, type VaultNotePatch, type VaultRenameResult,
   type VaultRevision, type VaultRevisionSummary, type VaultWriteMeta, type VaultWriteSource,
 } from '@siftkit/contracts';
@@ -9,7 +9,7 @@ import type { IdGenerator } from '../assistant/ids.ts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
 import { VaultConflictError, VaultNotFoundError, VaultTitleTakenError, VaultValidationError } from './errors.ts';
-import { VaultRevisionRowSchema, readVaultNote, requireVaultNote, toVaultRevision, vaultKey } from './note-rows.ts';
+import { VaultRevisionRowSchema, readVaultNote, requireVaultNote, toVaultRevision } from './note-rows.ts';
 
 const TITLE_MAX_LENGTH = 200;
 const TITLE_FORBIDDEN = /[[\]|#^\\/:*?"<>]/;

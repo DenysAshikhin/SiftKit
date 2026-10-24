@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
+import { bootstrapAssistantToken } from '../dashboard/src/api.ts';
 import {
-  bootstrapAssistantToken,
-  getAssistantPolicies,
-  getAssistantStatus,
-  getCurrentAssistantQuestion,
-  searchAssistantMemory,
-} from '../dashboard/src/assistant-api.ts';
+  createVaultNote, exportVaultArchive, getVaultGraph, getVaultNote, getVaultStats, resolveVaultTitle, searchVault,
+  updateVaultNote, VaultRequestError,
+} from '../dashboard/src/vault-api.ts';
 import { getConfigPath } from '../src/config/index.ts';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
 import { startStatusServer } from '../src/status-server/index.ts';
@@ -20,8 +18,8 @@ import {
 } from './helpers/dashboard-test-repo.ts';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
-test('dashboard assistant API authenticates once and reads the live Gate C surface', { concurrency: false }, async () => {
-  const tempRoot = createManagedTempDir('siftkit-assistant-dashboard-');
+test('dashboard vault client writes, reads and conflicts against a live status server', { concurrency: false }, async () => {
+  const tempRoot = createManagedTempDir('siftkit-vault-dashboard-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -45,17 +43,28 @@ test('dashboard assistant API authenticates once and reads the live Gate C surfa
 
   try {
     const token = await bootstrapAssistantToken();
-    const [status, search, question, policies] = await Promise.all([
-      getAssistantStatus(token),
-      searchAssistantMemory(token, 'PowerShell'),
-      getCurrentAssistantQuestion(token),
-      getAssistantPolicies(token),
-    ]);
-    assert.equal(status.enabled, true);
-    assert.deepEqual(search, { nodes: [], assertions: [], projections: [] });
-    assert.equal(question, null);
-    assert.deepEqual(policies, []);
-    assert.doesNotMatch(JSON.stringify({ status, search, question, policies }), new RegExp(token, 'u'));
+    const git = await createVaultNote(token, 'Git');
+    const editor = await createVaultNote(token, 'Visual Studio Code');
+    const edited = await updateVaultNote(token, editor.id, { body: 'Your editor.\n\n**Uses** [[Git]] · [[Ghost]]' }, editor.revision);
+    assert.equal(edited.revision, 2);
+
+    const detail = await getVaultNote(token, editor.id);
+    assert.deepEqual(detail.outgoing.resolved.map((note) => note.id), [git.id]);
+    assert.deepEqual(detail.outgoing.unresolved, ['ghost']);
+    assert.equal(await resolveVaultTitle(token, 'git'), git.id);
+    assert.equal((await searchVault(token, 'visual', 10)).hits[0]?.note.id, editor.id);
+    assert.deepEqual((await getVaultGraph(token)).edges, [{ source: [git.id, editor.id].sort()[0], target: [git.id, editor.id].sort()[1] }]);
+    assert.equal((await getVaultStats(token)).notes, 2);
+
+    await assert.rejects(updateVaultNote(token, editor.id, { body: 'stale' }, 1), (error: Error) => {
+      assert.ok(error instanceof VaultRequestError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, 'conflict');
+      return true;
+    });
+    const archive = await exportVaultArchive(token);
+    assert.ok(archive.size > 0);
+    assert.doesNotMatch(JSON.stringify(detail), new RegExp(token, 'u'));
   } finally {
     Object.defineProperty(globalThis, 'fetch', { configurable: true, value: hostFetch });
     await closeHttpServer(server);

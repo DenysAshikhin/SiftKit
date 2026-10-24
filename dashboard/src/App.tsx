@@ -9,14 +9,14 @@ import { useMetricsController } from './hooks/useMetricsController.ts';
 import { useBenchmarkController } from './hooks/useBenchmarkController.ts';
 import { useSettingsController } from './hooks/useSettingsController.ts';
 import { useChatController } from './hooks/useChatController.ts';
-import { useAssistantController } from './hooks/useAssistantController.ts';
+import { useVaultController } from './hooks/useVaultController.ts';
 import { readSearchParams, writeSearchParams } from './lib/format.ts';
 import { RunsTab } from './tabs/RunsTab.tsx';
 import { MetricsTab } from './tabs/MetricsTab.tsx';
 import { ChatTab } from './tabs/ChatTab.tsx';
 import { SettingsTab } from './tabs/SettingsTab.tsx';
 import { BenchmarkTab } from './tabs/BenchmarkTab.tsx';
-import { AssistantTab } from './tabs/AssistantTab.tsx';
+import { VaultTab } from './tabs/VaultTab.tsx';
 
 export const TAB_KEYS = ['runs', 'metrics', 'benchmark', 'chat', 'assistant', 'settings'] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
@@ -29,7 +29,7 @@ const SECTION_TITLES: Record<TabKey, string> = {
   metrics: 'Metrics',
   benchmark: 'Benchmark',
   chat: 'Chat',
-  assistant: 'Assistant',
+  assistant: 'Memory vault',
   settings: 'Settings',
 };
 
@@ -74,7 +74,7 @@ export function App() {
     requestDashboardDataRefresh: refresh.requestDashboardDataRefresh,
     refreshSelectedRunDetail: runs.refreshSelectedRunDetail,
   });
-  const assistant = useAssistantController();
+  const vault = useVaultController(tab === 'assistant');
 
   useEffect(() => {
     writeSearchParams({
@@ -161,7 +161,7 @@ export function App() {
           {tab === 'benchmark' && <BenchmarkTab {...benchmark.tabProps} />}
           {tab === 'settings' && <SettingsTab {...settings.tabProps} />}
           {tab === 'chat' && <ChatTab {...chat.tabProps} />}
-          {tab === 'assistant' && <AssistantTab {...assistant.tabProps} />}
+          {tab === 'assistant' && <VaultTab {...vault} />}
         </div>
       </div>
     </div>

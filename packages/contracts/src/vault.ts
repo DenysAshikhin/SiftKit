@@ -188,6 +188,8 @@ export type VaultDeleteResponse = z.infer<typeof VaultDeleteResponseSchema>;
 
 /** Upper bound on any list a vault route returns in one response. */
 export const VAULT_MAX_PAGE = 1000;
+/** A local graph stops growing at this many notes so a hub neighbourhood stays readable. */
+export const VAULT_LOCAL_GRAPH_CAP = 160;
 const PageLimitSchema = z.coerce.number().int().min(1).max(VAULT_MAX_PAGE);
 const QueryFlagSchema = z.enum(['true', 'false']).default('false').transform((value) => value === 'true');
 
