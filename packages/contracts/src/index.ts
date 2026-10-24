@@ -16,3 +16,6 @@ export * from './orchestrator.ts';
 export * from './image.ts';
 export * from './assistant.ts';
 export * from './assistant-desktop.ts';
+export * from './vault-markdown.ts';
+export * from './vault-body.ts';
+export * from './vault.ts';

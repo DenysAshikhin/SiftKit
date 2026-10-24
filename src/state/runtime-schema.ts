@@ -7,6 +7,7 @@ import {
   ASSISTANT_PROACTIVE_SCHEMA_SQL,
 } from '../assistant/storage/schema.ts';
 import { getDefaultOperationModeAllowedTools } from '../presets.ts';
+import { VAULT_SCHEMA_SQL } from '../vault/vault-schema.ts';
 import type { RuntimeDatabase } from './database-handle.ts';
 
 /**
@@ -743,4 +744,5 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
   database.exec(ASSISTANT_PROACTIVE_SCHEMA_SQL);
   database.exec(ASSISTANT_DESKTOP_SCHEMA_SQL);
   database.exec(ASSISTANT_MOBILE_SCHEMA_SQL);
+  database.exec(VAULT_SCHEMA_SQL);
 }

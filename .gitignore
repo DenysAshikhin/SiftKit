@@ -63,3 +63,6 @@ test-out.log
 tmp-*.ts
 
 /.scratch-*/
+
+# Generated from the live runtime DB; contains personal data.
+docs/mockups/vault/vault-data.js
