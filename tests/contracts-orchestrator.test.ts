@@ -22,6 +22,9 @@ import {
   OrchestratorPendingApprovalSchema,
   OrchestratorRecordReviewArgsSchema,
   OrchestratorStartRequestSchema,
+  OrchestratorTaskSchema,
+  OrchestratorUpdateTasksArgsSchema,
+  OrchestratorVerificationCheckSchema,
   ORCHESTRATOR_MAX_DISPATCH,
   SiftPresetCollectionSchema,
   orchestratorCheckFailure,
@@ -84,6 +87,18 @@ test('a dispatch starts one or two children and a review judges every criterion 
   assert.equal(OrchestratorRecordReviewArgsSchema.safeParse({ ...review,
     criteria: [{ index: 0, met: true, evidence: ['README.md:2 install'] }] }).success, false);
   assert.equal(OrchestratorRecordReviewArgsSchema.safeParse({ ...review, verdict: 'pass_with_notes' }).success, false);
+});
+
+test('fields with an obvious value may be omitted, but a partial task update never gains a default', () => {
+  const { writePaths: _omitted, ...readOnly } = makeOrchestratorTask();
+  assert.deepEqual(OrchestratorTaskSchema.parse(readOnly).writePaths, [], 'a task without writePaths writes nothing');
+  assert.deepEqual(OrchestratorVerificationCheckSchema.parse({ kind: 'command', command: 'npm test' }),
+    { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 });
+  assert.deepEqual(OrchestratorRecordReviewArgsSchema.parse({ taskId: 'inspect', verdict: 'pass',
+    criteria: [{ index: 0, met: true, evidence: [{ path: 'README.md', line: 2, snippet: 'npm install' }] }] }).findings, []);
+  const updated = OrchestratorUpdateTasksArgsSchema.parse({ update: [{ taskId: 'inspect', set: { title: 'Renamed' } }] });
+  assert.deepEqual(updated.update[0]?.set, { title: 'Renamed' }, 'an update that omits writePaths keeps the task\'s own');
+  assert.equal(OrchestratorVerificationCheckSchema.safeParse({ command: 'npm test' }).success, false, 'the check kind is still required');
 });
 
 test('the orchestrator finishes completed with a summary or blocked with a reason', () => {

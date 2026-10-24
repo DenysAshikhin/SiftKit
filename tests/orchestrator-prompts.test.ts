@@ -49,7 +49,7 @@ test('the orchestrator prompt states the task, the workers, the run baseline, an
 test('the orchestrator prompt carries the planning rules that keep tasks small and fully verified', () => {
   const prompt = buildOrchestratorPrompt(brief());
   for (const rule of ['at most about 6 write', 'Steps are test-first', 'every test suite its change can affect',
-    'finalVerification always includes the project\'s typecheck and lint commands', 'dependsOn names every task']) {
+    'plus the project\'s typecheck and lint commands', 'finalVerification always includes the project\'s typecheck and lint commands', 'dependsOn names every task']) {
     assert.ok(prompt.includes(rule), rule);
   }
 });

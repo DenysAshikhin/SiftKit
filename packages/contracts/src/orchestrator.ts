@@ -24,7 +24,7 @@ export type OrchestratorChildPurpose = z.infer<typeof OrchestratorChildPurposeSc
 
 export const OrchestratorCommandCheckSchema = z.object({
   kind: z.literal('command'), command: z.string().trim().min(1),
-  cwd: z.string().min(1), expectedExitCode: z.literal(0),
+  cwd: z.string().min(1).default('.'), expectedExitCode: z.literal(0).default(0),
 }).strict();
 export type OrchestratorCommandCheck = z.infer<typeof OrchestratorCommandCheckSchema>;
 
@@ -37,7 +37,8 @@ export const OrchestratorVerificationCheckSchema = z.discriminatedUnion('kind', 
 ]);
 export type OrchestratorVerificationCheck = z.infer<typeof OrchestratorVerificationCheckSchema>;
 
-export const OrchestratorTaskSchema = z.object({
+/** A task's fields with no defaults, so a partial update patches only what it names. */
+const OrchestratorTaskFieldsSchema = z.object({
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
   title: z.string().trim().min(1),
   dependsOn: z.array(z.string().min(1)),
@@ -51,6 +52,9 @@ export const OrchestratorTaskSchema = z.object({
   acceptance: z.array(z.string().trim().min(1)).min(1),
   temporaryPaths: z.array(z.string().min(1)),
 }).strict();
+/** A whole task; a read-only one may omit writePaths. */
+export const OrchestratorTaskSchema = OrchestratorTaskFieldsSchema
+  .extend({ writePaths: OrchestratorTaskFieldsSchema.shape.writePaths.default([]) }).strict();
 export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>;
 
 export const OrchestratorPlanSchema = z.object({
@@ -259,7 +263,7 @@ export type OrchestratorSavePlanArgs = z.infer<typeof OrchestratorSavePlanArgsSc
 /** Revises the saved plan in place: patch tasks by id, add or remove tasks, or replace the final verification. */
 export const OrchestratorUpdateTasksArgsSchema = z.object({
   update: z.array(z.object({
-    taskId: z.string().min(1), set: OrchestratorTaskSchema.omit({ id: true }).partial().strict(),
+    taskId: z.string().min(1), set: OrchestratorTaskFieldsSchema.omit({ id: true }).partial().strict(),
   }).strict()).default([]),
   add: z.array(OrchestratorTaskSchema).default([]),
   remove: z.array(z.string().min(1)).default([]),
@@ -285,7 +289,7 @@ export type OrchestratorRunCheckArgs = z.infer<typeof OrchestratorRunCheckArgsSc
 
 export const OrchestratorRecordReviewArgsSchema = z.object({
   taskId: z.string().min(1), verdict: z.enum(['pass', 'fail']),
-  criteria: OrchestratorReviewRecordSchema.shape.criteria, findings: z.array(OrchestratorReviewFindingSchema),
+  criteria: OrchestratorReviewRecordSchema.shape.criteria, findings: z.array(OrchestratorReviewFindingSchema).default([]),
 }).strict();
 export type OrchestratorRecordReviewArgs = z.infer<typeof OrchestratorRecordReviewArgsSchema>;
 

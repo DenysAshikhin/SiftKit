@@ -73,7 +73,7 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
     '     writePaths, tests included. A read-only task uses a read-only worker.',
     '   - Steps are test-first: write the failing test, then the implementation.',
     '   - A task\'s verification has command checks for every test suite its change can affect, not only its new tests,',
-    '     using the exact test commands the request names, flags included.',
+    '     plus the project\'s typecheck and lint commands, using the exact commands the request names, flags included.',
     '   - finalVerification always includes the project\'s typecheck and lint commands and every relevant test suite.',
     '   - dependsOn names every task whose output or changes a task needs.',
     '4. Call dispatch with at most one task that changes files and one read-only task, each with its dependencies complete.',

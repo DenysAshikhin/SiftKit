@@ -384,6 +384,21 @@ test('non-JSON string where an array is expected still fails on the field', () =
   );
 });
 
+test('malformed JSON where an array is expected names the parse error so the model can repair it', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      {
+        text: '',
+        toolCalls: [call('edit-4', 'edit', { path: 'README.md', edits: '[{"oldText": "a", "newText": "b"}}]' })],
+      },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerToolCallError
+      && /invalid "edits": Invalid input: expected array, received string; the string is not valid JSON: Expected ',' or '\]' after array element in JSON at position 33 \(line 1 column 34\), near: "a", "newText": "b"\}\}\]$/u
+        .test(error.message),
+  );
+});
+
 test('JSON-looking text in a string-typed argument is left untouched', () => {
   assert.deepEqual(
     parseNativePlannerActions(

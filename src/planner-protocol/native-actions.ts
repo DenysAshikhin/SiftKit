@@ -1,4 +1,5 @@
 import type { AgentLoopAction } from '../agent-loop/types.ts';
+import { toError } from '../lib/errors.ts';
 import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue, type OptionalJsonValue } from '../lib/json-types.ts';
 import { ModelJson } from '../lib/model-json.ts';
 import { z } from '../lib/zod.ts';
@@ -119,6 +120,22 @@ function repairStringifiedArguments(args: JsonObject, issues: readonly z.core.$Z
   return repaired;
 }
 
+/** Why a string the model sent for an array or object did not repair: its JSON parse error and the text around it. */
+function describeUnparsedJson(args: JsonObject, issue: z.core.$ZodIssue | undefined): string {
+  if (issue?.code !== 'invalid_type' || (issue.expected !== 'array' && issue.expected !== 'object')) return '';
+  const value = readJsonPath(args, issue.path);
+  if (typeof value !== 'string') return '';
+  try {
+    JSON.parse(value);
+    return '';
+  } catch (error) {
+    const message = toError(error).message;
+    const position = Number(/position (\d+)/u.exec(message)?.[1] ?? Number.NaN);
+    const near = Number.isNaN(position) ? '' : `, near: ${value.slice(Math.max(0, position - 20), position + 10)}`;
+    return `; the string is not valid JSON: ${message}${near}`;
+  }
+}
+
 function parseDefinitionArguments<T>(
   toolCall: InferenceToolCall,
   args: JsonObject,
@@ -140,7 +157,7 @@ function parseDefinitionArguments<T>(
   const issue = validated.error.issues[0];
   const detail = issue?.message ?? validated.error.message;
   throw new NativePlannerToolCallError(
-    `Tool "${toolCall.function.name.trim()}" has invalid "${formatIssuePath(issue?.path ?? [])}": ${detail}`,
+    `Tool "${toolCall.function.name.trim()}" has invalid "${formatIssuePath(issue?.path ?? [])}": ${detail}${describeUnparsedJson(candidate, issue)}`,
     toolCall.id,
     toolCall.function.name.trim(),
     args,
