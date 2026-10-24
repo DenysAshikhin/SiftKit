@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { AssistantConflictError, AssistantNotFoundError } from '../src/assistant/errors.ts';
 import { VaultConflictError, VaultNotFoundError, VaultTitleTakenError } from '../src/vault/errors.ts';
-import { TEST_META, entityInput, withVault } from './helpers/vault-fixture.ts';
+import { TEST_META, TEST_SOURCE, entityInput, withVault } from './helpers/vault-fixture.ts';
 
 test('update bumps the revision, snapshots it and reindexes', () => withVault(({ store, clock }) => {
   const note = store.create(entityInput('Git', 'Lead.'), TEST_META);
@@ -35,11 +35,12 @@ test('an update that changes nothing creates no revision', () => withVault(({ st
 test('restore writes the old snapshot as a new revision and keeps history', () => withVault(({ store }) => {
   const note = store.create(entityInput('Git', 'One.', { aliases: ['git-scm'] }), TEST_META);
   store.update(note.id, { body: 'Two.', aliases: [] }, 1, TEST_META);
-  const restored = store.restore(note.id, 1, 2, { actor: 'you', summary: 'Restored r1', sourceRef: null });
+  const restored = store.restore(note.id, 1, 2, TEST_SOURCE);
   assert.equal(restored.revision, 3);
   assert.equal(restored.body, 'One.');
   assert.deepEqual(restored.aliases, ['git-scm']);
   assert.equal(store.listRevisions(note.id).length, 3);
+  assert.equal(store.listRevisions(note.id)[0]?.summary, 'Restored revision 1');
 }));
 
 test('missing notes and revisions throw not-found', () => withVault(({ store }) => {

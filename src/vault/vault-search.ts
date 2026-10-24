@@ -3,7 +3,7 @@ import type { VaultNote, VaultSearchResult } from '@siftkit/contracts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
 import { degreeOf, loadAdjacency, type VaultAdjacency } from './link-graph.ts';
-import { VaultNoteRowSchema, toVaultNote, toVaultNoteSummary } from './note-rows.ts';
+import { readVaultNotes, toVaultNoteSummary } from './note-rows.ts';
 
 const FILTER_PATTERN = /\b(tag|path|type):(\S*)/g;
 const SearchFilterSchema = z.object({ kind: z.enum(['tag', 'path', 'type']), value: z.string() });
@@ -58,9 +58,8 @@ export class VaultSearch {
     const { text, filters } = parseQuery(query);
     const tags = filters.filter((filter) => filter.kind === 'tag').map((filter) => filter.value);
     const tagClause = tags.map(() => 'EXISTS (SELECT 1 FROM vault_tags t WHERE t.note_id = n.id AND t.tag = ?)').join(' AND ');
-    const notes = z.array(VaultNoteRowSchema).parse(this.database.prepare(
-      `SELECT n.* FROM vault_notes n ${tagClause ? `WHERE ${tagClause}` : ''}`,
-    ).all(...tags)).map(toVaultNote).filter((note) => passesFolderAndType(note, filters));
+    const notes = readVaultNotes(this.database, `SELECT n.* FROM vault_notes n ${tagClause ? `WHERE ${tagClause}` : ''}`, ...tags)
+      .filter((note) => passesFolderAndType(note, filters));
     const matches = notes.flatMap((note) => {
       const scored = scoreNote(note, text);
       return scored === null ? [] : [{ note, ...scored }];

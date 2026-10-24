@@ -1,4 +1,4 @@
-import type { VaultGraph, VaultGraphNode } from '@siftkit/contracts';
+import type { VaultGraph, VaultGraphNode, VaultLocalGraphDepth } from '@siftkit/contracts';
 
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
@@ -21,7 +21,7 @@ export class VaultGraphQueries {
     return { nodes, edges: edgesAmong(nodes, adjacency) };
   }
 
-  local(noteId: string, depth: 1 | 2, cap: number): VaultGraph {
+  local(noteId: string, depth: VaultLocalGraphDepth, cap: number): VaultGraph {
     requireVaultNote(this.database, noteId);
     const adjacency = loadAdjacency(this.database);
     const included = new Set([noteId]);

@@ -1,7 +1,7 @@
 import {
   parseNoteBody, rewriteLinks,
   type VaultNote, type VaultNoteInput, type VaultNoteKind, type VaultNotePatch, type VaultRenameResult,
-  type VaultRevision, type VaultRevisionSummary, type VaultWriteMeta,
+  type VaultRevision, type VaultRevisionSummary, type VaultWriteMeta, type VaultWriteSource,
 } from '@siftkit/contracts';
 
 import type { Clock } from '../assistant/clock.ts';
@@ -96,9 +96,14 @@ export class VaultNoteStore {
     })();
   }
 
-  resolve(titleOrAlias: string): VaultNote | null {
+  resolveId(titleOrAlias: string): string | null {
     const row = this.database.prepare('SELECT note_id FROM vault_key_owners WHERE key = ?').get(vaultKey(titleOrAlias));
-    return row === undefined ? null : readVaultNote(this.database, NoteIdRowSchema.parse(row).note_id);
+    return row === undefined ? null : NoteIdRowSchema.parse(row).note_id;
+  }
+
+  resolve(titleOrAlias: string): VaultNote | null {
+    const id = this.resolveId(titleOrAlias);
+    return id === null ? null : readVaultNote(this.database, id);
   }
 
   listRevisions(id: string): VaultRevisionSummary[] {
@@ -131,7 +136,7 @@ export class VaultNoteStore {
     })();
   }
 
-  restore(id: string, revision: number, expectedRevision: number, meta: VaultWriteMeta): VaultNote {
+  restore(id: string, revision: number, expectedRevision: number, source: VaultWriteSource): VaultNote {
     return this.database.transaction((): VaultNote => {
       const current = this.requireRevision(id, expectedRevision);
       const snapshot = this.getRevision(id, revision);
@@ -144,11 +149,11 @@ export class VaultNoteStore {
         aliases: uniqueKeyed(snapshot.aliases, current.title),
         tags: snapshot.tags,
         isStub: computeIsStub(current.kind, snapshot.body),
-      }, meta);
+      }, { ...source, summary: `Restored revision ${revision}` });
     })();
   }
 
-  rename(id: string, newTitle: string, expectedRevision: number, meta: VaultWriteMeta): VaultRenameResult {
+  rename(id: string, newTitle: string, expectedRevision: number, source: VaultWriteSource): VaultRenameResult {
     return this.database.transaction((): VaultRenameResult => {
       const current = this.requireRevision(id, expectedRevision);
       const title = validateVaultTitle(newTitle);
@@ -160,18 +165,18 @@ export class VaultNoteStore {
         'SELECT DISTINCT from_note_id FROM vault_links WHERE target_key = ? AND from_note_id <> ?',
       ).all(vaultKey(current.title), id));
       for (const { from_note_id: fromId } of inbound) {
-        const source = requireVaultNote(this.database, fromId);
-        const rewritten = rewriteLinks(source.body, current.title, title);
+        const linking = requireVaultNote(this.database, fromId);
+        const rewritten = rewriteLinks(linking.body, current.title, title);
         if (rewritten.count === 0) continue;
-        this.persist(source, { ...source, body: rewritten.body }, {
-          actor: meta.actor, summary: `Link updated: ${current.title} → ${title}`, sourceRef: id,
+        this.persist(linking, { ...linking, body: rewritten.body }, {
+          actor: source.actor, summary: `Link updated: ${current.title} → ${title}`, sourceRef: id,
         });
         rewrittenNotes += 1;
         rewrittenLinks += rewritten.count;
       }
       const note = this.persist(current, {
         ...current, title, aliases: uniqueKeyed([current.title, ...current.aliases], title),
-      }, meta);
+      }, { ...source, summary: `Renamed from ${current.title}` });
       return { note, rewrittenNotes, rewrittenLinks };
     })();
   }

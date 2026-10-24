@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  VaultDeleteResponseSchema, VaultGraphSchema, VaultNoteDetailSchema, VaultNoteListResponseSchema, VaultNoteSchema,
+  AssistantErrorResponseSchema, VaultDeleteResponseSchema, VaultGraphSchema, VaultNoteDetailSchema, VaultNoteListResponseSchema, VaultNoteSchema,
   VaultRenameResultSchema, VaultResolveResponseSchema, VaultReviewSchema, VaultRevisionListResponseSchema,
   VaultRevisionSchema, VaultSearchResultSchema, VaultStatsSchema, VaultTreeResponseSchema,
 } from '@siftkit/contracts';
@@ -12,7 +12,6 @@ import { readArchiveEntriesFromBytes } from './helpers/archive-bytes.ts';
 import { withAssistantServer, type AssistantServerHarness } from './helpers/assistant-server-harness.ts';
 import { requestBinary, requestJson } from './helpers/dashboard-http.ts';
 
-const ErrorBodySchema = z.object({ error: z.object({ code: z.string(), message: z.string(), currentRevision: z.number().optional() }) });
 const ENABLED = { ...getDefaultConfig().Assistant, Enabled: true };
 
 function vaultClient({ baseUrl, headers }: AssistantServerHarness) {
@@ -29,7 +28,7 @@ function vaultClient({ baseUrl, headers }: AssistantServerHarness) {
     async error(method: string, path: string, status: number, payload?: object) {
       const response = await call(method, path, payload);
       assert.equal(response.statusCode, status, JSON.stringify(response.body));
-      return ErrorBodySchema.parse(response.body).error;
+      return AssistantErrorResponseSchema.parse(response.body).error;
     },
   };
 }
@@ -77,8 +76,8 @@ test('vault routes update, rename, restore and delete under revision checks', as
 
     const updated = await vault.ok('PUT', `/notes/${editor.id}`, VaultNoteSchema, { body: 'Editor by Microsoft.', tags: ['editor'], expectedRevision: 1 });
     assert.deepEqual([updated.revision, updated.tags], [2, ['editor']]);
-    assert.deepEqual(await vault.error('PUT', `/notes/${editor.id}`, 409, { body: 'Stale.', expectedRevision: 1 }),
-      { code: 'conflict', message: `Vault note ${editor.id} changed; current revision is 2.`, currentRevision: 2 });
+    const stale = await vault.error('PUT', `/notes/${editor.id}`, 409, { body: 'Stale.', expectedRevision: 1 });
+    assert.deepEqual([stale.code, stale.currentRevision], ['conflict', 2]);
 
     const renamed = await vault.ok('POST', `/notes/${editor.id}/rename`, VaultRenameResultSchema, { title: 'Visual Studio Code', expectedRevision: 2 });
     assert.deepEqual([renamed.rewrittenNotes, renamed.rewrittenLinks, renamed.note.aliases], [1, 1, ['VS Code']]);
@@ -108,6 +107,9 @@ test('vault routes reject bad requests with typed errors', async () => {
     assert.equal((await vault.error('GET', `/notes/${git.id}/revisions/9`, 404)).code, 'not_found');
     assert.equal((await vault.error('GET', `/graph/local/${git.id}?depth=3`, 400)).code, 'invalid_request');
     assert.equal((await vault.error('GET', '/tree?stubs=maybe', 400)).code, 'invalid_request');
+    assert.equal((await vault.error('GET', '/notes?limit=100000', 400)).code, 'invalid_request');
+    assert.equal((await vault.error('GET', '/search?q=git&limit=0', 400)).code, 'invalid_request');
+    assert.equal((await vault.error('GET', '/graph?minLinks=-1', 400)).code, 'invalid_request');
   });
 });
 

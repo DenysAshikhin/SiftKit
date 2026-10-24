@@ -1,36 +1,34 @@
 import {
-  VaultCreateNoteRequestSchema, VaultDeleteRequestSchema, VaultRenameRequestSchema, VaultRestoreRequestSchema,
-  VaultUpdateNoteRequestSchema,
+  VaultCreateNoteRequestSchema, VaultDeleteRequestSchema, VaultGraphQuerySchema, VaultLocalGraphQuerySchema,
+  VaultNoteListQuerySchema, VaultRenameRequestSchema, VaultResolveQuerySchema, VaultRestoreRequestSchema,
+  VaultReviewQuerySchema, VaultRevisionNumberSchema, VaultSearchQuerySchema, VaultTreeQuerySchema, VaultUpdateNoteRequestSchema,
   type VaultDeleteResponse, type VaultNoteListResponse, type VaultResolveResponse, type VaultRevisionListResponse,
-  type VaultTreeResponse, type VaultWriteMeta,
+  type VaultTreeResponse, type VaultWriteMeta, type VaultWriteSource,
 } from '@siftkit/contracts';
 import { z } from '../../../lib/zod.ts';
 import { exportVault } from '../../../vault/vault-export.ts';
 import { sendJson } from '../../http-utils.ts';
 import type { RouteMatch } from '../../route-table.ts';
 import {
-  assistantRoute, body, booleanParam, id, integerParam, sendArchive,
+  assistantRoute, body, id, queryParams, sendArchive,
 } from './helpers.ts';
 
 const LOCAL_GRAPH_NODE_CAP = 160;
-const LocalGraphDepthSchema = z.union([z.literal(1), z.literal(2)]);
-const RevisionCaptureSchema = z.coerce.number().int().min(1);
+const YOU: VaultWriteSource = { actor: 'you', sourceRef: null };
 
-const youMeta = (summary: string): VaultWriteMeta => ({ actor: 'you', summary, sourceRef: null });
-const revisionCapture = (match: RouteMatch): number => RevisionCaptureSchema.parse(match.captures[1]);
+const youMeta = (summary: string): VaultWriteMeta => ({ ...YOU, summary });
+const revisionCapture = (match: RouteMatch): number => z.coerce.number().pipe(VaultRevisionNumberSchema).parse(match.captures[1]);
 
 export const vaultTreeEndpoint = assistantRoute(({ service, res, url }) => {
-  const response: VaultTreeResponse = { folders: service.vaultQueries.folders({ includeStubs: booleanParam(url, 'stubs') }) };
-  sendJson(res, 200, response);
+  const query = queryParams(url, VaultTreeQuerySchema);
+  sendJson(res, 200, { folders: service.vaultQueries.folders({ includeStubs: query.stubs }) } satisfies VaultTreeResponse);
 });
 
 export const vaultListNotesEndpoint = assistantRoute(({ service, res, url }) => {
-  const response: VaultNoteListResponse = {
-    notes: service.vaultQueries.folderNotes(url.searchParams.get('folder') ?? '', {
-      includeStubs: booleanParam(url, 'stubs'), limit: integerParam(url, 'limit', 500),
-    }),
-  };
-  sendJson(res, 200, response);
+  const query = queryParams(url, VaultNoteListQuerySchema);
+  sendJson(res, 200, {
+    notes: service.vaultQueries.folderNotes(query.folder, { includeStubs: query.stubs, limit: query.limit }),
+  } satisfies VaultNoteListResponse);
 });
 
 export const vaultNoteDetailEndpoint = assistantRoute(({ service, res, match }) => {
@@ -38,15 +36,12 @@ export const vaultNoteDetailEndpoint = assistantRoute(({ service, res, match }) 
 });
 
 export const vaultResolveEndpoint = assistantRoute(({ service, res, url }) => {
-  const response: VaultResolveResponse = { id: service.vaultNotes.resolve(url.searchParams.get('title') ?? '')?.id ?? null };
-  sendJson(res, 200, response);
+  const query = queryParams(url, VaultResolveQuerySchema);
+  sendJson(res, 200, { id: service.vaultNotes.resolveId(query.title) } satisfies VaultResolveResponse);
 });
 
 export const vaultCreateNoteEndpoint = assistantRoute(async ({ service, req, res }) => {
-  const request = await body(req, VaultCreateNoteRequestSchema);
-  sendJson(res, 200, service.vaultNotes.create(
-    { ...request, kind: 'note', types: [], aliases: [], tags: [] }, youMeta('Created'),
-  ));
+  sendJson(res, 200, service.vaultNotes.create(await body(req, VaultCreateNoteRequestSchema), youMeta('Created')));
 });
 
 export const vaultUpdateNoteEndpoint = assistantRoute(async ({ service, req, res, match }) => {
@@ -56,19 +51,17 @@ export const vaultUpdateNoteEndpoint = assistantRoute(async ({ service, req, res
 
 export const vaultRenameNoteEndpoint = assistantRoute(async ({ service, req, res, match }) => {
   const request = await body(req, VaultRenameRequestSchema);
-  sendJson(res, 200, service.vaultNotes.rename(id(match), request.title, request.expectedRevision, youMeta(`Renamed to ${request.title}`)));
+  sendJson(res, 200, service.vaultNotes.rename(id(match), request.title, request.expectedRevision, YOU));
 });
 
 export const vaultDeleteNoteEndpoint = assistantRoute(async ({ service, req, res, match }) => {
   const request = await body(req, VaultDeleteRequestSchema);
   service.vaultNotes.delete(id(match), request.expectedRevision);
-  const response: VaultDeleteResponse = { ok: true };
-  sendJson(res, 200, response);
+  sendJson(res, 200, { ok: true } satisfies VaultDeleteResponse);
 });
 
 export const vaultRevisionsEndpoint = assistantRoute(({ service, res, match }) => {
-  const response: VaultRevisionListResponse = { revisions: service.vaultNotes.listRevisions(id(match)) };
-  sendJson(res, 200, response);
+  sendJson(res, 200, { revisions: service.vaultNotes.listRevisions(id(match)) } satisfies VaultRevisionListResponse);
 });
 
 export const vaultRevisionEndpoint = assistantRoute(({ service, res, match }) => {
@@ -77,27 +70,26 @@ export const vaultRevisionEndpoint = assistantRoute(({ service, res, match }) =>
 
 export const vaultRestoreEndpoint = assistantRoute(async ({ service, req, res, match }) => {
   const request = await body(req, VaultRestoreRequestSchema);
-  sendJson(res, 200, service.vaultNotes.restore(
-    id(match), request.revision, request.expectedRevision, youMeta(`Restored revision ${request.revision}`),
-  ));
+  sendJson(res, 200, service.vaultNotes.restore(id(match), request.revision, request.expectedRevision, YOU));
 });
 
 export const vaultSearchEndpoint = assistantRoute(({ service, res, url }) => {
-  sendJson(res, 200, service.vaultSearch.search(url.searchParams.get('q') ?? '', integerParam(url, 'limit', 50)));
+  const query = queryParams(url, VaultSearchQuerySchema);
+  sendJson(res, 200, service.vaultSearch.search(query.q, query.limit));
 });
 
 export const vaultGraphEndpoint = assistantRoute(({ service, res, url }) => {
-  const hidden = (url.searchParams.get('hide') ?? '').split(',').map((folder) => folder.trim()).filter((folder) => folder.length > 0);
-  sendJson(res, 200, service.vaultGraph.global({ minLinks: integerParam(url, 'minLinks', 0), hiddenTopFolders: hidden }));
+  const query = queryParams(url, VaultGraphQuerySchema);
+  sendJson(res, 200, service.vaultGraph.global({ minLinks: query.minLinks, hiddenTopFolders: query.hide }));
 });
 
 export const vaultLocalGraphEndpoint = assistantRoute(({ service, res, match, url }) => {
-  const depth = LocalGraphDepthSchema.parse(integerParam(url, 'depth', 1));
-  sendJson(res, 200, service.vaultGraph.local(id(match), depth, LOCAL_GRAPH_NODE_CAP));
+  const query = queryParams(url, VaultLocalGraphQuerySchema);
+  sendJson(res, 200, service.vaultGraph.local(id(match), query.depth, LOCAL_GRAPH_NODE_CAP));
 });
 
 export const vaultReviewEndpoint = assistantRoute(({ service, res, url }) => {
-  sendJson(res, 200, service.vaultQueries.review(integerParam(url, 'limit', 200)));
+  sendJson(res, 200, service.vaultQueries.review(queryParams(url, VaultReviewQuerySchema).limit));
 });
 
 export const vaultStatsEndpoint = assistantRoute(({ service, res }) => {

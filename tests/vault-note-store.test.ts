@@ -35,6 +35,8 @@ test('resolve finds a note by title or alias, case-insensitively, title first', 
   assert.equal(store.resolve('vs code')?.id, vscode.id);
   assert.equal(store.resolve('code')?.id, code.id);
   assert.equal(store.resolve('missing'), null);
+  assert.equal(store.resolveId('VS CODE'), vscode.id);
+  assert.equal(store.resolveId('missing'), null);
 }));
 
 test('create rejects duplicate titles and invalid titles', () => withVault(({ store }) => {

@@ -1,9 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { AssistantConflictError, AssistantNotFoundError } from '../../assistant/errors.ts';
-import {
-  RequestBodyTooLargeError, sendJson,
-} from '../http-utils.ts';
+import { toError } from '../../lib/errors.ts';
+import { sendJson } from '../http-utils.ts';
 import { RouteTable } from '../route-table.ts';
 import type { ServerContext } from '../server-types.ts';
 import {
@@ -98,7 +96,7 @@ import {
   vaultTreeEndpoint,
   vaultUpdateNoteEndpoint,
 } from './assistant/vault-routes.ts';
-import { header, sendError } from './assistant/helpers.ts';
+import { assistantErrorResponse, header, sendError } from './assistant/helpers.ts';
 
 const routes = new RouteTable([
   { method: 'GET', path: '/assistant/status', endpoint: statusEndpoint },
@@ -300,14 +298,8 @@ export async function handleAssistantRoute(
       sendError(res, 404, 'not_found', 'Not found.');
     }
   } catch (error) {
-    if (error instanceof RequestBodyTooLargeError) {
-      sendError(res, 413, 'body_too_large', error.message);
-    } else {
-      const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof AssistantNotFoundError) sendError(res, 404, 'not_found', message);
-      else if (error instanceof AssistantConflictError) sendError(res, 409, error.code, message, error.details);
-      else sendError(res, 400, 'invalid_request', message);
-    }
+    const wire = assistantErrorResponse(toError(error));
+    sendError(res, wire.status, wire.code, wire.message, wire.details);
   }
   return true;
 }

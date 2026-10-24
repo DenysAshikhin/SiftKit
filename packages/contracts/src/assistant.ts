@@ -388,7 +388,11 @@ export const MobileEnvelopeSchema = z.object({
 }).strict();
 export type MobileEnvelope = z.infer<typeof MobileEnvelopeSchema>;
 
+/** Recovery fields a conflict can carry beside its code and message. */
+export const AssistantErrorDetailsSchema = z.object({ currentRevision: z.number().int().min(1).optional() }).strict();
+export type AssistantErrorDetails = z.infer<typeof AssistantErrorDetailsSchema>;
+
 export const AssistantErrorResponseSchema = z.object({
-  error: z.object({ code: z.string(), message: z.string() }).strict(),
+  error: AssistantErrorDetailsSchema.extend({ code: z.string(), message: z.string() }).strict(),
 }).strict();
 export type AssistantErrorResponse = z.infer<typeof AssistantErrorResponseSchema>;

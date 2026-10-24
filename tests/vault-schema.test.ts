@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { VaultNoteSchema } from '@siftkit/contracts';
+import { VaultNoteSchema, VaultWriteMetaSchema } from '@siftkit/contracts';
 import { z } from '../src/lib/zod.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
@@ -39,4 +39,9 @@ test('runtime bootstrap creates the link-resolution view', () => {
   } finally {
     closeAllRuntimeDatabases();
   }
+});
+
+test('write metadata names one of the known actors', () => {
+  assert.equal(VaultWriteMetaSchema.parse({ actor: 'note-writer · screenshot', summary: 's', sourceRef: 'att_1' }).actor, 'note-writer · screenshot');
+  assert.throws(() => VaultWriteMetaSchema.parse({ actor: 'robot', summary: 's', sourceRef: null }));
 });

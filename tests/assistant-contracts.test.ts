@@ -101,6 +101,7 @@ test('assistant public contracts round-trip representative valid DTOs', () => {
       evidenceReclassified: 3, assertionsReclassified: 1,
     }],
     [AssistantErrorResponseSchema, { error: { code: 'not_found', message: 'Missing' } }],
+    [AssistantErrorResponseSchema, { error: { code: 'conflict', message: 'Stale', currentRevision: 2 } }],
   ] as const;
   for (const [schema, value] of examples) {
     assert.deepEqual(schema.parse(value), value);

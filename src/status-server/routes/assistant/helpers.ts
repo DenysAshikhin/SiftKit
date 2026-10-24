@@ -2,14 +2,15 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream/promises';
 
-import { SIFT_MAX_IMAGE_BYTES } from '@siftkit/contracts';
+import { SIFT_MAX_IMAGE_BYTES, type AssistantErrorDetails } from '@siftkit/contracts';
 import { z } from '../../../lib/zod.ts';
 import { ObjectValueTypeSchema } from '../../../assistant/domain/enums.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../../../assistant/errors.ts';
 import { JsonValueSchema } from '../../../lib/json-types.ts';
 import type { AssistantService, DesktopPayloadKind } from '../../../assistant/assistant-service.ts';
 import type { TempArchive } from '../../../assistant/control/temp-archive.ts';
 import {
-  parseJsonBody, readBody, sendJson,
+  parseJsonBody, readBody, RequestBodyTooLargeError, sendJson,
 } from '../../http-utils.ts';
 import type { RouteEndpoint, RouteMatch } from '../../route-table.ts';
 import type { ServerContext } from '../../server-types.ts';
@@ -54,9 +55,28 @@ export function sendError(
   status: number,
   code: string,
   message: string,
-  details: Readonly<Record<string, number>> = {},
+  details: AssistantErrorDetails = {},
 ): void {
   sendJson(res, status, { error: { ...details, code, message } });
+}
+
+export interface AssistantErrorWire {
+  readonly status: number;
+  readonly code: string;
+  readonly message: string;
+  readonly details: AssistantErrorDetails;
+}
+
+/** Maps a thrown error to the wire by type; a programming error is the server's fault, not the request's. */
+export function assistantErrorResponse(error: Error): AssistantErrorWire {
+  const { message } = error;
+  if (error instanceof RequestBodyTooLargeError) return { status: 413, code: 'body_too_large', message, details: {} };
+  if (error instanceof AssistantNotFoundError) return { status: 404, code: 'not_found', message, details: {} };
+  if (error instanceof AssistantConflictError) return { status: 409, code: error.code, message, details: error.details };
+  if (error instanceof TypeError || error instanceof ReferenceError || error instanceof RangeError) {
+    return { status: 500, code: 'internal_error', message, details: {} };
+  }
+  return { status: 400, code: 'invalid_request', message, details: {} };
 }
 
 export function id(match: RouteMatch): string {
@@ -73,11 +93,8 @@ export function integerParam(url: URL, name: string, fallback: number): number {
   return parsed;
 }
 
-export function booleanParam(url: URL, name: string): boolean {
-  const raw = url.searchParams.get(name);
-  if (raw === null || raw === 'false') return false;
-  if (raw === 'true') return true;
-  throw new Error(`${name} must be true or false.`);
+export function queryParams<T>(url: URL, schema: z.ZodType<T>): T {
+  return schema.parse(Object.fromEntries(url.searchParams));
 }
 
 export async function body<T>(

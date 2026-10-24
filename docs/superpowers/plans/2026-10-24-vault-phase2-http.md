@@ -1,5 +1,7 @@
 # Vault Phase 2 — HTTP API Implementation Plan
 
+> **Status: implemented.** A post-implementation review then changed some details. The code is authoritative: query parameters are parsed with contract schemas through `queryParams` (`booleanParam` was removed); `assistantErrorResponse` maps errors, with programming errors sent as 500; the store derives rename and restore summaries from a `VaultWriteSource`; actors are the closed `VaultActorSchema`; and the resolve route uses `store.resolveId`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Serve the Phase 1 vault core over `/assistant/vault/*`, behind the existing assistant auth, rate limiter and `RouteTable`. Every request and response shape is a zod schema in contracts.

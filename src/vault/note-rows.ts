@@ -1,4 +1,4 @@
-import { VaultNoteKindSchema, type VaultNote, type VaultNoteSummary, type VaultRevision } from '@siftkit/contracts';
+import { VaultActorSchema, VaultNoteKindSchema, type VaultNote, type VaultNoteSummary, type VaultRevision } from '@siftkit/contracts';
 
 import { parseJsonText } from '../lib/json.ts';
 import { z } from '../lib/zod.ts';
@@ -29,7 +29,7 @@ export type VaultNoteRow = z.infer<typeof VaultNoteRowSchema>;
 
 export const VaultRevisionRowSchema = z.object({
   revision: z.number().int(),
-  actor: z.string(),
+  actor: VaultActorSchema,
   summary: z.string(),
   source_ref: z.string().nullable(),
   title: z.string(),
@@ -80,9 +80,12 @@ export function toVaultRevision(row: z.infer<typeof VaultRevisionRowSchema>): Va
   };
 }
 
+export function readVaultNotes(database: RuntimeDatabase, sql: string, ...params: readonly string[]): VaultNote[] {
+  return z.array(VaultNoteRowSchema).parse(database.prepare(sql).all(...params)).map(toVaultNote);
+}
+
 export function readVaultNote(database: RuntimeDatabase, id: string): VaultNote | null {
-  const row = database.prepare('SELECT * FROM vault_notes WHERE id = ?').get(id);
-  return row === undefined ? null : toVaultNote(VaultNoteRowSchema.parse(row));
+  return readVaultNotes(database, 'SELECT * FROM vault_notes WHERE id = ?', id)[0] ?? null;
 }
 
 export function requireVaultNote(database: RuntimeDatabase, id: string): VaultNote {
