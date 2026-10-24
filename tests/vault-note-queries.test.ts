@@ -81,3 +81,11 @@ test('a folder of daily or capture notes lists newest first whatever its name', 
   const titles = new VaultNoteQueries(database).folderNotes('Journal', { includeStubs: true, limit: 10 }).map((note) => note.title);
   assert.deepEqual(titles, ['2026-10-24', '2026-10-23']);
 }));
+
+test('detail bundles the note with its backlinks and outgoing links', () => withVault(({ store, database }) => {
+  const { me, vscode } = seed(store);
+  const detail = new VaultNoteQueries(database).detail(vscode.id);
+  assert.equal(detail.note.id, vscode.id);
+  assert.deepEqual(detail.backlinks.map((link) => link.note.id)[0], me.id);
+  assert.deepEqual(detail.outgoing.unresolved, ['nowhere']);
+}));

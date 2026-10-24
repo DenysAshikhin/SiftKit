@@ -137,3 +137,38 @@ export const VaultGraphSchema = z.object({
   edges: z.array(z.object({ source: z.string(), target: z.string() }).strict()),
 }).strict();
 export type VaultGraph = z.infer<typeof VaultGraphSchema>;
+
+const ExpectedRevisionSchema = z.number().int().min(1);
+
+export const VaultTreeResponseSchema = z.object({ folders: z.array(VaultFolderSchema) }).strict();
+export type VaultTreeResponse = z.infer<typeof VaultTreeResponseSchema>;
+
+export const VaultNoteListResponseSchema = z.object({ notes: z.array(VaultNoteSummarySchema) }).strict();
+export type VaultNoteListResponse = z.infer<typeof VaultNoteListResponseSchema>;
+
+export const VaultNoteDetailSchema = z.object({
+  note: VaultNoteSchema,
+  backlinks: z.array(VaultBacklinkSchema),
+  outgoing: VaultOutgoingSchema,
+}).strict();
+export type VaultNoteDetail = z.infer<typeof VaultNoteDetailSchema>;
+
+export const VaultResolveResponseSchema = z.object({ id: z.string().nullable() }).strict();
+export type VaultResolveResponse = z.infer<typeof VaultResolveResponseSchema>;
+
+export const VaultRevisionListResponseSchema = z.object({ revisions: z.array(VaultRevisionSummarySchema) }).strict();
+export type VaultRevisionListResponse = z.infer<typeof VaultRevisionListResponseSchema>;
+
+export const VaultCreateNoteRequestSchema = z.object({
+  title: z.string(),
+  folder: z.string().default(''),
+  body: z.string().default(''),
+}).strict();
+
+export const VaultUpdateNoteRequestSchema = VaultNotePatchSchema.extend({ expectedRevision: ExpectedRevisionSchema }).strict();
+export const VaultRenameRequestSchema = z.object({ title: z.string(), expectedRevision: ExpectedRevisionSchema }).strict();
+export const VaultDeleteRequestSchema = z.object({ expectedRevision: ExpectedRevisionSchema }).strict();
+export const VaultRestoreRequestSchema = z.object({ revision: z.number().int().min(1), expectedRevision: ExpectedRevisionSchema }).strict();
+
+export const VaultDeleteResponseSchema = z.object({ ok: z.literal(true) }).strict();
+export type VaultDeleteResponse = z.infer<typeof VaultDeleteResponseSchema>;

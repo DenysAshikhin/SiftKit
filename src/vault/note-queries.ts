@@ -1,6 +1,6 @@
 import {
   parseNoteBody, UNVERIFIED_TAG_NAME, VaultNoteKindSchema,
-  type VaultBacklink, type VaultFolder, type VaultNoteKind, type VaultNoteSummary, type VaultOutgoing, type VaultReview, type VaultStats,
+  type VaultBacklink, type VaultFolder, type VaultNote, type VaultNoteDetail, type VaultNoteKind, type VaultNoteSummary, type VaultOutgoing, type VaultReview, type VaultStats,
 } from '@siftkit/contracts';
 
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
@@ -87,6 +87,14 @@ export class VaultNoteQueries {
       }
     }
     return { resolved: [...resolved.values()], unresolved };
+  }
+
+  allNotes(): VaultNote[] {
+    return z.array(VaultNoteRowSchema).parse(this.database.prepare('SELECT * FROM vault_notes ORDER BY folder, title_key').all()).map(toVaultNote);
+  }
+
+  detail(noteId: string): VaultNoteDetail {
+    return { note: requireVaultNote(this.database, noteId), backlinks: this.backlinks(noteId), outgoing: this.outgoing(noteId) };
   }
 
   review(limit: number): VaultReview {

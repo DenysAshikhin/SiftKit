@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { VaultConflictError, VaultNotFoundError } from '../src/vault/errors.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../src/assistant/errors.ts';
+import { VaultConflictError, VaultNotFoundError, VaultTitleTakenError } from '../src/vault/errors.ts';
 import { TEST_META, entityInput, withVault } from './helpers/vault-fixture.ts';
 
 test('update bumps the revision, snapshots it and reindexes', () => withVault(({ store, clock }) => {
@@ -22,7 +23,7 @@ test('update with a stale revision throws a conflict carrying the current revisi
   const note = store.create(entityInput('Git', 'Lead.'), TEST_META);
   store.update(note.id, { body: 'Two.' }, 1, TEST_META);
   assert.throws(() => store.update(note.id, { body: 'Three.' }, 1, TEST_META),
-    (error: Error) => error instanceof VaultConflictError && error.currentRevision === 2);
+    (error: Error) => error instanceof VaultConflictError && error.code === 'conflict' && error.details.currentRevision === 2);
 }));
 
 test('an update that changes nothing creates no revision', () => withVault(({ store }) => {
@@ -46,3 +47,10 @@ test('missing notes and revisions throw not-found', () => withVault(({ store }) 
   const note = store.create(entityInput('Git', 'One.'), TEST_META);
   assert.throws(() => store.getRevision(note.id, 9), VaultNotFoundError);
 }));
+
+test('vault errors carry the assistant wire classes', () => {
+  assert.ok(new VaultNotFoundError('x') instanceof AssistantNotFoundError);
+  const taken = new VaultTitleTakenError('Git');
+  assert.ok(taken instanceof AssistantConflictError);
+  assert.equal(taken.code, 'title_taken');
+});

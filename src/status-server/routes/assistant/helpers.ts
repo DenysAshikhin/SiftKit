@@ -54,8 +54,9 @@ export function sendError(
   status: number,
   code: string,
   message: string,
+  details: Readonly<Record<string, number>> = {},
 ): void {
-  sendJson(res, status, { error: { code, message } });
+  sendJson(res, status, { error: { ...details, code, message } });
 }
 
 export function id(match: RouteMatch): string {
@@ -70,6 +71,13 @@ export function integerParam(url: URL, name: string, fallback: number): number {
   const parsed = Number(raw);
   if (!Number.isInteger(parsed)) throw new Error(`${name} must be an integer.`);
   return parsed;
+}
+
+export function booleanParam(url: URL, name: string): boolean {
+  const raw = url.searchParams.get(name);
+  if (raw === null || raw === 'false') return false;
+  if (raw === 'true') return true;
+  throw new Error(`${name} must be true or false.`);
 }
 
 export async function body<T>(

@@ -79,6 +79,25 @@ import {
   resolveIdentityEndpoint,
   validationNotesEndpoint,
 } from './assistant/policy-routes.ts';
+import {
+  vaultCreateNoteEndpoint,
+  vaultDeleteNoteEndpoint,
+  vaultExportEndpoint,
+  vaultGraphEndpoint,
+  vaultListNotesEndpoint,
+  vaultLocalGraphEndpoint,
+  vaultNoteDetailEndpoint,
+  vaultRenameNoteEndpoint,
+  vaultResolveEndpoint,
+  vaultRestoreEndpoint,
+  vaultReviewEndpoint,
+  vaultRevisionEndpoint,
+  vaultRevisionsEndpoint,
+  vaultSearchEndpoint,
+  vaultStatsEndpoint,
+  vaultTreeEndpoint,
+  vaultUpdateNoteEndpoint,
+} from './assistant/vault-routes.ts';
 import { header, sendError } from './assistant/helpers.ts';
 
 const routes = new RouteTable([
@@ -214,6 +233,26 @@ const routes = new RouteTable([
     endpoint: deleteValidationEndpoint,
   },
   { method: 'GET', path: '/assistant/history', endpoint: historyEndpoint },
+  { method: 'GET', path: '/assistant/vault/tree', endpoint: vaultTreeEndpoint },
+  { method: 'GET', path: '/assistant/vault/notes', endpoint: vaultListNotesEndpoint },
+  { method: 'POST', path: '/assistant/vault/notes', endpoint: vaultCreateNoteEndpoint },
+  { method: 'GET', path: /^\/assistant\/vault\/notes\/([^/]+)$/u, endpoint: vaultNoteDetailEndpoint },
+  { method: 'PUT', path: /^\/assistant\/vault\/notes\/([^/]+)$/u, endpoint: vaultUpdateNoteEndpoint },
+  { method: 'DELETE', path: /^\/assistant\/vault\/notes\/([^/]+)$/u, endpoint: vaultDeleteNoteEndpoint },
+  { method: 'POST', path: /^\/assistant\/vault\/notes\/([^/]+)\/rename$/u, endpoint: vaultRenameNoteEndpoint },
+  { method: 'GET', path: /^\/assistant\/vault\/notes\/([^/]+)\/revisions$/u, endpoint: vaultRevisionsEndpoint },
+  {
+    method: 'GET', path: /^\/assistant\/vault\/notes\/([^/]+)\/revisions\/(\d+)$/u,
+    endpoint: vaultRevisionEndpoint,
+  },
+  { method: 'POST', path: /^\/assistant\/vault\/notes\/([^/]+)\/restore$/u, endpoint: vaultRestoreEndpoint },
+  { method: 'GET', path: '/assistant/vault/resolve', endpoint: vaultResolveEndpoint },
+  { method: 'GET', path: '/assistant/vault/search', endpoint: vaultSearchEndpoint },
+  { method: 'GET', path: '/assistant/vault/graph', endpoint: vaultGraphEndpoint },
+  { method: 'GET', path: /^\/assistant\/vault\/graph\/local\/([^/]+)$/u, endpoint: vaultLocalGraphEndpoint },
+  { method: 'GET', path: '/assistant/vault/review', endpoint: vaultReviewEndpoint },
+  { method: 'GET', path: '/assistant/vault/stats', endpoint: vaultStatsEndpoint },
+  { method: 'POST', path: '/assistant/vault/export', endpoint: vaultExportEndpoint },
 ]);
 
 export async function handleAssistantRoute(
@@ -265,11 +304,9 @@ export async function handleAssistantRoute(
       sendError(res, 413, 'body_too_large', error.message);
     } else {
       const message = error instanceof Error ? error.message : String(error);
-      const status = error instanceof AssistantNotFoundError
-        ? 404
-        : error instanceof AssistantConflictError ? 409 : 400;
-      const code = status === 404 ? 'not_found' : status === 409 ? 'conflict' : 'invalid_request';
-      sendError(res, status, code, message);
+      if (error instanceof AssistantNotFoundError) sendError(res, 404, 'not_found', message);
+      else if (error instanceof AssistantConflictError) sendError(res, 409, error.code, message, error.details);
+      else sendError(res, 400, 'invalid_request', message);
     }
   }
   return true;

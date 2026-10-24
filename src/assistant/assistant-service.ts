@@ -85,6 +85,10 @@ import { ValidationQueueService } from './control/validation-queue-service.ts';
 import { normalizeAliasText } from './domain/keys.ts';
 import { OWNER_PRONOUN_ALIASES } from './domain/owner-identity.ts';
 import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.ts';
+import { VaultNoteQueries } from '../vault/note-queries.ts';
+import { VaultNoteStore } from '../vault/note-store.ts';
+import { VaultGraphQueries } from '../vault/vault-graph.ts';
+import { VaultSearch } from '../vault/vault-search.ts';
 
 /** The closed set of desktop-shell payloads whose contract rejections are audited. */
 export type DesktopPayloadKind =
@@ -175,6 +179,10 @@ const PENDING_CAPTURE_LIST_LIMIT = 200;
 export class AssistantService implements AssistantRuntime {
   readonly graph: AssistantGraph;
   readonly memoryQueries: MemoryQueryService;
+  readonly vaultNotes: VaultNoteStore;
+  readonly vaultQueries: VaultNoteQueries;
+  readonly vaultSearch: VaultSearch;
+  readonly vaultGraph: VaultGraphQueries;
   readonly memoryMutations: MemoryMutationService;
   readonly policyControl: PolicyControlService;
   readonly validation: ValidationQueueService;
@@ -287,6 +295,10 @@ export class AssistantService implements AssistantRuntime {
       },
     );
     this.memoryQueries = new MemoryQueryService(this.graph);
+    this.vaultNotes = new VaultNoteStore(options.database, options.clock, options.ids);
+    this.vaultQueries = new VaultNoteQueries(options.database);
+    this.vaultSearch = new VaultSearch(options.database);
+    this.vaultGraph = new VaultGraphQueries(options.database);
     this.policyControl = new PolicyControlService(this.graph, this.graph.ownerId);
     this.validation = new ValidationQueueService({
       graph: this.graph,
