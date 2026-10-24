@@ -35,6 +35,7 @@ export function makeContext(root: string): RepoToolContext {
     webTools: makeMockWebTools(),
     expandReads: true,
     agentRunId: 'test-run',
+    agentServerUrl: 'http://127.0.0.1:4765/status',
     visionEnabled: false,
     visionImageRetention: 8,
     visionMaxImagePixels: 0,

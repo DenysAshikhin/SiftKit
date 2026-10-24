@@ -29,6 +29,21 @@ export type CompactionRetention =
   | { kind: 'latest_user' }
   | { kind: 'none' };
 
+export type CompactionInput = {
+  taskId: string;
+  /** The loop turn that overflowed, or null when the caller is not a loop at all. */
+  turn: number | null;
+  messages: readonly ChatMessage[];
+  mockResponseIndex: number;
+  retention: CompactionRetention;
+  cacheOrigin: CompactionCacheOrigin;
+};
+
+/** Replaces an over-budget transcript with a shorter one that still lets the run continue. */
+export interface TranscriptCompaction {
+  compact(input: CompactionInput): Promise<CompactionOutcome>;
+}
+
 export type CompactionOutcome = {
   messages: ChatMessage[];
   summaryText: string;
@@ -72,7 +87,7 @@ export function buildCompactionSummaryMessage(summaryText: string): ChatMessage 
  * transcript is `system → summary → retained messages`; what is retained is the caller's
  * retention policy, so the summary request is what decides whether the run can still resume.
  */
-export class TranscriptCompactor {
+export class TranscriptCompactor implements TranscriptCompaction {
   private readonly options: {
     config: SiftConfig;
     baseUrl: string;
@@ -111,15 +126,7 @@ export class TranscriptCompactor {
     return this.options.useEstimatedTokensOnly ? undefined : this.options.config;
   }
 
-  async compact(input: {
-    taskId: string;
-    /** The loop turn that overflowed, or null when the caller is not a loop at all. */
-    turn: number | null;
-    messages: readonly ChatMessage[];
-    mockResponseIndex: number;
-    retention: CompactionRetention;
-    cacheOrigin: CompactionCacheOrigin;
-  }): Promise<CompactionOutcome> {
+  async compact(input: CompactionInput): Promise<CompactionOutcome> {
     const messages = [...input.messages];
     const systemMessage = String(messages[0]?.role || '') === 'system' ? messages[0] : null;
     const bodyStart = systemMessage ? 1 : 0;

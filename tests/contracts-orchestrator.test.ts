@@ -15,11 +15,14 @@ import {
   isOrchestratorOpenTaskStatus,
   OrchestratorChildWorkSchema,
   OrchestratorDecideRequestSchema,
-  OrchestratorDriftReviewSchema,
+  OrchestratorDispatchArgsSchema,
+  OrchestratorFinishSchema,
+  OrchestratorHandoffReportSchema,
   OrchestratorFailureSchema,
   OrchestratorPendingApprovalSchema,
+  OrchestratorRecordReviewArgsSchema,
   OrchestratorStartRequestSchema,
-  OrchestratorTaskReviewSchema,
+  ORCHESTRATOR_MAX_DISPATCH,
   SiftPresetCollectionSchema,
   orchestratorCheckFailure,
   SiftPresetSchema,
@@ -28,12 +31,6 @@ import {
 import { PresetCatalog } from '../src/preset-catalog.ts';
 import { makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
-const FINDING = {
-  id: 'D1', title: 'Duplicated admission path', purpose: 'One admission path',
-  directive: 'Keep logic DRY.', evidence: [{ path: 'src/a.ts', line: 3, snippet: 'acquire()' }],
-  impact: 'The two paths diverge on cancellation.', fix: 'Route both through acquireWebUiModelRequest.',
-  affectedPaths: ['src/a.ts'], verification: [{ kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 }],
-};
 
 test('the default orchestrator inherits the model', () => {
   const preset = PresetCatalog.createDefault().requireById('orchestrator');
@@ -53,24 +50,47 @@ test('attempts are a fixed policy and concurrency comes from the worker model, s
   }
 });
 
-test('implementation work needs a plan reference; drift-fix work is only findings and fixes', () => {
-  const task = makeOrchestratorTask();
-  assert.equal(OrchestratorChildWorkSchema.safeParse({ kind: 'implementation', task }).success, false);
-  assert.equal(OrchestratorChildWorkSchema.safeParse({ kind: 'implementation', planPath: 'plan.md', planHash: 'abc', task }).success, true);
-  const driftFix = { kind: 'drift_fix', taskId: 'inspect', objective: 'Remove the duplicate path.', changeDigest: 'd1',
-    findings: [FINDING], allowedPaths: ['src/a.ts'], verification: FINDING.verification };
-  assert.equal(OrchestratorChildWorkSchema.safeParse(driftFix).success, true);
-  assert.equal(OrchestratorChildWorkSchema.safeParse({ ...driftFix, planPath: 'plan.md' }).success, false);
-  assert.equal(OrchestratorChildWorkSchema.safeParse({ ...driftFix, findings: [] }).success, false);
+test('every child works one plan task under the orchestrator instruction for that attempt', () => {
+  const work = { kind: 'implementation', planPath: 'plan.md', planHash: 'abc', task: makeOrchestratorTask(), instruction: 'Implement it.' };
+  assert.equal(OrchestratorChildWorkSchema.safeParse(work).success, true);
+  assert.equal(OrchestratorChildWorkSchema.safeParse({ ...work, kind: 'fix' }).success, true);
+  assert.equal(OrchestratorChildWorkSchema.safeParse({ ...work, kind: 'drift_fix' }).success, false);
+  assert.equal(OrchestratorChildWorkSchema.safeParse({ ...work, instruction: ' ' }).success, false);
+  assert.equal(OrchestratorChildWorkSchema.safeParse({ ...work, planPath: undefined }).success, false);
 });
 
-test('actionable reviews need complete findings and clean reviews carry none', () => {
-  const base = { taskId: 'inspect', changeDigest: 'd1', scopePaths: ['src/a.ts'], resolutions: [] };
-  assert.equal(OrchestratorDriftReviewSchema.safeParse({ ...base, status: 'actionable', findings: [] }).success, false);
-  assert.equal(OrchestratorDriftReviewSchema.safeParse({ ...base, status: 'actionable', findings: [{ ...FINDING, evidence: [] }] }).success, false);
-  assert.equal(OrchestratorDriftReviewSchema.safeParse({ ...base, status: 'actionable', findings: [FINDING] }).success, true);
-  assert.equal(OrchestratorDriftReviewSchema.safeParse({ ...base, status: 'clean', findings: [FINDING] }).success, false);
-  assert.equal(OrchestratorDriftReviewSchema.safeParse({ ...base, status: 'not_required', reason: 'no_code_changes' }).success, true);
+test('a handoff report is an agent status with its deviations or anchored search findings, never free text', () => {
+  const agent = { kind: 'agent', status: 'completed', deviations: [{ what: 'Also changed src/b.ts.', why: 'It imports the renamed type.' }] };
+  assert.equal(OrchestratorHandoffReportSchema.safeParse(agent).success, true);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, summary: 'extra' }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, status: 'done' }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, deviations: ['Also changed src/b.ts.'] }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, deviations: [{ what: 'Skipped step 2.', why: ' ' }] }).success, false);
+  const finding = { claim: 'One caller.', evidence: [{ path: 'src/a.ts', line: 3 }], confidence: 'high' };
+  const search = { kind: 'search', understood: 'Find callers.', unknowns: [], findings: [finding] };
+  assert.equal(OrchestratorHandoffReportSchema.safeParse(search).success, true);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...search, findings: [{ ...finding, evidence: [] }] }).success, false);
+});
+
+test('a dispatch starts one or two children and a review judges every criterion with code evidence', () => {
+  const child = { taskId: 'inspect', purpose: 'implementation', instruction: 'Do it.' };
+  assert.equal(ORCHESTRATOR_MAX_DISPATCH, 2);
+  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [] }).success, false);
+  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [child, { ...child, taskId: 'b' }] }).success, true);
+  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [child, child, child] }).success, false);
+  const review = { taskId: 'inspect', verdict: 'pass', findings: [],
+    criteria: [{ index: 0, met: true, evidence: [{ path: 'README.md', line: 2, snippet: 'npm install' }] }] };
+  assert.equal(OrchestratorRecordReviewArgsSchema.safeParse(review).success, true);
+  assert.equal(OrchestratorRecordReviewArgsSchema.safeParse({ ...review,
+    criteria: [{ index: 0, met: true, evidence: ['README.md:2 install'] }] }).success, false);
+  assert.equal(OrchestratorRecordReviewArgsSchema.safeParse({ ...review, verdict: 'pass_with_notes' }).success, false);
+});
+
+test('the orchestrator finishes completed with a summary or blocked with a reason', () => {
+  assert.equal(OrchestratorFinishSchema.safeParse({ status: 'completed', summary: 'Done.' }).success, true);
+  assert.equal(OrchestratorFinishSchema.safeParse({ status: 'blocked', reason: 'No plan.' }).success, true);
+  assert.equal(OrchestratorFinishSchema.safeParse({ status: 'completed', reason: 'Done.' }).success, false);
+  assert.equal(OrchestratorFinishSchema.safeParse({ status: 'failed', reason: 'x' }).success, false);
 });
 
 test('a start request needs a task or a plan path and states which session it came from', () => {
@@ -105,12 +125,6 @@ test('a decide request is a repo-agent decision addressed to one run approval', 
   assert.equal(OrchestratorDecideRequestSchema.safeParse({ ...ids, decision: 'abort', reason: 'x' }).success, false);
 });
 
-test('a passing task review anchors each piece of evidence to a path, line, and snippet', () => {
-  assert.equal(OrchestratorTaskReviewSchema.safeParse({ status: 'pass', evidence: ['README.md:2 install'] }).success, false);
-  assert.equal(OrchestratorTaskReviewSchema.safeParse({ status: 'pass',
-    evidence: [{ path: 'README.md', line: 2, snippet: 'npm install' }] }).success, true);
-});
-
 test('a check failure explains a failing command and never flags an evidence check', () => {
   const command = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
   const evidence: OrchestratorVerificationCheck = { kind: 'evidence', instruction: 'Confirm it.', paths: ['README.md'] };
@@ -123,9 +137,10 @@ test('a check failure explains a failing command and never flags an evidence che
 });
 
 test('a stored failure carries one of the known failure codes', () => {
-  const failure = { message: 'Stopped.', taskId: null, purpose: null, findingIds: [] };
+  const failure = { message: 'Stopped.', taskId: null };
   assert.equal(OrchestratorFailureSchema.safeParse({ ...failure, code: 'infrastructure_failed' }).success, true);
   assert.equal(OrchestratorFailureSchema.safeParse({ ...failure, code: 'infrastructure_falied' }).success, false);
+  assert.equal(OrchestratorFailureSchema.safeParse({ ...failure, code: 'drift_unresolved' }).success, false);
 });
 
 const LIVE_CHILD = {
@@ -141,10 +156,10 @@ const SCHEDULE = {
 
 test('a live activity snapshot carries the scheduler pass and children with a bounded tool history', () => {
   const activity = OrchestratorActivitySchema.parse({
-    runId: LIVE_CHILD.childRunId, schedule: SCHEDULE, children: [{ ...LIVE_CHILD, tools: [LIVE_TOOL] }],
+    runId: LIVE_CHILD.childRunId, schedule: SCHEDULE, parent: null, children: [{ ...LIVE_CHILD, tools: [LIVE_TOOL] }],
   });
   assert.equal(activity.children[0]?.tools[0]?.status, 'running');
-  assert.equal(OrchestratorActivitySchema.safeParse({ runId: LIVE_CHILD.childRunId, schedule: null, children: [] }).success, true);
+  assert.equal(OrchestratorActivitySchema.safeParse({ runId: LIVE_CHILD.childRunId, schedule: null, parent: null, children: [] }).success, true);
   const tooMany = Array.from({ length: ORCHESTRATOR_RECENT_TOOL_LIMIT + 1 }, (_, index) => ({ ...LIVE_TOOL, toolCallId: `t${index}` }));
   assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, tools: tooMany }).success, false);
   assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, extra: true }).success, false);
@@ -161,11 +176,11 @@ test('a wait names its unmet dependencies, the writer slot, or the full model', 
 
 test('open task statuses are exactly the statuses of live work', () => {
   const open = OrchestratorTaskStatusSchema.options.filter((status) => isOrchestratorOpenTaskStatus(status));
-  assert.deepEqual(open, ['running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending']);
+  assert.deepEqual(open, ['running', 'reviewing']);
 });
 
-test('drift review and correction are task statuses, never run phases', () => {
-  for (const phase of ['reviewing_drift', 'correcting_drift']) assert.equal(OrchestratorPhaseSchema.safeParse(phase).success, false, phase);
+test('the retired plan validation and drift phases are not run phases', () => {
+  for (const phase of ['validating_plan', 'reviewing_drift', 'correcting_drift']) assert.equal(OrchestratorPhaseSchema.safeParse(phase).success, false, phase);
 });
 
 test('the orchestrator stream names every frame from the shared contract', () => {

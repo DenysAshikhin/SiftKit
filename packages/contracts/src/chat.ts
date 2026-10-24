@@ -25,6 +25,7 @@ export const ToolActivityKindSchema = z.enum([
   'command',
   'ask',
   'image',
+  'orchestrate',
 ]);
 export type ToolActivityKind = z.infer<typeof ToolActivityKindSchema>;
 

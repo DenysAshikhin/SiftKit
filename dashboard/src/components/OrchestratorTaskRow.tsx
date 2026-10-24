@@ -6,7 +6,7 @@ import {
   type OrchestratorActivity,
   type OrchestratorAttempt,
   type OrchestratorChildActivity,
-  type OrchestratorDriftReview,
+  type OrchestratorReviewRecord,
   type OrchestratorRunState,
   type OrchestratorTaskClaim,
   type OrchestratorTaskState,
@@ -16,14 +16,24 @@ import { attemptSummary, contextPercent, formatElapsed, nowDoing, taskTone, wait
 
 const VISIBLE_FINDINGS = 3;
 
-function DriftSummary({ review }: { review: OrchestratorDriftReview }) {
-  if (review.status !== 'actionable') return <p className="hint orch-drift">No actionable drift</p>;
+/** The orchestrator's latest review of the task: its verdict, how many criteria held, and its first findings. */
+function ReviewSummary({ review }: { review: OrchestratorReviewRecord }) {
+  const met = review.criteria.filter((criterion) => criterion.met).length;
   const hidden = review.findings.length - VISIBLE_FINDINGS;
   return (
-    <ul className="orchestrator-findings">
-      {review.findings.slice(0, VISIBLE_FINDINGS).map((finding) => <li key={finding.id}>{finding.title}</li>)}
-      {hidden > 0 ? <li className="hint">+{hidden} more findings</li> : null}
-    </ul>
+    <div className="orch-review">
+      <p className={review.verdict === 'pass' ? 'ok' : 'bad'}>
+        {`Review ${review.verdict === 'pass' ? 'passed' : 'failed'}: ${met} of ${review.criteria.length} criteria met`}
+      </p>
+      {review.findings.length === 0 ? null : (
+        <ul className="orchestrator-findings">
+          {review.findings.slice(0, VISIBLE_FINDINGS).map((finding) => (
+            <li key={`${finding.path}:${finding.line}:${finding.issue}`}>{`${finding.path}:${finding.line} ${finding.issue}`}</li>
+          ))}
+          {hidden > 0 ? <li className="hint">+{hidden} more findings</li> : null}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -72,8 +82,9 @@ function AttemptResult({ attempt }: { attempt: OrchestratorAttempt }) {
         const failure = orchestratorCheckFailure(check);
         return <div key={index} className={failure === null ? 'ok' : 'bad'}>{failure ?? `✓ ${check.check.command}`}</div>;
       })}
-      {result.scopeViolations.map((path) => <div key={path} className="bad">Outside write scope: <code>{path}</code></div>)}
-      {result.passed ? <div className="ok">Attempt {attempt.attempt} passed · {result.changedPaths.length} files changed</div> : null}
+      {result.passed
+        ? <div className="ok">Attempt {attempt.attempt} passed · {result.changedPaths.length} files changed</div>
+        : <div className="bad">{`Attempt ${attempt.attempt}: ${result.outcome.replace(/_/gu, ' ')} after ${result.submissions} submissions`}</div>}
     </div>
   );
 }
@@ -113,7 +124,7 @@ export function OrchestratorTaskRow({ task, state, activity, now }: {
             attempt={state.attempts.find((attempt) => attempt.childRunId === child.childRunId)} />
         ) : null}
         {child === null && latest !== undefined ? <AttemptResult attempt={latest} /> : null}
-        {task.driftReview ? <DriftSummary review={task.driftReview} /> : null}
+        {task.review ? <ReviewSummary review={task.review} /> : null}
       </details>
     </li>
   );

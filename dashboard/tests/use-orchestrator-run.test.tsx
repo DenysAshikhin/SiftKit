@@ -13,7 +13,7 @@ function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunStat
   return OrchestratorRunStateSchema.parse({
     runId: RUN_ID,
     request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'Greet', planPath: null },
-    revision: 1, phase: 'executing', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], phaseRunIds: [],
+    revision: 1, phase: 'executing', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], parentRunIds: [],
     approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: AT, ...overrides,
   });
 }
@@ -74,7 +74,7 @@ test('the board follows the run its session names, never whichever run the folde
 });
 
 test('a terminal latest run replays its events once, so the stepper knows where it stopped, and a decision targets the pending approval ID', async () => {
-  const failed = runState({ phase: 'failed', approval: null, failure: { code: 'blocked', message: 'Blocked.', taskId: null, purpose: null, findingIds: [] } });
+  const failed = runState({ phase: 'failed', approval: null, failure: { code: 'blocked', message: 'Blocked.', taskId: null } });
   const stopped = { ...EVENT, sequence: 2, phase: 'failed', message: 'Blocked.' };
   const fetches = mockFetch({
     '/orchestrator/status': json(failed),
@@ -141,7 +141,7 @@ test('a session with no run of its own looks nothing up, and a start names the s
   } finally { fetches.restore(); }
 });
 
-const ACTIVITY: OrchestratorActivity = { runId: RUN_ID, schedule: null, children: [] };
+const ACTIVITY: OrchestratorActivity = { runId: RUN_ID, schedule: null, parent: null, children: [] };
 
 test('activity frames update the live view, and an approval pause keeps the last work phase', async () => {
   const paused = { ...EVENT, sequence: 2, phase: 'approval_required', message: 'Waiting for your approval decision.' };

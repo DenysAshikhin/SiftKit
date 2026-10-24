@@ -105,6 +105,8 @@ function activeLabel(group: ToolActivityGroup): string {
       const files = subjectValues(group, 'file');
       return files.length === 1 ? `Showing image ${files[0]}…` : 'Showing images…';
     }
+    case 'orchestrate':
+      return 'Orchestrating…';
   }
 }
 
@@ -139,6 +141,8 @@ function completedLabel(group: ToolActivityGroup): string {
       const files = subjectValues(group, 'file');
       return files.length === 1 ? `Showed image ${files[0]}` : 'Showed images';
     }
+    case 'orchestrate':
+      return 'Orchestrated';
   }
 }
 

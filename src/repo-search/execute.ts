@@ -403,6 +403,7 @@ export async function executeRepoSearchRequest(
       webToolsEnabled: request.webToolsEnabled,
       visionEnabled: activeVisionPreset.VisionEnabled === true,
       webChatTools: request.questionGate !== undefined,
+      orchestratorTools: request.orchestratorTools !== undefined,
     };
     const runPromptRequest: RunSystemPromptRequest = taskKind === 'chat'
       ? { ...runPromptBase, promptKind: 'chat', chatSystemPrompt: request.systemPrompt || '' }
@@ -421,6 +422,7 @@ export async function executeRepoSearchRequest(
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_start', fields: '' });
     const { scorecard, turnRecords } = await runRepoSearch({
       repoRoot,
+      statusBackendUrl: request.statusBackendUrl,
       config,
       systemContext,
       answerSchema: request.answerSchema,
@@ -454,6 +456,8 @@ export async function executeRepoSearchRequest(
       queueDelivery: request.queueDelivery,
       evidenceRecorder: request.evidenceRecorder,
       questionGate: request.questionGate,
+      submissionGate: request.submissionGate,
+      orchestratorTools: request.orchestratorTools,
     });
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_done', fields: '' });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;

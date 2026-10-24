@@ -151,6 +151,44 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
     description: 'Show the user one image file from the repository inline in the chat (a screenshot, plot, or diagram).',
     exampleArgs: { path: 'docs/screenshot.png' },
   }),
+  save_plan: buildRepoToolDefinition({
+    toolName: 'save_plan',
+    description: 'Validate and save the first run plan. Invalid plans come back with their problems; once a plan is saved, revise it with update_tasks.',
+    exampleArgs: { plan: {
+      goal: 'Add the greeting module.', constraints: [],
+      tasks: [{ id: 'greeting', title: 'Add src/greeting.ts', dependsOn: [], workerPresetId: 'repo-agent',
+        readPaths: ['src/app.ts'], writePaths: ['src/greeting.ts'],
+        steps: [{ instruction: 'Create src/greeting.ts exporting greeting.', expectedResult: 'The module exists.' }],
+        verification: [{ kind: 'command', command: 'npm run typecheck', cwd: '.', expectedExitCode: 0 }],
+        acceptance: ['src/greeting.ts exports greeting.'], temporaryPaths: [] }],
+      finalVerification: [{ kind: 'command', command: 'npm run typecheck', cwd: '.', expectedExitCode: 0 }],
+    } },
+  }),
+  update_tasks: buildRepoToolDefinition({
+    toolName: 'update_tasks',
+    description: 'Revise the saved plan: patch tasks by id with only the fields that change, add tasks, remove tasks that never ran, or replace the final verification. The whole plan is validated again and plan.md is rewritten.',
+    exampleArgs: { update: [{ taskId: 'greeting', set: { writePaths: ['src/greeting.ts', 'tests/greeting.test.ts'] } }], add: [], remove: [] },
+  }),
+  dispatch: buildRepoToolDefinition({
+    toolName: 'dispatch',
+    description: 'Start fresh subagents for saved plan tasks (at most one writer and one reader), then wait. Returns every child report once none is running, or earlier when a child needs your approval decision.',
+    exampleArgs: { children: [{ taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts exporting greeting; keep src/app.ts unchanged.' }] },
+  }),
+  decide: buildRepoToolDefinition({
+    toolName: 'decide',
+    description: 'Answer a child approval that was escalated to you: approve, deny, or escalate it to the user. Then waits for the running children like dispatch.',
+    exampleArgs: { approvalId: '00000000-0000-4000-8000-000000000000', decision: 'approve', reason: 'Runs the test file of the task.' },
+  }),
+  run_check: buildRepoToolDefinition({
+    toolName: 'run_check',
+    description: 'Run one verification command in the repository and return its exit code and output.',
+    exampleArgs: { command: 'npm run typecheck', cwd: '.' },
+  }),
+  record_review: buildRepoToolDefinition({
+    toolName: 'record_review',
+    description: 'Record your review of the latest settled attempt of a task: every acceptance criterion by index with code evidence, and findings for anything wrong. A pass completes the task; a fail leaves it for a fix.',
+    exampleArgs: { taskId: 'greeting', verdict: 'pass', criteria: [{ index: 0, met: true, evidence: [{ path: 'src/greeting.ts', line: 1, snippet: 'export const greeting' }] }], findings: [] },
+  }),
 };
 
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
@@ -160,7 +198,7 @@ const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGI
  * answer and must not be rejected as a repeat. Typed Git is deliberately absent because its fixed
  * native operations cannot mutate the working tree.
  */
-const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit']);
+const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit', 'dispatch', 'decide', 'run_check']);
 
 export function normalizeToolName(toolName: string): string {
   return String(toolName || '').trim().toLowerCase();

@@ -6,13 +6,11 @@ import test from 'node:test';
 
 import {
   captureWorkspace,
-  changesNeedDriftReview,
   cleanupScratch,
   diffWorkspace,
-  findScopeViolations,
+  diffstatWorkspace,
   orchestratorScratchDir,
   removeOwnedTemporaryPath,
-  renderWorkspaceDiff,
 } from '../../src/orchestrator/workspace.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
@@ -50,10 +48,14 @@ test('changes are measured from the baseline, so an untouched pre-existing edit 
   fs.writeFileSync(path.join(root, 'src', 'b.ts'), 'export const b = 2;\n');
   assert.notEqual((await diffWorkspace(root, baseline)).digest, changes.digest, 'the digest names exact content');
 
-  const diff = await renderWorkspaceDiff({ repoRoot: root, baseline, paths: ['src/a.ts', 'src/b.ts'], scratchDir: SCRATCH });
-  assert.match(diff, /-export const a = 1;/u);
-  assert.match(diff, /\+export const a = 2;/u);
-  assert.match(diff, /\+export const b = 2;/u);
+  fs.writeFileSync(path.join(root, 'src', 'a.ts'), 'export const a = 2;\nexport const c = 3;\n');
+  fs.rmSync(path.join(root, 'README.md'));
+  const stat = await diffstatWorkspace({ repoRoot: root, baseline, paths: ['README.md', 'src/a.ts', 'src/b.ts'], scratchDir: SCRATCH });
+  assert.deepEqual(stat, [
+    { path: 'README.md', change: 'deleted', added: 0, removed: 2 },
+    { path: 'src/a.ts', change: 'modified', added: 2, removed: 1 },
+    { path: 'src/b.ts', change: 'added', added: 1, removed: 0 },
+  ]);
   assert.equal(fs.existsSync(path.join(root, SCRATCH, '.diff-staging')), false);
 });
 
@@ -64,19 +66,8 @@ test('a child edit to a pre-existing dirty file is attributed against the dirty 
   fs.writeFileSync(path.join(root, 'src', 'a.ts'), 'export const a = 1;\n// user\n// child\n');
   const changes = await diffWorkspace(root, baseline);
   assert.deepEqual(changes.paths, ['src/a.ts']);
-  const diff = await renderWorkspaceDiff({ repoRoot: root, baseline, paths: changes.paths, scratchDir: SCRATCH });
-  assert.match(diff, /\+\/\/ child/u);
-  assert.doesNotMatch(diff, /\+\/\/ user/u);
-});
-
-test('scope violations and the drift trigger follow the declared write paths and the change kind', () => {
-  assert.deepEqual(findScopeViolations(['src/a.ts', 'src/lib/b.ts', 'docs/x.md', `${SCRATCH}/t.txt`], ['src/a.ts', 'src/lib']), ['docs/x.md']);
-  assert.deepEqual(findScopeViolations(['src/a.ts'], []), ['src/a.ts']);
-  assert.equal(changesNeedDriftReview([]), false);
-  assert.equal(changesNeedDriftReview(['README.md', 'logs/run.log', `${SCRATCH}/x.ts`]), false);
-  for (const codePath of ['src/a.ts', 'tests/a.test.ts', 'scripts/build.ps1', 'package.json']) {
-    assert.equal(changesNeedDriftReview(['README.md', codePath]), true, codePath);
-  }
+  const stat = await diffstatWorkspace({ repoRoot: root, baseline, paths: changes.paths, scratchDir: SCRATCH });
+  assert.deepEqual(stat, [{ path: 'src/a.ts', change: 'modified', added: 1, removed: 0 }], 'only the child line counts');
 });
 
 test('cleanup removes only owned scratch files and rejects escapes without deleting their targets', () => {

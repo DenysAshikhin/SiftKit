@@ -29,6 +29,8 @@ import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
 import type { ChatMessageQueueDelivery } from './queue-delivery.ts';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
 import type { QuestionGate } from './question-gate.ts';
+import type { SubmissionGate } from './submission-gate.ts';
+import type { OrchestratorToolHost } from './orchestrator-tool-host.ts';
 import { InferenceThroughputSchema, type ThroughputAuditOperation } from '@siftkit/contracts';
 
 // ---------------------------------------------------------------------------
@@ -250,6 +252,8 @@ export function findAnswerSchemaProblem(finalOutput: string, answerSchema: RepoS
 
 export type RunTaskLoopOptions = {
   repoRoot: string;
+  /** The status server this run notifies; unset means the CLI's configured server. */
+  statusBackendUrl?: string;
   model: string;
   baseUrl: string;
   /** The loop's single source of model, samplers and budgets — mock runs supply one too. */
@@ -285,6 +289,10 @@ export type RunTaskLoopOptions = {
   evidenceRecorder?: ChatRunEvidenceRecorder;
   /** The Web run's question channel that ask_user parks on; absent wherever ask_user is not offered. */
   questionGate?: QuestionGate;
+  /** Code that judges each finish; a rejection continues the same conversation with its feedback. */
+  submissionGate?: SubmissionGate;
+  /** The orchestrator run executing its parent's own tools; only an orchestrator parent has one. */
+  orchestratorTools?: OrchestratorToolHost;
 };
 
 function isPlannerReasoningEnabled(config: SiftConfig): boolean {

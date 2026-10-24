@@ -1,5 +1,5 @@
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
-import { WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
+import { ORCHESTRATOR_TOOL_NAMES, WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
 import type { PresetSystemContext } from '../preset-system-context.ts';
 import { PresetSystemPromptComposer } from '../preset-system-prompt.ts';
 import { applyWebToolPolicy, resolveWebToolPolicy } from '../web-search/tool-policy.ts';
@@ -22,6 +22,8 @@ type RunSystemPromptBase = {
   visionEnabled: boolean;
   /** True only for runs bound to a durable web chat. */
   webChatTools: boolean;
+  /** An orchestrator parent is offered its own host tools on top of its repository tools. */
+  orchestratorTools: boolean;
 };
 
 /** `chat` supplies its own base prompt; the other kinds derive one from the resolved tool surface. */
@@ -42,7 +44,11 @@ export type ResolvedRunSystemPrompt = {
  * same session, so the preview cannot describe a surface the run never sees.
  */
 export function resolveRunSystemPrompt(request: RunSystemPromptRequest): ResolvedRunSystemPrompt {
-  const allowedTools = request.webChatTools ? [...request.allowedTools, ...WEB_CHAT_TOOL_NAMES] : request.allowedTools;
+  const allowedTools = [
+    ...request.allowedTools,
+    ...(request.webChatTools ? WEB_CHAT_TOOL_NAMES : []),
+    ...(request.orchestratorTools ? ORCHESTRATOR_TOOL_NAMES : []),
+  ];
   const toolDefinitions = resolveRepoSearchPlannerToolDefinitions(
     applyWebToolPolicy(
       allowedTools,

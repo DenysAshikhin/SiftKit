@@ -212,11 +212,11 @@ test('run returns raw validation output for runtime-profile processing', async (
   }
 });
 
-test('executeRun exposes SIFTKIT_AGENT_RUN_ID to spawned commands', async () => {
+test('executeRun exposes the run marker and its server to spawned commands', async () => {
   const root = makeRepo();
-  const context = { ...makeContext(root), agentRunId: 'run-abc-123' };
-  const result = await executeRepoTool(nativeCall('run', { command: 'Write-Output $env:SIFTKIT_AGENT_RUN_ID' }), context);
+  const context = { ...makeContext(root), agentRunId: 'run-abc-123', agentServerUrl: 'http://127.0.0.1:4999/status' };
+  const result = await executeRepoTool(nativeCall('run', { command: 'Write-Output "$env:SIFTKIT_AGENT_RUN_ID@$env:SIFTKIT_AGENT_SERVER_URL"' }), context);
   assert.equal(result.ok, true);
   assert.equal(result.exitCode, 0);
-  assert.equal(result.output.trim(), 'run-abc-123');
+  assert.equal(result.output.trim(), 'run-abc-123@http://127.0.0.1:4999/status');
 });

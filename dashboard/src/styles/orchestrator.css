@@ -54,5 +54,18 @@
 .orch-checks .ok { color: var(--ok); }
 .orch-checks .bad { color: var(--bad); }
 .orchestrator-findings { margin: 0 12px 10px 36px; padding-left: 16px; font-size: 0.72rem; }
-.orch-drift { margin: 0 12px 10px 36px; }
+
 .orchestrator-run .approval-card, .orchestrator-run .err-banner { margin: 10px 12px; }
+.orch-review { margin: 0 12px 10px 36px; font-size: 0.72rem; }
+.orch-review .ok { color: var(--ok); }
+.orch-review .bad { color: var(--bad); }
+.orch-review .orchestrator-findings { margin: 4px 0 0; }
+.orch-parent { border-top: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 8px; }
+.orch-parent-head { display: flex; align-items: center; gap: 10px; }
+.orch-parent pre { margin: 4px 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.68rem; }
+.orch-parent-prompt h4 { margin: 8px 0 0; font-size: 0.7rem; color: var(--dim); }
+.orch-parent-turns { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.orch-parent-turn { display: grid; gap: 4px; }
+.orch-parent-turn-head { font-size: 0.68rem; color: var(--dim); }
+.orch-parent-tool summary { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; }
+.orch-parent-tool.failed summary { color: var(--bad); }

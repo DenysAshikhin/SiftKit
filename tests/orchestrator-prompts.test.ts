@@ -1,118 +1,107 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { OrchestratorTaskReviewSchema } from '@siftkit/contracts';
+import { OrchestratorHandoffReportSchema, type ApprovalMode, type OrchestratorChildWork } from '@siftkit/contracts';
 
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
-import { ORCHESTRATOR_PHASE_ANSWER_NAMES } from '../src/orchestrator/phase-runner.ts';
-import {
-  EVIDENCE_REVIEW_GUIDANCE,
-  buildAttemptReviewPrompt,
-  buildCheckApprovalPrompt,
-  buildChildApprovalPrompt,
-  buildDriftReviewPrompt,
-  buildFinalVerificationPrompt,
-  buildParentPrompt,
-  buildPlanPreparationPrompt,
-  buildRunContext,
-  type RunContext,
-} from '../src/orchestrator/prompts.ts';
-import { buildPlannerJsonSchema } from '../src/planner-protocol/json-schema.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
+import { JsonObjectSchema } from '../src/lib/json-types.ts';
+import { HANDOFF_REPORT_MAX_CHARS } from '../src/orchestrator/handoff.ts';
+import { buildChildInstruction, buildOrchestratorPrompt, type OrchestratorBrief } from '../src/orchestrator/prompts.ts';
+import { makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
 const config = getDefaultConfigObject();
 const model = config.Server.ModelPresets.Presets[0];
 const worker = config.Presets.find((preset) => preset.id === 'repo-agent');
-const task = makeOrchestratorTask({ id: 'greeting', writePaths: ['src/greeting.ts'] });
-const plan = makeOrchestratorPlan([task]);
-const schema = buildPlannerJsonSchema(OrchestratorTaskReviewSchema);
-const check = { kind: 'command', command: 'exit 0', cwd: '.', expectedExitCode: 0 } as const;
+const task = makeOrchestratorTask({ id: 'greeting', title: 'Add greeting', writePaths: ['src/greeting.ts'],
+  acceptance: ['greet() returns a greeting.', 'A test covers it.'] });
 
-function run(withPlan: boolean): RunContext {
+function brief(overrides: Partial<OrchestratorBrief> = {}): OrchestratorBrief {
   assert.ok(model && worker);
-  return { task: 'Add a greeting module.', workers: [{ preset: worker, model }], preexistingDirtyPaths: ['README.md'],
-    plan: withPlan ? { path: '.siftkit/orchestrator/r/plan.md', hash: 'a'.repeat(64), plan } : null };
+  return { task: 'Add a greeting module.', suppliedPlan: null, workers: [{ preset: worker, model }],
+    preexistingDirtyPaths: ['README.md'], approval: 'auto', ...overrides };
 }
 
-const attemptReview = buildAttemptReviewPrompt({ task, result: { workerOutput: 'done', checks: [], changedPaths: [] },
-  preexistingDirtyPaths: [], rejectedProblems: [] });
-const driftReview = buildDriftReviewPrompt({ task, changeDigest: 'b'.repeat(64), diff: '', changedPaths: ['src/greeting.ts'],
-  openFindings: [], checks: [], rejectedProblems: [] });
-const finalVerification = buildFinalVerificationPrompt({ checks: [], rejectedProblems: [] });
-const phasePrompts = [
-  buildPlanPreparationPrompt({ planPath: null, planMarkdown: null, rejectedProblems: [] }),
-  attemptReview,
-  driftReview,
-  buildChildApprovalPrompt({ task, purpose: 'implementation', attempt: 1,
-    approval: { approvalId: '00000000-0000-4000-8000-000000000000', toolName: 'write', command: 'write src/greeting.ts',
-      reviewPayload: null } }),
-  buildCheckApprovalPrompt({ task, check }),
-  finalVerification,
-];
+function work(kind: OrchestratorChildWork['kind']): OrchestratorChildWork {
+  return { kind, planPath: '.siftkit/orchestrator/r/plan.md', planHash: 'a'.repeat(64), task, instruction: 'Export greet() from src/greeting.ts.' };
+}
 
-test('a parent prompt is the run block, then the phase, then the answer JSON schema', () => {
-  const planned = run(true);
-  const prompt = buildParentPrompt(planned, finalVerification, schema);
-  assert.ok(prompt.startsWith(`${buildRunContext(planned)}\n${finalVerification}\n`), prompt.slice(0, 200));
-  assert.ok(prompt.endsWith(`Answer with exactly one JSON object that matches this JSON schema:\n${JSON.stringify(schema)}`));
-  const block = buildRunContext(planned);
-  assert.match(block, /Saved plan \.siftkit\/orchestrator\/r\/plan\.md/u);
-  assert.match(block, /Command checks run in PowerShell/u);
-  assert.match(block, /Uncommitted changes that predate this run \(not made by it; never count them against it\): README\.md/u);
+/** The JSON object after the last line that introduces the report template. */
+function reportTemplate(instruction: string): string {
+  const template = instruction.split('\n').at(-1);
+  assert.ok(template !== undefined);
+  return template;
+}
+
+test('the orchestrator prompt states the task, the workers, the run baseline, and the whole process once', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  assert.ok(model && worker);
+  assert.match(prompt, /Requested task: Add a greeting module\./u);
+  assert.match(prompt, /Supplied plan: none\./u);
+  assert.ok(prompt.includes(`- repo-agent (repo-agent, can modify files; model ${model.id}`), prompt);
+  assert.match(prompt, /Command checks run in PowerShell/u);
+  assert.match(prompt, /Uncommitted changes that predate this run \(never count them against any task\): README\.md\./u);
+  for (const tool of ['save_plan', 'update_tasks', 'dispatch', 'record_review', 'run_check']) assert.ok(prompt.includes(tool), tool);
+  assert.match(prompt, /\{"status":"completed","summary":"what was done"\}/u);
+  assert.match(prompt, /\{"status":"blocked","reason":"why"\}/u);
 });
 
-test('every phase builder returns only its phase text', () => {
-  for (const prompt of phasePrompts) {
-    assert.match(prompt, /^Phase: /u);
-    for (const removed of ['Orchestrator run context', 'Answer with exactly one JSON object', '"status": "pass"',
-      '"decision": "approve"', 'Plan JSON shape']) {
-      assert.ok(!prompt.includes(removed), `${removed} in ${prompt.slice(0, 200)}`);
-    }
+test('the orchestrator prompt carries the planning rules that keep tasks small and fully verified', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  for (const rule of ['at most about 6 write', 'Steps are test-first', 'every test suite its change can affect',
+    'finalVerification always includes the project\'s typecheck and lint commands', 'dependsOn names every task']) {
+    assert.ok(prompt.includes(rule), rule);
   }
 });
 
-test('both evidence reviews state the shared answer guidance once', () => {
-  for (const prompt of [attemptReview, finalVerification]) assert.equal(prompt.split(EVIDENCE_REVIEW_GUIDANCE).length - 1, 1, prompt);
+test('the orchestrator prompt delegates code exploration to survey tasks and revises plans with update_tasks', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  for (const rule of ['Leave code exploration to subagents', 'Survey first', 'at most 4 survey tasks', 'fits in one report', 'two at a time', 'add the implementation tasks with update_tasks',
+    'writePaths are guidance, not a limit', 'never to read files or search code', 'line counts, not the code']) {
+    assert.ok(prompt.includes(rule), rule);
+  }
 });
 
-test('attempt review lists only the task baseline beyond the run context', () => {
-  const prompt = buildAttemptReviewPrompt({ task, result: { workerOutput: 'done', checks: [], changedPaths: [] },
-    preexistingDirtyPaths: ['b.ts'], rejectedProblems: [] });
-  assert.ok(prompt.includes(
-    'predate this task, beyond those listed in the run context (not made by it; never count them against it): b.ts.'), prompt);
+test('a supplied plan is quoted whole, and the task line says to execute it when no task was given', () => {
+  const prompt = buildOrchestratorPrompt(brief({ task: null, suppliedPlan: { path: 'docs/plan.md', markdown: '# Plan\n## Task a' } }));
+  assert.match(prompt, /Requested task: \(none; execute the supplied plan\)/u);
+  assert.ok(prompt.includes('Supplied plan (docs/plan.md):\n<<<PLAN\n# Plan\n## Task a\nPLAN>>>'), prompt);
 });
 
-test('drift review forbids answering not_required', () => {
-  assert.match(driftReview, /Never answer "not_required": the host uses it only for steps without code changes\./u);
+test('each approval mode tells the orchestrator who answers escalations', () => {
+  const rule = (approval: ApprovalMode) => buildOrchestratorPrompt(brief({ approval })).split('\n').at(-1);
+  assert.match(rule('off') ?? '', /approved without asking you/u);
+  assert.match(rule('auto') ?? '', /call decide/u);
+  assert.match(rule('interactive') ?? '', /the user answers every escalated child action and every check command/u);
 });
 
-test('final verification feeds back the problems that rejected its previous review', () => {
-  const problem = 'Review evidence: a.ts:3 does not contain the cited snippet.';
-  const retried = buildFinalVerificationPrompt({ checks: [], rejectedProblems: [problem] });
-  assert.ok(retried.includes(`Your previous review was rejected:\n- ${problem}`), retried);
-  assert.ok(!finalVerification.includes('Your previous review was rejected:'));
-  assert.ok(!finalVerification.includes(problem));
+test('a child instruction names its task, the orchestrator instruction, scope, steps, checks, and criteria by index', () => {
+  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1, kind: 'agent',
+    scratchPath: 'C:/scratch', preexistingDirtyPaths: ['README.md'] });
+  assert.ok(instruction.startsWith("Implement ONLY task 'greeting' — Add greeting — from plan .siftkit/orchestrator/r/plan.md"), instruction);
+  assert.match(instruction, /implementation attempt 1 of 2\./u);
+  assert.ok(instruction.includes('Instruction from the orchestrator:\nExport greet() from src/greeting.ts.'));
+  assert.match(instruction, /Expected to change: src\/greeting\.ts/u);
+  assert.match(instruction, /Scratch directory for temporary files: C:\/scratch/u);
+  assert.ok(instruction.includes('Acceptance criteria (by index):\n0. greet() returns a greeting.\n1. A test covers it.'));
+  assert.match(instruction, /already had uncommitted changes before you started; preserve them: README\.md/u);
+  assert.match(instruction, /you may resubmit 2 times/u);
+  assert.ok(instruction.includes(`under ${HANDOFF_REPORT_MAX_CHARS} characters`));
 });
 
-test('check approval and final verification state the goal once, via the saved plan', () => {
-  const planned = run(true);
-  const prompts = [
-    buildParentPrompt(planned, finalVerification, schema),
-    buildParentPrompt(planned, buildCheckApprovalPrompt({ task, check }), schema),
-  ];
-  for (const prompt of prompts) assert.equal(prompt.split(plan.goal).length - 1, 1, prompt);
+test('a fix instruction says fix, and a clean tree mentions no prior changes', () => {
+  const instruction = buildChildInstruction({ work: work('fix'), attempt: 2, kind: 'agent', scratchPath: 'C:/scratch', preexistingDirtyPaths: [] });
+  assert.ok(instruction.startsWith("Fix ONLY task 'greeting'"), instruction);
+  assert.match(instruction, /fix attempt 2 of 2\./u);
+  assert.doesNotMatch(instruction, /already had uncommitted changes/u);
 });
 
-test('every phase label maps to a wire-safe json_schema name', () => {
-  assert.deepEqual(Object.keys(ORCHESTRATOR_PHASE_ANSWER_NAMES).sort(),
-    ['approval decision', 'drift review', 'final verification', 'plan preparation', 'task review']);
-  for (const name of Object.values(ORCHESTRATOR_PHASE_ANSWER_NAMES)) assert.match(name, /^[A-Za-z0-9_-]+$/u);
-});
-
-test('plan preparation opens with the run block before any plan exists', () => {
-  const unplanned = run(false);
-  const prompt = buildParentPrompt(unplanned, buildPlanPreparationPrompt({ planPath: null, planMarkdown: null, rejectedProblems: [] }),
-    schema);
-  assert.ok(prompt.startsWith(`${buildRunContext(unplanned)}\nPhase: prepare the executable plan`));
-  assert.doesNotMatch(buildRunContext(unplanned), /Saved plan/u);
+test('each child ends with the report template of its kind, which names the report schema fields', () => {
+  const agent = buildChildInstruction({ work: work('implementation'), attempt: 1, kind: 'agent', scratchPath: 's', preexistingDirtyPaths: [] });
+  const search = buildChildInstruction({ work: work('implementation'), attempt: 1, kind: 'search', scratchPath: 's', preexistingDirtyPaths: [] });
+  assert.match(agent, /Use TDD where behavior changes\./u);
+  assert.match(search, /Do not change files\./u);
+  const [agentShape, searchShape] = OrchestratorHandoffReportSchema.options.map((option) => Object.keys(option.shape));
+  assert.deepEqual(Object.keys(JsonObjectSchema.parse(parseJsonValueText(reportTemplate(agent)))), agentShape);
+  assert.deepEqual(Object.keys(JsonObjectSchema.parse(parseJsonValueText(reportTemplate(search)))), searchShape);
 });

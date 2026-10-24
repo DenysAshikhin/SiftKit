@@ -3,6 +3,7 @@ import {
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   getActiveModelPreset,
   getConfiguredContextTokens,
+  getStatusBackendUrl,
 } from '../../config/index.ts';
 import { AgentLoop } from '../../agent-loop/agent-loop.ts';
 import type {
@@ -92,6 +93,7 @@ import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.ts
 import type { TurnTokenRecord } from './turn-token-record.ts';
 import { ToolStatsRecorder } from './tool-stats.ts';
 import { TranscriptManager } from './transcript-manager.ts';
+import { RunStateCompactor } from './run-state-compactor.ts';
 import { TranscriptCompactor } from './transcript-compactor.ts';
 import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.ts';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.ts';
@@ -298,21 +300,24 @@ export class TaskLoop {
       thinking: this.plannerThinking,
       transcript: this.transcript,
       runtimeProfile: options.runtimeProfile,
-      compactor: new TranscriptCompactor({
-        config: options.config,
-        baseUrl: options.baseUrl,
-        model: String(options.model || ''),
-        timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-        totalContextTokens: this.budget.totalContextTokens,
-        compactionReserveTokens: this.budget.compactionReserveTokens,
-        useEstimatedTokensOnly: this.useEstimatedTokensOnly,
-        mockResponses: options.mockResponses,
-        tokenUsage: this.tokenUsage,
-        logger: options.logger || null,
-        abortSignal: options.abortSignal,
-        activityObserver: this.progress,
-        throughputAudit: options.throughputAudit,
-      }),
+      // An orchestrator's run state is its memory; every other loop summarizes its transcript.
+      compactor: options.orchestratorTools
+        ? new RunStateCompactor(options.orchestratorTools, this.useEstimatedTokensOnly ? undefined : options.config)
+        : new TranscriptCompactor({
+          config: options.config,
+          baseUrl: options.baseUrl,
+          model: String(options.model || ''),
+          timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+          totalContextTokens: this.budget.totalContextTokens,
+          compactionReserveTokens: this.budget.compactionReserveTokens,
+          useEstimatedTokensOnly: this.useEstimatedTokensOnly,
+          mockResponses: options.mockResponses,
+          tokenUsage: this.tokenUsage,
+          logger: options.logger || null,
+          abortSignal: options.abortSignal,
+          activityObserver: this.progress,
+          throughputAudit: options.throughputAudit,
+        }),
       progress: this.progress,
       logger: options.logger || null,
       timingRecorder: options.timingRecorder || null,
@@ -324,6 +329,7 @@ export class TaskLoop {
     return new ToolActionProcessor({
       task,
       repoRoot: options.repoRoot,
+      agentServerUrl: options.statusBackendUrl ?? getStatusBackendUrl(),
       config: options.config,
       mockCommandResults: options.mockCommandResults,
       abortSignal: options.abortSignal,
@@ -334,6 +340,7 @@ export class TaskLoop {
       approvalGate: this.buildApprovalRequester(options),
       evidenceRecorder: options.evidenceRecorder ?? null,
       questionGate: options.questionGate ?? null,
+      orchestratorTools: options.orchestratorTools ?? null,
       runtimeProfile: options.runtimeProfile,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
       chatWebGroundingPolicy: this.chatWebGroundingPolicy,
@@ -503,6 +510,9 @@ export class TaskLoop {
     this.mockResponseIndex = prepared.nextMockResponseIndex;
     if (prepared.compactionSummary !== null) {
       this.lastCompactionSummary = prepared.compactionSummary;
+      // The compacted transcript no longer holds earlier results, so re-reading or repeating them is allowed.
+      this.readWindows.invalidateAll();
+      this.duplicates.forgetSuccesses();
     }
 
     this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
@@ -599,7 +609,7 @@ export class TaskLoop {
 
   async evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation> {
     const data = getRepoSearchModelData(context);
-    const outcome = this.handleFinishAction(
+    const outcome = await this.handleFinishAction(
       context.turnNumber,
       action,
       data.plannerResponse,
@@ -800,7 +810,7 @@ export class TaskLoop {
     this.transcript.pushUser(message);
   }
 
-  private handleFinishAction(turn: number, action: AgentLoopFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
+  private async handleFinishAction(turn: number, action: AgentLoopFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): Promise<TurnOutcome> {
     this.tokenUsage.recordTurnOutput(turn, resolvedTokens, this.progress);
     const finishEvaluation = evaluateFinishAttempt({
       loopKind: this.loopKind,
@@ -843,8 +853,19 @@ export class TaskLoop {
       });
       return 'continue';
     }
+    let output = action.text;
+    const gate = this.options.submissionGate;
+    if (gate !== undefined) {
+      const verdict = await gate.review(action.text);
+      if (verdict.kind === 'reject') {
+        this.rejectFinish(response, verdict.message);
+        this.options.logger?.write({ kind: 'turn_submission_rejected', taskId: this.task.id, turn, message: verdict.message });
+        return 'continue';
+      }
+      output = verdict.output;
+    }
     this.transcript.pushAssistant(buildAssistantReplayMessage(response));
-    this.finalOutput = action.text;
+    this.finalOutput = output;
     if (this.streamFinishAsAnswer && this.progress.liveTextEnabled) {
       this.progress.answer(turn, this.finalOutput);
     }

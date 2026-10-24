@@ -22,3 +22,14 @@ export const WEB_CHAT_TOOL_NAMES = [
   'ask_user',
   'show_image',
 ] as const;
+
+/** Tools only an orchestrator parent is offered: the host executes them against its run. */
+export const ORCHESTRATOR_TOOL_NAMES = [
+  'save_plan',
+  'update_tasks',
+  'dispatch',
+  'decide',
+  'run_check',
+  'record_review',
+] as const;
+export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number];

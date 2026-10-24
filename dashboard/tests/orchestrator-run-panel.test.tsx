@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { OrchestratorAttemptSchema, OrchestratorDriftReviewSchema, OrchestratorRunStateSchema, type OrchestratorActivity, type OrchestratorChildActivity, type OrchestratorDriftFinding, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
+import { OrchestratorAttemptSchema, OrchestratorRunStateSchema, type OrchestratorActivity, type OrchestratorChildActivity, type OrchestratorParentActivity, type OrchestratorReviewRecord, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
 import { fireEvent, render, screen } from './react-test-environment.ts';
 import { OrchestratorRunPanel } from '../src/components/OrchestratorRunPanel.tsx';
 
@@ -21,8 +21,8 @@ function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunStat
     request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'Greet', planPath: null },
     revision: 3, phase: 'executing', planPath: 'C:/repo/.siftkit/orchestrator/plan.md', planHash: 'h',
     plan: { goal: 'Greet', constraints: [], tasks: [TASK], finalVerification: [CHECK] },
-    tasks: [{ taskId: TASK.id, status: 'running', driftReview: null, reviewedDigests: [] }],
-    attempts: [], phaseRunIds: [], approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: AT,
+    tasks: [{ taskId: TASK.id, status: 'running', review: null }],
+    attempts: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: AT,
     ...overrides,
   });
 }
@@ -30,24 +30,21 @@ function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunStat
 const EVIDENCE = { kind: 'evidence', instruction: 'Confirm the greeting.', paths: ['src/a.ts'] } as const;
 const UNREVIEWED_EVIDENCE = { check: EVIDENCE, executed: false, exitCode: null, timedOut: false, output: '' };
 
-function attempt(purpose: 'implementation' | 'drift_fix', number: 1 | 2, passed: boolean | null, extraChecks: object[] = []) {
+function attempt(purpose: 'implementation' | 'fix', number: 1 | 2, passed: boolean | null, extraChecks: object[] = []) {
   return OrchestratorAttemptSchema.parse({
     taskId: TASK.id, purpose, attempt: number, childRunId: CHILD_ID, reservedAtUtc: AT,
-    work: { kind: 'implementation', planPath: 'plan.md', planHash: 'h', task: TASK },
+    work: { kind: purpose, planPath: 'plan.md', planHash: 'h', task: TASK, instruction: 'Add the greeting.' },
     status: passed === null ? 'running' : 'settled',
     result: passed === null ? null : {
       taskId: TASK.id, purpose, attempt: number, childRunId: CHILD_ID, workerStatus: 'completed', workerOutput: 'done',
-      passed, checks: [{ check: CHECK, executed: true, exitCode: passed ? 0 : 1, timedOut: false, output: 'boom' }, ...extraChecks],
-      findings: [], changedPaths: ['src/a.ts'], scopeViolations: [], changeDigest: 'd',
+      report: null, outcome: passed ? 'passed' : 'checks_failed', submissions: passed ? 1 : 3, passed, checks: [{ check: CHECK, executed: true, exitCode: passed ? 0 : 1, timedOut: false, output: 'boom' }, ...extraChecks],
+      findings: [], changedPaths: ['src/a.ts'], changeDigest: 'd',
     },
   });
 }
 
-function finding(index: number): OrchestratorDriftFinding {
-  return {
-    id: `f${index}`, title: `Finding ${index}`, purpose: 'p', directive: 'd', impact: 'i', fix: 'f',
-    evidence: [{ path: 'src/a.ts', line: 1, snippet: 's' }], affectedPaths: ['src/a.ts'], verification: [CHECK],
-  };
+function finding(index: number) {
+  return { path: 'src/a.ts', line: index, issue: `Finding ${index}` };
 }
 
 function renderPanel(state: OrchestratorRunState, activity: OrchestratorActivity | null = null, workPhase: OrchestratorRunState['phase'] | null = null) {
@@ -69,7 +66,7 @@ const LIVE_CHILD: OrchestratorChildActivity = {
 const CLAIM = { taskId: TASK.id, modelId: 'exl3-main', mutating: true, contextTokens: 4000 };
 
 function liveActivity(children: OrchestratorChildActivity[]): OrchestratorActivity {
-  return { runId: RUN_ID, children,
+  return { runId: RUN_ID, children, parent: null,
     schedule: { claims: [CLAIM], models: [{ modelId: 'exl3-main', slots: 2, used: 1 }], writerUsed: true, waits: [] } };
 }
 
@@ -91,22 +88,48 @@ test('a failed attempt lists its failed checks and never an unexecuted evidence 
   assert.equal(screen.queryByText(/Confirm the greeting/u), null);
 });
 
-test('drift correction shows its own attempt count and the top three findings with the remainder', () => {
-  const review = OrchestratorDriftReviewSchema.parse({ taskId: TASK.id, changeDigest: 'd', scopePaths: [], resolutions: [], status: 'actionable', findings: [1, 2, 3, 4, 5].map(finding) });
+test('a failed review shows its verdict, the unmet criteria, and the top three findings with the remainder', () => {
+  const review: OrchestratorReviewRecord = { attempt: 1, purpose: 'implementation', verdict: 'fail', criteria: [{ index: 0, met: false, evidence: [] }],
+    findings: [1, 2, 3, 4, 5].map(finding) };
   renderPanel(runState({
-    tasks: [{ taskId: TASK.id, status: 'correcting_drift', driftReview: review, reviewedDigests: ['d'] }],
-    attempts: [attempt('implementation', 1, true), attempt('drift_fix', 1, null)],
+    tasks: [{ taskId: TASK.id, status: 'running', review }],
+    attempts: [attempt('implementation', 1, true), attempt('fix', 1, null)],
   }));
   screen.getByText('impl 1/2 · fix 1/2');
-  for (const title of ['Finding 1', 'Finding 2', 'Finding 3']) screen.getByText(title);
-  assert.equal(screen.queryByText('Finding 4'), null);
+  screen.getByText('Review failed: 0 of 1 criteria met');
+  for (const title of ['src/a.ts:1 Finding 1', 'src/a.ts:2 Finding 2', 'src/a.ts:3 Finding 3']) screen.getByText(title);
+  assert.equal(screen.queryByText('src/a.ts:4 Finding 4'), null);
   screen.getByText('+2 more findings');
 });
 
-test('a clean drift review says there is no actionable drift', () => {
-  const review = OrchestratorDriftReviewSchema.parse({ taskId: TASK.id, changeDigest: 'd', scopePaths: [], resolutions: [], status: 'clean', findings: [] });
-  renderPanel(runState({ tasks: [{ taskId: TASK.id, status: 'completed', driftReview: review, reviewedDigests: ['d'] }] }));
-  screen.getByText('No actionable drift');
+test('a passing review says every criterion was met, and a settled attempt states its outcome and submissions', () => {
+  const review: OrchestratorReviewRecord = { attempt: 1, purpose: 'implementation', verdict: 'pass',
+    criteria: [{ index: 0, met: true, evidence: [{ path: 'src/a.ts', line: 1, snippet: 'greet' }] }], findings: [] };
+  renderPanel(runState({ tasks: [{ taskId: TASK.id, status: 'completed', review }], attempts: [attempt('implementation', 1, false)] }));
+  screen.getByText('Review passed: 1 of 1 criteria met');
+  screen.getByText('Attempt 1: checks failed after 3 submissions');
+});
+
+const PARENT: OrchestratorParentActivity = {
+  waitingForModel: false, parked: true, promptTokens: 52_000, turnCount: 14,
+  prompt: { system: 'You are the SiftKit orchestrator.', user: 'Requested task: Greet' },
+  turns: [{ turn: 14, thinking: 'The greeting task is next.', text: '',
+    tools: [{ toolCallId: 'p1', command: 'dispatch', status: 'running', output: '' }] },
+  { turn: 13, thinking: 'Review the survey.', text: '',
+    tools: [{ toolCallId: 'p0', command: 'record_review taskId=survey verdict=pass', status: 'succeeded', output: 'Recorded pass for survey.' }] }],
+};
+
+test('the orchestrator view shows its prompt, its latest thinking, and every tool call with its result', () => {
+  renderPanel(runState({}), { ...liveActivity([LIVE_CHILD]), parent: PARENT });
+  const view = screen.getByLabelText('Orchestrator conversation');
+  assert.ok(view.textContent?.includes('released its model while children work'));
+  screen.getByText('turn 14');
+  screen.getByText('You are the SiftKit orchestrator.');
+  screen.getByText('Requested task: Greet');
+  screen.getByText('The greeting task is next.');
+  screen.getByText('dispatch');
+  screen.getByText('record_review taskId=survey verdict=pass');
+  screen.getByText('Recorded pass for survey.');
 });
 
 test('a pending approval can be approved, denied only with a reason, or aborted', () => {
@@ -129,7 +152,7 @@ test('a pending approval can be approved, denied only with a reason, or aborted'
 test('a terminal run shows its failure and no Stop button', () => {
   renderPanel(runState({
     phase: 'failed', updatedAtUtc: '2026-09-23T12:14:02.000Z',
-    failure: { code: 'implementation_failed', message: 'Task add-greeting failed twice.', taskId: TASK.id, purpose: 'implementation', findingIds: [] },
+    failure: { code: 'blocked', message: 'Task add-greeting failed twice.', taskId: TASK.id },
   }));
   screen.getByText('Task add-greeting failed twice.');
   screen.getByText('14m 02s');
@@ -162,10 +185,10 @@ test('the slot meter shows held scheduler slots, and a pending task says why it 
   const second = { ...TASK, id: 'second', title: 'Second write' };
   const state = runState({
     plan: { goal: 'Greet', constraints: [], tasks: [TASK, second], finalVerification: [CHECK] },
-    tasks: [{ taskId: TASK.id, status: 'running', driftReview: null, reviewedDigests: [] },
-      { taskId: 'second', status: 'pending', driftReview: null, reviewedDigests: [] }],
+    tasks: [{ taskId: TASK.id, status: 'running', review: null },
+      { taskId: 'second', status: 'pending', review: null }],
   });
-  const activity: OrchestratorActivity = { runId: RUN_ID, children: [LIVE_CHILD], schedule: {
+  const activity: OrchestratorActivity = { runId: RUN_ID, children: [LIVE_CHILD], parent: null, schedule: {
     claims: [CLAIM, { ...CLAIM, taskId: 'second' }], models: [{ modelId: 'exl3-main', slots: 2, used: 1 }], writerUsed: true,
     waits: [{ taskId: 'second', wait: { kind: 'writer_slot' } }],
   } };
@@ -178,12 +201,12 @@ test('the slot meter shows held scheduler slots, and a pending task says why it 
 test('the phase stepper marks where the run is, even while paused for approval', () => {
   renderPanel(runState({ phase: 'approval_required' }), null, 'executing');
   const steps = screen.getAllByRole('listitem', { name: /step$/u });
-  assert.deepEqual(steps.map((step) => step.getAttribute('data-status')), ['done', 'done', 'now', 'todo', 'todo']);
+  assert.deepEqual(steps.map((step) => step.getAttribute('data-status')), ['done', 'now', 'todo', 'todo']);
 });
 
 test('a row opens when its task starts and stays as the user left it when the task settles', () => {
   const view = (status: 'pending' | 'running' | 'completed') => (
-    <OrchestratorRunPanel state={runState({ tasks: [{ taskId: TASK.id, status, driftReview: null, reviewedDigests: [] }] })}
+    <OrchestratorRunPanel state={runState({ tasks: [{ taskId: TASK.id, status, review: null }] })}
       activity={null} workPhase={null} lastMessage={null} onDecide={() => undefined} onAbort={() => undefined} />
   );
   const details = () => {

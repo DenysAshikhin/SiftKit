@@ -25,6 +25,13 @@ function deriveActivityKind(call: RepoNativeToolCall): ToolActivityKind {
       return 'ask';
     case 'show_image':
       return 'image';
+    case 'save_plan':
+    case 'update_tasks':
+    case 'dispatch':
+    case 'decide':
+    case 'run_check':
+    case 'record_review':
+      return 'orchestrate';
   }
 }
 
@@ -57,6 +64,12 @@ function getActivitySubject(call: RepoNativeToolCall): ToolActivitySubject {
     case 'run':
     case 'web_search':
     case 'ask_user':
+    case 'save_plan':
+    case 'update_tasks':
+    case 'dispatch':
+    case 'decide':
+    case 'run_check':
+    case 'record_review':
       return { kind: 'none' };
   }
 }

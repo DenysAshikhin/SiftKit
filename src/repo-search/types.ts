@@ -15,6 +15,8 @@ import type { ApprovalGate } from './engine/approval-gate.ts';
 import type { ChatMessageQueueDelivery } from './engine/queue-delivery.ts';
 import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.ts';
 import type { QuestionGate } from './engine/question-gate.ts';
+import type { SubmissionGate } from './engine/submission-gate.ts';
+import type { OrchestratorToolHost } from './engine/orchestrator-tool-host.ts';
 import type { ChatMessage } from './planner-chat-message.ts';
 import { ScorecardSchema } from './engine.ts';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.ts';
@@ -235,6 +237,10 @@ export type RepoSearchExecutionRequest = {
   evidenceRecorder?: ChatRunEvidenceRecorder;
   /** The Web run's question channel; its presence is what offers the web chat tools. */
   questionGate?: QuestionGate;
+  /** Code that judges each finish before the run accepts it: an orchestrator worker's checks. */
+  submissionGate?: SubmissionGate;
+  /** The orchestrator run that executes its parent's own tools; its presence is what offers them. */
+  orchestratorTools?: OrchestratorToolHost;
   /** A fixed system context used instead of one built from the preset: an orchestrator parent's run-start snapshot. */
   systemContext?: PresetSystemContext;
   /** The shape a finishing answer must parse to; an answer that fails it gets one constrained repair turn. */

@@ -21,23 +21,20 @@ export type StatusTone = 'ok' | 'bad' | 'run' | 'idle';
 /** The run's work phases in order; approval pauses and terminal phases are not steps. */
 const STEPS = [
   { label: 'Plan', phase: 'preparing_plan' },
-  { label: 'Validate', phase: 'validating_plan' },
   { label: 'Execute', phase: 'executing' },
   { label: 'Verify', phase: 'verifying' },
   { label: 'Clean', phase: 'cleaning' },
 ] as const satisfies readonly { label: string; phase: OrchestratorPhase }[];
 
-const PURPOSE_LABELS = { implementation: 'impl', drift_fix: 'fix' } as const satisfies Record<OrchestratorChildPurpose, string>;
+const PURPOSE_LABELS = { implementation: 'impl', fix: 'fix' } as const satisfies Record<OrchestratorChildPurpose, string>;
 
 /** What a task is doing when no child is attached; every status is listed so a new one needs a choice. */
 const STATUS_ACTIVITY = {
-  pending: null, running: 'starting', verifying: 'verifying checks', reviewing_drift: 'reviewing drift',
-  correcting_drift: 'starting correction', retry_pending: 'retry pending', completed: null, failed: null, aborted: null,
+  pending: null, running: 'starting', reviewing: 'awaiting orchestrator review', completed: null, failed: null, aborted: null,
 } as const satisfies Record<OrchestratorTaskStatus, string | null>;
 
 const TASK_TONES = {
-  pending: 'idle', running: 'run', verifying: 'run', reviewing_drift: 'run', correcting_drift: 'run', retry_pending: 'run',
-  completed: 'ok', failed: 'bad', aborted: 'bad',
+  pending: 'idle', running: 'run', reviewing: 'run', completed: 'ok', failed: 'bad', aborted: 'bad',
 } as const satisfies Record<OrchestratorTaskStatus, StatusTone>;
 
 /** Steps for `phase`; while paused or stopped, `workPhase` (the last work phase seen) marks where the run is. */
@@ -63,7 +60,7 @@ function describeWait(wait: OrchestratorTaskWait): string {
   }
 }
 
-/** Why a pending task has not started, as the scheduler's latest pass recorded it. */
+/** Why a pending task has not started, as the latest dispatch recorded it. */
 export function waitReason(task: OrchestratorTaskState, state: OrchestratorRunState, activity: OrchestratorActivity | null): string | null {
   if (task.status !== 'pending') return null;
   if (isOrchestratorTerminalPhase(state.phase)) return 'not started';

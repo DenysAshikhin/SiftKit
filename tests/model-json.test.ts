@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 import { ModelJson } from '../src/lib/model-json.ts';
 import { z } from '../src/lib/zod.ts';
-import { OrchestratorApprovalDecisionSchema, OrchestratorPlanPreparationSchema } from '@siftkit/contracts';
+import { OrchestratorSavePlanArgsSchema } from '@siftkit/contracts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+
+const APPROVAL_DECISION = z.object({ decision: z.enum(['approve', 'deny']), reason: z.string().min(1) }).strict();
 
 test('ModelJson parses valid summary decisions without repair', () => {
   const decision = ModelJson.parseSummaryDecision(JSON.stringify({
@@ -72,25 +74,24 @@ test('ModelJson parses a fenced typed object and rejects schema mismatches and s
 
 test('ModelJson takes the answer object after prose or inside a fence surrounded by prose', () => {
   assert.deepEqual(ModelJson.parseObject('Confirmed: harmless.\n{"decision":"approve","reason":"read-only"}',
-    OrchestratorApprovalDecisionSchema, 'approval decision'), { decision: 'approve', reason: 'read-only' });
+    APPROVAL_DECISION, 'approval decision'), { decision: 'approve', reason: 'read-only' });
   assert.deepEqual(ModelJson.parseObject('Here it is:\n```json\n{"decision":"deny","reason":"writes"}\n```\nDone.',
-    OrchestratorApprovalDecisionSchema, 'approval decision'), { decision: 'deny', reason: 'writes' });
+    APPROVAL_DECISION, 'approval decision'), { decision: 'deny', reason: 'writes' });
 });
 
 test('ModelJson drops keys the schema does not define, at any depth, and keeps validating values', () => {
   const plan = makeOrchestratorPlan([makeOrchestratorTask()]);
-  const noisy = { status: 'generated', notes: 'extra', issues: [],
+  const noisy = { notes: 'extra',
     plan: { ...plan, tasks: plan.tasks.map((task) => ({ ...task, steps: task.steps.map((step) => ({ ...step, evidence: 'x' })) })) } };
-  assert.deepEqual(ModelJson.parseObject(JSON.stringify(noisy), OrchestratorPlanPreparationSchema, 'plan preparation'),
-    { status: 'generated', issues: [], plan });
-  assert.throws(() => ModelJson.parseObject(JSON.stringify(plan), OrchestratorPlanPreparationSchema, 'plan preparation'),
-    /invalid_union|discriminator/u, 'a bare plan without its {status, plan} wrapper is still rejected');
-  assert.throws(() => ModelJson.parseObject('{"decision":"maybe","reason":"x","notes":"y"}', OrchestratorApprovalDecisionSchema,
+  assert.deepEqual(ModelJson.parseObject(JSON.stringify(noisy), OrchestratorSavePlanArgsSchema, 'save_plan'), { plan });
+  assert.throws(() => ModelJson.parseObject(JSON.stringify(plan), OrchestratorSavePlanArgsSchema, 'save_plan'),
+    /plan/u, 'a bare plan without its {plan} wrapper is still rejected');
+  assert.throws(() => ModelJson.parseObject('{"decision":"maybe","reason":"x","notes":"y"}', APPROVAL_DECISION,
     'approval decision'), /decision/u, 'a wrong value is still rejected even with an extra key');
 });
 
 test('ModelJson names the payload and reports schema problems readably, not as raw issue JSON', () => {
-  assert.throws(() => ModelJson.parseObject('{"decision":"maybe","reason":"x"}', OrchestratorApprovalDecisionSchema, 'approval decision'),
+  assert.throws(() => ModelJson.parseObject('{"decision":"maybe","reason":"x"}', APPROVAL_DECISION, 'approval decision'),
     (error: Error) => error.message.startsWith('Provider returned an invalid approval decision payload: ')
       && /decision/u.test(error.message) && !error.message.includes('"code"'));
 });

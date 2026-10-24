@@ -16,9 +16,9 @@ import type { JsonLogger } from '../types.ts';
 import { ProgressReporter } from './progress-reporter.ts';
 import { TranscriptManager } from './transcript-manager.ts';
 import {
-  TranscriptCompactor,
   writePromptCacheEpochReset,
   type CompactionRetention,
+  type TranscriptCompaction,
 } from './transcript-compactor.ts';
 import { TurnBudget } from './turn-budget.ts';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
@@ -60,7 +60,7 @@ export class PromptPreparer {
       thinking: PlannerThinkingFlags;
       transcript: TranscriptManager;
       runtimeProfile: RepoSearchRuntimeProfile;
-      compactor: TranscriptCompactor;
+      compactor: TranscriptCompaction;
       progress: ProgressReporter;
       logger: JsonLogger | null;
       timingRecorder: TemporaryTimingRecorder | null;
@@ -76,7 +76,7 @@ export class PromptPreparer {
       thinking: PlannerThinkingFlags;
       transcript: TranscriptManager;
       runtimeProfile: RepoSearchRuntimeProfile;
-      compactor: TranscriptCompactor;
+      compactor: TranscriptCompaction;
       progress: ProgressReporter;
       logger: JsonLogger | null;
       timingRecorder: TemporaryTimingRecorder | null;

@@ -1,4 +1,4 @@
-import { ensureStatusServerReachable } from '../config/index.ts';
+import { ensureStatusServerReachable, getStatusBackendUrl } from '../config/index.ts';
 import {
   validateRepoSearchTokens,
   type CliRunOptions,
@@ -24,6 +24,7 @@ import { runSummary } from './run-summary.ts';
 import { runTest } from './run-test.ts';
 import { assertStdinIsTty } from './tty.ts';
 import { readNestedAgentRunId } from '../lib/agent-run-marker.ts';
+import { toError } from '../lib/errors.ts';
 import { runAssistantCli } from './run-assistant.ts';
 
 function failUnknownCommand(commandName: never): never {
@@ -48,7 +49,13 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   const invocation = CLI_COMMAND_CATALOG.resolve(options.argv);
   const commandName = invocation.command.name;
   const commandArgs = invocation.args;
-  const nestedAgentRunId = readNestedAgentRunId();
+  let nestedAgentRunId: string | null;
+  try {
+    nestedAgentRunId = readNestedAgentRunId(getStatusBackendUrl());
+  } catch (error) {
+    stderr.write(`${toError(error).message}\n`);
+    return 1;
+  }
   // Control verbs only read or answer an existing run; they never wait on the model lock.
   const repoAgentControl = (commandName === 'repo-agent' && (commandArgs[0] === 'decide' || commandArgs[0] === 'status'))
     || (commandName === 'orchestrator' && ['decide', 'status', 'abort', 'attach'].includes(commandArgs[0] ?? ''));

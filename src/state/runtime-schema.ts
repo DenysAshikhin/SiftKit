@@ -275,7 +275,7 @@ export const ORCHESTRATOR_RUNS_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS orchestrator_attempts (
     run_id TEXT NOT NULL REFERENCES orchestrator_runs(run_id) ON DELETE CASCADE,
     task_id TEXT NOT NULL,
-    purpose TEXT NOT NULL CHECK (purpose IN ('implementation', 'drift_fix')),
+    purpose TEXT NOT NULL CHECK (purpose IN ('implementation', 'fix')),
     attempt INTEGER NOT NULL CHECK (attempt IN (1, 2)),
     child_run_id TEXT NOT NULL UNIQUE,
     attempt_json TEXT NOT NULL,

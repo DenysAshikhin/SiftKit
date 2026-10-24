@@ -49,6 +49,8 @@ import { mergeInferenceThroughput } from '../lib/inference-throughput.ts';
 import type { ChatMessageQueueDelivery } from './engine/queue-delivery.ts';
 import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.ts';
 import type { QuestionGate } from './engine/question-gate.ts';
+import type { SubmissionGate } from './engine/submission-gate.ts';
+import type { OrchestratorToolHost } from './engine/orchestrator-tool-host.ts';
 
 export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.ts';
 
@@ -141,6 +143,7 @@ export function assertConfiguredModelPresent(model: string, availableModels: str
 
 export async function runRepoSearch(options: {
   repoRoot: string;
+  statusBackendUrl?: string;
   systemContext: PresetSystemContext;
   answerSchema?: RepoSearchAnswerSchema;
   taskKind: RepoSearchTaskKind;
@@ -172,6 +175,8 @@ export async function runRepoSearch(options: {
   queueDelivery?: ChatMessageQueueDelivery;
   evidenceRecorder?: ChatRunEvidenceRecorder;
   questionGate?: QuestionGate;
+  submissionGate?: SubmissionGate;
+  orchestratorTools?: OrchestratorToolHost;
 }): Promise<{ scorecard: Scorecard; turnRecords: TurnTokenRecord[] }> {
   throwIfAborted(options.abortSignal);
   if (options.taskPrompt === undefined) {
@@ -227,6 +232,7 @@ export async function runRepoSearch(options: {
     throwIfAborted(options.abortSignal);
     const loop = new TaskLoop(task, {
       repoRoot,
+      statusBackendUrl: options.statusBackendUrl,
       model,
       baseUrl,
       config,
@@ -257,6 +263,8 @@ export async function runRepoSearch(options: {
       queueDelivery: options.queueDelivery,
       evidenceRecorder: options.evidenceRecorder,
       questionGate: options.questionGate,
+      submissionGate: options.submissionGate,
+      orchestratorTools: options.orchestratorTools,
     });
     const result = await loop.run();
     tasks.push(result);

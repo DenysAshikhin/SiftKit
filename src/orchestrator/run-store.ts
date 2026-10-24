@@ -42,7 +42,7 @@ const ThroughputRowsSchema = z.array(z.object({ throughput_json: z.string() }));
 const TERMINAL_PHASES_SQL = ORCHESTRATOR_TERMINAL_PHASES.map((phase) => `'${phase}'`).join(', ');
 
 /** Fields a transition may change; identity, plan, and attempts change only through their methods. */
-export type OrchestratorRunChanges = Partial<Pick<OrchestratorRunState, 'phase' | 'tasks' | 'approval' | 'failure' | 'phaseRunIds'>>;
+export type OrchestratorRunChanges = Partial<Pick<OrchestratorRunState, 'phase' | 'tasks' | 'approval' | 'failure' | 'parentRunIds'>>;
 
 /** What an event says beyond the committed phase; the store stamps run, sequence, and time. */
 export type OrchestratorEventInput = {
@@ -80,7 +80,7 @@ export class OrchestratorRunStore {
       const now = new Date().toISOString();
       const state: StoredRunState = StoredRunStateSchema.parse({
         runId: randomUUID(), request, revision: 0, phase: 'preparing_plan', planPath: null, planHash: null, plan: null,
-        tasks: [], phaseRunIds: [], approval: null, failure: null, createdAtUtc: now, updatedAtUtc: now,
+        tasks: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: now, updatedAtUtc: now,
       });
       this.database.prepare(`
         INSERT INTO orchestrator_runs (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc)
@@ -98,10 +98,10 @@ export class OrchestratorRunStore {
     return OrchestratorRunStateSchema.parse({ ...stored, attempts: this.readAttempts(runId) });
   }
 
-  /** The parent's phase runs and every child's measured inference, merged; runs still in flight add nothing yet. */
+  /** The parent's conversation and every child's measured inference, merged; runs still in flight add nothing yet. */
   readThroughput(runId: string): InferenceThroughput {
     const state = this.read(runId);
-    const runIds = [...state.phaseRunIds, ...state.attempts.map((attempt) => attempt.childRunId)];
+    const runIds = [...state.parentRunIds, ...state.attempts.map((attempt) => attempt.childRunId)];
     const rows = ThroughputRowsSchema.parse(this.database.prepare(
       'SELECT throughput_json FROM run_logs WHERE run_id IN (SELECT value FROM json_each(?)) AND throughput_json IS NOT NULL',
     ).all(JSON.stringify(runIds)));
@@ -126,7 +126,7 @@ export class OrchestratorRunStore {
       }
       const previous = new Map(state.tasks.map((task) => [task.taskId, task]));
       const tasks: OrchestratorTaskState[] = plan.tasks.map((task) => previous.get(task.id)
-        ?? { taskId: task.id, status: 'pending', driftReview: null, reviewedDigests: [] });
+        ?? { taskId: task.id, status: 'pending', review: null });
       return { stored: { ...state, plan, planPath, planHash: contentHash, tasks }, event: { message: `Plan saved: ${planPath}.` } };
     });
   }
@@ -175,7 +175,7 @@ export class OrchestratorRunStore {
         throw new Error(`Result for child ${result.childRunId} does not match its reserved attempt.`);
       }
       this.writeAttempt(runId, { ...attempt, status: 'settled', result });
-      return { stored: state, event: { message: `Settled ${attempt.purpose} attempt ${attempt.attempt}: ${result.passed ? 'passed' : 'failed'}.`,
+      return { stored: state, event: { message: `Settled ${attempt.purpose} attempt ${attempt.attempt}: ${result.outcome.replace(/_/gu, ' ')}.`,
         taskId: attempt.taskId, purpose: attempt.purpose, attempt: attempt.attempt, childRunId: attempt.childRunId } };
     });
   }
@@ -183,7 +183,7 @@ export class OrchestratorRunStore {
   markInterrupted(runId: string, revision: number, reason: string): OrchestratorRunState {
     return this.update(runId, revision, {
       phase: 'interrupted', approval: null,
-      failure: { code: 'interrupted', message: reason, taskId: null, purpose: null, findingIds: [] },
+      failure: { code: 'interrupted', message: reason, taskId: null },
     }, { message: reason });
   }
 

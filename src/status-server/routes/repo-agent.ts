@@ -35,6 +35,7 @@ import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '..
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.ts';
 import type { ChatRunRecorder } from '../chat-run-recorder.ts';
 import type { QuestionGate } from '../../repo-search/engine/question-gate.ts';
+import type { SubmissionGate } from '../../repo-search/engine/submission-gate.ts';
 import { requireChatRunRecorder } from './chat-session-operation-endpoint.ts';
 import type { ChatMessageQueue } from '../chat-message-queue.ts';
 import type { RepositoryAccess } from '../orchestrator-runs.ts';
@@ -125,6 +126,8 @@ export type StartRepoWorkerRunInput = {
   questionGate?: QuestionGate;
   /** Model queue deadline; Web runs wait until admitted, standalone runs omit it for the server default. */
   modelQueueTimeout?: ModelQueueTimeout;
+  /** An orchestrator child's checks, run by code on every finish before the run accepts it. */
+  submissionGate?: SubmissionGate;
 };
 
 /** The one server-side worker start: run-store record, session, model routing, and repository ownership. */
@@ -184,6 +187,7 @@ export function startRepoWorkerRun(ctx: ServerContext, input: StartRepoWorkerRun
       ...(input.history === undefined ? {} : { history: input.history }),
       ...(input.evidenceRecorder === undefined ? {} : { evidenceRecorder: input.evidenceRecorder }),
       ...(input.questionGate === undefined ? {} : { questionGate: input.questionGate }),
+      ...(input.submissionGate === undefined ? {} : { submissionGate: input.submissionGate }),
       initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
       ...(input.queue
         ? {

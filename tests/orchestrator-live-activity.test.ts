@@ -48,11 +48,11 @@ test('each scheduler pass is published as it was decided, and a snapshot is a co
   const live = new OrchestratorLiveActivity(RUN_ID, registry);
   assert.equal(live.snapshot().schedule, null, 'no schedule before the first pass');
   live.setSchedule(SCHEDULE);
-  assert.deepEqual(published.at(-1), { runId: RUN_ID, schedule: SCHEDULE, children: [] });
+  assert.deepEqual(published.at(-1), { runId: RUN_ID, schedule: SCHEDULE, parent: null, children: [] });
   const snapshot = live.snapshot();
   snapshot.schedule?.claims.pop();
   snapshot.children.push({ childRunId: CHILD_ID, taskId: 'x', waitingForModel: false, turn: 0, maxTurns: null, promptTokens: 0, tools: [] });
-  assert.deepEqual(live.snapshot(), { runId: RUN_ID, schedule: SCHEDULE, children: [] });
+  assert.deepEqual(live.snapshot(), { runId: RUN_ID, schedule: SCHEDULE, parent: null, children: [] });
 });
 
 test('a tracked child publishes visible progress only; untracking detaches it and drops it from the view', (t) => {
@@ -69,4 +69,29 @@ test('a tracked child publishes visible progress only; untracking detaches it an
   live.untrack(CHILD_ID);
   assert.equal(session.detached, true);
   assert.deepEqual(published.at(-1)?.children, []);
+});
+
+test('the parent conversation opens with its prompt, publishes parking at once, and streams at most every 250 ms', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { registry, published } = openRegistry(t);
+  const live = new OrchestratorLiveActivity(RUN_ID, registry);
+  live.applyParent({ kind: 'lock_wait', elapsedMs: 1 });
+  assert.equal(published.length, 0, 'nothing streams before the parent starts');
+  live.startParent({ system: 'You orchestrate.', user: 'Go.' });
+  assert.deepEqual(published.at(-1)?.parent?.prompt, { system: 'You orchestrate.', user: 'Go.' });
+  const thinking = (text: string): OperationProgressEvent => ({ kind: 'thinking', turn: 1, maxTurns: 600, thinkingText: text });
+  live.applyParent(thinking('a'));
+  live.applyParent(thinking('ab'));
+  const count = published.length;
+  t.mock.timers.tick(249);
+  assert.equal(published.length, count, 'token-by-token thinking waits for the interval');
+  t.mock.timers.tick(1);
+  assert.equal(published.length, count + 1);
+  assert.equal(published.at(-1)?.parent?.turns[0]?.thinking, 'ab', 'one frame carries the latest text');
+  live.setParentParked(true);
+  assert.equal(published.at(-1)?.parent?.parked, true);
+  live.applyParent(thinking('abc'));
+  live.close();
+  t.mock.timers.tick(1_000);
+  assert.equal(published.at(-1)?.parent?.turns[0]?.thinking, 'ab', 'a closed view publishes nothing more');
 });

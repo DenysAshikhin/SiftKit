@@ -17,7 +17,6 @@ export function orchestratorScratchDir(runId: string): string {
   return `${orchestratorArtifactDir(runId)}/scratch`;
 }
 
-const PROSE_EXTENSIONS = ['.md', '.mdx', '.txt', '.rst', '.log'];
 
 /** Dirty files at one moment: path -> content (null for a deleted file). */
 export type WorkspaceSnapshot = ReadonlyMap<string, Buffer | null>;
@@ -94,13 +93,16 @@ async function headContent(repoRoot: string, path: string): Promise<Buffer | nul
   return result.exitCode === 0 ? Buffer.from(result.stdout) : null;
 }
 
-/** Unified diff of `paths` from their baseline content to now, staged through the run's scratch. */
-export async function renderWorkspaceDiff(input: {
+/** One changed path's line counts against its baseline; null counts mean a binary file. */
+export type DiffstatEntry = { path: string; change: 'added' | 'modified' | 'deleted'; added: number | null; removed: number | null };
+
+/** Line counts of `paths` from their baseline content to now, staged through the run's scratch. */
+export async function diffstatWorkspace(input: {
   repoRoot: string;
   baseline: WorkspaceSnapshot;
   paths: readonly string[];
   scratchDir: string;
-}): Promise<string> {
+}): Promise<DiffstatEntry[]> {
   const stagingRoot = join(input.repoRoot, input.scratchDir, '.diff-staging');
   const stage = (name: string, content: Buffer | null): string => {
     const staged = join(stagingRoot, name);
@@ -108,39 +110,26 @@ export async function renderWorkspaceDiff(input: {
     writeFileSync(staged, content ?? '');
     return staged;
   };
-  const sections: string[] = [];
+  const entries: DiffstatEntry[] = [];
   try {
     for (const path of input.paths) {
-      const tracked = await headContent(input.repoRoot, path) !== null;
-      // A path clean at the baseline diffs against HEAD, which git normalizes for line endings.
-      const args = !input.baseline.has(path) && tracked
-        ? ['diff', '--no-color', '--no-ext-diff', '--no-textconv', 'HEAD', '--', path]
-        : ['diff', '--no-index', '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-cr-at-eol', '--', stage(`before/${path}`, input.baseline.get(path) ?? null),
-          existsSync(join(input.repoRoot, path)) ? path : stage(`deleted/${path}`, null)];
-      const result = await runGit(input.repoRoot, args);
-      sections.push(`### ${path}\n${result.stdout.trim() || '(binary or line-ending-only change)'}`);
+      const before = input.baseline.has(path) ? input.baseline.get(path) ?? null : await headContent(input.repoRoot, path);
+      const exists = existsSync(join(input.repoRoot, path));
+      const result = await runGit(input.repoRoot, ['diff', '--no-index', '--numstat', '--no-color', '--no-ext-diff', '--no-textconv',
+        '--ignore-cr-at-eol', '--', stage(`before/${path}`, before), exists ? path : stage(`deleted/${path}`, null)]);
+      const [added = '0', removed = '0'] = result.stdout.trim().split('\t');
+      const count = (field: string): number | null => (field === '-' ? null : Number(field));
+      entries.push({ path, change: !exists ? 'deleted' : before === null ? 'added' : 'modified', added: count(added), removed: count(removed) });
     }
   } finally {
     rmSync(stagingRoot, { recursive: true, force: true });
   }
-  return sections.join('\n');
+  return entries;
 }
 
 function isWithin(root: string, candidate: string): boolean {
   const offset = relative(root, candidate);
   return offset !== '' && !offset.startsWith('..') && !isAbsolute(offset);
-}
-
-/** Changed paths the task may not touch; run artifacts are always allowed. */
-export function findScopeViolations(changedPaths: readonly string[], writePaths: readonly string[]): string[] {
-  return changedPaths.filter((path) => !path.startsWith(ORCHESTRATOR_ARTIFACT_ROOT)
-    && !writePaths.some((allowed) => allowed === '.' || path === allowed || path.startsWith(`${allowed.replace(/\/$/u, '')}/`)));
-}
-
-/** Source, tests, scripts, and config changes need a drift review; prose and logs do not. */
-export function changesNeedDriftReview(changedPaths: readonly string[]): boolean {
-  return changedPaths.some((path) => !path.startsWith(ORCHESTRATOR_ARTIFACT_ROOT)
-    && !PROSE_EXTENSIONS.some((extension) => path.toLowerCase().endsWith(extension)));
 }
 
 /**

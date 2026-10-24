@@ -23,11 +23,14 @@ function seedSchema82(sessionId: string | undefined): { dbPath: string; runId: s
   });
   closeAllRuntimeDatabases();
   withRuntimeDatabaseConnection(dbPath, (database) => {
+    // Schema 82 named the parent's runs `phaseRunIds`; the 83 -> 84 step renames them.
+    const { parentRunIds, ...state } = JsonObjectSchema.parse(JSON.parse(StateRowSchema.parse(
+      database.prepare('SELECT state_json FROM orchestrator_runs WHERE run_id = ?').get(run.runId)).state_json));
+    const { sessionId: _future, ...withoutSession } = JsonObjectSchema.parse(state.request);
+    const request = sessionId === undefined ? withoutSession : state.request;
+    database.prepare('UPDATE orchestrator_runs SET state_json = ? WHERE run_id = ?')
+      .run(JSON.stringify({ ...state, request, phaseRunIds: parentRunIds }), run.runId);
     if (sessionId === undefined) {
-      const state = JsonObjectSchema.parse(JSON.parse(StateRowSchema.parse(
-        database.prepare('SELECT state_json FROM orchestrator_runs WHERE run_id = ?').get(run.runId)).state_json));
-      const { sessionId: _future, ...request } = JsonObjectSchema.parse(state.request);
-      database.prepare('UPDATE orchestrator_runs SET state_json = ? WHERE run_id = ?').run(JSON.stringify({ ...state, request }), run.runId);
       database.exec('ALTER TABLE chat_sessions DROP COLUMN orchestrator_run_id');
       database.exec(`ALTER TABLE orchestrator_runs ADD COLUMN repo_key TEXT;
         CREATE INDEX idx_orchestrator_runs_repo_key ON orchestrator_runs (repo_key, created_at_utc);`);

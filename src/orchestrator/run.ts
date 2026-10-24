@@ -4,112 +4,111 @@ import { dirname, join } from 'node:path';
 
 import {
   ORCHESTRATOR_MAX_ATTEMPTS,
-  OrchestratorApprovalDecisionSchema,
-  OrchestratorDriftReviewSchema,
-  OrchestratorPlanPreparationSchema,
-  OrchestratorTaskReviewSchema,
+  ORCHESTRATOR_MAX_FINISH_ATTEMPTS,
+  OrchestratorChildPurposeSchema,
+  OrchestratorFinishSchema,
   isOrchestratorTerminalPhase,
+  orchestratorCheckFailure,
   type OrchestratorActivity,
   type OrchestratorAttempt,
   type OrchestratorAttemptResult,
   type OrchestratorCheckResult,
-  type OrchestratorChildWork,
-  type OrchestratorCommandCheck,
-  type OrchestratorDriftFinding,
-  type OrchestratorDriftReview,
+  type OrchestratorDecideArgs,
+  type OrchestratorDispatchArgs,
   type OrchestratorFailure,
   type OrchestratorFailureCode,
+  type OrchestratorFinish,
   type OrchestratorPendingApproval,
   type OrchestratorPlan,
-  type OrchestratorPlanPreparation,
+  type OrchestratorRecordReviewArgs,
+  type OrchestratorRunCheckArgs,
   type OrchestratorRunState,
+  type OrchestratorSavePlanArgs,
+  type OrchestratorUpdateTasksArgs,
   type OrchestratorStartRequest,
   type OrchestratorTask,
-  type OrchestratorTaskReview,
   type OrchestratorTaskStatus,
   type OrchestratorVerificationCheck,
   type RepoAgentApproval,
   type RepoAgentDecision,
 } from '@siftkit/contracts';
 
+import { getActiveModelPreset } from '../config/getters.ts';
 import type { SiftConfig } from '../config/types.ts';
 import { toError } from '../lib/errors.ts';
 import { ModelJson } from '../lib/model-json.ts';
-import type { z } from '../lib/zod.ts';
-import { buildPlannerJsonSchema } from '../planner-protocol/json-schema.ts';
+import { ProgressWriter } from '../lib/progress-writer.ts';
 import { PresetCatalog } from '../preset-catalog.ts';
-import { PresetSystemContextBuilder, type PresetSystemContext } from '../preset-system-context.ts';
+import { PresetSystemContextBuilder } from '../preset-system-context.ts';
+import type { OrchestratorToolHost, OrchestratorToolOutcome } from '../repo-search/engine/orchestrator-tool-host.ts';
 import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
+import type { SubmissionGate, SubmissionVerdict } from '../repo-search/engine/submission-gate.ts';
+import { taskPassed } from '../repo-search/engine/task-loop-support.ts';
+import type { OrchestratorToolCall } from '../repo-search/repo-tool-arguments.ts';
+import { resolveRunSystemPrompt } from '../repo-search/run-system-prompt.ts';
+import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
 import { readConfig } from '../status-server/config-store.ts';
+import { resolveNewSessionModelConfig } from '../status-server/new-chat-session.ts';
 import type { OrchestratorLiveRun, RepositoryAccess, RepositoryLease } from '../status-server/orchestrator-runs.ts';
 import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
 import type { ServerContext } from '../status-server/server-types.ts';
 import { chatSessionExists } from '../state/chat-sessions.ts';
-import { resolveNewSessionModelConfig } from '../status-server/new-chat-session.ts';
 import { showRunInChatSession } from './chat-sessions.ts';
 import { findUnrunnableChecks } from './check-preflight.ts';
-import { buildDriftCorrectionWork, validateDriftReview } from './drift-review.ts';
-import {
-  ORCHESTRATOR_PHASE_ANSWER_NAMES,
-  OrchestratorInfrastructureError,
-  OrchestratorPhaseRunner,
-  type OrchestratorPhaseLabel,
-} from './phase-runner.ts';
+import { renderRunDigest } from './digest.ts';
+import { renderAttemptForParent, type HandoffKind } from './handoff.ts';
 import { OrchestratorLiveActivity } from './live-activity.ts';
+import { OrchestratorInfrastructureError, ParentLease } from './parent-lease.ts';
 import { renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
-import {
-  buildAttemptReviewPrompt,
-  buildChildApprovalPrompt,
-  buildCheckApprovalPrompt,
-  buildDriftCorrectionPrompt,
-  buildDriftReviewPrompt,
-  buildFinalVerificationPrompt,
-  buildImplementationInstruction,
-  buildParentPrompt,
-  buildPlanPreparationPrompt,
-  describeRejection,
-  type ImplementationRetryEvidence,
-  type PlanWorker,
-  type RunContext,
-} from './prompts.ts';
-import { isMutatingTask, schedulePass, workerModelPreset } from './scheduler.ts';
-import { evaluateAttempt, findReviewEvidenceProblems, runVerificationCheck, unexecutedCheck } from './verification.ts';
-import { startOrchestratorChild, toChildOutcome, type ChildOutcome } from './workers.ts';
+import { buildChildInstruction, buildOrchestratorPrompt, type PlanWorker } from './prompts.ts';
+import { findReviewProblems } from './review.ts';
+import { isMutatingTask, planDispatch, workerModelPreset } from './scheduler.ts';
+import { WorkerSubmission, type SubmissionHost } from './submission.ts';
+import { runVerificationCheck, unexecutedCheck } from './verification.ts';
+import { startOrchestratorChild, toChildOutcome } from './workers.ts';
 import {
   captureWorkspace,
-  changesNeedDriftReview,
   cleanupScratch,
+  diffstatWorkspace,
   diffWorkspace,
-  findScopeViolations,
   orchestratorArtifactDir,
   orchestratorScratchDir,
   removeOwnedTemporaryPath,
-  renderWorkspaceDiff,
+  type DiffstatEntry,
   type WorkspaceChanges,
   type WorkspaceSnapshot,
 } from './workspace.ts';
 
-/** Each parent phase gets this many tries for its infrastructure, and separately for usable answers. */
-const PARENT_PHASE_ATTEMPTS = 2;
+/** The parent's whole job is one conversation; planning alone can take dozens of turns. */
+const PARENT_MAX_TURNS = 600;
+/** How much of a command's output the orchestrator reads back. */
+const COMMAND_OUTPUT_TAIL_CHARS = 4_000;
 
-/** A parsed parent answer, or the problems that make it unusable so the caller can ask again with them. */
-type ParentReply<T> = { ok: true; answer: T } | { ok: false; problems: string[] };
-
-/** A task between its lease and its completion; a reader collects paths an overlapping writer changed. */
-type RunningTask = { task: OrchestratorTask; mutating: boolean; baseline: WorkspaceSnapshot; writerPaths: Set<string> };
-
-/** What the parent's evidence review covers: one task attempt, or the run's final verification. */
-type EvidenceReviewRequest =
-  | { kind: 'task'; running: RunningTask; child: ChildOutcome; checks: OrchestratorCheckResult[]; changedPaths: string[] }
-  | { kind: 'final'; checks: OrchestratorCheckResult[] };
+/** A child between its start and its settled result; a reader collects paths an overlapping writer changed. */
+type LiveChild = {
+  attempt: OrchestratorAttempt;
+  task: OrchestratorTask;
+  mutating: boolean;
+  baseline: WorkspaceSnapshot;
+  writerPaths: Set<string>;
+  repository: RepositoryLease;
+  submission: WorkerSubmission;
+  session: RepoAgentSession | null;
+};
 
 /** An answered approval the run continues with; an abort never returns. */
 type ContinuingDecision = Exclude<RepoAgentDecision, { decision: 'abort' }>;
 
+/** A child approval waiting on the orchestrator's decide; `announced` once a tool result showed it. */
+type Escalation = { child: LiveChild; approval: RepoAgentApproval; announced: boolean; resolve(decision: OrchestratorDecideArgs): void };
+
 type PendingUserDecision = { approvalId: string; resolve(decision: RepoAgentDecision): void };
 
-/** Captured once before the plan: the parent's frozen system context and the checkout's dirty paths. */
-type RunStart = { systemContext: PresetSystemContext; dirtyPaths: string[] };
+/** How the orchestrator's finish ended; null until a finish is accepted. */
+type FinishOutcome =
+  | { status: 'completed' }
+  | { status: 'blocked'; reason: string }
+  | { status: 'verification_failed'; findings: string[] };
 
 /** A stop with a precise, stored diagnosis. */
 class OrchestratorRunFailure extends Error {
@@ -121,34 +120,63 @@ class OrchestratorRunFailure extends Error {
   }
 }
 
-function fail(code: OrchestratorFailureCode, message: string, detail: Partial<Omit<OrchestratorFailure, 'code' | 'message'>> = {}): OrchestratorRunFailure {
-  return new OrchestratorRunFailure({ code, message, taskId: detail.taskId ?? null, purpose: detail.purpose ?? null,
-    findingIds: detail.findingIds ?? [] });
+function fail(code: OrchestratorFailureCode, message: string, taskId: string | null = null): OrchestratorRunFailure {
+  return new OrchestratorRunFailure({ code, message, taskId });
 }
 
-type AttemptOutcome = { result: OrchestratorAttemptResult; findings: string[] };
+/** Keeps the parent's lease alive and its live view current while its conversation streams. */
+class ParentProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  private readonly lease: ParentLease;
+  private readonly activity: OrchestratorLiveActivity;
+
+  constructor(lease: ParentLease, activity: OrchestratorLiveActivity) {
+    super();
+    this.lease = lease;
+    this.activity = activity;
+  }
+
+  get enabled(): boolean {
+    return true;
+  }
+
+  write(event: RepoSearchProgressEvent): void {
+    this.lease.renew();
+    this.activity.applyParent(event);
+  }
+
+  override recordActivity(): void {
+    this.lease.renew();
+  }
+}
 
 /**
- * One live orchestrator parent: prepares the plan, schedules bounded children under the repository
- * gate, verifies their work independently, gates code changes on drift review, and records every
- * transition. It holds a model lease only inside finite phases, never across a child's wait, and
- * runs on the configuration it was started with.
+ * One orchestrator run: a single parent conversation that plans, dispatches fresh children, reviews their
+ * reports, and finishes. Code owns every invariant: the plan's validity, one writer at a time, measured changes,
+ * check execution, attempt and resubmit limits, citations, and approvals. The parent releases its model
+ * whenever children or commands work, and the run keeps the configuration it started with.
  */
-export class OrchestratorRun implements OrchestratorLiveRun {
+export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHost, SubmissionGate, SubmissionHost {
   readonly runId: string;
   readonly settled: Promise<void>;
   private readonly abortController = new AbortController();
-  private readonly phases: OrchestratorPhaseRunner;
-  private readonly children = new Map<string, RepoAgentSession>();
   private readonly activity: OrchestratorLiveActivity;
+  private readonly live = new Map<string, LiveChild>();
+  private readonly escalations = new Map<string, Escalation>();
+  private readonly unreported: { result: OrchestratorAttemptResult; diffstat: DiffstatEntry[] }[] = [];
+  /** Reports handed to the parent and not yet reviewed, by task; the digest repeats them after a compaction. */
+  private readonly awaitingReview = new Map<string, string>();
+  private childFailure: Error | null = null;
+  /** Wakes the parent's wait for children; replaced by each wait. */
+  private wakeWaiter: (() => void) | null = null;
   private pendingUserDecision: PendingUserDecision | null = null;
-  /** Settles when the latest approval is answered; parallel tasks take turns so one approval is pending at a time. */
+  /** Settles when the latest user approval is answered; one approval is pending at a time. */
   private approvalTurn: Promise<void> = Promise.resolve();
-  private readonly runningTasks = new Set<RunningTask>();
+  private finishAttempts = 0;
+  private finishOutcome: FinishOutcome | null = null;
   private registered = false;
   private state: OrchestratorRunState;
   private readonly workers: PlanWorker[];
-  private runStart: RunStart | null = null;
+  private readonly lease: ParentLease;
 
   private readonly ctx: ServerContext;
   private readonly config: SiftConfig;
@@ -161,15 +189,15 @@ export class OrchestratorRun implements OrchestratorLiveRun {
       .map((preset) => ({ preset, model: workerModelPreset(config, preset) }));
     this.runId = state.runId;
     this.state = state;
-    this.phases = new OrchestratorPhaseRunner(ctx, config);
     this.activity = new OrchestratorLiveActivity(state.runId, ctx.orchestratorRuns);
+    this.lease = new ParentLease(ctx, { presetId: state.request.presetId, ownerRunId: state.runId, abortSignal: this.abortController.signal });
     // Work begins on the next tick, and only once the registry owns this run.
-    this.settled = Promise.resolve().then(() => (this.registered ? this.execute() : undefined));
+    this.settled = Promise.resolve().then(() => (this.registered ? this.run() : undefined));
     ctx.orchestratorRuns.register(this);
     this.registered = true;
   }
 
-  /** Creates (or returns the existing parent for) a submission; only a new parent starts work. Every run shows in a chat session. */
+  /** Creates (or returns the existing run for) a submission; only a new run starts work. Every run shows in a chat session. */
   static async start(ctx: ServerContext, request: OrchestratorStartRequest): Promise<OrchestratorRunState> {
     const config = readConfig(ctx.configPath);
     requireOrchestratorPreset(config, request.presetId);
@@ -192,7 +220,8 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   abort(reason: string): void {
     if (this.abortController.signal.aborted) return;
     this.abortController.abort(new Error(reason));
-    for (const child of this.children.values()) child.abort();
+    for (const child of this.live.values()) child.session?.abort();
+    this.wake();
   }
 
   decide(approvalId: string, decision: RepoAgentDecision): boolean {
@@ -215,33 +244,23 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     return this.state.request;
   }
 
-  private requireRunStart(): RunStart {
-    if (this.runStart === null) throw new Error('The run start must be captured before any parent phase.');
-    return this.runStart;
+  private get statusUrl(): string {
+    return `${this.ctx.getServiceBaseUrl()}/status`;
   }
 
-  /** The block every parent prompt starts with; every phase after plan preparation requires the saved plan. */
-  private runContext(label: OrchestratorPhaseLabel): RunContext {
-    const { plan, planPath, planHash } = this.state;
-    const saved = plan === null || planPath === null || planHash === null ? null : { path: planPath, hash: planHash, plan };
-    if (saved === null && label !== 'plan preparation') throw new Error(`The plan must be saved before the ${label} phase.`);
-    return { task: this.request.task, workers: this.workers, preexistingDirtyPaths: this.requireRunStart().dirtyPaths, plan: saved };
+  private wake(): void {
+    const waiter = this.wakeWaiter;
+    this.wakeWaiter = null;
+    waiter?.();
   }
 
   // ---- lifecycle ----
 
-  /** Runs the work, then stops every child; only then does a failed run clean its scratch files and settle. */
-  private async execute(): Promise<void> {
+  /** Runs the parent conversation, then stops every child; only then does a failed run clean its scratch files and settle. */
+  private async run(): Promise<void> {
     let failure: Error | null = null;
     try {
-      this.runStart = {
-        systemContext: new PresetSystemContextBuilder(this.request.repoRoot)
-          .build(PresetCatalog.fromPresets(this.config.Presets).requireById(this.request.presetId)),
-        dirtyPaths: [...(await captureWorkspace(this.request.repoRoot)).keys()],
-      };
-      const plan = await this.preparePlan();
-      await this.executeTasks(plan);
-      await this.verifyFinal(plan);
+      await this.converse();
       this.commit({ phase: 'cleaning' }, 'Cleaning run scratch files.');
       const cleanupProblem = this.cleanupRunScratch();
       if (cleanupProblem !== null) throw fail('cleanup_failed', cleanupProblem);
@@ -249,26 +268,65 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     } catch (error) {
       failure = toError(error);
     }
+    this.lease.release();
     this.pendingUserDecision = null;
-    for (const child of this.children.values()) child.abort();
-    await Promise.allSettled([...this.children.values()].map((child) => child.settled));
+    const sessions = [...this.live.values()].flatMap((child) => (child.session === null ? [] : [child.session]));
+    for (const session of sessions) session.abort();
+    await Promise.allSettled(sessions.map((session) => session.settled));
+    this.activity.close();
     if (failure === null) return;
     const cleanupProblem = this.cleanupRunScratch();
     this.settleFailure(failure, cleanupProblem === null ? null : `Scratch cleanup also failed: ${cleanupProblem}`);
   }
 
+  /** The one parent conversation; its accepted finish decides how the run ends. */
+  private async converse(): Promise<void> {
+    const preset = PresetCatalog.fromPresets(this.config.Presets).requireById(this.request.presetId);
+    const systemContext = new PresetSystemContextBuilder(this.request.repoRoot).build(preset);
+    const suppliedPlan = this.request.planPath === null ? null : readSuppliedPlan(this.request.repoRoot, this.request.planPath);
+    const prompt = buildOrchestratorPrompt({
+      task: this.request.task, suppliedPlan, workers: this.workers, approval: this.request.approval,
+      preexistingDirtyPaths: [...(await captureWorkspace(this.request.repoRoot)).keys()],
+    });
+    const parentRunId = randomUUID();
+    this.commit({ parentRunIds: [...this.state.parentRunIds, parentRunId] }, 'Orchestrator started.');
+    await this.lease.acquire();
+    const allowedTools = [...preset.allowedTools];
+    this.activity.startParent({ user: prompt, system: resolveRunSystemPrompt({
+      promptKind: 'orchestrator', allowedTools, promptPrefix: preset.promptPrefix, systemContext,
+      webSearch: this.lease.config.WebSearch, webToolsEnabled: undefined, webChatTools: false, orchestratorTools: true,
+      visionEnabled: getActiveModelPreset(this.lease.config).VisionEnabled === true,
+    }).systemPrompt });
+    const result = await this.ctx.engineService.executeRepoSearch({
+      presetId: this.request.presetId, taskKind: 'orchestrator', prompt, requestId: parentRunId, repoRoot: this.request.repoRoot,
+      systemContext, statusBackendUrl: this.statusUrl, config: this.lease.config, allowedTools,
+      maxTurns: PARENT_MAX_TURNS, abortSignal: this.signal, progressWriter: new ParentProgressWriter(this.lease, this.activity),
+      orchestratorTools: this, submissionGate: this,
+    }).catch((error) => {
+      this.signal.throwIfAborted();
+      if (this.childFailure !== null) throw this.childFailure;
+      throw error instanceof OrchestratorRunFailure ? error : new OrchestratorInfrastructureError(toError(error).message);
+    });
+    this.lease.release();
+    const task = result.scorecard.tasks[0];
+    const finish = this.finishOutcome;
+    if (!task || !taskPassed(task) || finish === null) {
+      throw fail('orchestrator_incomplete', `The orchestrator stopped without finishing (${task?.reason ?? 'no task'}).`);
+    }
+    if (finish.status === 'blocked') throw fail('blocked', `The orchestrator stopped: ${finish.reason}`);
+    if (finish.status === 'verification_failed') {
+      throw fail('final_verification_failed', `Final verification failed ${ORCHESTRATOR_MAX_FINISH_ATTEMPTS} times: ${finish.findings.join(' ')}`);
+    }
+  }
+
   private settleFailure(error: Error, cleanupProblem: string | null): void {
     const current = this.ctx.orchestratorRunStore.read(this.runId);
-    if (isOrchestratorTerminalPhase(current.phase)) {
-      this.state = current;
-      return;
-    }
     this.state = current;
+    if (isOrchestratorTerminalPhase(current.phase)) return;
     const withCleanup = (message: string): string => [message, cleanupProblem].filter((part) => part !== null).join(' ');
     if (this.signal.aborted) {
       const message = withCleanup(toError(this.signal.reason).message);
-      this.commit({ phase: 'aborted', approval: null,
-        failure: { code: 'aborted', message, taskId: null, purpose: null, findingIds: [] } }, message);
+      this.commit({ phase: 'aborted', approval: null, failure: { code: 'aborted', message, taskId: null } }, message);
       return;
     }
     const stored = error instanceof OrchestratorRunFailure
@@ -294,97 +352,106 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   }
 
   private setTaskStatus(taskId: string, status: OrchestratorTaskStatus): void {
-    this.setTask(taskId, { status }, `Task ${taskId}: ${status.replace(/_/gu, ' ')}.`);
-  }
-
-  /**
-   * One parent answer, each try committed as a phase. An infrastructure failure is retried once and then ends
-   * the run; an unusable answer comes back as its problems, which `rejected` carries into the next ask.
-   */
-  private async askParent<T>(label: OrchestratorPhaseLabel, phasePrompt: string, schema: z.ZodType<T>,
-    rejected: readonly string[]): Promise<ParentReply<T>> {
-    const prompt = buildParentPrompt(this.runContext(label), phasePrompt, buildPlannerJsonSchema(schema));
-    let retryReason = rejected.length === 0 ? null : rejected.join(' ');
-    for (let attempt = 1; ; attempt += 1) {
-      const phaseRunId = randomUUID();
-      this.commit({ phaseRunIds: [...this.state.phaseRunIds, phaseRunId] },
-        retryReason === null ? `Parent phase started: ${label}.` : `Parent phase started: ${label}; retrying after: ${retryReason}`);
-      let output: string;
-      try {
-        output = await this.phases.infer({ runId: this.runId, phaseRunId, presetId: this.request.presetId,
-          repoRoot: this.request.repoRoot, systemContext: this.requireRunStart().systemContext, abortSignal: this.signal }, prompt, label, schema);
-      } catch (error) {
-        this.signal.throwIfAborted();
-        if (!(error instanceof OrchestratorInfrastructureError)) return { ok: false, problems: [toError(error).message] };
-        if (attempt >= PARENT_PHASE_ATTEMPTS) {
-          throw new OrchestratorInfrastructureError(`Orchestrator ${label} phase failed ${attempt} times: ${error.message}`);
-        }
-        retryReason = `infrastructure failure: ${error.message}`;
-        continue;
-      }
-      try {
-        return { ok: true, answer: ModelJson.parseObject(output, schema, ORCHESTRATOR_PHASE_ANSWER_NAMES[label]) };
-      } catch (error) {
-        return { ok: false, problems: [toError(error).message] };
-      }
-    }
+    this.setTask(taskId, { status }, `Task ${taskId}: ${status}.`);
   }
 
   private acquireRepository(access: RepositoryAccess): Promise<RepositoryLease> {
     return this.ctx.orchestratorRuns.repositoryGate.acquire(this.request.repoRoot, access, this.runId, this.signal);
   }
 
-  // ---- plan ----
-
-  private async preparePlan(): Promise<OrchestratorPlan> {
-    const supplied = this.request.planPath === null ? null : readSuppliedPlan(this.request.repoRoot, this.request.planPath);
-    let rejected: string[] = [];
-    for (let attempt = 1; attempt <= PARENT_PHASE_ATTEMPTS; attempt += 1) {
-      const lease = await this.acquireRepository('shared');
-      let reply: ParentReply<OrchestratorPlanPreparation>;
-      try {
-        reply = await this.askParent('plan preparation', buildPlanPreparationPrompt({
-          planPath: supplied?.path ?? null, planMarkdown: supplied?.markdown ?? null, rejectedProblems: rejected,
-        }), OrchestratorPlanPreparationSchema, rejected);
-      } finally {
-        lease.release();
-      }
-      if (!reply.ok) {
-        rejected = reply.problems;
-        continue;
-      }
-      const preparation = reply.answer;
-      if (preparation.status === 'blocked') throw fail('plan_blocked', `The plan could not be prepared: ${preparation.reason}`);
-      this.commit({ phase: 'validating_plan' }, 'Validating the plan.');
-      let plan: OrchestratorPlan;
-      try {
-        plan = validateOrchestratorPlan(preparation.plan, this.config, this.request.repoRoot);
-      } catch (error) {
-        rejected = [toError(error).message];
-        this.commit({ phase: 'preparing_plan' }, `Plan rejected: ${rejected[0] ?? ''}`);
-        continue;
-      }
-      const unrunnable = await findUnrunnableChecks(this.request.repoRoot,
-        [...plan.tasks.flatMap((task) => task.verification), ...plan.finalVerification], this.signal);
-      if (unrunnable.length > 0) {
-        rejected = unrunnable;
-        this.commit({ phase: 'preparing_plan' }, `Plan rejected: ${unrunnable[0] ?? ''}`);
-        continue;
-      }
-      const saved = preparation.status === 'ready' && supplied !== null
-        ? { path: supplied.path, markdown: supplied.markdown }
-        : await this.writeGeneratedPlan(plan);
-      this.publish(this.ctx.orchestratorRunStore.savePlan(this.runId, this.state.revision, plan, saved.path, hashText(saved.markdown)));
-      this.commit({ phase: 'executing' }, 'Executing the plan.');
-      return plan;
-    }
-    throw fail('plan_invalid', `No valid plan after ${PARENT_PHASE_ATTEMPTS} attempts: ${rejected.join(' ')}`);
+  /** Releases the parent's model while `work` runs, then takes it back; the conversation never notices. */
+  private async withModelReleased<T>(work: () => Promise<T>): Promise<T> {
+    this.lease.release();
+    this.activity.setParentParked(true);
+    const result = await work();
+    this.signal.throwIfAborted();
+    await this.lease.acquire();
+    this.activity.setParentParked(false);
+    return result;
   }
 
-  /** The host, not the model, writes the Markdown plan, under exclusive repository ownership. */
-  private async writeGeneratedPlan(plan: OrchestratorPlan): Promise<{ path: string; markdown: string }> {
+  /** One line per task: where it stands and what it has used, so the parent never re-derives it. */
+  private renderLedger(): string {
+    if (this.state.plan === null) return 'No plan saved yet.';
+    return ['Task ledger:', ...this.state.tasks.map((task) => {
+      const used = (purpose: OrchestratorAttempt['purpose']): number =>
+        this.state.attempts.filter((attempt) => attempt.taskId === task.taskId && attempt.purpose === purpose).length;
+      const review = task.review === null ? '' : `, last review ${task.review.verdict}`;
+      return `- ${task.taskId}: ${task.status} (implementation ${used('implementation')}/${ORCHESTRATOR_MAX_ATTEMPTS}, `
+        + `fix ${used('fix')}/${ORCHESTRATOR_MAX_ATTEMPTS}${review})`;
+    })].join('\n');
+  }
+
+  // ---- the parent's tools ----
+
+  execute(call: OrchestratorToolCall): Promise<OrchestratorToolOutcome> {
+    this.signal.throwIfAborted();
+    switch (call.toolName) {
+      case 'save_plan':
+        return this.savePlan(call.args);
+      case 'update_tasks':
+        return this.updateTasks(call.args);
+      case 'dispatch':
+        return this.dispatch(call.args);
+      case 'decide':
+        return this.answerEscalation(call.args);
+      case 'run_check':
+        return this.runCheck(call.args);
+      case 'record_review':
+        return Promise.resolve(this.recordReview(call.args));
+    }
+  }
+
+  contextDigest(): string {
+    return renderRunDigest({
+      plan: this.state.plan, planPath: this.state.planPath, tasks: this.state.tasks, ledger: this.renderLedger(),
+      pendingReports: [...this.awaitingReview.values()],
+      pendingApprovals: [...this.escalations.entries()].filter(([, entry]) => entry.announced)
+        .map(([approvalId, entry]) => renderEscalation(approvalId, entry)),
+      finishAttempts: this.finishAttempts,
+    });
+  }
+
+  private refuse(problems: readonly string[]): OrchestratorToolOutcome {
+    return { ok: false, output: ['Not done:', ...problems.map((problem) => `- ${problem}`)].join('\n') };
+  }
+
+  private savePlan(args: OrchestratorSavePlanArgs): Promise<OrchestratorToolOutcome> {
+    if (this.state.plan !== null) return Promise.resolve(this.refuse(['A plan is already saved; change it with update_tasks.']));
+    return this.storePlan(args.plan, 'saved');
+  }
+
+  private updateTasks(args: OrchestratorUpdateTasksArgs): Promise<OrchestratorToolOutcome> {
+    const { plan } = this.state;
+    if (plan === null) return Promise.resolve(this.refuse(['Save a plan first with save_plan.']));
+    const unknown = [...args.update.map((entry) => entry.taskId), ...args.remove].filter((id) => !plan.tasks.some((task) => task.id === id));
+    if (unknown.length > 0) return Promise.resolve(this.refuse(unknown.map((id) => `Task '${id}' is not in the saved plan.`)));
+    const tasks = [...plan.tasks.filter((task) => !args.remove.includes(task.id)).map((task) => ({
+      ...task, ...args.update.find((entry) => entry.taskId === task.id)?.set,
+    })), ...args.add];
+    return this.storePlan({ ...plan, tasks, finalVerification: args.finalVerification ?? plan.finalVerification }, 'updated');
+  }
+
+  /** Validates a whole candidate plan, stores it, and rewrites its Markdown; shared by the first save and every update. */
+  private async storePlan(candidate: OrchestratorPlan, change: 'saved' | 'updated'): Promise<OrchestratorToolOutcome> {
+    if (this.live.size > 0) return this.refuse(['Children are still running; change the plan once they report.']);
+    let plan: OrchestratorPlan;
+    try {
+      plan = validateOrchestratorPlan(candidate, this.config, this.request.repoRoot);
+    } catch (error) {
+      return this.refuse([toError(error).message]);
+    }
+    const unrunnable = await findUnrunnableChecks(this.request.repoRoot,
+      [...plan.tasks.flatMap((task) => task.verification), ...plan.finalVerification], this.signal);
+    if (unrunnable.length > 0) return this.refuse(unrunnable);
     const path = `${orchestratorArtifactDir(this.runId)}/plan.md`;
     const markdown = renderOrchestratorPlan(plan);
+    try {
+      this.publish(this.ctx.orchestratorRunStore.savePlan(this.runId, this.state.revision, plan, path, hashText(markdown)));
+    } catch (error) {
+      return this.refuse([toError(error).message]);
+    }
+    // The host, not the model, writes the Markdown plan, under exclusive repository ownership.
     const lease = await this.acquireRepository('exclusive');
     try {
       const absolute = join(this.request.repoRoot, path);
@@ -393,101 +460,348 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     } finally {
       lease.release();
     }
-    return { path, markdown };
+    if (this.state.phase === 'preparing_plan') this.commit({ phase: 'executing' }, 'Executing the plan.');
+    const saved = change === 'saved' ? `Plan saved to ${path} with` : `Plan updated: ${path} now has`;
+    return { ok: true, output: [`${saved} ${plan.tasks.length} task(s).`, this.renderLedger()].join('\n') };
   }
 
-  // ---- scheduling ----
-
-  private async executeTasks(plan: OrchestratorPlan): Promise<void> {
-    const { planPath, planHash } = this.state;
-    if (planPath === null || planHash === null) throw new Error('Tasks cannot start before the plan is saved.');
-    const running = new Map<string, { task: OrchestratorTask; done: Promise<string> }>();
-    for (;;) {
-      this.signal.throwIfAborted();
-      const pass = schedulePass({ config: this.config, plan, taskStates: this.state.tasks,
-        active: [...running.values()].map((entry) => entry.task) });
-      for (const task of pass.start) {
-        this.setTaskStatus(task.id, 'running');
-        running.set(task.id, { task, done: this.runTask(task, planPath, planHash).then(() => task.id) });
-      }
-      this.activity.setSchedule(pass.schedule);
-      if (running.size === 0) {
-        const unfinished = this.state.tasks.filter((task) => task.status !== 'completed').map((task) => task.taskId);
-        if (unfinished.length === 0) return;
-        throw fail('blocked', `Tasks cannot start: ${unfinished.join(', ')}.`);
-      }
-      try {
-        running.delete(await Promise.race([...running.values()].map((entry) => entry.done)));
-      } catch (error) {
-        // Stop scheduling, stop owned children, and let them settle before reporting the failure.
-        for (const child of this.children.values()) child.abort();
-        await Promise.allSettled([...running.values()].map((entry) => entry.done));
-        throw error;
-      }
+  private async dispatch(args: OrchestratorDispatchArgs): Promise<OrchestratorToolOutcome> {
+    const { plan, planPath, planHash } = this.state;
+    if (plan === null || planPath === null || planHash === null) return this.refuse(['Save a plan first.']);
+    if (this.escalations.size > 0) return this.refuse(['A child approval is waiting; answer it with decide.']);
+    if (this.live.size > 0) return this.refuse(['Children are still running.']);
+    const requested = args.children.flatMap((child) => {
+      const task = plan.tasks.find((entry) => entry.id === child.taskId);
+      return task === undefined ? [] : [{ ...child, task }];
+    });
+    if (requested.length < args.children.length) {
+      return this.refuse(args.children.filter((child) => !requested.some((entry) => entry.taskId === child.taskId))
+        .map((child) => `Task '${child.taskId}' is not in the saved plan.`));
     }
+    const { problems, schedule } = planDispatch({ config: this.config, plan, taskStates: this.state.tasks,
+      attempts: this.state.attempts, requested });
+    if (problems.length > 0) return this.refuse(problems);
+    this.activity.setSchedule(schedule);
+    for (const child of requested) {
+      await this.startChild(child.task, { kind: child.purpose, planPath, planHash, task: child.task, instruction: child.instruction });
+    }
+    return this.waitForChildren();
   }
 
-  private async runTask(task: OrchestratorTask, planPath: string, planHash: string): Promise<void> {
+  private async startChild(task: OrchestratorTask, work: OrchestratorAttempt['work']): Promise<void> {
     const mutating = isMutatingTask(this.config, task);
-    const lease = await this.acquireRepository(mutating ? 'exclusive' : 'shared');
+    const repository = await this.acquireRepository(mutating ? 'exclusive' : 'shared');
+    const attempt = this.ctx.orchestratorRunStore.reserveAttempt(this.runId, this.state.revision, task.id, work);
+    this.publish(this.ctx.orchestratorRunStore.read(this.runId));
+    this.setTaskStatus(task.id, 'running');
+    const baseline = await captureWorkspace(this.request.repoRoot);
+    const kind: HandoffKind = mutating ? 'agent' : 'search';
+    const child: LiveChild = { attempt, task, mutating, baseline, writerPaths: new Set(), repository, session: null,
+      submission: new WorkerSubmission(this, { task, kind, repoRoot: this.request.repoRoot }) };
+    this.live.set(attempt.childRunId, child);
+    const instruction = buildChildInstruction({ work, attempt: attempt.attempt, kind, scratchPath: orchestratorScratchDir(this.runId),
+      preexistingDirtyPaths: [...baseline.keys()] });
+    const session = startOrchestratorChild(this.ctx, this.config, {
+      runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
+      workerPresetId: task.workerPresetId, repoRoot: this.request.repoRoot, work, instruction,
+    }, child.submission);
+    child.session = session;
+    this.activity.track(session, { childRunId: attempt.childRunId, taskId: task.id });
+    this.publish(this.ctx.orchestratorRunStore.markAttemptRunning(this.runId, this.state.revision, attempt.childRunId));
+    this.superviseChild(child, session).catch((error) => {
+      this.childFailure ??= toError(error);
+      this.wake();
+    });
+  }
+
+  /** Follows one child to its end, answering its escalated approvals, then records its result. */
+  private async superviseChild(child: LiveChild, session: RepoAgentSession): Promise<void> {
     try {
-      const running: RunningTask = { task, mutating, baseline: await captureWorkspace(this.request.repoRoot), writerPaths: new Set() };
-      this.runningTasks.add(running);
-      try {
-        await this.implementTask(running, planPath, planHash);
-      } finally {
-        this.runningTasks.delete(running);
+      let seen = 0;
+      for (;;) {
+        const boundary = await session.waitForBoundary(seen, this.signal);
+        seen = session.currentRevision();
+        if (boundary.status !== 'approval_required') {
+          const outcome = toChildOutcome(boundary);
+          await this.settleChild(child, outcome.workerStatus, outcome.output, await this.measureChanges(child.task));
+          return;
+        }
+        const decision = await this.resolveChildApproval(child, boundary.approval);
+        session.submitDecision({ runId: child.attempt.childRunId, ...decision });
+        seen = session.currentRevision();
       }
+    } catch (error) {
+      session.abort();
+      await session.settled;
+      throw error;
     } finally {
-      lease.release();
+      child.repository.release();
+      this.live.delete(child.attempt.childRunId);
+      this.activity.untrack(child.attempt.childRunId);
+      this.wake();
     }
   }
 
-  /** Implementation attempts until one passes, then the drift gate and cleanup. */
-  private async implementTask(running: RunningTask, planPath: string, planHash: string): Promise<void> {
-    const { task, baseline } = running;
-    let retry: ImplementationRetryEvidence | null = null;
-    let passing: AttemptOutcome | null = null;
-    while (passing === null) {
-      const attempt = this.reserve(task.id, { kind: 'implementation', planPath, planHash, task });
-      const instruction = buildImplementationInstruction({ task, planPath, planHash, attempt: attempt.attempt,
-        scratchPath: orchestratorScratchDir(this.runId), preexistingDirtyPaths: [...baseline.keys()], retry });
-      const outcome = await this.runAttempt(running, task, task.writePaths, attempt, instruction);
-      if (outcome.result.passed) {
-        passing = outcome;
-      } else if (attempt.attempt >= ORCHESTRATOR_MAX_ATTEMPTS) {
-        this.setTaskStatus(task.id, 'failed');
-        throw fail('implementation_failed',
-          `Task '${task.id}' failed all ${ORCHESTRATOR_MAX_ATTEMPTS} implementation attempts: ${outcome.findings.join(' ')}`,
-          { taskId: task.id, purpose: 'implementation' });
-      } else {
-        this.setTaskStatus(task.id, 'retry_pending');
-        retry = { failure: outcome.findings.join('\n'), checks: outcome.result.checks, changedPaths: outcome.result.changedPaths,
-          diff: await this.renderDiff(baseline, outcome.result.changedPaths) };
+  private async settleChild(child: LiveChild, workerStatus: OrchestratorAttemptResult['workerStatus'], workerOutput: string,
+    measured: WorkspaceChanges): Promise<void> {
+    const record = child.submission.record();
+    const changes = record?.changes ?? measured;
+    const outcome = record?.outcome ?? 'not_submitted';
+    const result: OrchestratorAttemptResult = {
+      taskId: child.task.id, purpose: child.attempt.purpose, attempt: child.attempt.attempt, childRunId: child.attempt.childRunId,
+      workerStatus, workerOutput, report: record?.report ?? null, outcome, submissions: record?.submissions ?? 0,
+      passed: workerStatus === 'completed' && outcome === 'passed', checks: record?.checks ?? [],
+      findings: [
+        ...(workerStatus === 'completed' ? [] : [`The worker ended ${workerStatus}.`]),
+        ...(record === null ? ['The child never submitted a report.'] : record.findings),
+      ],
+      changedPaths: changes.paths,
+      changeDigest: changes.digest,
+    };
+    this.publish(this.ctx.orchestratorRunStore.recordAttemptResult(this.runId, this.state.revision, result));
+    this.setTaskStatus(child.task.id, 'reviewing');
+    const diffstat = await diffstatWorkspace({ repoRoot: this.request.repoRoot, baseline: child.baseline, paths: changes.paths,
+      scratchDir: orchestratorScratchDir(this.runId) });
+    this.unreported.push({ result, diffstat });
+  }
+
+  private hasUnannouncedEscalation(): boolean {
+    return [...this.escalations.values()].some((entry) => !entry.announced);
+  }
+
+  /** Releases the parent's model until every child has settled or one needs the parent's decision. */
+  private async waitForChildren(): Promise<OrchestratorToolOutcome> {
+    await this.withModelReleased(async () => {
+      while (this.live.size > 0 && this.childFailure === null && !this.hasUnannouncedEscalation()) {
+        await new Promise<void>((resolve) => {
+          this.wakeWaiter = resolve;
+        });
+        this.signal.throwIfAborted();
       }
-    }
-    await this.driftGate(running, passing.result.checks);
-    this.cleanupTaskTemporaries(task);
-    this.setTaskStatus(task.id, 'completed');
+    });
+    if (this.childFailure !== null) throw this.childFailure;
+    const announcements = [...this.escalations.entries()].filter(([, entry]) => !entry.announced).map(([approvalId, entry]) => {
+      entry.announced = true;
+      return renderEscalation(approvalId, entry);
+    });
+    const reports = this.unreported.splice(0).map((entry) => {
+      const report = renderAttemptForParent(entry.result, entry.diffstat);
+      this.awaitingReview.set(entry.result.taskId, report);
+      return report;
+    });
+    const running = [...this.live.values()].map((child) => `${child.task.id} (${child.attempt.purpose} attempt ${child.attempt.attempt})`);
+    return { ok: true, output: [
+      ...announcements, ...reports,
+      ...(running.length === 0 ? [] : [`Still running: ${running.join(', ')}.`]),
+      this.renderLedger(),
+    ].join('\n\n') };
   }
 
   /**
-   * The task's changes since its baseline. A writer's changes are passed to every reader running beside it,
-   * and a reader is charged with neither those nor the live writer's; a reader that started later is charged in full.
+   * A child's escalated approval: approved outright when approval is off, answered by the person when it is
+   * interactive, and otherwise put to the parent, which may hand it on to the person.
    */
-  private async taskChanges(running: RunningTask): Promise<WorkspaceChanges> {
+  private async resolveChildApproval(child: LiveChild, approval: RepoAgentApproval): Promise<ContinuingDecision> {
+    if (this.request.approval === 'off') return { decision: 'approve' };
+    const pending: OrchestratorPendingApproval = { kind: 'child', childRunId: child.attempt.childRunId, taskId: child.task.id, ...approval };
+    if (this.request.approval === 'interactive') return this.askUser(pending);
+    const answer = await new Promise<OrchestratorDecideArgs>((resolve) => {
+      this.escalations.set(approval.approvalId, { child, approval, announced: false, resolve });
+      this.wake();
+    });
+    switch (answer.decision) {
+      case 'approve':
+        return { decision: 'approve' };
+      case 'deny':
+        return { decision: 'deny', reason: `orchestrator: ${answer.reason}` };
+      case 'escalate':
+        return this.askUser(pending);
+    }
+  }
+
+  private async answerEscalation(args: OrchestratorDecideArgs): Promise<OrchestratorToolOutcome> {
+    const escalation = this.escalations.get(args.approvalId);
+    if (escalation === undefined || !escalation.announced) return this.refuse([`No approval ${args.approvalId} is waiting for you.`]);
+    this.escalations.delete(args.approvalId);
+    this.commit({}, `Orchestrator ${args.decision}: ${escalation.approval.toolName} ${escalation.approval.command}`,
+      { taskId: escalation.child.task.id });
+    escalation.resolve(args);
+    return this.waitForChildren();
+  }
+
+  /** Asks the person; approvals take turns, so exactly one is pending at a time. */
+  private askUser(pending: OrchestratorPendingApproval): Promise<ContinuingDecision> {
+    const decision = this.approvalTurn.then(() => this.waitForUserDecision(pending));
+    this.approvalTurn = decision.then(() => undefined, () => undefined);
+    return decision;
+  }
+
+  private async waitForUserDecision(pending: OrchestratorPendingApproval): Promise<ContinuingDecision> {
+    this.signal.throwIfAborted();
+    const resumePhase = this.state.phase;
+    const action = pending.kind === 'child' ? `${pending.toolName} ${pending.command}` : `run ${pending.command}`;
+    this.commit({ approval: pending, phase: 'approval_required' }, `Approval requested: ${action}`,
+      pending.taskId === null ? {} : { taskId: pending.taskId });
+    const decision = await new Promise<RepoAgentDecision>((resolve, reject) => {
+      const onAbort = (): void => {
+        this.pendingUserDecision = null;
+        reject(toError(this.signal.reason));
+      };
+      if (this.signal.aborted) {
+        onAbort();
+        return;
+      }
+      this.signal.addEventListener('abort', onAbort, { once: true });
+      this.pendingUserDecision = { approvalId: pending.approvalId, resolve: (answer) => {
+        this.signal.removeEventListener('abort', onAbort);
+        resolve(answer);
+      } };
+    });
+    this.commit({ approval: null, phase: resumePhase },
+      decision.decision === 'deny' ? `Approval resolved: deny (${decision.reason}).` : `Approval resolved: ${decision.decision}.`);
+    if (decision.decision === 'abort') {
+      this.abort('Aborted by user.');
+      throw toError(this.signal.reason);
+    }
+    return decision;
+  }
+
+  /** Runs command checks in order; in an interactive run the person approves each one before it runs. */
+  private async runChecks(checks: readonly OrchestratorVerificationCheck[], taskId: string | null): Promise<OrchestratorCheckResult[]> {
+    const results: OrchestratorCheckResult[] = [];
+    for (const check of checks) {
+      if (check.kind === 'evidence') {
+        results.push(unexecutedCheck(check, ''));
+        continue;
+      }
+      const decision: ContinuingDecision = this.request.approval === 'interactive'
+        ? await this.askUser({ kind: 'check', approvalId: randomUUID(), taskId, command: check.command, cwd: check.cwd })
+        : { decision: 'approve' };
+      results.push(decision.decision === 'deny'
+        ? unexecutedCheck(check, `Not run: ${decision.reason}`)
+        : await runVerificationCheck({ repoRoot: this.request.repoRoot, check, abortSignal: this.signal }));
+    }
+    return results;
+  }
+
+  /** Runs `checks` under exclusive repository ownership with the parent's model released. */
+  private runOwnedChecks(checks: readonly OrchestratorVerificationCheck[]): Promise<OrchestratorCheckResult[]> {
+    return this.withModelReleased(async () => {
+      const lease = await this.acquireRepository('exclusive');
+      try {
+        return await this.runChecks(checks, null);
+      } finally {
+        lease.release();
+      }
+    });
+  }
+
+  private async runCheck(args: OrchestratorRunCheckArgs): Promise<OrchestratorToolOutcome> {
+    if (this.live.size > 0) return this.refuse(['Children are still running; run checks once they report.']);
+    const check: OrchestratorVerificationCheck = { kind: 'command', command: args.command, cwd: args.cwd, expectedExitCode: 0 };
+    const unrunnable = await findUnrunnableChecks(this.request.repoRoot, [check], this.signal);
+    if (unrunnable.length > 0) return this.refuse(unrunnable);
+    const [result] = await this.runOwnedChecks([check]);
+    if (result === undefined) throw new Error('A check run returned no result.');
+    const status = !result.executed ? 'not run' : result.timedOut ? 'timed out' : `exit ${result.exitCode ?? 'unknown'}`;
+    return { ok: orchestratorCheckFailure(result) === null, output: `${status}\n${result.output.slice(-COMMAND_OUTPUT_TAIL_CHARS)}` };
+  }
+
+  private recordReview(args: OrchestratorRecordReviewArgs): OrchestratorToolOutcome {
+    const task = this.state.plan?.tasks.find((entry) => entry.id === args.taskId);
+    const taskState = this.state.tasks.find((entry) => entry.taskId === args.taskId);
+    if (task === undefined || taskState === undefined) return this.refuse([`Task '${args.taskId}' is not in the saved plan.`]);
+    if (taskState.status !== 'reviewing') return this.refuse([`Task '${args.taskId}' is ${taskState.status}; only a reported task is reviewed.`]);
+    const attempt = this.state.attempts.filter((entry) => entry.taskId === args.taskId && entry.result !== null).at(-1);
+    const result = attempt?.result ?? null;
+    if (attempt === undefined || result === null) return this.refuse([`Task '${args.taskId}' has no settled attempt.`]);
+    const problems = findReviewProblems({ repoRoot: this.request.repoRoot, task, result, review: args });
+    if (problems.length > 0) return this.refuse(problems);
+    const exhausted = OrchestratorChildPurposeSchema.options.every((purpose) =>
+      this.state.attempts.filter((entry) => entry.taskId === args.taskId && entry.purpose === purpose).length >= ORCHESTRATOR_MAX_ATTEMPTS);
+    const status: OrchestratorTaskStatus = args.verdict === 'pass' ? 'completed' : exhausted ? 'failed' : 'reviewing';
+    const review = { attempt: attempt.attempt, purpose: attempt.purpose, verdict: args.verdict, criteria: args.criteria, findings: args.findings };
+    this.setTask(args.taskId, { status, review }, `Task ${args.taskId}: review ${args.verdict}.`);
+    this.awaitingReview.delete(args.taskId);
+    if (status === 'completed') this.cleanupTaskTemporaries(task);
+    return { ok: true, output: [`Recorded ${args.verdict} for ${args.taskId}; it is now ${status}.`, this.renderLedger()].join('\n') };
+  }
+
+  // ---- worker submissions ----
+
+  /** Runs the child's task checks with its model released, so a check may itself call this server's models. */
+  async runTaskChecks(task: OrchestratorTask): Promise<OrchestratorCheckResult[]> {
+    const session = [...this.live.values()].find((entry) => entry.task.id === task.id)?.session;
+    if (session === undefined || session === null) throw new Error(`Task '${task.id}' has no running child session.`);
+    session.park();
+    try {
+      return await this.runChecks(task.verification, task.id);
+    } finally {
+      await session.resume();
+    }
+  }
+
+  /**
+   * The changes charged to the task's child since its baseline. A writer's changes are passed to every reader
+   * running beside it, and a reader is charged with neither those nor the live writer's.
+   */
+  async measureChanges(task: OrchestratorTask): Promise<WorkspaceChanges> {
+    const child = [...this.live.values()].find((entry) => entry.task.id === task.id);
+    if (child === undefined) throw new Error(`Task '${task.id}' has no running child.`);
     const { repoRoot } = this.request;
-    if (running.mutating) {
-      const changes = await diffWorkspace(repoRoot, running.baseline);
-      for (const reader of this.runningTasks) {
+    if (child.mutating) {
+      const changes = await diffWorkspace(repoRoot, child.baseline);
+      for (const reader of this.live.values()) {
         if (!reader.mutating) for (const path of changes.paths) reader.writerPaths.add(path);
       }
       return changes;
     }
-    const writer = [...this.runningTasks].find((other) => other.mutating);
+    const writer = [...this.live.values()].find((other) => other.mutating);
     const livePaths = writer === undefined ? [] : (await diffWorkspace(repoRoot, writer.baseline)).paths;
-    return diffWorkspace(repoRoot, running.baseline, new Set([...running.writerPaths, ...livePaths]));
+    return diffWorkspace(repoRoot, child.baseline, new Set([...child.writerPaths, ...livePaths]));
   }
+
+  // ---- the parent's finish ----
+
+  /** The parent's finish: code checks the plan is complete, then runs the final verification and hands back failures. */
+  async review(answer: string): Promise<SubmissionVerdict> {
+    let finish: OrchestratorFinish;
+    try {
+      finish = ModelJson.parseObject(answer, OrchestratorFinishSchema, 'orchestrator finish');
+    } catch (error) {
+      return { kind: 'reject', message: `Your finish could not be used: ${toError(error).message}` };
+    }
+    if (finish.status === 'blocked') {
+      this.finishOutcome = { status: 'blocked', reason: finish.reason };
+      return { kind: 'accept', output: answer };
+    }
+    if (this.live.size > 0) return { kind: 'reject', message: 'Children are still running; wait for their reports before finishing.' };
+    const { plan } = this.state;
+    if (plan === null) return { kind: 'reject', message: 'No plan is saved; there is nothing to finish.' };
+    const open = this.state.tasks.filter((task) => task.status !== 'completed').map((task) => `${task.taskId} (${task.status})`);
+    if (open.length > 0) return { kind: 'reject', message: `Not every task is complete: ${open.join(', ')}.` };
+    this.commit({ phase: 'verifying' }, 'Running final verification.');
+    const checks = await this.runOwnedChecks(plan.finalVerification);
+    this.commit({ phase: 'executing' }, 'Final verification finished.');
+    const failing = checks.filter((check) => orchestratorCheckFailure(check) !== null);
+    if (failing.length === 0) {
+      this.finishOutcome = { status: 'completed' };
+      return { kind: 'accept', output: answer };
+    }
+    this.finishAttempts += 1;
+    const findings = failing.map((check) => orchestratorCheckFailure(check) ?? '');
+    if (this.finishAttempts >= ORCHESTRATOR_MAX_FINISH_ATTEMPTS) {
+      this.finishOutcome = { status: 'verification_failed', findings };
+      return { kind: 'accept', output: answer };
+    }
+    return { kind: 'reject', message: [
+      `Final verification failed (finish ${this.finishAttempts} of ${ORCHESTRATOR_MAX_FINISH_ATTEMPTS}):`,
+      ...failing.map((check) => `${orchestratorCheckFailure(check) ?? ''}\n${check.output.slice(-COMMAND_OUTPUT_TAIL_CHARS)}`),
+      'Dispatch fixes for the tasks responsible, then finish again.',
+    ].join('\n') };
+  }
+
+  // ---- scratch ----
 
   private cleanupTaskTemporaries(task: OrchestratorTask): void {
     try {
@@ -495,7 +809,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
         removeOwnedTemporaryPath(this.request.repoRoot, orchestratorScratchDir(this.runId), temporary);
       }
     } catch (error) {
-      throw fail('cleanup_failed', toError(error).message, { taskId: task.id });
+      throw fail('cleanup_failed', toError(error).message, task.id);
     }
   }
 
@@ -508,296 +822,16 @@ export class OrchestratorRun implements OrchestratorLiveRun {
       return toError(error).message;
     }
   }
-
-  private reserve(taskId: string, work: OrchestratorChildWork): OrchestratorAttempt {
-    const attempt = this.ctx.orchestratorRunStore.reserveAttempt(this.runId, this.state.revision, taskId, work);
-    this.publish(this.ctx.orchestratorRunStore.read(this.runId));
-    return attempt;
-  }
-
-  // ---- one child attempt: dispatch, supervise, verify ----
-
-  /** One child attempt for `running`; `task` is its work for this attempt (a drift fix carries its own checks). */
-  private async runAttempt(
-    running: RunningTask,
-    task: OrchestratorTask,
-    writePaths: readonly string[],
-    attempt: OrchestratorAttempt,
-    instruction: string,
-  ): Promise<AttemptOutcome> {
-    const child = await this.superviseChild(task, attempt, instruction);
-    this.setTaskStatus(task.id, 'verifying');
-    const checks = await this.runChecks(task.verification, task);
-    const changes = await this.taskChanges(running);
-    const scopeViolations = findScopeViolations(changes.paths, writePaths);
-    const review = checks.some((check) => check.check.kind === 'evidence')
-      ? await this.askEvidenceReview({ kind: 'task', running, child, checks, changedPaths: changes.paths })
-      : null;
-    const { findings } = evaluateAttempt({ repoRoot: this.request.repoRoot, workerStatus: child.workerStatus, checks, scopeViolations,
-      review });
-    const result: OrchestratorAttemptResult = {
-      taskId: task.id, purpose: attempt.purpose, attempt: attempt.attempt, childRunId: attempt.childRunId,
-      workerStatus: child.workerStatus, workerOutput: child.output, passed: findings.length === 0, checks, findings,
-      changedPaths: changes.paths, scopeViolations, changeDigest: changes.digest,
-    };
-    this.publish(this.ctx.orchestratorRunStore.recordAttemptResult(this.runId, this.state.revision, result));
-    return { result, findings };
-  }
-
-  /** The parent's evidence review. Its own unusable answers and bad citations are retried here, never charged to the work. */
-  private async askEvidenceReview(review: EvidenceReviewRequest): Promise<OrchestratorTaskReview> {
-    let rejected: string[] = [];
-    let described = this.describeEvidenceReview(review, rejected);
-    for (let attempt = 1; attempt <= PARENT_PHASE_ATTEMPTS; attempt += 1) {
-      described = this.describeEvidenceReview(review, rejected);
-      const reply = await this.askParent(described.label, described.prompt, OrchestratorTaskReviewSchema, rejected);
-      rejected = reply.ok ? findReviewEvidenceProblems(this.request.repoRoot, reply.answer) : reply.problems;
-      if (reply.ok && rejected.length === 0) return reply.answer;
-    }
-    throw fail(described.failureCode, `${described.subject} was unusable: ${rejected.join(' ')}`, { taskId: described.taskId });
-  }
-
-  /** One evidence review's phase, prompt, and the failure it ends in when no answer is usable. */
-  private describeEvidenceReview(review: EvidenceReviewRequest, rejectedProblems: readonly string[]):
-    { label: OrchestratorPhaseLabel; prompt: string; failureCode: OrchestratorFailureCode; subject: string; taskId: string | null } {
-    switch (review.kind) {
-      case 'task': {
-        const { task, baseline } = review.running;
-        const runDirty = new Set(this.requireRunStart().dirtyPaths);
-        return { label: 'task review', failureCode: 'task_review_invalid', subject: `Task '${task.id}' evidence review`, taskId: task.id,
-          prompt: buildAttemptReviewPrompt({ task, result: { workerOutput: review.child.output, checks: review.checks,
-            changedPaths: review.changedPaths }, preexistingDirtyPaths: [...baseline.keys()].filter((path) => !runDirty.has(path)),
-            rejectedProblems }) };
-      }
-      case 'final':
-        return { label: 'final verification', failureCode: 'final_review_invalid', subject: 'The final evidence review', taskId: null,
-          prompt: buildFinalVerificationPrompt({ checks: review.checks, rejectedProblems }) };
-    }
-  }
-
-  private async superviseChild(task: OrchestratorTask, attempt: OrchestratorAttempt, instruction: string): Promise<ChildOutcome> {
-    this.signal.throwIfAborted();
-    // Every attempt, drift corrections included, runs on the task's worker: the model slot it claimed.
-    const session = startOrchestratorChild(this.ctx, this.config, {
-      runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
-      workerPresetId: task.workerPresetId, repoRoot: this.request.repoRoot, work: attempt.work, instruction, approval: this.request.approval,
-    });
-    this.children.set(attempt.childRunId, session);
-    this.activity.track(session, { childRunId: attempt.childRunId, taskId: task.id });
-    this.publish(this.ctx.orchestratorRunStore.markAttemptRunning(this.runId, this.state.revision, attempt.childRunId));
-    try {
-      let seen = 0;
-      for (;;) {
-        const boundary = await session.waitForBoundary(seen, this.signal);
-        seen = session.currentRevision();
-        if (boundary.status !== 'approval_required') return toChildOutcome(boundary);
-        const decision = await this.answerChildApproval(task, attempt, boundary.approval);
-        session.submitDecision({ runId: attempt.childRunId, ...decision });
-        seen = session.currentRevision();
-      }
-    } catch (error) {
-      session.abort();
-      await session.settled;
-      throw error;
-    } finally {
-      this.children.delete(attempt.childRunId);
-      this.activity.untrack(attempt.childRunId);
-    }
-  }
-
-  private answerChildApproval(task: OrchestratorTask, attempt: OrchestratorAttempt, approval: RepoAgentApproval): Promise<ContinuingDecision> {
-    return this.answerApproval({ kind: 'child', childRunId: attempt.childRunId, taskId: task.id, ...approval },
-      buildChildApprovalPrompt({ task, purpose: attempt.purpose, attempt: attempt.attempt, approval }));
-  }
-
-  /**
-   * Resolves one approval. Interactive runs ask the person; auto runs let the parent decide on its
-   * own model in a finite phase with `parentPrompt`. No child holds a model lease meanwhile.
-   */
-  private async answerApproval(pending: OrchestratorPendingApproval, parentPrompt: string): Promise<ContinuingDecision> {
-    const decision = this.approvalTurn.then(() => this.resolveApproval(pending, parentPrompt));
-    this.approvalTurn = decision.then(() => undefined, () => undefined);
-    return decision;
-  }
-
-  private async resolveApproval(pending: OrchestratorPendingApproval, parentPrompt: string): Promise<ContinuingDecision> {
-    this.signal.throwIfAborted();
-    const resumePhase = this.state.phase;
-    const action = pending.kind === 'child' ? `${pending.toolName} ${pending.command}` : `run ${pending.command}`;
-    this.commit({ approval: pending }, `Approval requested: ${action}`, pending.taskId === null ? {} : { taskId: pending.taskId });
-    let decision: RepoAgentDecision;
-    try {
-      decision = this.request.approval === 'interactive'
-        ? await this.waitForUserDecision(pending.approvalId)
-        : await this.decideOnParentModel(parentPrompt);
-    } catch (error) {
-      if (!this.signal.aborted) this.commit({ approval: null, phase: resumePhase }, 'Approval could not be resolved.');
-      throw error;
-    }
-    if (!this.signal.aborted) this.commit({ approval: null, phase: resumePhase }, describeApprovalDecision(decision));
-    if (decision.decision === 'abort') {
-      this.abort('Aborted by user.');
-      throw toError(this.signal.reason);
-    }
-    return decision;
-  }
-
-  private async decideOnParentModel(prompt: string): Promise<ContinuingDecision> {
-    let rejected: string[] = [];
-    for (let attempt = 1; attempt <= PARENT_PHASE_ATTEMPTS; attempt += 1) {
-      const reply = await this.askParent('approval decision', [prompt, ...describeRejection('answer', rejected)].join('\n'),
-        OrchestratorApprovalDecisionSchema, rejected);
-      if (reply.ok) {
-        const decision = reply.answer;
-        return decision.decision === 'approve' ? { decision: 'approve' } : { decision: 'deny', reason: `orchestrator: ${decision.reason}` };
-      }
-      rejected = reply.problems;
-    }
-    throw fail('approval_decision_invalid', `The orchestrator gave no usable approval decision: ${rejected.join(' ')}`);
-  }
-
-  private waitForUserDecision(approvalId: string): Promise<RepoAgentDecision> {
-    this.commit({ phase: 'approval_required' }, 'Waiting for your approval decision.');
-    return new Promise((resolve, reject) => {
-      const onAbort = (): void => {
-        this.pendingUserDecision = null;
-        reject(toError(this.signal.reason));
-      };
-      if (this.signal.aborted) {
-        onAbort();
-        return;
-      }
-      this.signal.addEventListener('abort', onAbort, { once: true });
-      this.pendingUserDecision = { approvalId, resolve: (decision) => {
-        this.signal.removeEventListener('abort', onAbort);
-        resolve(decision);
-      } };
-    });
-  }
-
-  /** Runs checks in order; unless approval is off, each command is approved on its own before it runs. */
-  private async runChecks(checks: readonly OrchestratorVerificationCheck[], task: OrchestratorTask | null): Promise<OrchestratorCheckResult[]> {
-    const results: OrchestratorCheckResult[] = [];
-    for (const check of checks) {
-      if (check.kind === 'evidence') {
-        results.push(unexecutedCheck(check, ''));
-        continue;
-      }
-      const denial = await this.checkDenial(check, task);
-      results.push(denial === null
-        ? await runVerificationCheck({ repoRoot: this.request.repoRoot, check, runId: this.runId, abortSignal: this.signal })
-        : unexecutedCheck(check, `Not run: ${denial}`));
-    }
-    return results;
-  }
-
-  /** The reason a check command may not run, or null once it is approved (or approval is off). */
-  private async checkDenial(check: OrchestratorCommandCheck, task: OrchestratorTask | null): Promise<string | null> {
-    if (this.request.approval === 'off') return null;
-    const decision = await this.answerApproval(
-      { kind: 'check', approvalId: randomUUID(), taskId: task?.id ?? null, command: check.command, cwd: check.cwd },
-      buildCheckApprovalPrompt({ task, check }),
-    );
-    return decision.decision === 'deny' ? decision.reason : null;
-  }
-
-  private renderDiff(baseline: WorkspaceSnapshot, paths: readonly string[]): Promise<string> {
-    return renderWorkspaceDiff({ repoRoot: this.request.repoRoot, baseline, paths, scratchDir: orchestratorScratchDir(this.runId) });
-  }
-
-  // ---- drift gate ----
-
-  private async driftGate(running: RunningTask, initialChecks: OrchestratorCheckResult[]): Promise<void> {
-    const { task, baseline } = running;
-    let checks = initialChecks;
-    let openFindings: OrchestratorDriftFinding[] = [];
-    let retryEvidence: string | null = null;
-    for (;;) {
-      const changes = await this.taskChanges(running);
-      if (changes.digest === null || !changesNeedDriftReview(changes.paths)) {
-        const review: OrchestratorDriftReview = { taskId: task.id, changeDigest: changes.digest ?? 'none', scopePaths: changes.paths,
-          resolutions: [], status: 'not_required', reason: 'no_code_changes' };
-        this.setTask(task.id, { driftReview: review }, `Task ${task.id}: no code changes to review.`);
-        if (retryEvidence === null) return;
-        throw fail('drift_unresolved', `Task '${task.id}' drift correction failed: ${retryEvidence}`, { taskId: task.id, purpose: 'drift_fix' });
-      }
-      const digest = changes.digest;
-      if (retryEvidence === null) {
-        this.setTaskStatus(task.id, 'reviewing_drift');
-        const review = await this.reviewDrift(task, baseline, digest, changes.paths, openFindings, checks);
-        const reviewedDigests = [...new Set([...(this.state.tasks.find((entry) => entry.taskId === task.id)?.reviewedDigests ?? []), digest])];
-        this.setTask(task.id, { driftReview: review, reviewedDigests },
-          review.status === 'actionable' ? `Task ${task.id}: ${review.findings.length} drift finding(s).` : `Task ${task.id}: no actionable drift.`);
-        if (review.status !== 'actionable') return;
-        openFindings = review.findings;
-      }
-      const used = this.state.attempts.filter((attempt) => attempt.taskId === task.id && attempt.purpose === 'drift_fix').length;
-      if (used >= ORCHESTRATOR_MAX_ATTEMPTS) {
-        throw fail('drift_unresolved', `Task '${task.id}' still has unresolved drift after ${ORCHESTRATOR_MAX_ATTEMPTS} corrections.`,
-          { taskId: task.id, purpose: 'drift_fix', findingIds: openFindings.map((finding) => finding.id) });
-      }
-      this.setTaskStatus(task.id, 'correcting_drift');
-      const work = buildDriftCorrectionWork({ task, changeDigest: digest, findings: openFindings });
-      const attempt = this.reserve(task.id, work);
-      const outcome = await this.runAttempt(running, { ...task, verification: work.verification }, work.allowedPaths, attempt,
-        buildDriftCorrectionPrompt(work, retryEvidence));
-      checks = outcome.result.checks;
-      // A functional regression from a correction must be fixed inside the same correction budget.
-      retryEvidence = outcome.result.passed ? null : outcome.findings.join('\n');
-    }
-  }
-
-  private async reviewDrift(
-    task: OrchestratorTask,
-    baseline: WorkspaceSnapshot,
-    changeDigest: string,
-    changedPaths: string[],
-    openFindings: OrchestratorDriftFinding[],
-    checks: OrchestratorCheckResult[],
-  ): Promise<OrchestratorDriftReview> {
-    const diff = await this.renderDiff(baseline, changedPaths);
-    let rejected: string[] = [];
-    for (let attempt = 1; attempt <= PARENT_PHASE_ATTEMPTS; attempt += 1) {
-      const reply = await this.askParent('drift review', buildDriftReviewPrompt({ task, changeDigest, diff, changedPaths, openFindings,
-        checks, rejectedProblems: rejected }), OrchestratorDriftReviewSchema, rejected);
-      if (!reply.ok) {
-        rejected = reply.problems;
-        continue;
-      }
-      const review = reply.answer;
-      rejected = validateDriftReview({ review, repoRoot: this.request.repoRoot, taskId: task.id, changeDigest, changedPaths,
-        openFindings });
-      if (rejected.length === 0 && review.status === 'actionable') {
-        rejected = await findUnrunnableChecks(this.request.repoRoot, review.findings.flatMap((finding) => finding.verification),
-          this.signal);
-      }
-      if (rejected.length === 0) return review;
-    }
-    throw fail('drift_review_invalid', `Task '${task.id}' drift review was unusable: ${rejected.join(' ')}`,
-      { taskId: task.id, findingIds: openFindings.map((finding) => finding.id) });
-  }
-
-  // ---- final verification ----
-
-  private async verifyFinal(plan: OrchestratorPlan): Promise<void> {
-    this.commit({ phase: 'verifying' }, 'Running final verification.');
-    // Global validation commands take exclusive ownership of the checkout.
-    const lease = await this.acquireRepository('exclusive');
-    try {
-      const checks = await this.runChecks(plan.finalVerification, null);
-      const review = checks.some((check) => check.check.kind === 'evidence')
-        ? await this.askEvidenceReview({ kind: 'final', checks })
-        : null;
-      const evaluation = evaluateAttempt({ repoRoot: this.request.repoRoot, workerStatus: 'completed', checks, scopeViolations: [], review });
-      if (!evaluation.passed) throw fail('final_verification_failed', `Final verification failed: ${evaluation.findings.join(' ')}`);
-    } finally {
-      lease.release();
-    }
-  }
 }
 
-function describeApprovalDecision(decision: RepoAgentDecision): string {
-  return decision.decision === 'deny' ? `Approval resolved: deny (${decision.reason}).` : `Approval resolved: ${decision.decision}.`;
+function renderEscalation(approvalId: string, entry: Escalation): string {
+  return [
+    `## Approval needed: child for ${entry.child.task.id} (${entry.child.attempt.purpose} attempt ${entry.child.attempt.attempt})`,
+    `Tool: ${entry.approval.toolName}`, `Action: ${entry.approval.command}`,
+    ...(entry.approval.reviewPayload === null ? [] : ['Proposed content:', entry.approval.reviewPayload]),
+    `Files it expects to change: ${entry.child.task.writePaths.join(', ') || '(none)'}`,
+    `Answer with decide, approvalId "${approvalId}".`,
+  ].join('\n');
 }
 
 function requireOrchestratorPreset(config: SiftConfig, presetId: string): void {

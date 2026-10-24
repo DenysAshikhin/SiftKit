@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { OrchestratorTask, OrchestratorTaskState, OrchestratorTaskStatus } from '@siftkit/contracts';
+import {
+  OrchestratorAttemptSchema,
+  type OrchestratorAttempt,
+  type OrchestratorChildPurpose,
+  type OrchestratorTask,
+  type OrchestratorTaskState,
+  type OrchestratorTaskStatus,
+} from '@siftkit/contracts';
 import { getActiveModelPreset } from '../src/config/getters.ts';
-import { schedulePass } from '../src/orchestrator/scheduler.ts';
+import type { SiftConfig } from '../src/config/types.ts';
+import { planDispatch, type DispatchRequest } from '../src/orchestrator/scheduler.ts';
 import { getDefaultConfig } from '../src/status-server/config-store.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
@@ -15,37 +23,43 @@ const AFTER_WRITE = makeOrchestratorTask({ id: 'after-write', dependsOn: ['write
 const PLAN = makeOrchestratorPlan([READ_A, WRITE, WRITE_2, READ_B, AFTER_WRITE]);
 
 /** The default config with every worker on the active model, which has `slots` parallel slots. */
-function configWithSlots(slots: number) {
+function configWithSlots(slots: number): SiftConfig {
   const config = getDefaultConfig();
   getActiveModelPreset(config).ParallelSlots = slots;
   return config;
 }
 
 function states(overrides: Record<string, OrchestratorTaskStatus> = {}): OrchestratorTaskState[] {
-  return PLAN.tasks.map((task) => ({ taskId: task.id, status: overrides[task.id] ?? 'pending', driftReview: null, reviewedDigests: [] }));
+  return PLAN.tasks.map((task) => ({ taskId: task.id, status: overrides[task.id] ?? 'pending', review: null }));
 }
 
-function pass(slots: number, active: OrchestratorTask[], overrides: Record<string, OrchestratorTaskStatus> = {}) {
-  const running = Object.fromEntries(active.map((task) => [task.id, 'running' as const]));
-  return schedulePass({ config: configWithSlots(slots), plan: PLAN, taskStates: states({ ...running, ...overrides }), active });
+function attempt(task: OrchestratorTask, purpose: OrchestratorChildPurpose, number: number, status: OrchestratorAttempt['status']): OrchestratorAttempt {
+  return OrchestratorAttemptSchema.parse({
+    taskId: task.id, purpose, attempt: number, childRunId: `00000000-0000-4000-8000-00000000000${number}`, status, result: null,
+    reservedAtUtc: '2026-10-11T12:00:00.000Z',
+    work: { kind: purpose, planPath: 'plan.md', planHash: 'h', task, instruction: 'Do it.' },
+  });
 }
 
-function start(slots: number, active: OrchestratorTask[], overrides: Record<string, OrchestratorTaskStatus> = {}): string[] {
-  return pass(slots, active, overrides).start.map((task) => task.id);
+function dispatch(input: { slots?: number; config?: SiftConfig; requested: DispatchRequest[];
+  statuses?: Record<string, OrchestratorTaskStatus>; attempts?: OrchestratorAttempt[] }) {
+  return planDispatch({ config: input.config ?? configWithSlots(input.slots ?? 3), plan: PLAN, taskStates: states(input.statuses),
+    attempts: input.attempts ?? [], requested: input.requested });
 }
 
-test('tasks start up to the parallel slots of their worker model, one at a time with one slot', () => {
-  assert.deepEqual(start(1, []), ['read-a']);
-  assert.deepEqual(start(1, [READ_A]), []);
-  assert.deepEqual(start(2, []), ['read-a', 'write']);
-  assert.deepEqual(start(5, []), ['read-a', 'write', 'read-b']);
-  assert.deepEqual(start(3, [READ_A]), ['write', 'read-b']);
+const implement = (...tasks: OrchestratorTask[]): DispatchRequest[] => tasks.map((task) => ({ task, purpose: 'implementation' }));
+
+test('children start together only within the parallel slots of their worker model', () => {
+  assert.deepEqual(dispatch({ slots: 2, requested: implement(READ_A, WRITE) }).problems, []);
+  const model = getActiveModelPreset(configWithSlots(1)).id;
+  assert.deepEqual(dispatch({ slots: 1, requested: implement(READ_A, READ_B) }).problems,
+    [`Task 'read-b' cannot start: model ${model} has no free parallel slot.`]);
 });
 
-test('one writer runs beside readers, but two writers never overlap', () => {
-  assert.deepEqual(start(3, [WRITE]), ['read-a', 'read-b'], 'readers start beside the active writer');
-  assert.deepEqual(start(3, [READ_A, READ_B], { 'write': 'completed' }), ['write-2'], 'a writer starts beside active readers');
-  assert.deepEqual(start(5, [WRITE], { 'read-a': 'completed', 'read-b': 'completed' }), [], 'the second writer waits');
+test('one writer runs beside a reader, but two writers never start together', () => {
+  assert.deepEqual(dispatch({ requested: implement(WRITE, READ_A) }).problems, []);
+  assert.deepEqual(dispatch({ requested: implement(WRITE, WRITE_2) }).problems,
+    ["Task 'write-2' cannot start: another task in this dispatch already changes files."]);
 });
 
 test('workers on different models count against their own model slots', () => {
@@ -55,39 +69,59 @@ test('workers on different models count against their own model slots', () => {
   const agent = config.Presets.find((preset) => preset.id === 'repo-agent');
   assert.ok(agent);
   agent.modelPresetId = alternate.id;
-  const { start: started, schedule } = schedulePass({ config, plan: PLAN, taskStates: states(), active: [] });
-  assert.deepEqual(started.map((task) => task.id), ['read-a', 'write'], 'one slot on each model');
+  const { problems, schedule } = dispatch({ config, requested: implement(READ_A, WRITE) });
+  assert.deepEqual(problems, [], 'one slot on each model');
   assert.deepEqual(schedule.models, [{ modelId: getActiveModelPreset(config).id, slots: 1, used: 1 }, { modelId: 'exl3-alt', slots: 1, used: 1 }]);
   assert.deepEqual(schedule.waits.find((entry) => entry.taskId === 'write-2')?.wait, { kind: 'writer_slot' });
 });
 
-test('a dependent starts only once its predecessor completed, not while it verifies or reviews drift', () => {
-  const done = { 'read-a': 'completed', 'read-b': 'completed', 'write-2': 'completed' } as const;
-  for (const status of ['running', 'verifying', 'reviewing_drift', 'correcting_drift', 'retry_pending', 'failed'] as const) {
-    assert.deepEqual(start(3, [], { ...done, write: status }), [], status);
+test('a dependent starts only once its predecessor completed, not while it runs, awaits review, or failed', () => {
+  for (const status of ['pending', 'running', 'reviewing', 'failed'] as const) {
+    assert.deepEqual(dispatch({ requested: implement(AFTER_WRITE), statuses: { write: status } }).problems,
+      ["Task 'after-write' cannot start: its dependencies are not complete: write."], status);
   }
-  assert.deepEqual(start(3, [], { ...done, write: 'completed' }), ['after-write']);
+  assert.deepEqual(dispatch({ requested: implement(AFTER_WRITE), statuses: { write: 'completed' } }).problems, []);
 });
 
-test('every pending task left waiting says why, in the order the scheduler checks', () => {
-  const { schedule } = pass(2, [WRITE]);
-  const model = getActiveModelPreset(configWithSlots(2)).id;
-  assert.deepEqual(schedule.waits, [
-    { taskId: 'write-2', wait: { kind: 'writer_slot' } },
-    { taskId: 'read-b', wait: { kind: 'model_slot', modelId: model } },
-    { taskId: 'after-write', wait: { kind: 'dependencies', taskIds: ['write'] } },
-  ], 'read-a takes the second slot; dependencies are checked before slots');
+test('an implementation needs a pending or reviewed task and an attempt left', () => {
+  assert.deepEqual(dispatch({ requested: implement(WRITE), statuses: { write: 'reviewing' },
+    attempts: [attempt(WRITE, 'implementation', 1, 'settled')] }).problems, [], 'a retry after a failed review');
+  assert.deepEqual(dispatch({ requested: implement(WRITE), statuses: { write: 'completed' } }).problems,
+    ["Task 'write' is completed; implementation work needs it pending or reviewing."]);
+  assert.deepEqual(dispatch({ requested: implement(WRITE), statuses: { write: 'reviewing' },
+    attempts: [attempt(WRITE, 'implementation', 1, 'settled'), attempt(WRITE, 'implementation', 2, 'settled')] }).problems,
+  ["Task 'write' used all 2 implementation attempts."]);
 });
 
-test('the schedule reports every claim and the slots held after the pass', () => {
-  const config = configWithSlots(3);
+test('a fix needs a reviewed or completed task with a settled attempt, and has its own attempt budget', () => {
+  const fix: DispatchRequest[] = [{ task: WRITE, purpose: 'fix' }];
+  const settled = [attempt(WRITE, 'implementation', 1, 'settled'), attempt(WRITE, 'implementation', 2, 'settled')];
+  assert.deepEqual(dispatch({ requested: fix, statuses: { write: 'completed' }, attempts: settled }).problems, [],
+    'implementation attempts never consume the fix budget');
+  assert.deepEqual(dispatch({ requested: fix, statuses: { write: 'pending' } }).problems,
+    ["Task 'write' is pending; fix work needs it reviewing or completed."]);
+  assert.deepEqual(dispatch({ requested: fix, statuses: { write: 'reviewing' }, attempts: [attempt(WRITE, 'implementation', 1, 'abandoned')] }).problems,
+    ["Task 'write' has no settled attempt to fix."]);
+  assert.deepEqual(dispatch({ requested: fix, statuses: { write: 'reviewing' },
+    attempts: [...settled, attempt(WRITE, 'fix', 1, 'settled'), attempt(WRITE, 'fix', 2, 'settled')] }).problems,
+  ["Task 'write' used all 2 fix attempts."]);
+});
+
+test('a task appears once per dispatch', () => {
+  assert.deepEqual(dispatch({ requested: implement(READ_A, READ_A) }).problems, ["Task 'read-a' appears twice in this dispatch."]);
+});
+
+test('the schedule records every claim, the slots this dispatch holds, and why each other pending task waits', () => {
+  const config = configWithSlots(2);
   const model = getActiveModelPreset(config);
-  const { schedule } = pass(3, [WRITE]);
+  const { schedule } = dispatch({ config, requested: implement(WRITE, READ_A) });
   assert.deepEqual(schedule.claims.map((claim) => [claim.taskId, claim.mutating]),
     [['read-a', false], ['write', true], ['write-2', true], ['read-b', false], ['after-write', false]]);
   assert.ok(schedule.claims.every((claim) => claim.modelId === model.id && claim.contextTokens === model.NumCtx));
-  assert.deepEqual([schedule.models, schedule.writerUsed], [[{ modelId: model.id, slots: 3, used: 3 }], true],
-    'the active writer and the two readers it started beside');
-  assert.deepEqual(pass(3, [], Object.fromEntries(PLAN.tasks.map((task) => [task.id, 'completed']))).schedule.models,
-    [{ modelId: model.id, slots: 3, used: 0 }], 'nothing is held once every task finished');
+  assert.deepEqual([schedule.models, schedule.writerUsed], [[{ modelId: model.id, slots: 2, used: 2 }], true]);
+  assert.deepEqual(schedule.waits, [
+    { taskId: 'write-2', wait: { kind: 'writer_slot' } },
+    { taskId: 'read-b', wait: { kind: 'model_slot', modelId: model.id } },
+    { taskId: 'after-write', wait: { kind: 'dependencies', taskIds: ['write'] } },
+  ], 'dependencies are checked before slots; requested tasks never wait');
 });

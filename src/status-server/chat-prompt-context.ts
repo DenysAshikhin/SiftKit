@@ -50,6 +50,7 @@ export function buildChatPromptContext(config: SiftConfig, session: ChatSession)
     webToolsEnabled: session.webSearchEnabled === true,
     visionEnabled: getActiveModelPreset(effectiveConfig).VisionEnabled === true,
     webChatTools: true,
+    orchestratorTools: false,
   });
   return {
     id: `${String(session.id || 'session')}:system-context`,

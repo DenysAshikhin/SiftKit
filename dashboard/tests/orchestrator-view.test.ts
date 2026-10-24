@@ -40,8 +40,8 @@ function runState(statuses: Record<string, OrchestratorTaskStatus>, overrides: P
     request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'Go', planPath: null },
     revision: 1, phase: 'executing', planPath: 'plan.md', planHash: 'h',
     plan: { goal: 'Go', constraints: [], tasks, finalVerification: [CHECK] },
-    tasks: tasks.map((task) => ({ taskId: task.id, status: statuses[task.id] ?? 'pending', driftReview: null, reviewedDigests: [] })),
-    attempts: [], phaseRunIds: [], approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: '2026-10-11T12:14:02.000Z',
+    tasks: tasks.map((task) => ({ taskId: task.id, status: statuses[task.id] ?? 'pending', review: null })),
+    attempts: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: '2026-10-11T12:14:02.000Z',
     ...overrides,
   });
 }
@@ -55,7 +55,7 @@ const SCHEDULE: OrchestratorSchedule = {
     { taskId: 'after', wait: { kind: 'dependencies', taskIds: ['write'] } },
   ],
 };
-const ACTIVITY: OrchestratorActivity = { runId: RUN_ID, schedule: SCHEDULE, children: [] };
+const ACTIVITY: OrchestratorActivity = { runId: RUN_ID, schedule: SCHEDULE, parent: null, children: [] };
 
 const CHILD: OrchestratorChildActivity = {
   childRunId: CHILD_ID, taskId: 'write', waitingForModel: false, turn: 3, maxTurns: 40, promptTokens: 1000, tools: [],
@@ -70,14 +70,14 @@ function taskOf(state: OrchestratorRunState, id: string) {
 test('the stepper marks done, current, and failed steps, using the last work phase while paused or stopped', () => {
   const statuses = (phase: Parameters<typeof orchestratorSteps>[0], work: Parameters<typeof orchestratorSteps>[1]) =>
     orchestratorSteps(phase, work).map((step) => step.status);
-  assert.deepEqual(orchestratorSteps('executing', null).map((step) => step.label), ['Plan', 'Validate', 'Execute', 'Verify', 'Clean']);
-  assert.deepEqual(statuses('executing', null), ['done', 'done', 'now', 'todo', 'todo']);
-  assert.deepEqual(statuses('approval_required', 'verifying'), ['done', 'done', 'done', 'now', 'todo']);
-  assert.deepEqual(statuses('failed', 'executing'), ['done', 'done', 'failed', 'todo', 'todo']);
-  assert.deepEqual(statuses('completed', null), ['done', 'done', 'done', 'done', 'done']);
+  assert.deepEqual(orchestratorSteps('executing', null).map((step) => step.label), ['Plan', 'Execute', 'Verify', 'Clean']);
+  assert.deepEqual(statuses('executing', null), ['done', 'now', 'todo', 'todo']);
+  assert.deepEqual(statuses('approval_required', 'verifying'), ['done', 'done', 'now', 'todo']);
+  assert.deepEqual(statuses('failed', 'executing'), ['done', 'failed', 'todo', 'todo']);
+  assert.deepEqual(statuses('completed', null), ['done', 'done', 'done', 'done']);
 });
 
-test('a pending task shows the wait the scheduler recorded for it', () => {
+test('a pending task shows the wait the latest dispatch recorded for it', () => {
   const state = runState({ write: 'running' });
   assert.equal(waitReason(taskOf(state, 'after'), state, ACTIVITY), 'needs write');
   assert.equal(waitReason(taskOf(state, 'write-2'), state, ACTIVITY), 'waiting for writer slot');
@@ -90,12 +90,12 @@ test('a pending task shows the wait the scheduler recorded for it', () => {
 });
 
 test('attempt summary counts each purpose against the attempt limit', () => {
-  const attempt = (purpose: 'implementation' | 'drift_fix', number: 1 | 2) => OrchestratorAttemptSchema.parse({
+  const attempt = (purpose: 'implementation' | 'fix', number: 1 | 2) => OrchestratorAttemptSchema.parse({
     taskId: 'write', purpose, attempt: number, childRunId: CHILD_ID, reservedAtUtc: AT, status: 'running', result: null,
-    work: { kind: 'implementation', planPath: 'plan.md', planHash: 'h', task: planTask('write', 'repo-agent') },
+    work: { kind: purpose, planPath: 'plan.md', planHash: 'h', task: planTask('write', 'repo-agent'), instruction: 'Write it.' },
   });
   assert.equal(attemptSummary('write', []), '—');
-  assert.equal(attemptSummary('write', [attempt('implementation', 1), attempt('implementation', 2), attempt('drift_fix', 1)]),
+  assert.equal(attemptSummary('write', [attempt('implementation', 1), attempt('implementation', 2), attempt('fix', 1)]),
     'impl 2/2 · fix 1/2');
   assert.equal(attemptSummary('read', [attempt('implementation', 1)]), '—');
 });
@@ -109,8 +109,7 @@ test('now doing prefers the running tool, then the model wait, then the turn, th
   assert.equal(nowDoing(taskOf(running, 'write'), { ...CHILD, turn: 0 }), 'starting');
   const labels = OrchestratorTaskStatusSchema.options.map((status) => [status, nowDoing(taskOf(runState({ write: status }), 'write'), null)]);
   assert.deepEqual(labels, [
-    ['pending', null], ['running', 'starting'], ['verifying', 'verifying checks'], ['reviewing_drift', 'reviewing drift'],
-    ['correcting_drift', 'starting correction'], ['retry_pending', 'retry pending'], ['completed', null], ['failed', null], ['aborted', null],
+    ['pending', null], ['running', 'starting'], ['reviewing', 'awaiting orchestrator review'], ['completed', null], ['failed', null], ['aborted', null],
   ], 'every live status without a child says what is happening');
 });
 
@@ -122,7 +121,7 @@ test('labels: context percent, elapsed time, run elapsed, and tones for every st
   assert.equal(runElapsedMs(runState({}, { phase: 'completed' }), Date.parse(AT) + 1), 842_000);
   assert.equal(runElapsedMs(runState({}), Date.parse(AT) + 5_000), 5_000);
   assert.deepEqual(OrchestratorTaskStatusSchema.options.map((status) => taskTone(status)),
-    ['idle', 'run', 'run', 'run', 'run', 'run', 'ok', 'bad', 'bad']);
+    ['idle', 'run', 'run', 'ok', 'bad', 'bad']);
   assert.deepEqual((['executing', 'approval_required', 'completed', 'failed', 'aborted', 'interrupted'] as const).map((phase) => phaseTone(phase)),
     ['run', 'run', 'ok', 'bad', 'bad', 'bad']);
 });

@@ -54,7 +54,7 @@ class FakeLiveRun implements OrchestratorLiveRun {
     return false;
   }
   activitySnapshot(): OrchestratorActivity {
-    return { runId: this.runId, schedule: null, children: [] };
+    return { runId: this.runId, schedule: null, parent: null, children: [] };
   }
 }
 
@@ -173,10 +173,10 @@ test('subscribers receive each committed state until they detach', (t) => {
   const run = createRun(store);
   const seen: string[] = [];
   const detach = registry.subscribe(run.runId, (state) => seen.push(state.phase));
-  registry.publish(store.update(run.runId, run.revision, { phase: 'validating_plan' }, { message: 'Validating plan.' }));
+  registry.publish(store.update(run.runId, run.revision, { phase: 'executing' }, { message: 'Executing.' }));
   detach();
   registry.publish(store.read(run.runId));
-  assert.deepEqual(seen, ['validating_plan']);
+  assert.deepEqual(seen, ['executing']);
 });
 
 test('startup marks the running children of an interrupted parent not resumable', (t) => {
@@ -187,7 +187,7 @@ test('startup marks the running children of an interrupted parent not resumable'
   const task = plan.tasks[0];
   assert.ok(task);
   const attempt = store.reserveAttempt(state.runId, state.revision, task.id,
-    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task });
+    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task, instruction: 'Implement it.' });
   state = store.markAttemptRunning(state.runId, store.read(state.runId).revision, attempt.childRunId);
   const marked: string[] = [];
 
@@ -203,9 +203,9 @@ test('activity reaches only its own run\'s subscribers, until they detach', (t) 
   const runB = randomUUID();
   const seen: string[] = [];
   const detach = registry.subscribeActivity(runA, (activity) => seen.push(activity.runId));
-  registry.publishActivity({ runId: runA, schedule: null, children: [] });
-  registry.publishActivity({ runId: runB, schedule: null, children: [] });
+  registry.publishActivity({ runId: runA, schedule: null, parent: null, children: [] });
+  registry.publishActivity({ runId: runB, schedule: null, parent: null, children: [] });
   detach();
-  registry.publishActivity({ runId: runA, schedule: null, children: [] });
+  registry.publishActivity({ runId: runA, schedule: null, parent: null, children: [] });
   assert.deepEqual(seen, [runA]);
 });

@@ -12,6 +12,7 @@ import { ToolActionProcessor } from '../../src/repo-search/engine/tool-action-pr
 import type { ApprovalRequester } from '../../src/repo-search/engine/approval-gate.ts';
 import type { ChatRunEvidenceRecorder } from '../../src/repo-search/engine/chat-run-evidence.ts';
 import type { QuestionGate } from '../../src/repo-search/engine/question-gate.ts';
+import type { OrchestratorToolHost } from '../../src/repo-search/engine/orchestrator-tool-host.ts';
 import { ToolResultBudgeter } from '../../src/repo-search/engine/tool-result-budgeter.ts';
 import { ToolStatsRecorder } from '../../src/repo-search/engine/tool-stats.ts';
 import { TranscriptManager } from '../../src/repo-search/engine/transcript-manager.ts';
@@ -41,6 +42,7 @@ export function makeProcessor(
     visionMaxImagePixels?: number;
     evidenceRecorder?: ChatRunEvidenceRecorder;
     questionGate?: QuestionGate;
+    orchestratorTools?: OrchestratorToolHost;
   } = {},
 ): {
   processor: ToolActionProcessor;
@@ -68,6 +70,7 @@ export function makeProcessor(
   const processor = new ToolActionProcessor({
     task: { id: 'task-alignment', question: 'q' },
     repoRoot: root,
+    agentServerUrl: 'http://127.0.0.1:4765/status',
     config: undefined,
     mockCommandResults,
     logger: {
@@ -82,6 +85,7 @@ export function makeProcessor(
     approvalGate,
     evidenceRecorder: options.evidenceRecorder ?? null,
     questionGate: options.questionGate ?? null,
+    orchestratorTools: options.orchestratorTools ?? null,
     runtimeProfile: new RepoSearchRuntimeProfile(taskKind),
     chatWebGroundingEnabled: false,
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),

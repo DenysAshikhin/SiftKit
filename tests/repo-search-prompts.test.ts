@@ -402,8 +402,8 @@ test('web chat tools ride on top of the full agent surface without restricting t
   withTempRepo((repoRoot) => {
     const base = { promptPrefix: '', systemContext: buildTestContext(repoRoot), allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       webSearch: usableWebSearchConfig(), webToolsEnabled: true, visionEnabled: false, promptKind: 'repo-agent' as const };
-    const web = resolveRunSystemPrompt({ ...base, webChatTools: true });
-    const cli = resolveRunSystemPrompt({ ...base, webChatTools: false });
+    const web = resolveRunSystemPrompt({ ...base, webChatTools: true, orchestratorTools: false });
+    const cli = resolveRunSystemPrompt({ ...base, webChatTools: false, orchestratorTools: false });
     assert.deepEqual(web.toolDefinitions.map((tool) => tool.function.name).slice(-2), ['ask_user', 'show_image']);
     assert.equal(cli.toolDefinitions.some((tool) => tool.function.name === 'ask_user'), false);
     assert.match(web.systemPrompt, /You are an expert coding assistant/u);
@@ -420,12 +420,12 @@ test('every web run kind gets the web chat tools and one shared guidance block; 
       { ...base, promptKind: 'chat' as const, chatSystemPrompt: 'plain chat', allowedTools: [] },
     ];
     for (const request of kinds) {
-      const web = resolveRunSystemPrompt({ ...request, webChatTools: true });
+      const web = resolveRunSystemPrompt({ ...request, webChatTools: true, orchestratorTools: false });
       assert.deepEqual(web.toolDefinitions.map((tool) => tool.function.name).slice(-2), ['ask_user', 'show_image'], request.promptKind);
       assert.equal(web.systemPrompt.split('Web chat tools:').length, 2, request.promptKind);
       assert.match(web.systemPrompt, /- ask_user: .*only when you cannot proceed/u);
       assert.match(web.systemPrompt, /- show_image: .*not added to your context/u);
-      const cli = resolveRunSystemPrompt({ ...request, webChatTools: false });
+      const cli = resolveRunSystemPrompt({ ...request, webChatTools: false, orchestratorTools: false });
       assert.doesNotMatch(cli.systemPrompt, /Web chat tools:|ask_user|show_image/u, request.promptKind);
     }
   });

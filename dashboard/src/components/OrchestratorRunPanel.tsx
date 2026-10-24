@@ -11,6 +11,7 @@ import {
 } from '@siftkit/contracts';
 import { useNow } from '../hooks/useNow.ts';
 import { formatElapsed, orchestratorSteps, phaseTone, runElapsedMs } from '../orchestrator-view.ts';
+import { OrchestratorConversation } from './OrchestratorConversation.tsx';
 import { OrchestratorTaskRow } from './OrchestratorTaskRow.tsx';
 
 function ApprovalRequest({ pending, onDecide }: { pending: OrchestratorPendingApproval; onDecide(decision: RepoAgentDecision): void }) {
@@ -91,6 +92,7 @@ export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, 
       <ol className="orch-tasks">
         {state.tasks.map((task) => <OrchestratorTaskRow key={task.taskId} task={task} state={state} activity={activity} now={now} />)}
       </ol>
+      {activity?.parent ? <OrchestratorConversation parent={activity.parent} live={live} /> : null}
       {state.approval ? <ApprovalRequest key={state.approval.approvalId} pending={state.approval} onDecide={onDecide} /> : null}
       {state.failure ? <div className="err-banner"><span>{state.failure.message}</span></div> : null}
     </section>

@@ -222,9 +222,9 @@ test('a session showing a run reports that run\'s prefill and decode rates', asy
   const sessionId = await createSession(harness);
   const created = store.create(startRequest());
   linkChatSessionToOrchestratorRun(getRuntimeDatabase(), sessionId, created.runId);
-  const phaseRunId = randomUUID();
-  store.update(created.runId, created.revision, { phase: 'completed', phaseRunIds: [phaseRunId] }, { message: 'Done.' });
-  seedRunLogThroughput(getRuntimeDatabase(), phaseRunId, [1_500, 1_000], [80, 2_000]);
+  const parentRunId = randomUUID();
+  store.update(created.runId, created.revision, { phase: 'completed', parentRunIds: [parentRunId] }, { message: 'Done.' });
+  seedRunLogThroughput(getRuntimeDatabase(), parentRunId, [1_500, 1_000], [80, 2_000]);
 
   const response = await fetch(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`);
   assert.equal(response.status, 200);

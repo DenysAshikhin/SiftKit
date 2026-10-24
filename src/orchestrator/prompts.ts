@@ -1,29 +1,19 @@
 import {
   ORCHESTRATOR_MAX_ATTEMPTS,
-  type OrchestratorAttemptResult,
-  type OrchestratorCheckResult,
-  type OrchestratorChildPurpose,
-  type OrchestratorCommandCheck,
-  type OrchestratorDriftCorrectionWork,
-  type OrchestratorDriftFinding,
-  type OrchestratorPlan,
-  type OrchestratorTask,
-  type OrchestratorVerificationCheck,
+  ORCHESTRATOR_MAX_FINISH_ATTEMPTS,
+  ORCHESTRATOR_MAX_RESUBMITS,
+  type ApprovalMode,
   type ModelRuntimePreset,
-  type RepoAgentApproval,
+  type OrchestratorChildWork,
+  type OrchestratorVerificationCheck,
   type SiftPreset,
 } from '@siftkit/contracts';
 
-import type { JsonObject } from '../lib/json-types.ts';
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
-import { renderOrchestratorPlan } from './plan.ts';
+import { renderReportInstruction, type HandoffKind } from './handoff.ts';
 
-const CHECK_OUTPUT_PROMPT_CHARS = 4_000;
 const CHECK_SHELL_RULE = `Command checks run in ${RUN_SHELL_LABEL} from their cwd: use PowerShell syntax, cmdlets, and programs on PATH only`
-  + ' (grep, sed, awk, bash, and && are unavailable).';
-
-/** How an evidence review answers; shared by task review and final verification. */
-export const EVIDENCE_REVIEW_GUIDANCE = 'Answer "pass" with evidence whose snippet is the exact code at each cited line, or "fail" with one finding per problem.';
+  + ' (grep, sed, awk, bash, and && are unavailable). A cwd is relative to the repository root, usually ".".';
 
 function formatCheck(check: OrchestratorVerificationCheck): string {
   return check.kind === 'command'
@@ -31,249 +21,110 @@ function formatCheck(check: OrchestratorVerificationCheck): string {
     : `${check.instruction} (inspect ${check.paths.join(', ')})`;
 }
 
-function formatCheckResult(result: OrchestratorCheckResult): string {
-  if (result.check.kind === 'evidence') return `- evidence: ${result.check.instruction}`;
-  const status = !result.executed ? 'not executed' : result.timedOut ? 'timed out' : `exit ${result.exitCode ?? 'unknown'}`;
-  return [`- \`${result.check.command}\` (${result.check.cwd}): ${status}`,
-    '```', result.output.slice(-CHECK_OUTPUT_PROMPT_CHARS), '```'].join('\n');
-}
-
 /** A worker preset and the model it runs on in this run's configuration. */
 export type PlanWorker = { preset: SiftPreset; model: ModelRuntimePreset };
-
-/** Dirt in the checkout before this work started: a reviewer must never charge it to the work. */
-function describePreexistingChanges(subject: 'run' | 'task', paths: readonly string[]): string {
-  const scope = subject === 'run' ? 'this run' : 'this task, beyond those listed in the run context';
-  return `Uncommitted changes that predate ${scope} (not made by it; never count them against it): ${paths.join(', ') || 'none'}.`;
-}
-
-/** The problems that rejected the parent's previous answer, as prompt lines; none on a first try. */
-export function describeRejection(subject: 'answer' | 'review' | 'report', problems: readonly string[]): string[] {
-  return problems.length === 0 ? [] : [`Your previous ${subject} was rejected:`, ...problems.map((problem) => `- ${problem}`)];
-}
 
 function describeWorker({ preset, model }: PlanWorker): string {
   const access = preset.presetKind === 'repo-search' ? 'read-only' : 'can modify files';
   const slots = model.ParallelSlots === 1 ? '1 parallel slot' : `${model.ParallelSlots} parallel slots`;
-  return `- ${preset.id} (${preset.presetKind}, ${access}; model ${model.id}, ${slots}): ${preset.description}`;
+  return `- ${preset.id} (${preset.presetKind}, ${access}; model ${model.id}, ${model.NumCtx} context tokens, ${slots}): ${preset.description}`;
 }
 
-/** What every parent phase of one run shares; rendered first so the phases reuse one KV prefix. */
-export type RunContext = {
+const APPROVAL_RULES: Record<ApprovalMode, string> = {
+  off: 'Approvals: off. Children review their own risky actions; anything they escalate is approved without asking you.',
+  auto: 'Approvals: when dispatch or decide returns a child\'s approval request, call decide. Approve actions the task needs within'
+    + ' its scope; deny destructive, out-of-scope, or unexplained ones; escalate to the user only what you cannot judge.',
+  interactive: 'Approvals: the user answers every escalated child action and every check command; you are never asked.',
+};
+
+/** What the orchestrator is told once, at the start of its one conversation. */
+export type OrchestratorBrief = {
   task: string | null;
+  suppliedPlan: { path: string; markdown: string } | null;
   workers: readonly PlanWorker[];
   preexistingDirtyPaths: readonly string[];
-  plan: { path: string; hash: string; plan: OrchestratorPlan } | null;
+  approval: ApprovalMode;
 };
 
-export function buildRunContext(run: RunContext): string {
+export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
   return [
-    'Orchestrator run context (shared by every phase of this run):',
-    `Requested task: ${run.task ?? '(none; execute the supplied plan)'}`,
-    'Worker presets (never another orchestrator):', ...run.workers.map(describeWorker),
+    'You run this orchestrator job from start to finish in this one conversation. Subagents do the work; you plan,',
+    'dispatch, review, and decide. Everything you learn stays with you across tasks: use it in later instructions.',
+    `Requested task: ${brief.task ?? '(none; execute the supplied plan)'}`,
+    ...(brief.suppliedPlan === null ? ['Supplied plan: none.']
+      : [`Supplied plan (${brief.suppliedPlan.path}):`, '<<<PLAN', brief.suppliedPlan.markdown, 'PLAN>>>']),
+    'Worker presets (never another orchestrator):', ...brief.workers.map(describeWorker),
     CHECK_SHELL_RULE,
-    describePreexistingChanges('run', run.preexistingDirtyPaths),
+    `Uncommitted changes that predate this run (never count them against any task): ${brief.preexistingDirtyPaths.join(', ') || 'none'}.`,
     'The repository file listing in your instructions was taken when this run started; use ls and find for the current state.',
-    ...(run.plan === null ? [] : [`Saved plan ${run.plan.path} (sha256 ${run.plan.hash}):`, '<<<PLAN',
-      renderOrchestratorPlan(run.plan.plan), 'PLAN>>>']),
+    '',
+    'How to work:',
+    '1. Read the requirements: the task and any spec or plan it names. Leave code exploration to subagents; read code',
+    '   yourself only to confirm a specific file, line, or symbol.',
+    '2. Survey first. Call save_plan with at most 4 survey tasks, only for what the requirements do not already locate. Each',
+    '   asks one narrow question about the code (where a feature lives, who calls it, which tests cover it) whose answer',
+    '   fits in one report: a dozen cited findings, not an inventory. Give each a read-only worker, readPaths as its',
+    '   starting point, one evidence check, and acceptance stating what the answer must cite; include the',
+    '   finalVerification. Dispatch the surveys two at a time and review each.',
+    '3. From what the surveys found, add the implementation tasks with update_tasks. Planning rules:',
+    '   - One task is one concern a worker finishes within about half its context: a handful of files (at most about 6 write',
+    '     paths) and their tests. Split anything larger.',
+    '   - A task that changes files uses a worker that can modify files, and lists the paths it expects to change in',
+    '     writePaths, tests included. A read-only task uses a read-only worker.',
+    '   - Steps are test-first: write the failing test, then the implementation.',
+    '   - A task\'s verification has command checks for every test suite its change can affect, not only its new tests,',
+    '     using the exact test commands the request names, flags included.',
+    '   - finalVerification always includes the project\'s typecheck and lint commands and every relevant test suite.',
+    '   - dependsOn names every task whose output or changes a task needs.',
+    '4. Call dispatch with at most one task that changes files and one read-only task, each with its dependencies complete.',
+    '   Every child starts fresh and knows only its instruction: include what it must change, what earlier tasks found or',
+    '   changed that matters to it, and the pitfalls you already know. dispatch waits until the children report.',
+    `   Code runs a child's checks each time it finishes; it fixes its own failures up to ${ORCHESTRATOR_MAX_RESUBMITS} times before`,
+    '   its report reaches you.',
+    '5. Review every reported task with record_review. A report gives the child\'s status, where it departed from the plan,',
+    '   the gate\'s last check results, and what changed as line counts, not the code: read the changed code yourself.',
+    '   Judge each acceptance criterion by index with exact code evidence (path, line, and the code at that line). Record a',
+    '   finding for every real defect: a missed requirement, an incomplete refactor, a special-case patch, a leftover shim or',
+    '   parallel path, duplicated logic, unsafe type or IO handling, a missing test. Ignore style preferences. A task whose',
+    '   checks failed cannot pass.',
+    `6. After a failed review, dispatch a fix (repairs the current changes) or a fresh implementation; each task allows ${ORCHESTRATOR_MAX_ATTEMPTS}`,
+    '   of each. A completed task can also take a fix later. To split, reorder, add, or widen work, call update_tasks with',
+    '   only the fields that change; tasks that already ran keep their ids. writePaths are guidance, not a limit: judge',
+    '   changes to other files on their merits, and move work the plan gives a later task with update_tasks.',
+    '7. When every task is complete, finish with only {"status":"completed","summary":"what was done"}. Code then runs the',
+    `   final verification and returns failures for you to fix (at most ${ORCHESTRATOR_MAX_FINISH_ATTEMPTS} finishes). If the work cannot be`,
+    '   completed, finish with only {"status":"blocked","reason":"why"}.',
+    'Use run_check only to run a verification command a review needs, never to read files or search code.',
+    APPROVAL_RULES[brief.approval],
   ].join('\n');
 }
 
-/** A parent prompt: the shared run block first (one KV prefix for every phase), then the phase, then the answer's JSON schema. */
-export function buildParentPrompt(run: RunContext, phasePrompt: string, answerSchema: JsonObject): string {
-  return [buildRunContext(run), phasePrompt,
-    'Answer with exactly one JSON object that matches this JSON schema:', JSON.stringify(answerSchema)].join('\n');
-}
-
-export function buildPlanPreparationPrompt(input: {
-  planPath: string | null;
-  planMarkdown: string | null;
-  rejectedProblems: readonly string[];
-}): string {
-  return [
-    'Phase: prepare the executable plan for this orchestrator run.',
-    input.planMarkdown === null
-      ? 'Supplied plan: none.'
-      : [`Supplied plan (${input.planPath ?? 'inline'}):`, '<<<PLAN', input.planMarkdown, 'PLAN>>>'].join('\n'),
-    'Assign each task one of the worker presets listed in the run context.',
-    'Inspect the repository to confirm every referenced file and symbol exists. Each task must be one discrete, verifiable',
-    'unit with bounded read/write paths, concrete steps, exact verification checks, and acceptance criteria. Read-only',
-    'tasks use a read-only worker and evidence checks; tasks that modify files use a worker that can modify files.',
-    'Tasks with no dependsOn path between them may run at the same time, up to their worker model\'s parallel slots, with',
-    'at most one task that modifies files at a time. A task that needs another task\'s output or changes must list it in',
-    'dependsOn. Split the work into parallel tasks only where that suits it.',
-    ...describeRejection('answer', input.rejectedProblems),
-    'Answer status "ready" when the supplied plan is adequate (its plan must be that plan\'s faithful manifest), "generated" when',
-    'there is no plan or the supplied one is inadequate (list what was inadequate in "issues"), or "blocked" with a "reason"',
-    'when the request cannot be planned safely (for example an ambiguous target). A command check\'s cwd is relative to the',
-    'repository root, usually ".".',
-  ].join('\n');
-}
-
-export function buildAttemptReviewPrompt(input: {
-  task: OrchestratorTask;
-  result: Pick<OrchestratorAttemptResult, 'workerOutput' | 'checks' | 'changedPaths'>;
-  preexistingDirtyPaths: readonly string[];
-  rejectedProblems: readonly string[];
-}): string {
-  return [
-    `Phase: review the evidence for task '${input.task.id}' (${input.task.title}).`,
-    'Acceptance criteria:', ...input.task.acceptance.map((entry) => `- ${entry}`),
-    'Evidence checks to confirm yourself with repository tools:',
-    ...input.task.verification.filter((check) => check.kind === 'evidence').map((check) => `- ${formatCheck(check)}`),
-    'Recorded command results:', ...input.result.checks.map(formatCheckResult),
-    `Changed paths: ${input.result.changedPaths.join(', ') || '(none)'}`,
-    describePreexistingChanges('task', input.preexistingDirtyPaths),
-    'Worker report (a claim, not evidence):', input.result.workerOutput,
-    'Read the cited files yourself. Pass only when every criterion is supported by repository evidence you checked.',
-    EVIDENCE_REVIEW_GUIDANCE,
-    ...describeRejection('review', input.rejectedProblems),
-  ].join('\n');
-}
-
-export function buildDriftReviewPrompt(input: {
-  task: OrchestratorTask;
-  changeDigest: string;
-  diff: string;
-  changedPaths: readonly string[];
-  openFindings: readonly OrchestratorDriftFinding[];
-  checks: readonly OrchestratorCheckResult[];
-  rejectedProblems: readonly string[];
-}): string {
-  return [
-    `Phase: critical code-drift review of step '${input.task.id}' (${input.task.title}).`,
-    `Change digest: ${input.changeDigest}. Changed paths: ${input.changedPaths.join(', ')}.`,
-    'Attributable diff of this step against its starting baseline:', '```diff', input.diff, '```',
-    'Verification results:', ...input.checks.map(formatCheckResult),
-    ...(input.openFindings.length === 0 ? [] : [
-      'Previously confirmed findings; account for every one in "resolutions" or report it again:',
-      ...input.openFindings.map((finding) => `- ${finding.id}: ${finding.title} (fix: ${finding.fix})`),
-    ]),
-    'Read applicable repository instructions (AGENTS.md, CLAUDE.md) and the touched code with its immediate callers.',
-    'Accept a finding only when ALL hold:',
-    '- This step introduced or worsened it, anchored to current file:line evidence with a short exact snippet.',
-    '- It conflicts with an applicable directive or the accepted architecture/requirements.',
-    '- It has a concrete correctness, reliability, security, performance, or lasting maintainability consequence.',
-    '- A proportionate fix removes the cause and names affected callers/tests; for overengineering, the simpler structure.',
-    '- You considered legitimate reasons for the current design and still hold the finding with high confidence.',
-    'Look for incomplete refactors, special-case patches, stale shims or parallel paths, duplicated behavior that will',
-    'diverge, unjustified hardcoding, unsafe type/IO handling, needless indirection, disproportionate abstractions, and',
-    'material test gaps. Do NOT flag formatting, naming preferences, deliberate domain constants, external-API callbacks,',
-    'necessary state-owning classes, allowed `as const`/`satisfies`, speculative future generality, or unchanged',
-    'pre-existing debt. Zero findings is a valid, desirable answer; there is no quota.',
-    'Answer status "clean" with no findings, or "actionable" with your findings; account for every previously confirmed',
-    'finding in "resolutions". Never answer "not_required": the host uses it only for steps without code changes.',
-    `Use taskId "${input.task.id}" and changeDigest "${input.changeDigest}".`,
-    ...describeRejection('report', input.rejectedProblems),
-  ].join('\n');
-}
-
-export function buildChildApprovalPrompt(input: {
-  task: OrchestratorTask;
-  purpose: OrchestratorChildPurpose;
+/** One fresh child's whole assignment: the plan task, the orchestrator's instruction, the checks, and the report it ends with. */
+export function buildChildInstruction(input: {
+  work: OrchestratorChildWork;
   attempt: number;
-  approval: RepoAgentApproval;
-}): string {
-  return [
-    `Phase: decide a subagent's permission request. Your subagent working on task '${input.task.id}' (${input.task.title}),`,
-    `${input.purpose} attempt ${input.attempt}, is paused waiting for you to approve or deny one action.`,
-    `Tool: ${input.approval.toolName}`,
-    `Requested action: ${input.approval.command}`,
-    ...(input.approval.reviewPayload === null ? [] : ['Proposed content:', input.approval.reviewPayload]),
-    `The task may write: ${input.task.writePaths.join(', ') || '(nothing)'}.`,
-    'Steps:', ...input.task.steps.map((step) => `- ${step.instruction}`),
-    'Approve only when the action is needed for this task, stays within its scope, and cannot damage unrelated work,',
-    'history, or the machine. Deny anything destructive, out of scope, or unexplained, and say why.',
-  ].join('\n');
-}
-
-export function buildCheckApprovalPrompt(input: {
-  task: OrchestratorTask | null;
-  check: OrchestratorCommandCheck;
-}): string {
-  return [
-    `Phase: decide whether to run one verification command for ${input.task === null
-      ? 'the final verification of the whole run' : `task '${input.task.id}' (${input.task.title})`}.`,
-    `Command: ${input.check.command}`,
-    `Working directory: ${input.check.cwd}`,
-    'The plan declared this check, but it runs as a real shell command in the repository.',
-    'Approve only a command that verifies the work without changing tracked files, history, or the machine.',
-    'Deny anything destructive, networked without need, or unrelated to verification, and say why.',
-  ].join('\n');
-}
-
-export function buildFinalVerificationPrompt(input: {
-  checks: readonly OrchestratorCheckResult[];
-  rejectedProblems: readonly string[];
-}): string {
-  return [
-    'Phase: final verification of the whole run.',
-    'Recorded final command results:', ...input.checks.map(formatCheckResult),
-    'Confirm each evidence check yourself with repository tools.',
-    ...describeRejection('review', input.rejectedProblems),
-    EVIDENCE_REVIEW_GUIDANCE,
-  ].join('\n');
-}
-
-/** What attempt 2 must know about attempt 1: the observed failure and the work to keep. */
-export type ImplementationRetryEvidence = {
-  failure: string;
-  checks: readonly OrchestratorCheckResult[];
-  changedPaths: readonly string[];
-  diff: string;
-};
-
-export function buildImplementationInstruction(input: {
-  task: OrchestratorTask;
-  planPath: string;
-  planHash: string;
-  attempt: number;
+  kind: HandoffKind;
   scratchPath: string;
   preexistingDirtyPaths: readonly string[];
-  retry: ImplementationRetryEvidence | null;
 }): string {
-  const { task } = input;
+  const { task } = input.work;
   return [
-    `Implement ONLY task '${task.id}' — ${task.title} — from plan ${input.planPath} (hash ${input.planHash}).`,
-    `This is implementation attempt ${input.attempt} of ${ORCHESTRATOR_MAX_ATTEMPTS}.`,
+    `${input.work.kind === 'fix' ? 'Fix' : 'Implement'} ONLY task '${task.id}' — ${task.title} — from plan ${input.work.planPath}`
+      + ` (hash ${input.work.planHash}); ${input.work.kind} attempt ${input.attempt} of ${ORCHESTRATOR_MAX_ATTEMPTS}.`,
+    'Instruction from the orchestrator:', input.work.instruction,
     `Read: ${task.readPaths.join(', ') || '(as needed)'}`,
-    `Allowed to modify: ${task.writePaths.join(', ') || '(nothing; this task is read-only)'}`,
+    `Expected to change: ${task.writePaths.join(', ') || '(nothing; this task is read-only)'}`,
     `Scratch directory for temporary files: ${input.scratchPath}`,
-    'Steps:', ...task.steps.map((step, index) => `${index + 1}. ${step.instruction} Expected: ${step.expectedResult}`),
-    'Verification you must run and pass:', ...task.verification.map((check) => `- ${formatCheck(check)}`),
-    'Acceptance:', ...task.acceptance.map((entry) => `- ${entry}`),
+    'Steps (by index):', ...task.steps.map((step, index) => `${index}. ${step.instruction} Expected: ${step.expectedResult}`),
+    'Checks (code runs every command check when you finish; they must pass):', ...task.verification.map((check) => `- ${formatCheck(check)}`),
+    'Acceptance criteria (by index):', ...task.acceptance.map((entry, index) => `${index}. ${entry}`),
     ...(input.preexistingDirtyPaths.length === 0 ? [] : [
       `These files already had uncommitted changes before you started; preserve them: ${input.preexistingDirtyPaths.join(', ')}`,
     ]),
-    ...(input.retry === null ? [] : [
-      'The previous attempt failed. Keep its successful work and fix exactly this:', input.retry.failure,
-      'Observed check results:', ...input.retry.checks.map(formatCheckResult),
-      `Files it changed: ${input.retry.changedPaths.join(', ') || '(none)'}`,
-      'Its diff:', '```diff', input.retry.diff, '```',
-    ]),
-    'Use TDD where behavior changes. Do not commit, do not create a plan, and do not work on any other task.',
-    'Put temporary files only in the scratch directory. Report changed files and verification results.',
-  ].join('\n');
-}
-
-export function buildDriftCorrectionPrompt(work: OrchestratorDriftCorrectionWork, retryEvidence: string | null): string {
-  const bullets = work.findings.flatMap((finding) => [
-    `- ${finding.id}: ${finding.title}`,
-    `  Evidence: ${finding.evidence.map((item) => `${item.path}:${item.line} ${item.snippet}`).join('; ')}`,
-    `  Directive: ${finding.directive}`,
-    `  Purpose: ${finding.purpose}`,
-    `  Impact: ${finding.impact}`,
-    `  Fix: ${finding.fix}`,
-  ]);
-  return [
-    `Resolve only the confirmed drift in step ${work.taskId}. Objective: ${work.objective}`,
-    ...bullets,
-    `Allowed files: ${work.allowedPaths.join(', ')}`,
-    'Verify the corrections and preserve the original task acceptance:', ...work.verification.map((check) => `- ${formatCheck(check)}`),
-    ...(retryEvidence === null ? [] : ['The previous correction did not resolve the drift:', retryEvidence]),
-    'Preserve successful work and unrelated edits. Do not create a new plan or commit.',
-    'Reproduce behavioral defects with a failing regression test before fixing them.',
-    'Use existing behavior checks for structural-only changes; avoid tests that mirror implementation.',
-    'Report changed files, verification results, and unresolved findings.',
+    input.kind === 'agent'
+      ? 'Use TDD where behavior changes. Do not commit, do not create a plan, and do not work on any other task.'
+      : 'Answer from the repository only. Do not change files.',
+    `When you finish, failing checks come back to you here; you may resubmit ${ORCHESTRATOR_MAX_RESUBMITS} times.`,
+    renderReportInstruction(input.kind),
   ].join('\n');
 }

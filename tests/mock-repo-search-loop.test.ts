@@ -1093,6 +1093,32 @@ test('runTaskLoop compacts an overflowing repo-agent history and continues from 
   assert.equal(result.compactionSummary, 'SUMMARY: earlier turns collected planner references under src/.');
 });
 
+test('runTaskLoop lets a compacted run read again what the summary replaced', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(path.join(repoRoot, 'target.ts'), Array.from({ length: 40 }, (_, index) => `line-${index + 1} ${'x'.repeat(200)}`).join('\n'), 'utf8');
+  const events: JsonObject[] = [];
+  const read = { toolCalls: [{ name: 'read', arguments: { path: 'target.ts', offset: 1, limit: 40 } }] };
+  const result = await runTaskLoop({ id: 'task-reread-after-compaction', question: 'Read target file.' }, {
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION, ...MOCK_LOOP_DEFAULTS, repoRoot,
+    runtimeProfile: new RepoSearchRuntimeProfile('repo-agent'),
+    maxTurns: 5, maxInvalidResponses: 2, minToolCallsBeforeFinish: 0,
+    // Turn 1 fits the 17000-token prompt budget (about 16.6k). Tool output is clipped to fit, so turn 1's
+    // 2000-character narration is what pushes turn 2 over it.
+    totalContextTokens: 32000,
+    historyMessages: [{ role: 'assistant', content: 'H'.repeat(65_000) }],
+    plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
+    mockResponses: [{ ...read, content: 'P'.repeat(2_000) }, { content: 'SUMMARY: target.ts was read.' }, read, ...repoAgentFinishResponses('done')],
+    mockCommandResults: {},
+    logger: { path: 'memory', write(event: Record<string, JsonSerializable>) { events.push(parseLoggedEvent(event)); } },
+  });
+
+  assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 1);
+  const reads = result.commands.filter((command) => command.command.startsWith('read'));
+  assert.equal(reads.length, 2);
+  assert.equal(reads[1].safe, true, String(reads[1].output));
+  assert.match(String(reads[1].output), /^1: line-1 /mu);
+});
+
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;
@@ -2521,7 +2547,7 @@ for (const taskKind of ['repo-agent', 'chat'] as const) {
     );
     assert.equal(starts.length, 1);
     assert.equal(starts[0]?.turn, 2);
-    assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 1);
+  assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 1);
 
     const reissued = result.commands[1];
     assert.equal(reissued?.safe, true);

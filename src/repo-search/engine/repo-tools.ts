@@ -11,7 +11,7 @@ import { applyEolStyle, detectEolStyle, readSourceText, readTextFileWithEncoding
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
 import type { ToolTranscriptAction } from '../../tool-call-messages.ts';
 import { spawnDirectCommand } from '../../lib/command-spawn.ts';
-import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.ts';
+import { buildAgentRunEnv } from '../../lib/agent-run-marker.ts';
 import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.ts';
 import type {
   EditToolArgs,
@@ -88,6 +88,8 @@ export type RepoToolContext = {
   abortSignal?: AbortSignal;
   expandReads: boolean;
   agentRunId: string;
+  /** The status server holding the run's model lock, for the nested-run marker. */
+  agentServerUrl: string;
   visionEnabled: boolean;
   /** 0 refuses images on every path, including this one. -1 is unbounded. */
   visionImageRetention: number;
@@ -278,6 +280,15 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
   }
   if (toolName === 'show_image') {
     return formatToolCommand('show_image', [['path', readString(args.path)]]);
+  }
+  if (toolName === 'run_check') {
+    return formatToolCommand('run_check', [['command', readString(args.command)], ['cwd', readString(args.cwd)]]);
+  }
+  if (toolName === 'record_review') {
+    return formatToolCommand('record_review', [['taskId', readString(args.taskId)], ['verdict', readString(args.verdict)]]);
+  }
+  if (toolName === 'decide') {
+    return formatToolCommand('decide', [['approvalId', readString(args.approvalId)], ['decision', readString(args.decision)]]);
   }
   return formatToolCommand(toolName, []);
 }
@@ -895,7 +906,7 @@ async function executeRun(args: RunToolArgs, context: RepoToolContext): Promise<
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,
     timeoutMs: args.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS,
-    env: { [AGENT_RUN_ID_ENV]: context.agentRunId },
+    env: buildAgentRunEnv(context.agentRunId, context.agentServerUrl),
   });
   return {
     ok: true, requestedCommand: command, command,

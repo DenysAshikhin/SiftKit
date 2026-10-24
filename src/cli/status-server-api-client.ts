@@ -365,7 +365,7 @@ export class StatusServerApiClient {
   }
 
   private async postOrchestrator(pathname: string, body: JsonSerializable): Promise<OrchestratorRunState> {
-    const nestedAgentRunId = readNestedAgentRunId();
+    const nestedAgentRunId = readNestedAgentRunId(this.getServiceUrl(pathname));
     try {
       return await this.client.requestJson({
         url: this.getServiceUrl(pathname), method: 'POST', body: JSON.stringify(body), timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
@@ -513,7 +513,7 @@ export class StatusServerApiClient {
   ): Promise<T> {
     const startedAt = Date.now();
     try {
-      const nestedAgentRunId = readNestedAgentRunId();
+      const nestedAgentRunId = readNestedAgentRunId(this.getServiceUrl(pathname));
       const stream = streamOperationResult(this.client, {
         ...(nestedAgentRunId ? { headers: { [AGENT_RUN_ID_HEADER]: nestedAgentRunId } } : {}),
         url: this.getServiceUrl(pathname),

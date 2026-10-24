@@ -61,7 +61,10 @@ import { TranscriptManager } from './transcript-manager.ts';
 import { TurnBudget, type AvailableToolResultCapacity } from './turn-budget.ts';
 import {
   RepoNativeToolCallSchema,
+  isOrchestratorToolCall,
+  isOrchestratorToolName,
   type AskUserToolArgs,
+  type OrchestratorToolCall,
   type RepoExecutableToolCall,
   type RepoNativeToolCall,
 } from '../repo-tool-arguments.ts';
@@ -71,6 +74,7 @@ import {
   resolveToolActionIdentity,
 } from './pending-tool-call-message.ts';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
+import type { OrchestratorToolHost } from './orchestrator-tool-host.ts';
 import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.ts';
 
 type RunOutputDecision = ReturnType<RepoSearchRuntimeProfile['beginRun']>;
@@ -164,6 +168,8 @@ type RepeatKind = keyof typeof REPEAT_KINDS;
 export type ToolActionProcessorDeps = {
   task: TaskDefinition;
   repoRoot: string;
+  /** The status server holding the run's model lock. */
+  agentServerUrl: string;
   config: SiftConfig | undefined;
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   abortSignal?: AbortSignal;
@@ -176,6 +182,8 @@ export type ToolActionProcessorDeps = {
   evidenceRecorder: ChatRunEvidenceRecorder | null;
   /** The Web run's question channel; ask_user parks here. */
   questionGate: QuestionGate | null;
+  /** The orchestrator run that executes its parent's own tools; absent for every other run. */
+  orchestratorTools: OrchestratorToolHost | null;
   runtimeProfile: RepoSearchRuntimeProfile;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;
@@ -751,8 +759,9 @@ export class ToolActionProcessor {
       fingerprint,
       rejected: false,
     });
-    // A repeated `read` is legitimate: planRead advances past already-returned lines each time.
-    const canAdvanceRepeatedRead = normalizedToolName === 'read';
+    // A repeated `read` is legitimate: planRead advances past already-returned lines each time. An orchestrator
+    // tool answers from the run's current state, so repeating one is never a duplicate either.
+    const repeatsByDesign = normalizedToolName === 'read' || isOrchestratorToolName(normalizedToolName);
     // A repeated `run` is legitimate exactly once: when it is the granted back-to-back "full"
     // retry of a command whose first "full" request was served as "auto".
     const canAdvanceRepeatedRun = runFullOutputDecision?.kind === 'retry';
@@ -775,7 +784,7 @@ export class ToolActionProcessor {
       }
     }
     if (
-      !canAdvanceRepeatedRead
+      !repeatsByDesign
       && !canAdvanceRepeatedRun
       && (completedRepeatedRun || isExactDuplicate || isSemanticDuplicate)
     ) {
@@ -880,7 +889,16 @@ export class ToolActionProcessor {
   private async executeTool(turn: number, state: TurnBatchState, context: AcceptedToolContext): Promise<RepoToolExecution> {
     const call = context.nativeCall;
     if (call.toolName === 'ask_user') return this.askUser(turn, state, context.progressToolCallId, call.args, context.command);
+    if (isOrchestratorToolCall(call)) return this.runOrchestratorTool(call, context.command);
     return this.runNativeExecution(call, context.command, context.runFullOutputDecision);
+  }
+
+  /** The host's answer is the tool result; orchestrator tools are offered only to runs given a host. */
+  private async runOrchestratorTool(call: OrchestratorToolCall, command: string): Promise<RepoToolExecution> {
+    const host = this.deps.orchestratorTools;
+    if (!host) throw new Error(`${call.toolName} reached a run without an orchestrator host.`);
+    const outcome = await host.execute(call);
+    return { ok: true, requestedCommand: command, command, exitCode: outcome.ok ? 0 : 1, output: outcome.output, toolType: call.toolName };
   }
 
   /** The user's answer is the tool result; an unanswered question closes the call, then ends the run. */
@@ -950,6 +968,7 @@ export class ToolActionProcessor {
           abortSignal: this.deps.abortSignal,
           expandReads: isReadExpansionEnabled(this.deps.config),
           agentRunId: this.deps.task.id,
+          agentServerUrl: this.deps.agentServerUrl,
           visionEnabled: this.deps.visionEnabled,
           visionImageRetention: this.deps.visionImageRetention,
           visionMaxImagePixels: this.deps.visionMaxImagePixels,
@@ -1365,7 +1384,8 @@ export class ToolActionProcessor {
     if (isTreeMutatingToolName(normalizedToolName)) {
       this.deps.duplicates.forgetSuccesses();
     }
-    if (normalizedToolName === 'run') {
+    // Commands and children can rewrite any file, so every earlier read is stale.
+    if (normalizedToolName === 'run' || normalizedToolName === 'run_check' || normalizedToolName === 'dispatch' || normalizedToolName === 'decide') {
       this.deps.readWindows.invalidateAll();
       return;
     }

@@ -2,21 +2,21 @@ import { OrchestratorChildRequestSchema, type OrchestratorChildRequest, type Orc
 
 import type { SiftConfig } from '../config/types.ts';
 import type { RepoAgentRunResult } from '../repo-agent/run-schemas.ts';
+import type { SubmissionGate } from '../repo-search/engine/submission-gate.ts';
 import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
 import { startRepoWorkerRun } from '../status-server/routes/repo-agent.ts';
 import type { ServerContext } from '../status-server/server-types.ts';
 import { requireOrchestratorWorkerPreset } from './plan.ts';
 
 /**
- * Starts one reserved child through the ordinary worker lifecycle. Its approvals park at the
- * boundary for the parent run, and the parent task already owns the repository.
+ * Starts one reserved child through the ordinary worker lifecycle. It reviews its own risky actions on its
+ * own model, and only what that review cannot approve parks at the boundary for the parent run. Code judges
+ * every finish through `submission`, and the parent task already owns the repository.
  */
-export function startOrchestratorChild(ctx: ServerContext, config: SiftConfig, input: OrchestratorChildRequest): RepoAgentSession {
+export function startOrchestratorChild(ctx: ServerContext, config: SiftConfig, input: OrchestratorChildRequest,
+  submission: SubmissionGate): RepoAgentSession {
   const request = OrchestratorChildRequestSchema.parse(input);
   const preset = requireOrchestratorWorkerPreset(config, { id: request.taskId, workerPresetId: request.workerPresetId });
-  if (request.work.kind === 'drift_fix' && preset.presetKind !== 'repo-agent') {
-    throw new Error(`Drift corrections run on a repo-agent worker, not '${preset.id}'.`);
-  }
   return startRepoWorkerRun(ctx, {
     runId: request.childRunId,
     requestId: request.childRunId,
@@ -25,11 +25,12 @@ export function startOrchestratorChild(ctx: ServerContext, config: SiftConfig, i
     presetId: preset.id,
     prompt: request.instruction,
     repoRoot: request.repoRoot,
-    approvalMode: request.approval,
+    approvalMode: 'auto',
     approvalDelivery: 'boundary',
     webToolsEnabled: undefined,
     allowedTools: [...preset.allowedTools],
     modelQueueTimeout: 'none',
+    submissionGate: submission,
   }).session;
 }
 

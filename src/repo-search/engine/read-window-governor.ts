@@ -61,7 +61,7 @@ export class ReadWindowGovernor {
     fileReadState.mergedReturnedRanges = [];
   }
 
-  /** Same as invalidatePath, for tools that mutate without reporting which paths they touched. */
+  /** Same as invalidatePath for every file: after an unreported mutation, or a compaction that dropped earlier reads. */
   invalidateAll(): void {
     for (const fileReadState of this.fileReadStateByPath.values()) {
       fileReadState.mergedReturnedRanges = [];

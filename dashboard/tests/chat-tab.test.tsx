@@ -535,7 +535,7 @@ test('orchestrator mode starts a run for the saved repository and shows its live
   const running = OrchestratorRunStateSchema.parse({
     runId: ORCHESTRATOR_RUN_ID,
     request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
-    revision: 1, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], phaseRunIds: [],
+    revision: 1, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], parentRunIds: [],
     approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
   });
   globalThis.fetch = async (input, init) => {
@@ -579,13 +579,13 @@ test('orchestrator mode hands the live activity and the last work phase to the r
     request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
     revision: 2, phase: 'approval_required', planPath: 'plan.md', planHash: 'h',
     plan: { goal: 'Greet', constraints: [], tasks: [task], finalVerification: [check] },
-    tasks: [{ taskId: 'greet', status: 'running', driftReview: null, reviewedDigests: [] }], attempts: [], phaseRunIds: [],
+    tasks: [{ taskId: 'greet', status: 'running', review: null }], attempts: [], parentRunIds: [],
     approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
   });
   const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'executing', message: 'Executing.',
     taskId: null, purpose: null, attempt: null, childRunId: null };
   const activity = OrchestratorActivitySchema.parse({ runId: ORCHESTRATOR_RUN_ID, children: [{ childRunId, taskId: 'greet',
-    waitingForModel: false, turn: 2, maxTurns: 40, promptTokens: 100, tools: [] }], schedule: null });
+    waitingForModel: false, turn: 2, maxTurns: 40, promptTokens: 100, tools: [] }], parent: null, schedule: null });
   const encoder = new TextEncoder();
   globalThis.fetch = async (input) => {
     const url = String(input);
@@ -600,7 +600,7 @@ test('orchestrator mode hands the live activity and the last work phase to the r
     const view = renderComponent(<ChatTab {...orchestratorProps()} />);
     await screen.findByLabelText(`Agent ${childRunId}`);
     const steps = screen.getAllByRole('listitem', { name: /step$/u }).map((step) => step.getAttribute('data-status'));
-    assert.deepEqual(steps, ['done', 'done', 'now', 'todo', 'todo'], 'the approval pause still shows the Execute step');
+    assert.deepEqual(steps, ['done', 'now', 'todo', 'todo'], 'the approval pause still shows the Execute step');
     view.unmount();
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -612,7 +612,7 @@ test('orchestrator mode re-reads its session each time the run commits a new rev
   const running = OrchestratorRunStateSchema.parse({
     runId: ORCHESTRATOR_RUN_ID,
     request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'hi', planPath: null },
-    revision: 2, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], phaseRunIds: [],
+    revision: 2, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], parentRunIds: [],
     approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
   });
   const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'completed', message: 'Done.',

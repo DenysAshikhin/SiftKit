@@ -1,12 +1,15 @@
-import type {
-  OrchestratorPlan,
-  OrchestratorSchedule,
-  OrchestratorTask,
-  OrchestratorTaskClaim,
-  OrchestratorTaskState,
-  OrchestratorTaskStatus,
-  OrchestratorTaskWait,
-  SiftPreset,
+import {
+  ORCHESTRATOR_MAX_ATTEMPTS,
+  type OrchestratorAttempt,
+  type OrchestratorChildPurpose,
+  type OrchestratorPlan,
+  type OrchestratorSchedule,
+  type OrchestratorTask,
+  type OrchestratorTaskClaim,
+  type OrchestratorTaskState,
+  type OrchestratorTaskStatus,
+  type OrchestratorTaskWait,
+  type SiftPreset,
 } from '@siftkit/contracts';
 
 import { getActiveModelPreset } from '../config/getters.ts';
@@ -23,7 +26,7 @@ export function workerModelPreset(config: SiftConfig, worker: SiftPreset): Model
   return resolveModelRequestContext(config, getActiveModelPreset(config), { presetId: worker.id, model: null }).modelPreset;
 }
 
-/** What a task claims while it runs: one parallel slot of its worker's model, and the writer slot if it mutates. */
+/** What a task claims while its child runs: one parallel slot of its worker's model, and the writer slot if it mutates. */
 type HeldClaim = OrchestratorTaskClaim & { slots: number };
 
 function taskClaim(config: SiftConfig, task: OrchestratorTask): HeldClaim {
@@ -41,39 +44,64 @@ function taskWait(task: OrchestratorTask, claim: HeldClaim, status: ReadonlyMap<
   return null;
 }
 
+const DISPATCHABLE_STATUSES: Record<OrchestratorChildPurpose, readonly OrchestratorTaskStatus[]> = {
+  implementation: ['pending', 'reviewing'],
+  fix: ['reviewing', 'completed'],
+};
+
+function describeWait(wait: OrchestratorTaskWait): string {
+  switch (wait.kind) {
+    case 'dependencies':
+      return `its dependencies are not complete: ${wait.taskIds.join(', ')}`;
+    case 'writer_slot':
+      return 'another task in this dispatch already changes files';
+    case 'model_slot':
+      return `model ${wait.modelId} has no free parallel slot`;
+  }
+}
+
+export type DispatchRequest = { task: OrchestratorTask; purpose: OrchestratorChildPurpose };
+
 /**
- * One scheduling pass in plan order. A task is ready once every dependency completed. Each task takes one
- * parallel slot of its worker's model, and at most one mutating task runs at a time. The schedule records
- * why every other pending task waits, so no viewer re-derives these rules.
+ * Whether the requested children may start together. Each needs a task status its purpose allows, an attempt
+ * left, complete dependencies, and a slot of its worker's model; at most one of them changes files. The schedule
+ * records the claims and why every other pending task waits, so no viewer re-derives these rules.
  */
-export function schedulePass(input: {
+export function planDispatch(input: {
   config: SiftConfig;
   plan: OrchestratorPlan;
   taskStates: readonly OrchestratorTaskState[];
-  active: readonly OrchestratorTask[];
-}): { start: OrchestratorTask[]; schedule: OrchestratorSchedule } {
+  attempts: readonly OrchestratorAttempt[];
+  requested: readonly DispatchRequest[];
+}): { problems: string[]; schedule: OrchestratorSchedule } {
   const status = new Map(input.taskStates.map((state) => [state.taskId, state.status]));
-  const activeIds = new Set(input.active.map((task) => task.id));
-  const held = input.active.map((task) => taskClaim(input.config, task));
-  const start: OrchestratorTask[] = [];
-  const waits: OrchestratorSchedule['waits'] = [];
-  for (const task of input.plan.tasks) {
-    if (status.get(task.id) !== 'pending' || activeIds.has(task.id)) continue;
+  const held: HeldClaim[] = [];
+  const problems: string[] = [];
+  for (const { task, purpose } of input.requested) {
+    const current = status.get(task.id) ?? 'pending';
+    const used = input.attempts.filter((attempt) => attempt.taskId === task.id && attempt.purpose === purpose).length;
     const claim = taskClaim(input.config, task);
     const wait = taskWait(task, claim, status, held);
-    if (wait !== null) {
-      waits.push({ taskId: task.id, wait });
-      continue;
-    }
+    if (held.some((other) => other.taskId === task.id)) problems.push(`Task '${task.id}' appears twice in this dispatch.`);
+    else if (!DISPATCHABLE_STATUSES[purpose].includes(current)) problems.push(`Task '${task.id}' is ${current}; ${purpose} work needs it ${DISPATCHABLE_STATUSES[purpose].join(' or ')}.`);
+    else if (purpose === 'fix' && !input.attempts.some((attempt) => attempt.taskId === task.id && attempt.status === 'settled')) {
+      problems.push(`Task '${task.id}' has no settled attempt to fix.`);
+    } else if (used >= ORCHESTRATOR_MAX_ATTEMPTS) problems.push(`Task '${task.id}' used all ${ORCHESTRATOR_MAX_ATTEMPTS} ${purpose} attempts.`);
+    else if (wait !== null) problems.push(`Task '${task.id}' cannot start: ${describeWait(wait)}.`);
     held.push(claim);
-    start.push(task);
   }
+  const requestedIds = new Set(input.requested.map(({ task }) => task.id));
+  const waits: OrchestratorSchedule['waits'] = input.plan.tasks.flatMap((task) => {
+    if (status.get(task.id) !== 'pending' || requestedIds.has(task.id)) return [];
+    const wait = taskWait(task, taskClaim(input.config, task), status, held);
+    return wait === null ? [] : [{ taskId: task.id, wait }];
+  });
   const claims = input.plan.tasks.map((task) => taskClaim(input.config, task));
   const models = [...new Map(claims.map((claim) => [claim.modelId, claim.slots]))].map(([modelId, slots]) => ({
     modelId, slots, used: held.filter((claim) => claim.modelId === modelId).length,
   }));
   return {
-    start,
+    problems,
     schedule: {
       claims: claims.map(({ taskId, modelId, mutating, contextTokens }) => ({ taskId, modelId, mutating, contextTokens })),
       models, writerUsed: held.some((claim) => claim.mutating), waits,

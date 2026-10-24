@@ -1,5 +1,13 @@
 import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.ts';
-import { CHAT_QUESTION_MAX_CHOICES } from '@siftkit/contracts';
+import {
+  CHAT_QUESTION_MAX_CHOICES,
+  OrchestratorDecideArgsSchema,
+  OrchestratorDispatchArgsSchema,
+  OrchestratorRecordReviewArgsSchema,
+  OrchestratorRunCheckArgsSchema,
+  OrchestratorSavePlanArgsSchema,
+  OrchestratorUpdateTasksArgsSchema,
+} from '@siftkit/contracts';
 import { z } from '../lib/zod.ts';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.ts';
 
@@ -169,6 +177,12 @@ export const REPO_TOOL_ARGUMENT_SCHEMAS = {
   web_fetch: WebFetchToolArgsSchema,
   ask_user: AskUserToolArgsSchema,
   show_image: ShowImageToolArgsSchema,
+  save_plan: OrchestratorSavePlanArgsSchema,
+  update_tasks: OrchestratorUpdateTasksArgsSchema,
+  dispatch: OrchestratorDispatchArgsSchema,
+  decide: OrchestratorDecideArgsSchema,
+  run_check: OrchestratorRunCheckArgsSchema,
+  record_review: OrchestratorRecordReviewArgsSchema,
 } as const;
 
 export type RepoToolName = keyof typeof REPO_TOOL_ARGUMENT_SCHEMAS;
@@ -189,12 +203,34 @@ const REPO_EXECUTABLE_TOOL_CALLS = [
 
 /** What the repository executes; ask_user is answered by the person in the chat, never run here. */
 export const RepoExecutableToolCallSchema = z.discriminatedUnion('toolName', REPO_EXECUTABLE_TOOL_CALLS);
+/** Calls the orchestrator host executes against its run, never the repository tools. */
+const ORCHESTRATOR_TOOL_CALLS = [
+  z.object({ toolName: z.literal('save_plan'), args: OrchestratorSavePlanArgsSchema }).strict(),
+  z.object({ toolName: z.literal('update_tasks'), args: OrchestratorUpdateTasksArgsSchema }).strict(),
+  z.object({ toolName: z.literal('dispatch'), args: OrchestratorDispatchArgsSchema }).strict(),
+  z.object({ toolName: z.literal('decide'), args: OrchestratorDecideArgsSchema }).strict(),
+  z.object({ toolName: z.literal('run_check'), args: OrchestratorRunCheckArgsSchema }).strict(),
+  z.object({ toolName: z.literal('record_review'), args: OrchestratorRecordReviewArgsSchema }).strict(),
+] as const;
+export const OrchestratorToolCallSchema = z.discriminatedUnion('toolName', [...ORCHESTRATOR_TOOL_CALLS]);
+export type OrchestratorToolCall = z.infer<typeof OrchestratorToolCallSchema>;
+const ORCHESTRATOR_TOOL_CALL_NAMES = new Set<string>(ORCHESTRATOR_TOOL_CALLS.map((call) => call.shape.toolName.value));
+
 export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
   ...REPO_EXECUTABLE_TOOL_CALLS,
   z.object({ toolName: z.literal('ask_user'), args: AskUserToolArgsSchema }).strict(),
+  ...ORCHESTRATOR_TOOL_CALLS,
 ]);
 
 export type RepoNativeToolCall = z.infer<typeof RepoNativeToolCallSchema>;
+
+export function isOrchestratorToolCall(call: RepoNativeToolCall): call is OrchestratorToolCall {
+  return isOrchestratorToolName(call.toolName);
+}
+
+export function isOrchestratorToolName(toolName: string): boolean {
+  return ORCHESTRATOR_TOOL_CALL_NAMES.has(toolName);
+}
 export type RepoExecutableToolCall = z.infer<typeof RepoExecutableToolCallSchema>;
 export type ReadToolArgs = z.infer<typeof ReadToolArgsSchema>;
 export type GrepToolArgs = z.infer<typeof GrepToolArgsSchema>;
