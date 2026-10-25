@@ -263,7 +263,7 @@ test('a writer and a reader dispatched together run at once and the reader is ne
   await context.harness.assignOperationModel('repo-agent', MODEL_A);
   const reader = { ...READ_TASK, verification: [WAIT_FOR_TARGET] };
   engine.parent.push([savePlan(planOf([WRITE_TASK, reader])), dispatch({ taskId: 'greeting' }, { taskId: 'read-app' }),
-    review('greeting', 'pass'), review('read-app', 'pass'), COMPLETE]);
+    review('greeting', 'pass'), COMPLETE]);
   // The two children may reach the engine in either order, so each answers by its own prompt.
   const child = (request: RepoSearchExecutionRequest) => (request.prompt.includes('Report the value of app') ? READER : WRITER);
   engine.children.push(child, child);
@@ -312,7 +312,7 @@ test('update_tasks revises the saved plan and its Markdown, and save_plan only m
   const { engine } = context;
   engine.parent.push([savePlan(),
     tool('update_tasks', { update: [{ taskId: 'greeting', set: { title: 'Write the greeting module' } }], add: [READ_TASK] }),
-    savePlan(), tool('update_tasks', { remove: ['nowhere'] }), dispatch({ taskId: 'read-app' }), review('read-app', 'pass'),
+    savePlan(), tool('update_tasks', { remove: ['nowhere'] }), dispatch({ taskId: 'read-app' }),
     { content: '{"status":"blocked","reason":"Stop after the reader."}' }]);
   engine.children.push(READER);
 
@@ -326,6 +326,28 @@ test('update_tasks revises the saved plan and its Markdown, and save_plan only m
   assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['greeting', 'pending'], ['read-app', 'completed']]);
   assert.ok(state.planPath);
   assert.match(fs.readFileSync(path.join(context.repo, state.planPath ?? ''), 'utf8'), /Write the greeting module/u);
+});
+
+test('a read-only task is decided by its checks: a pass completes it unreviewed, a failure returns it for one more attempt', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-read-only-');
+  const { engine } = context;
+  const failing = { ...READ_TASK, id: 'read-fail', verification: [{ ...PASSING_CHECK, command: 'exit 1' }] };
+  engine.parent.push([savePlan(planOf([READ_TASK, failing])), dispatch({ taskId: 'read-app' }), review('read-app', 'pass'),
+    dispatch({ taskId: 'read-fail' }), dispatch({ taskId: 'read-fail' }),
+    { content: '{"status":"blocked","reason":"The failing survey never passed."}' }]);
+  const failingReader = [tool('read', { path: 'src/app.ts' }), SEARCH_REPORT, SEARCH_REPORT, SEARCH_REPORT];
+  engine.children.push(READER, failingReader, failingReader);
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.failure?.code, 'blocked', [JSON.stringify(state.failure), ...engine.parentToolOutputs()].join('\n---\n'));
+  const [, passed, refused, firstFailure, lastFailure] = engine.parentToolOutputs();
+  assert.match(passed ?? '', /- read-app: completed \(implementation 1\/2/u);
+  assert.match(refused ?? '', /Task 'read-app' is read-only; its checks decide it, so it takes no review\./u);
+  assert.match(firstFailure ?? '', /- read-fail: pending \(implementation 1\/2/u);
+  assert.match(lastFailure ?? '', /- read-fail: failed \(implementation 2\/2/u);
+  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status, task.review]), [['read-app', 'completed', null], ['read-fail', 'failed', null]]);
+  assert.equal(events.some((event) => / reviewing\.$/u.test(event.message)), false, 'no read-only task waits for a review');
 });
 
 test('a child releases its model while its submission checks run, and the checks carry no nested-run marker', async (t) => {
@@ -631,7 +653,7 @@ test('a run keeps the configuration it started with when presets change mid-run'
   const { engine } = context;
   const dependent = { ...READ_TASK, dependsOn: ['greeting'] };
   engine.parent.push([savePlan(planOf([WRITE_TASK, dependent])), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'),
-    dispatch({ taskId: 'read-app' }), review('read-app', 'pass'), COMPLETE]);
+    dispatch({ taskId: 'read-app' }), COMPLETE]);
   engine.children.push(ESCALATING_WRITER, READER);
   const started = await startRun(context, 'interactive');
   const following = followRun(context, started.runId);

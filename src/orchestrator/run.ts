@@ -559,10 +559,22 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       changeDigest: changes.digest,
     };
     this.publish(this.ctx.orchestratorRunStore.recordAttemptResult(this.runId, this.state.revision, result));
-    this.setTaskStatus(child.task.id, 'reviewing');
+    if (child.mutating) this.setTaskStatus(child.task.id, 'reviewing');
+    else this.settleReadOnlyTask(child.task, result.passed);
     const diffstat = await diffstatWorkspace({ repoRoot: this.request.repoRoot, baseline: child.baseline, paths: changes.paths,
       scratchDir: orchestratorScratchDir(this.runId) });
     this.unreported.push({ result, diffstat });
+  }
+
+  /** A read-only task changes nothing to review: its checks decide it, and a failed one waits for its next attempt. */
+  private settleReadOnlyTask(task: OrchestratorTask, passed: boolean): void {
+    if (passed) {
+      this.setTaskStatus(task.id, 'completed');
+      this.cleanupTaskTemporaries(task);
+      return;
+    }
+    const used = this.state.attempts.filter((attempt) => attempt.taskId === task.id && attempt.purpose === 'implementation').length;
+    this.setTaskStatus(task.id, used >= ORCHESTRATOR_MAX_ATTEMPTS ? 'failed' : 'pending');
   }
 
   private hasUnannouncedEscalation(): boolean {
@@ -586,7 +598,9 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     });
     const reports = this.unreported.splice(0).map((entry) => {
       const report = renderAttemptForParent(entry.result, entry.diffstat);
-      this.awaitingReview.set(entry.result.taskId, report);
+      if (this.state.tasks.some((task) => task.taskId === entry.result.taskId && task.status === 'reviewing')) {
+        this.awaitingReview.set(entry.result.taskId, report);
+      }
       return report;
     });
     const running = [...this.live.values()].map((child) => `${child.task.id} (${child.attempt.purpose} attempt ${child.attempt.attempt})`);
@@ -711,6 +725,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const task = this.state.plan?.tasks.find((entry) => entry.id === args.taskId);
     const taskState = this.state.tasks.find((entry) => entry.taskId === args.taskId);
     if (task === undefined || taskState === undefined) return this.refuse([`Task '${args.taskId}' is not in the saved plan.`]);
+    if (!isMutatingTask(this.config, task)) return this.refuse([`Task '${args.taskId}' is read-only; its checks decide it, so it takes no review.`]);
     if (taskState.status !== 'reviewing') return this.refuse([`Task '${args.taskId}' is ${taskState.status}; only a reported task is reviewed.`]);
     const attempt = this.state.attempts.filter((entry) => entry.taskId === args.taskId && entry.result !== null).at(-1);
     const result = attempt?.result ?? null;

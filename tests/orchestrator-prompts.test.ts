@@ -56,10 +56,13 @@ test('the orchestrator prompt carries the planning rules that keep tasks small a
 
 test('the orchestrator prompt delegates code exploration to survey tasks and revises plans with update_tasks', () => {
   const prompt = buildOrchestratorPrompt(brief());
-  for (const rule of ['Leave code exploration to subagents', 'Survey first', 'at most 4 survey tasks', 'fits in one report', 'two at a time', 'add the implementation tasks with update_tasks',
-    'writePaths are guidance, not a limit', 'never to read files or search code', 'line counts, not the code']) {
+  for (const rule of ['Leave code exploration to subagents', 'Survey first', 'at most 2 survey tasks', 'fits in one report',
+    'A survey is not reviewed', 'Survey again', 'at most 4 surveys in total', 'add the implementation tasks with update_tasks',
+    'Review every reported task that changes files', 'writePaths are guidance, not a limit', 'never to read files or search code',
+    'line counts, not the code']) {
     assert.ok(prompt.includes(rule), rule);
   }
+  assert.equal(prompt.includes('review each'), false, 'surveys are never sent for review');
 });
 
 test('a supplied plan is quoted whole, and the task line says to execute it when no task was given', () => {
