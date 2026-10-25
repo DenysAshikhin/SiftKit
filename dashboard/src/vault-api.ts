@@ -125,6 +125,12 @@ export function getVaultStats(token: string): Promise<VaultStats> {
   return request('/stats', token, VaultStatsSchema);
 }
 
+/** An embed's bytes; `target` is the embed path (`attachments/captures/<id>.png`). A removed file rejects with status 404. */
+export async function fetchVaultAttachment(token: string, target: string): Promise<Blob> {
+  const relativePath = target.replace(/^attachments\//u, '').split('/').map(encodeURIComponent).join('/');
+  return (await send(`/attachments/${relativePath}`, token)).blob();
+}
+
 /** The export is a zip archive, so it bypasses the JSON parse in `request`. */
 export async function exportVaultArchive(token: string): Promise<Blob> {
   return (await send('/export', token, { method: 'POST' })).blob();

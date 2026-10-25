@@ -7,6 +7,7 @@ import {
 import { z } from '../../lib/zod.ts';
 import { parseJsonText } from '../../lib/json.ts';
 import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import { countCapturesInStates } from '../../vault/captures.ts';
 import type { Clock } from '../clock.ts';
 import { ASSISTANT_METADATA_PREFIX } from './schema.ts';
 
@@ -18,9 +19,6 @@ const PersistedHistoriesSchema = z.record(
 );
 const MetadataValueRowSchema = z.object({ value: z.string() }).strict();
 const CountRowSchema = z.object({ count: z.number().int().min(0) }).strict();
-const CAPTURE_STATE_PLACEHOLDERS = PENDING_CAPTURE_LIST_STATES.map(
-  () => '?',
-).join(', ');
 
 export class BackgroundWorkDecisionStore {
   private readonly database: RuntimeDatabase;
@@ -36,7 +34,7 @@ export class BackgroundWorkDecisionStore {
 
   record(ownerId: string, block: AssistantBackgroundWorkBlock): void {
     const queuedJobCount = this.countQueuedJobs(ownerId);
-    const pendingCaptureCount = this.countPendingCaptures(ownerId);
+    const pendingCaptureCount = this.countPendingCaptures();
     if (queuedJobCount === 0 && pendingCaptureCount === 0) return;
 
     const decision = AssistantBackgroundWorkDecisionDtoSchema.parse({
@@ -94,16 +92,7 @@ export class BackgroundWorkDecisionStore {
     ).count;
   }
 
-  private countPendingCaptures(ownerId: string): number {
-    return CountRowSchema.parse(
-      this.database
-        .prepare(
-          `
-      SELECT COUNT(*) AS count FROM assistant_capture_queue
-      WHERE owner_id = ? AND state IN (${CAPTURE_STATE_PLACEHOLDERS})
-    `,
-        )
-        .get(ownerId, ...PENDING_CAPTURE_LIST_STATES),
-    ).count;
+  private countPendingCaptures(): number {
+    return countCapturesInStates(this.database, PENDING_CAPTURE_LIST_STATES);
   }
 }

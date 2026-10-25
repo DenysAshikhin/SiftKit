@@ -14,7 +14,7 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     '  siftkit orchestrator <attach [--after N]|status|abort> <runId>',
     '  siftkit orchestrator decide <runId> <approvalId> <approve|deny --reason "<why>"|abort>',
     '  siftkit preset list',
-    '  siftkit assistant <status|pause|resume|memory|policy|projections|evidence> ...',
+    '  siftkit assistant <status|pause|resume> ...',
     '  siftkit assistant <factory-reset|export|backup|restore> ...',
     '  siftkit run --preset <id> ...',
     '  siftkit run --command <cmd> [--arg <a> ...] --question "..."',

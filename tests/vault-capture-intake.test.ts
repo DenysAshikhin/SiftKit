@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { CaptureSubmissionDtoSchema } from '@siftkit/contracts';
 import { SequentialIdGenerator } from '../src/assistant/ids.ts';
 import { AuditStore } from '../src/assistant/storage/audit-store.ts';
 import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.ts';
@@ -149,4 +150,23 @@ test('a capture whose rows fail to write leaves no orphaned PNG behind', () => {
     const dir = path.join(vaultAttachmentsDir(context.runtimeRoot), 'captures');
     assert.deepEqual(fs.existsSync(dir) ? fs.readdirSync(dir) : [], []);
   });
+});
+
+test('a suppression report writes one non-content audit event and nothing else', () => {
+  withVault((context) => {
+    const { capture, audit, captureRows } = intake(context);
+    capture.recordSuppression(LOCAL_OWNER_ID, { schemaVersion: 1, occurredAtUtc: '2026-10-24T08:59:30.000Z', ruleId: 'title_deny_pattern' });
+    const events = audit.listAuditEvents(LOCAL_OWNER_ID, 5);
+    assert.deepEqual(events.map((event) => [event.event_type, event.target_id, JSON.parse(event.details_json)]), [
+      ['capture_suppressed', 'title_deny_pattern', { ruleId: 'title_deny_pattern', occurredAtUtc: '2026-10-24T08:59:30.000Z' }],
+    ]);
+    assert.deepEqual(captureRows(), []);
+  });
+});
+
+test('the capture contract rejects a perceptual hash that is not 16 lowercase hex characters', () => {
+  for (const perceptualHash of ['F0E1D2C3B4A59687', 'f0e1d2c3b4a5968', 'f0e1d2c3b4a5968z']) {
+    assert.equal(CaptureSubmissionDtoSchema.safeParse(vaultCaptureDto({ perceptualHash })).success, false, `${perceptualHash} must not parse as a dHash`);
+  }
+  assert.equal(CaptureSubmissionDtoSchema.safeParse(vaultCaptureDto()).success, true);
 });

@@ -1,19 +1,8 @@
 import type { AssistantRuntime } from '../assistant/assistant-service.ts';
 import type { SiftPreset } from '@siftkit/contracts';
+import type { VaultChatTurn } from '../vault/note-writer/chat-writer.ts';
 
-export interface ChatTurnRecord {
-  readonly sessionId: string;
-  readonly capturedAtUtc: string;
-  readonly userMessageId: string;
-  readonly userText: string;
-  readonly assistantMessageId: string;
-  readonly assistantText: string;
-}
-
-type AssistantMemoryService = Pick<
-  AssistantRuntime,
-  'enabled' | 'ownerId' | 'retrieveMemoryContext' | 'ingestChatTurn'
->;
+type AssistantMemoryService = Pick<AssistantRuntime, 'enabled' | 'retrieveMemoryContext' | 'ingestChatTurn'>;
 
 /**
  * The whole §11.1 gate in one place: memory is read and written only when the assistant started
@@ -39,19 +28,11 @@ export class ChatMemorySeam {
     }
   }
 
-  ingestTurn(preset: SiftPreset, turn: ChatTurnRecord): void {
+  ingestTurn(preset: SiftPreset, turn: VaultChatTurn): void {
     const assistant = this.assistant;
     if (assistant === null || !assistant.enabled || preset.assistantMemory !== true) {
       return;
     }
-    assistant.ingestChatTurn({
-      ownerId: assistant.ownerId,
-      sessionId: turn.sessionId,
-      capturedAtUtc: turn.capturedAtUtc,
-      userMessageId: turn.userMessageId,
-      userText: turn.userText,
-      assistantMessageId: turn.assistantMessageId,
-      assistantText: turn.assistantText,
-    });
+    assistant.ingestChatTurn(turn);
   }
 }

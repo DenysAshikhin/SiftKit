@@ -11,6 +11,7 @@ import type { VaultNoteStore } from '../note-store.ts';
 import { outputRejectionDetails } from './rejections.ts';
 
 const LEAD_MAX_LENGTH = 600;
+const TIDY_ACTOR = 'note-writer · tidy';
 const TidyResponseSchema = z.object({ lead: z.string().trim().min(1).max(LEAD_MAX_LENGTH) }).strict();
 const INSTRUCTIONS = [
   'Rewrite the lead paragraph of one personal knowledge note from its facts and plans.',
@@ -21,7 +22,7 @@ const INSTRUCTIONS = [
 
 export type VaultTidyOutcome =
   | { readonly kind: 'tidied' }
-  | { readonly kind: 'skipped'; readonly reason: 'not_entity' | 'no_facts' }
+  | { readonly kind: 'skipped'; readonly reason: 'not_entity' | 'no_facts' | 'unchanged' }
   | { readonly kind: 'rejected'; readonly reason: 'invalid_output' | 'invalid_lead' | 'secret' };
 
 export interface VaultTidyPassOptions {
@@ -53,6 +54,8 @@ export class VaultTidyPass {
     if (note.kind !== 'entity') return { kind: 'skipped', reason: 'not_entity' };
     const parsed = parseNoteBody(note.body);
     if (parsed.factRows.length === 0) return { kind: 'skipped', reason: 'no_facts' };
+    // Nothing changed since the last tidy, so a new lead would only churn the history.
+    if (this.store.listRevisions(noteId)[0]?.actor === TIDY_ACTOR) return { kind: 'skipped', reason: 'unchanged' };
 
     const outcome = await this.runner.run({
       role: 'vault_tidy', instructions: INSTRUCTIONS, userText: tidyUserText(note), schemaName: 'vault_tidy_lead', schema: TidyResponseSchema, abortSignal,
@@ -67,7 +70,7 @@ export class VaultTidyPass {
       const current = requireVaultNote(this.database, noteId);
       const body = replaceLead(current.body, lead);
       if (parseNoteBody(body).lead?.text !== lead) return this.reject(ownerId, noteId, 'invalid_lead', {});
-      this.store.update(noteId, { body }, current.revision, { actor: 'note-writer · tidy', summary: 'Rewrote the lead', sourceRef: null });
+      this.store.update(noteId, { body }, current.revision, { actor: TIDY_ACTOR, summary: 'Rewrote the lead', sourceRef: null });
       return { kind: 'tidied' };
     })();
   }

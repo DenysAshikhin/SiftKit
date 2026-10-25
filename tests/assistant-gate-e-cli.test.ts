@@ -29,22 +29,6 @@ const RESTORE_PREVIEW = {
 
 const JSON_RESPONSES: ReadonlyMap<string, JsonValue> = new Map<string, JsonValue>([
   ['GET /assistant/auth/bootstrap', { token: 'tok_1' }],
-  ['GET /assistant/evidence/ev_1/deletion-preview', {
-    previewToken: 'pre_ev',
-    graphVersion: 4,
-    targetEvidenceId: 'ev_1',
-    dependentAssertionIds: ['ast_1', 'ast_2'],
-    affectedProjectionIds: ['proj_1'],
-  }],
-  ['DELETE /assistant/evidence/ev_1', { ok: true, graphVersion: 5 }],
-  ['POST /assistant/topics/forget-preview', {
-    previewToken: 'pre_topic',
-    graphVersion: 5,
-    topicKey: 'finance',
-    assertionIds: ['ast_3'],
-    affectedProjectionIds: ['proj_2'],
-  }],
-  ['POST /assistant/topics/forget', { ok: true, graphVersion: 6 }],
   ['GET /assistant/factory-reset/preview', {
     previewToken: 'pre_reset',
     graphVersion: 6,
@@ -121,23 +105,6 @@ async function run(args: readonly string[]): Promise<{
 }
 
 test('assistant CLI parses every Gate E command exactly', () => {
-  assert.deepEqual(parseAssistantArgs(['evidence', 'delete', 'ev_1', '--preview']), {
-    kind: 'evidence_delete_preview', evidenceId: 'ev_1',
-  });
-  assert.deepEqual(parseAssistantArgs(['evidence', 'delete', 'ev_1', '--confirm', 'pre_ev']), {
-    kind: 'evidence_delete_confirm', evidenceId: 'ev_1', previewToken: 'pre_ev',
-  });
-  assert.deepEqual(parseAssistantArgs(['memory', 'forget-topic', 'finance', '--preview']), {
-    kind: 'forget_topic_preview', topicKey: 'finance', addPolicy: false,
-  });
-  assert.deepEqual(parseAssistantArgs([
-    'memory', 'forget-topic', 'finance', '--block', '--preview',
-  ]), { kind: 'forget_topic_preview', topicKey: 'finance', addPolicy: true });
-  assert.deepEqual(parseAssistantArgs([
-    'memory', 'forget-topic', 'finance', '--block', '--confirm', 'pre_topic',
-  ]), {
-    kind: 'forget_topic_confirm', topicKey: 'finance', addPolicy: true, previewToken: 'pre_topic',
-  });
   assert.deepEqual(parseAssistantArgs(['factory-reset', '--preview']), {
     kind: 'factory_reset_preview',
   });
@@ -163,19 +130,6 @@ test('assistant CLI parses every Gate E command exactly', () => {
 
 test('assistant CLI rejects malformed Gate E invocations with their usage strings', () => {
   const cases: readonly (readonly [readonly string[], RegExp])[] = [
-    [['evidence'], /Unknown assistant evidence command\./u],
-    [['evidence', 'purge', 'ev_1'], /Unknown assistant evidence command\./u],
-    [['evidence', 'delete', 'ev_1'], /exactly one of --preview or --confirm <token>/u],
-    [['evidence', 'delete', 'ev_1', '--confirm'], /exactly one of --preview or --confirm <token>/u],
-    [
-      ['evidence', 'delete', 'ev_1', '--preview', '--confirm', 'pre_ev'],
-      /exactly one of --preview or --confirm <token>/u,
-    ],
-    [['memory', 'forget-topic', 'finance'], /exactly one of --preview or --confirm <token>/u],
-    [
-      ['memory', 'forget-topic', 'finance', '--confirm'],
-      /exactly one of --preview or --confirm <token>/u,
-    ],
     [['factory-reset'], /exactly one of --preview or --confirm <token>/u],
     [['factory-reset', '--confirm'], /exactly one of --preview or --confirm <token>/u],
     [['export'], /Usage: siftkit assistant export --output <path> \[--include-blobs\]/u],
@@ -192,49 +146,6 @@ test('assistant CLI rejects malformed Gate E invocations with their usage string
   for (const [args, message] of cases) {
     assert.throws(() => parseAssistantArgs(args), message, args.join(' '));
   }
-});
-
-test('evidence deletion runs preview then confirm through the maintenance routes', async () => {
-  const preview = await run(['evidence', 'delete', 'ev_1', '--preview']);
-  assert.equal(preview.exitCode, 0);
-  assert.deepEqual(JSON.parse(preview.stdout), {
-    previewToken: 'pre_ev',
-    graphVersion: 4,
-    targetEvidenceId: 'ev_1',
-    dependentAssertionIds: ['ast_1', 'ast_2'],
-    affectedProjectionIds: ['proj_1'],
-  });
-  const previewRequest = preview.http.jsonRequests[1];
-  assert.equal(previewRequest?.method, 'GET');
-  assert.match(previewRequest?.url ?? '', /\/assistant\/evidence\/ev_1\/deletion-preview$/u);
-  assert.equal(previewRequest?.headers?.Authorization, 'Bearer tok_1');
-
-  const confirm = await run(['evidence', 'delete', 'ev_1', '--confirm', 'pre_ev']);
-  assert.equal(confirm.stdout, 'evidence deleted\n');
-  const confirmRequest = confirm.http.jsonRequests[1];
-  assert.equal(confirmRequest?.method, 'DELETE');
-  assert.match(confirmRequest?.url ?? '', /\/assistant\/evidence\/ev_1$/u);
-  assert.deepEqual(JSON.parse(confirmRequest?.body ?? '{}'), { previewToken: 'pre_ev' });
-});
-
-test('forget-topic carries the --block policy flag into the confirm request', async () => {
-  const preview = await run(['memory', 'forget-topic', 'finance', '--preview']);
-  assert.deepEqual(JSON.parse(preview.stdout), {
-    previewToken: 'pre_topic',
-    graphVersion: 5,
-    topicKey: 'finance',
-    assertionIds: ['ast_3'],
-    affectedProjectionIds: ['proj_2'],
-  });
-  assert.deepEqual(JSON.parse(preview.http.jsonRequests[1]?.body ?? '{}'), { topicKey: 'finance' });
-
-  const confirm = await run([
-    'memory', 'forget-topic', 'finance', '--block', '--confirm', 'pre_topic',
-  ]);
-  assert.equal(confirm.stdout, 'topic forgotten\n');
-  assert.deepEqual(JSON.parse(confirm.http.jsonRequests[1]?.body ?? '{}'), {
-    topicKey: 'finance', addPolicy: true, previewToken: 'pre_topic',
-  });
 });
 
 test('factory reset previews the table counts before the confirm token is spent', async () => {

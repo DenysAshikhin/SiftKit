@@ -5,24 +5,12 @@ import test from 'node:test';
 
 import { z } from '../src/lib/zod.ts';
 import { ExportService } from '../src/assistant/control/export-service.ts';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
-import type {
-  ProjectionSummaryService,
-  SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.ts';
 import { CURRENT_SCHEMA_VERSION } from '../src/state/runtime-db.ts';
 import {
   withAssistantContextAsync, type AssistantTestContext,
 } from './helpers/assistant-fixture.ts';
 import { archiveBytes, archiveEntries } from './helpers/archive-bytes.ts';
-import { seedOwnerAssertion } from './helpers/gate-e-seed.ts';
-
-class PassthroughSummarizer implements ProjectionSummaryService {
-  async summarize(): Promise<SummarizeProjectionResult> {
-    return { kind: 'unchanged', reason: 'passthrough' };
-  }
-}
+import { seedOwnerAssertion, seedProjection } from './helpers/gate-e-seed.ts';
 
 const REQUIRED_ENTRIES = [
   'manifest.json',
@@ -37,11 +25,7 @@ const REQUIRED_ENTRIES = [
 ] as const;
 
 async function seededExport(context: AssistantTestContext): Promise<ExportService> {
-  seedOwnerAssertion(context, { objectName: 'Omicron Tool' });
-  await new ProjectionCompiler(
-    context.graph, new EstimateTokenCounter(4), new PassthroughSummarizer(),
-    { 1: 10_000, 2: 50_000, 3: 10_000 },
-  ).compileAll(context.ownerId, new AbortController().signal);
+  seedProjection(context, seedOwnerAssertion(context, { objectName: 'Omicron Tool' }));
   return new ExportService(context.graph, context.database, context.ownerId);
 }
 

@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import React, { act } from 'react';
+import React from 'react';
 import type { AssistantConfig } from '../../src/config/types.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
 import { AssistantSettings } from '../src/tabs/settings/AssistantSettings.tsx';
@@ -27,69 +27,57 @@ function desktopStateBody(capable: boolean, queueDepth: number): object {
   };
 }
 
-test('loads pending proof and memory history and saves notes with its in-memory token', async () => {
-  const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: string, init?: RequestInit) => {
-      calls.push({ url: input, init });
-      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
-      if (input === '/assistant/validation') return json({ items: [{
-        id: 'candidate-1', status: 'pending', proposedStatement: 'Prefers concise answers',
-        rationale: 'Repeated explicit requests', confidence: 0.82, sensitivity: 'personal',
-        evidenceId: 'evidence-1', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
-        hold: null,
-      }] });
-      if (input === '/assistant/history') return json({ items: [{
-        id: 'mutation-1', operation: 'add', targetType: 'assertion', targetId: 'assertion-1',
-        summary: 'Added “Prefers concise answers”', reason: 'Validated candidate',
-        proofs: [{ evidenceId: 'evidence-1', sourceType: 'conversation', sourceRef: 'chat-1' }],
-        createdAtUtc: '2026-08-10T10:01:00.000Z',
-      }] });
-      if (input === '/assistant/background-decisions') return json({ items: [] });
-      if (input === '/assistant/captures/pending') return json({ captures: [] });
-      if (input.endsWith('/notes')) return json({ ok: true, graphVersion: 1 });
-      throw new Error(`Unexpected request: ${input}`);
-    },
-  });
-
-  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
-  await screen.findByText('Prefers concise answers');
-  fireEvent.click(screen.getByRole('button', { name: 'Memory history' }));
-  await screen.findByText(/Added “Prefers concise answers”/u);
-  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
-  const notes = await screen.findByLabelText('Notes for Prefers concise answers');
-  fireEvent.change(notes, { target: { value: 'Keep this scoped to writing style.' } });
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Save notes' }));
-    await new Promise<void>((resolve) => { setImmediate(resolve); });
-  });
-
-  const noteCall = calls.find((call) => call.url.endsWith('/notes'));
-  assert.equal(noteCall?.init?.method, 'PATCH');
-  assert.deepEqual(noteCall?.init?.headers, {
-    Authorization: 'Bearer session-secret',
-    'Content-Type': 'application/json',
-  });
-  assert.equal(window.sessionStorage.length, 0);
-  assert.equal(window.localStorage.length, 0);
-});
-
-test('observation settings render consent, capture controls, deny lists, and the capability warning', async () => {
+/** Serves the settings view's startup requests; `routes` adds or overrides individual paths. */
+function stubFetch(options: { capable?: boolean; queueDepth?: number; routes?: Record<string, () => Response> } = {}): string[] {
+  const calls: string[] = [];
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: async (input: string) => {
+      calls.push(input);
+      const route = options.routes?.[input];
+      if (route !== undefined) return route();
       if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(false, 3));
-      if (input === '/assistant/validation') return json({ items: [] });
-      if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/desktop/state') return json(desktopStateBody(options.capable ?? true, options.queueDepth ?? 0));
       if (input === '/assistant/background-decisions') return json({ items: [] });
       if (input === '/assistant/captures/pending') return json({ captures: [] });
       throw new Error(`Unexpected request: ${input}`);
     },
   });
+  return calls;
+}
+
+test('the settings views are configuration and pending captures only', async () => {
+  const calls = stubFetch();
+  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
+  await screen.findByText('No background-work blocks have been recorded.');
+  const nav = screen.getByLabelText('Assistant settings view');
+  assert.deepEqual([...nav.querySelectorAll('button')].map((button) => button.textContent), ['Configuration', 'Pending captures']);
+  assert.ok(!calls.some((url) => /validation|history/u.test(url)), 'retired endpoints are never called');
+});
+
+test('configuration edits retrieval, vault and job priority settings of the slimmed config', async () => {
+  stubFetch();
+  const changes: AssistantConfig[] = [];
+  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={(value) => changes.push(value)} />);
+
+  fireEvent.change(screen.getByLabelText(/Max notes/u), { target: { value: '5' } });
+  assert.equal(changes.at(-1)?.Retrieval.MaxNotes, 5);
+  const tidy = screen.getByRole('checkbox', { name: /Tidy pass/u });
+  fireEvent.click(tidy);
+  assert.equal(changes.at(-1)?.Vault.TidyPassEnabled, !DEFAULT_ASSISTANT_CONFIG.Vault.TidyPassEnabled);
+  fireEvent.change(screen.getByLabelText(/Capture image max age days/u), { target: { value: '30' } });
+  assert.equal(changes.at(-1)?.Vault.CaptureImageMaxAgeDays, 30);
+  fireEvent.change(screen.getByLabelText(/Chat note priority/u), { target: { value: '900' } });
+  assert.equal(changes.at(-1)?.Background.JobPriorities.ChatNote, 900);
+  for (const label of [/Capture note priority/u, /Daily rollup priority/u, /Note tidy priority/u, /Capture retention priority/u]) {
+    screen.getByLabelText(label);
+  }
+  assert.equal(screen.queryByText(/Memory budgets|Questions enabled|Max hops/u), null, 'graph-era settings are gone');
+  await screen.findByText('No background-work blocks have been recorded.');
+});
+
+test('observation settings render consent, capture controls, deny lists, and the capability warning', async () => {
+  stubFetch({ capable: false, queueDepth: 3 });
   const changes: AssistantConfig[] = [];
   render(
     <AssistantSettings
@@ -138,18 +126,7 @@ test('observation settings render consent, capture controls, deny lists, and the
 });
 
 test('deny-list fields resync when the config changes from outside', async () => {
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: string) => {
-      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
-      if (input === '/assistant/validation') return json({ items: [] });
-      if (input === '/assistant/history') return json({ items: [] });
-      if (input === '/assistant/background-decisions') return json({ items: [] });
-      if (input === '/assistant/captures/pending') return json({ captures: [] });
-      throw new Error(`Unexpected request: ${input}`);
-    },
-  });
+  stubFetch();
   const { rerender } = render(
     <AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />,
   );
@@ -178,7 +155,7 @@ test('deny-list fields resync when the config changes from outside', async () =>
   assert.equal(processes.value, 'obs64.exe\nkeepass.exe');
 });
 
-test('pending validation lists captures with object-URL previews and a lightbox', async () => {
+test('pending captures list vault captures with attachment previews and a lightbox', async () => {
   const created: string[] = [];
   Object.defineProperty(window.URL, 'createObjectURL', {
     configurable: true,
@@ -188,78 +165,51 @@ test('pending validation lists captures with object-URL previews and a lightbox'
       return url;
     },
   });
-  Object.defineProperty(window.URL, 'revokeObjectURL', {
-    configurable: true,
-    value: () => {},
-  });
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: string) => {
-      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 1));
-      if (input === '/assistant/validation') return json({ items: [] });
-      if (input === '/assistant/history') return json({ items: [] });
-      if (input === '/assistant/background-decisions') return json({ items: [] });
-      if (input === '/assistant/captures/pending') return json({ captures: [{
-        evidenceId: 'ev_1',
-        state: 'awaiting_image_capability',
-        enqueuedAtUtc: '2026-08-10T10:00:00.000Z',
-        byteLength: 68,
-        foregroundContextKey: 'app:code|siftkit',
-      }] });
-      if (input === '/assistant/evidence/blob?id=ev_1') {
-        return new Response(
-          new Blob([Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: 'image/png' }),
-        );
-      }
-      throw new Error(`Unexpected request: ${input}`);
-    },
-  });
+  Object.defineProperty(window.URL, 'revokeObjectURL', { configurable: true, value: () => {} });
+  stubFetch({ queueDepth: 1, routes: {
+    '/assistant/captures/pending': () => json({ captures: [{
+      attachmentId: 'att_1', noteId: 'note_1', noteTitle: '2026-08-10 10.00.00 · Code', state: 'awaiting_image_capability',
+      capturedAtUtc: '2026-08-10T10:00:00.000Z', byteLength: 68, relativePath: 'captures/att_1.png',
+    }] }),
+    '/assistant/vault/attachments/captures/att_1.png': () => new Response(
+      new Blob([Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: 'image/png' }),
+    ),
+  } });
 
   render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Pending captures' }));
 
-  await screen.findByText('Pending captures');
   const image = await screen.findByRole('img');
   assert.equal(image.getAttribute('src'), 'blob:capture-1', 'the thumbnail uses an object URL');
   assert.deepEqual(created, ['blob:capture-1'], 'one object URL is created per capture');
   screen.getByText('awaiting image capability');
-  screen.getByText('app:code|siftkit');
+  screen.getByText('2026-08-10 10.00.00 · Code');
   screen.getByText(`${new Date('2026-08-10T10:00:00.000Z').toLocaleString()} · 0.1 KB`);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Enlarge capture ev_1' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Enlarge capture 2026-08-10 10.00.00 · Code' }));
   screen.getByRole('dialog');
   assert.equal(screen.getAllByRole('img').length, 2, 'the lightbox shows the same preview');
 });
 
 test('configuration shows persisted background-work decisions newest-first', async () => {
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: string) => {
-      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 2));
-      if (input === '/assistant/validation') return json({ items: [] });
-      if (input === '/assistant/history') return json({ items: [] });
-      if (input === '/assistant/captures/pending') return json({ captures: [] });
-      if (input === '/assistant/background-decisions') return json({ items: [
-        {
-          recordedAtUtc: '2026-08-31T12:01:00.000Z',
-          reason: 'mouse_idle_below_threshold',
-          queuedJobCount: 29,
-          pendingCaptureCount: 941,
-          details: { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
-        },
-        {
-          recordedAtUtc: '2026-08-31T12:00:00.000Z',
-          reason: 'server_busy',
-          queuedJobCount: 28,
-          pendingCaptureCount: 940,
-          details: {},
-        },
-      ] });
-      throw new Error(`Unexpected request: ${input}`);
-    },
-  });
+  stubFetch({ queueDepth: 2, routes: {
+    '/assistant/background-decisions': () => json({ items: [
+      {
+        recordedAtUtc: '2026-08-31T12:01:00.000Z',
+        reason: 'mouse_idle_below_threshold',
+        queuedJobCount: 29,
+        pendingCaptureCount: 941,
+        details: { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
+      },
+      {
+        recordedAtUtc: '2026-08-31T12:00:00.000Z',
+        reason: 'server_busy',
+        queuedJobCount: 28,
+        pendingCaptureCount: 940,
+        details: {},
+      },
+    ] }),
+  } });
 
   render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
 
@@ -271,99 +221,4 @@ test('configuration shows persisted background-work decisions newest-first', asy
   screen.getByText(/941 pending captures/u);
   screen.getByText(/mouseIdleSeconds: 12/u);
   screen.getByText(/requiredIdleSeconds: 180/u);
-});
-
-test('an identity hold offers both answers and posts the chosen one', async () => {
-  const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: string, init?: RequestInit) => {
-      calls.push({ url: input, init });
-      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
-      if (input === '/assistant/validation') return json({ items: [{
-        id: 'candidate-2', status: 'needs_confirmation', proposedStatement: 'denyz USES Tauri',
-        rationale: 'A screenshot showed denyz in Tauri', confidence: 0.7, sensitivity: 'personal',
-        evidenceId: 'evidence-2', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
-        hold: { kind: 'possible_owner_alias', name: 'denyz' },
-      }] });
-      if (input === '/assistant/history') return json({ items: [] });
-      if (input === '/assistant/background-decisions') return json({ items: [] });
-      if (input === '/assistant/captures/pending') return json({ captures: [] });
-      if (input.endsWith('/resolve-identity')) return json({ ok: true, graphVersion: 2, outcome: 'promoted' });
-      throw new Error(`Unexpected request: ${input}`);
-    },
-  });
-
-  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
-  await screen.findByText(/is close to one of your own names/u);
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Yes, that is me' }));
-    await new Promise<void>((resolve) => { setImmediate(resolve); });
-  });
-
-  const call = calls.find((entry) => entry.url.endsWith('/resolve-identity'));
-  assert.equal(call?.init?.method, 'POST');
-  assert.equal(call?.init?.body, JSON.stringify({ isOwner: true }));
-  assert.equal(screen.queryByRole('button', { name: 'Yes, that is me' }), null);
-});
-
-test('a plain candidate shows no identity question', async () => {
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: string) => {
-      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
-      if (input === '/assistant/validation') return json({ items: [{
-        id: 'candidate-3', status: 'pending', proposedStatement: 'the user USES Tauri',
-        rationale: 'A screenshot showed Tauri', confidence: 0.7, sensitivity: 'personal',
-        evidenceId: 'evidence-3', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
-        hold: null,
-      }] });
-      if (input === '/assistant/history') return json({ items: [] });
-      if (input === '/assistant/background-decisions') return json({ items: [] });
-      if (input === '/assistant/captures/pending') return json({ captures: [] });
-      throw new Error(`Unexpected request: ${input}`);
-    },
-  });
-
-  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
-  await screen.findByText('the user USES Tauri');
-
-  assert.equal(screen.queryByRole('button', { name: 'Yes, that is me' }), null);
-});
-
-test('an identity answer that does not promote keeps the card and says why', async () => {
-  const held = {
-    id: 'candidate-4', status: 'needs_confirmation', proposedStatement: 'denyz USES Tauri',
-    rationale: 'A screenshot showed denyz in Tauri', confidence: 0.7, sensitivity: 'personal',
-    evidenceId: 'evidence-4', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
-    hold: { kind: 'possible_owner_alias', name: 'denyz' },
-  };
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: string) => {
-      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
-      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
-      if (input === '/assistant/validation') return json({ items: [held] });
-      if (input === '/assistant/history') return json({ items: [] });
-      if (input === '/assistant/background-decisions') return json({ items: [] });
-      if (input === '/assistant/captures/pending') return json({ captures: [] });
-      if (input.endsWith('/resolve-identity')) return json({ ok: true, graphVersion: 2, outcome: 'rejected' });
-      throw new Error(`Unexpected request: ${input}`);
-    },
-  });
-
-  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
-  await screen.findByText(/is close to one of your own names/u);
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'No, someone else' }));
-    await new Promise<void>((resolve) => { setImmediate(resolve); });
-  });
-
-  screen.getByText('denyz USES Tauri');
-  screen.getByText(/could not be written/u);
 });

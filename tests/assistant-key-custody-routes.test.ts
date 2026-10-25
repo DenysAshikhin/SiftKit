@@ -56,9 +56,6 @@ test('key custody routes migrate the evidence key to the desktop shell and fail 
       method: 'POST', headers, body: JSON.stringify(material),
     })).statusCode, 200);
 
-    // Evidence stays readable through the imported key.
-    assert.equal((await requestJson(`${baseUrl}/assistant/evidence`, { headers })).statusCode, 200);
-
     // Custody sits ahead of the enabled gate on purpose: a daemon restart while the assistant is
     // off must still let the shell re-import, or `desktop` custody leaves evidence unreadable.
     assert.equal((await requestJson(`${baseUrl}/assistant/config`, {
@@ -66,7 +63,7 @@ test('key custody routes migrate the evidence key to the desktop shell and fail 
       headers,
       body: JSON.stringify({ assistant: { ...initial.Assistant, Enabled: false, KeyCustody: 'desktop' } }),
     })).statusCode, 200);
-    assert.equal((await requestJson(`${baseUrl}/assistant/evidence`, { headers })).statusCode, 409);
+    assert.equal((await requestJson(`${baseUrl}/assistant/vault/tree`, { headers })).statusCode, 409);
     assert.equal((await requestJson(`${baseUrl}/assistant/keys/custody`, { headers })).statusCode, 200);
     assert.equal((await requestJson(`${baseUrl}/assistant/keys/import`, {
       method: 'POST', headers, body: JSON.stringify(material),

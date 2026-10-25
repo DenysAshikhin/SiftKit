@@ -32,7 +32,6 @@ import { PresetCatalog } from '../../preset-catalog.ts';
 import type { SiftPreset } from '../../presets.ts';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.ts';
 import type { ChatMessageQueueDelivery } from '../../repo-search/engine/queue-delivery.ts';
-import type { ChatMessage as PersistedChatTranscriptMessage } from '../../state/chat-sessions.ts';
 import {
 ChatMessageImageNotFoundError,deleteChatMessage,
 deleteChatMessageImage,deleteChatSession,estimateTokenCount,getChatSessionPath,readChatSessionFromPath,
@@ -414,7 +413,7 @@ async function runChatEngineTurn(options: {
     model: result.scorecard.model,
     presetId: options.recorder.admittedModel.id,
   });
-  ingestAssistantMemoryTurn(memory, selected.preset, selected.session.id, phaseTimestamps.requestStartedAtUtc ?? new Date().toISOString(), updatedSession.messages ?? []);
+  ingestAssistantMemoryTurn(memory, selected.preset, updatedSession, phaseTimestamps.requestStartedAtUtc ?? new Date().toISOString());
   return { updatedSession, failure };
 }
 
@@ -671,10 +670,10 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
 function ingestAssistantMemoryTurn(
   memory: ChatMemorySeam,
   preset: SiftPreset,
-  sessionId: string,
+  session: ChatSession,
   capturedAtUtc: string,
-  messages: readonly PersistedChatTranscriptMessage[],
 ): void {
+  const messages = session.messages ?? [];
   const lastUser = [...messages].reverse().find((message) => message.role === 'user');
   const lastAssistant = [...messages].reverse().find(
     (message) => message.role === 'assistant'
@@ -684,11 +683,11 @@ function ingestAssistantMemoryTurn(
     return;
   }
   memory.ingestTurn(preset, {
-    sessionId,
+    sessionId: session.id,
+    sessionTitle: session.title,
     capturedAtUtc,
     userMessageId: lastUser.id,
     userText: lastUser.content,
-    assistantMessageId: lastAssistant.id,
     assistantText: lastAssistant.content,
   });
 }
@@ -784,7 +783,7 @@ class ChatMessageTurn {
         promptCharacterCount: this.userContent.length, rawInputCharacterCount: this.userContent.length,
         inputTokens: estimateTokenCount(this.userContent), outputCharacterCount: content.length,
         outputTokens: estimateTokenCount(content), requestDurationMs: Date.now() - this.startedAt });
-      ingestAssistantMemoryTurn(this.memory, this.preset, this.session.id, new Date(this.startedAt).toISOString(), updated.messages);
+      ingestAssistantMemoryTurn(this.memory, this.preset, updated, new Date(this.startedAt).toISOString());
       this.respond(updated);
       return { failure: null };
     } catch (error) {

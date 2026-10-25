@@ -19,9 +19,13 @@ export const SCREENSHOTS_ENABLED: AssistantConfig = {
 };
 
 export class StubImageCapability implements AssistantImageCapabilityProvider {
-  private readonly capable: boolean;
+  private capable: boolean;
 
   constructor(capable: boolean) {
+    this.capable = capable;
+  }
+
+  setCapable(capable: boolean): void {
     this.capable = capable;
   }
 

@@ -119,6 +119,8 @@ details.v-callout[open] .v-co-head::before { transform: rotate(90deg); }
 .v-thumb { display: grid; place-items: center; min-height: 84px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--panel2); color: var(--dim); font-size: 11px; padding: 6px; text-align: center; word-break: break-all; }
 .v-embed { margin: 8px 0 14px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel2); }
 .v-embed .v-embed-art { height: 120px; display: grid; place-items: center; color: var(--dim); font-size: 28px; }
+img.v-thumb, img.v-embed-art { display: block; width: 100%; height: auto; max-height: 420px; object-fit: contain; padding: 0; }
+.v-embed-missing { font-size: 12px; }
 .v-embed .v-cap { padding: 5px 10px; font-size: 11px; color: var(--dim); border-top: 1px solid var(--line); display: flex; gap: 10px; }
 .v-aka { color: var(--dim); font-size: 12px; margin: -4px 0 12px; }
 .v-aka b { color: var(--code); font-weight: 500; }

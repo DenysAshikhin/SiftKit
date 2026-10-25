@@ -7,7 +7,7 @@ import {
 
 import { bootstrapAssistantToken } from '../api.ts';
 import {
-  createVaultNote, exportVaultArchive, getVaultGraph, getVaultLocalGraph, getVaultNote, getVaultReview, getVaultRevision,
+  createVaultNote, exportVaultArchive, fetchVaultAttachment, getVaultGraph, getVaultLocalGraph, getVaultNote, getVaultReview, getVaultRevision,
   getVaultStats, getVaultTree, listVaultNotes, listVaultRevisions, renameVaultNote, resolveVaultTitle, restoreVaultRevision,
   searchVault, updateVaultNote, VaultRequestError,
 } from '../vault-api.ts';
@@ -387,6 +387,7 @@ export function useVaultController(visible: boolean): VaultTabProps {
       link.click();
       URL.revokeObjectURL(url);
     }),
+    attachment: (target) => (token === null ? Promise.reject(new Error('The vault is not connected yet.')) : fetchVaultAttachment(token, target)),
   };
 
   // Vault shortcuts apply only while the tab is visible.

@@ -187,13 +187,11 @@ export const WebSearchConfigSchema = z.object({
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
 
 export const AssistantJobPrioritiesSchema = z.object({
-  ConversationIngestion: z.number().int(),
-  QuestionAnswerIngestion: z.number().int(),
-  QuestionPlanning: z.number().int(),
-  CandidateConsolidation: z.number().int(),
-  ImageExtraction: z.number().int(),
+  CaptureNote: z.number().int(),
+  ChatNote: z.number().int(),
+  DailyRollup: z.number().int(),
+  NoteTidy: z.number().int(),
   CaptureRetention: z.number().int(),
-  ProjectionMaintenance: z.number().int(),
 }).strict();
 
 export const CaptureScopeSchema = z.enum(['foreground_window', 'all_monitors']);
@@ -202,42 +200,9 @@ export type CaptureScope = z.infer<typeof CaptureScopeSchema>;
 export const AssistantConfigSchema = z.object({
   Enabled: z.boolean(),
   Owner: z.object({ Id: z.string().min(1), DisplayName: z.string() }).strict(),
-  Memory: z.object({
-    Tier1: z.object({
-      MaxTokens: z.number().int().positive(),
-      TargetTokens: z.number().int().positive(),
-    }).strict(),
-    Tier2: z.object({
-      MaxDocuments: z.number().int().positive(),
-      MaxTokensPerDocument: z.number().int().positive(),
-      TargetTokensPerDocument: z.number().int().positive(),
-    }).strict(),
-    Tier3: z.object({
-      MaxDocuments: z.number().int().positive(),
-      MaxTokensPerDocument: z.number().int().positive(),
-      TargetTokensPerDocument: z.number().int().positive(),
-    }).strict(),
-  }).strict(),
   Retrieval: z.object({
     MaxContextTokens: z.number().int().positive(),
-    MaxHops: z.number().int().min(1).max(3),
-    MaxSeedNodes: z.number().int().positive(),
-    MaxNodes: z.number().int().positive(),
-    MaxAssertions: z.number().int().positive(),
-    MaxFanoutPerNodePredicate: z.number().int().positive(),
-  }).strict(),
-  Questions: z.object({
-    Enabled: z.boolean(),
-    MaxPerDay: z.number().int().min(0),
-    MaxPerWeek: z.number().int().min(0),
-    MinimumHoursBetweenQuestions: z.number().int().min(0),
-    AllowedLocalTimeStart: z.string(),
-    AllowedLocalTimeEnd: z.string(),
-    DismissedCooldownDays: z.number().int().min(0),
-    UnansweredExpiryDays: z.number().int().min(1),
-    SuppressDuringFullscreen: z.boolean(),
-    SuppressDuringDoNotDisturb: z.boolean(),
-    ActiveInputSuppressionSeconds: z.number().int().min(0),
+    MaxNotes: z.number().int().positive(),
   }).strict(),
   Observation: z.object({
     ActivityMetadataEnabled: z.boolean(),
@@ -261,11 +226,6 @@ export const AssistantConfigSchema = z.object({
     /** The shell reconciles its HKCU Run registration to this on every poll (§6). */
     StartOnSignIn: z.boolean(),
   }).strict(),
-  Retention: z.object({
-    OcrTextDays: z.number().int().positive(),
-    UnpromotedObservationDays: z.number().int().positive(),
-    RejectedCandidateDays: z.number().int().positive(),
-  }).strict(),
   Background: z.object({
     IdleSecondsBeforeProcessing: z.number().int().min(0),
     MaxJobsPerIdleSession: z.number().int().min(-1),
@@ -275,8 +235,11 @@ export const AssistantConfigSchema = z.object({
     JobPriorities: AssistantJobPrioritiesSchema,
   }).strict(),
   PrivateMode: z.object({ Active: z.boolean(), ExpiresAtUtc: z.string().nullable() }).strict(),
-  /** Gate E: mobile envelope route gate. The route returns 404 while this is false (§7.6). */
-  Mobile: z.object({ Enabled: z.boolean() }).strict(),
+  Vault: z.object({
+    TidyPassEnabled: z.boolean(),
+    /** 0 keeps capture images until the storage cap evicts them. */
+    CaptureImageMaxAgeDays: z.number().int().min(0),
+  }).strict(),
   KeyCustody: KeyCustodySchema,
 }).strict();
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;

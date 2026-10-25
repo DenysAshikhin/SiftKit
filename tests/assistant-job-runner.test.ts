@@ -1,37 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AssistantJobRunner } from '../src/assistant/jobs/job-runner.ts';
-import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.ts';
-import { CandidateConsolidator } from '../src/assistant/ingestion/consolidator.ts';
-import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.ts';
-import { ConversationExtractor } from '../src/assistant/ingestion/conversation-extractor.ts';
-import { IngestionPipeline } from '../src/assistant/ingestion/pipeline.ts';
-import { ConversationIngestor } from '../src/assistant/ingestion/conversation-ingestor.ts';
-import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.ts';
-import type {
-  ProjectionSummaryService,
-  SummarizeProjectionResult,
-} from '../src/assistant/projections/projection-summarizer.ts';
-import type { AssistantGraph } from '../src/assistant/assistant-graph.ts';
-import type { CaptureRetentionSummary } from '../src/assistant/images/capture-retention.ts';
-import type { ImageExtractionOutcome } from '../src/assistant/images/image-extractor.ts';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
-import type { AssistantInferenceRequest } from '../src/assistant/inference/client.ts';
 import { SecretScanner } from '../src/assistant/domain/secrets.ts';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import type { AssistantInferenceClient, AssistantInferenceRequest } from '../src/assistant/inference/client.ts';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
+import { AssistantJobRunner, type InteractivityGate, type ModelResidencyGate } from '../src/assistant/jobs/job-runner.ts';
+import { jobPriority, type AssistantJobType } from '../src/assistant/jobs/job-types.ts';
 import {
   AssistantResourcePolicy,
   UnavailablePowerStateProvider,
   type ResourceDecision,
   type ResourcePolicy,
 } from '../src/assistant/jobs/resource-policy.ts';
-import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
+import type { AssistantConfig } from '../src/config/types.ts';
+import { VaultAttachments } from '../src/vault/attachments.ts';
+import { VaultCaptureIntake } from '../src/vault/capture-intake.ts';
+import { VaultCaptureRetention } from '../src/vault/capture-retention.ts';
+import { requireCapture } from '../src/vault/captures.ts';
+import { VaultNoteStore } from '../src/vault/note-store.ts';
+import { VaultCaptureWriter } from '../src/vault/note-writer/capture-writer.ts';
+import { VaultChatWriter, type VaultChatTurn } from '../src/vault/note-writer/chat-writer.ts';
+import { VaultDailyRollup } from '../src/vault/note-writer/daily-rollup.ts';
+import { VaultEditApplier } from '../src/vault/note-writer/edit-applier.ts';
+import { VaultTidyPass } from '../src/vault/note-writer/tidy-pass.ts';
+import { findOwnerNote } from '../src/vault/owner-identity.ts';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
-import { withAssistantContextAsync } from './helpers/assistant-fixture.ts';
+import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.ts';
+import { SCREENSHOTS_ENABLED, StubImageCapability, vaultCaptureDto } from './helpers/vault-capture-fixture.ts';
 
-class StaticIdleGate {
+process.env.TZ = 'UTC';
+
+class StaticIdleGate implements InteractivityGate {
   private idle: boolean;
 
   constructor(idle: boolean) {
@@ -49,7 +50,7 @@ class StaticIdleGate {
   }
 }
 
-class StaticResidencyGate {
+class StaticResidencyGate implements ModelResidencyGate {
   private resident: boolean;
 
   constructor(resident: boolean) {
@@ -65,8 +66,6 @@ class StaticResidencyGate {
   }
 }
 
-const RESIDENT = new StaticResidencyGate(true);
-
 class NoLimitResourcePolicy implements ResourcePolicy {
   canStartBackgroundWork(): ResourceDecision {
     return { kind: 'allowed' };
@@ -79,708 +78,295 @@ class NoLimitResourcePolicy implements ResourcePolicy {
   recordGpuUse(): void {}
 }
 
-const JOB_PRIORITIES = DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities;
+interface RunnerOverrides {
+  readonly inference?: AssistantInferenceClient;
+  readonly idleGate?: InteractivityGate;
+  readonly residencyGate?: ModelResidencyGate;
+  readonly resourcePolicy?: ResourcePolicy;
+  readonly config?: AssistantConfig;
+}
 
-class UnusedProjectionSummarizer implements ProjectionSummaryService {
-  async summarize(): Promise<SummarizeProjectionResult> {
-    return { kind: 'unchanged', reason: 'below_test_target' };
+/** The runner over real vault writers sharing the fixture database. */
+function setup(context: AssistantTestContext, overrides: RunnerOverrides = {}) {
+  const { database, clock, ids, runtimeRoot, graph } = context;
+  const store = new VaultNoteStore(database, clock, ids);
+  const attachments = new VaultAttachments(database, clock, ids, runtimeRoot);
+  const scanner = new SecretScanner();
+  const runner = new StructuredOutputRunner(overrides.inference ?? new FakeAssistantInference([]));
+  const capability = new StubImageCapability(true);
+  const applier = new VaultEditApplier({ store, database, audit: graph.audit, scanner, ownerDisplayName: 'Denys' });
+  const jobRunner = new AssistantJobRunner({
+    jobs: graph.jobs,
+    decisions: graph.backgroundDecisions,
+    database,
+    captureWriter: new VaultCaptureWriter({ database, store, attachments, applier, audit: graph.audit, scanner, clock, runner, capability }),
+    chatWriter: new VaultChatWriter({ database, store, applier, audit: graph.audit, scanner, runner }),
+    dailyRollup: new VaultDailyRollup({ database, store }),
+    tidyPass: new VaultTidyPass({ database, store, audit: graph.audit, scanner, runner }),
+    retention: new VaultCaptureRetention({ database, attachments, audit: graph.audit, clock }),
+    idleGate: overrides.idleGate ?? new StaticIdleGate(true),
+    residencyGate: overrides.residencyGate ?? new StaticResidencyGate(true),
+    resourcePolicy: overrides.resourcePolicy ?? new NoLimitResourcePolicy(),
+    config: overrides.config ?? DEFAULT_ASSISTANT_CONFIG,
+    leaseOwner: 'runner_test',
+    leaseSeconds: 120,
+  });
+  const intake = new VaultCaptureIntake({ database, store, attachments, audit: graph.audit, clock, capability });
+  const enqueue = (jobType: AssistantJobType, payload: JsonObject, idempotencyKey: string) => graph.jobs.enqueue(
+    { ownerId: context.ownerId, jobType, payload, idempotencyKey }, jobPriority(DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities, jobType),
+  );
+  const submitCapture = () => {
+    const outcome = intake.submit(context.ownerId, vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:30.000Z' }), SCREENSHOTS_ENABLED);
+    if (outcome.kind !== 'accepted') throw new Error('fixture capture was not accepted');
+    enqueue('capture_note', { attachmentId: outcome.attachmentId }, `capture_note:${outcome.attachmentId}`);
+    return outcome;
+  };
+  return { jobRunner, store, enqueue, submitCapture };
+}
+
+const TURN: VaultChatTurn = {
+  sessionId: 'chat_1', sessionTitle: 'Editor', userMessageId: 'msg_1', capturedAtUtc: '2026-08-05T08:30:00.000Z',
+  userText: 'I switched to Neovim.', assistantText: 'Nice.',
+};
+const USES_NEOVIM = JSON.stringify({ operations: [
+  { op: 'create_note', title: 'Neovim', type: 'software', lead: 'Neovim is a terminal text editor.' },
+  { op: 'add_facts', note: 'the user', label: 'Uses', values: ['Neovim'] },
+] });
+const NO_OPERATIONS = JSON.stringify({ operations: [] });
+const TIDY_OFF: AssistantConfig = { ...DEFAULT_ASSISTANT_CONFIG, Vault: { ...DEFAULT_ASSISTANT_CONFIG.Vault, TidyPassEnabled: false } };
+const GPU_CAPPED = (context: AssistantTestContext) => new AssistantResourcePolicy({
+  database: context.database, clock: context.clock,
+  background: { ...DEFAULT_ASSISTANT_CONFIG.Background, MaxGpuMinutesPerDay: 0 },
+  power: new UnavailablePowerStateProvider(),
+});
+
+const enqueueChat = (enqueue: ReturnType<typeof setup>['enqueue'], turn: VaultChatTurn = TURN) => enqueue('chat_note', turn, `chat_note:${turn.sessionId}:${turn.userMessageId}`);
+const queuedOf = (context: AssistantTestContext, jobType: AssistantJobType) => context.graph.jobs.listByStatus(context.ownerId, 'queued')
+  .filter((job) => job.job_type === jobType);
+const lastDecision = (context: AssistantTestContext) => context.graph.backgroundDecisions.list(context.ownerId)[0]?.reason;
+
+/** Requests preemption from inside the model call, as an interactive request arriving mid-job would. */
+class PreemptingInference extends FakeAssistantInference {
+  private runner: AssistantJobRunner | null = null;
+  private readonly idleGate: StaticIdleGate;
+  private readonly honourAbort: boolean;
+
+  constructor(idleGate: StaticIdleGate, responses: readonly string[], honourAbort: boolean) {
+    super(responses);
+    this.idleGate = idleGate;
+    this.honourAbort = honourAbort;
+  }
+
+  attachRunner(runner: AssistantJobRunner): void {
+    this.runner = runner;
+  }
+
+  async complete(request: AssistantInferenceRequest) {
+    this.idleGate.setIdle(false);
+    this.runner?.requestPreemption();
+    if (this.honourAbort && request.abortSignal?.aborted === true) throw new Error('Assistant inference aborted by interactive work.');
+    return super.complete(request);
   }
 }
 
-const UNUSED_GATE_C_JOBS = {
-  questions: {
-    async planPending() {
-      return { planned: 0, eligible: 0, pendingOnly: 0, expired: 0 };
-    },
-  },
-  questionAnswers: {
-    async ingest() {
-      return { observationIds: [], candidateIds: [], promotions: [] };
-    },
-  },
-  images: {
-    async run(): Promise<ImageExtractionOutcome> {
-      return { kind: 'awaiting_capability' };
-    },
-  },
-  retention: {
-    run(): CaptureRetentionSummary {
-      return { expired: 0, evicted: 0 };
-    },
-  },
-};
+test('a chat note job writes the chat note and queues the day\'s rollup and a tidy of each touched note', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, store, enqueue } = setup(context, { inference: new FakeAssistantInference([USES_NEOVIM]) });
+    enqueueChat(enqueue);
 
-function projectionCompiler(graph: AssistantGraph): ProjectionCompiler {
-  return new ProjectionCompiler(
-    graph,
-    new EstimateTokenCounter(4),
-    new UnusedProjectionSummarizer(),
-    { 1: 10_000, 2: 50_000, 3: 10_000 },
-  );
-}
-
-const usesPowerShell = JSON.stringify({
-  statements: [{
-    statementKind: 'direct_fact',
-    subject: { nodeType: 'person', displayName: 'the user' },
-    predicate: 'USES',
-    object: { kind: 'unresolved', nodeType: 'software', displayName: 'PowerShell' },
-    scope: null, validFromUtc: null, validToUtc: null,
-    rationale: 'The user wrote "I use PowerShell".', suggestedConfidence: 0.9,
-  }],
-});
-
-test('draining a queued conversation job produces an assertion and a projection', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const owner = graph.nodes.createNode({
-      ownerId, type: 'person', canonicalKey: OWNER_PERSON_CANONICAL_KEY,
-      displayName: 'the user', description: null, sensitivity: 'personal', properties: {},
-    });
-    graph.nodes.addAlias({
-      ownerId, nodeId: owner.id, alias: 'the user',
-      aliasType: 'user_supplied', sourceEvidenceId: null,
-    });
-    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
-    new ConversationIngestor(pipeline).ingestTurn({
-      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
-      userMessageId: 'm1', userText: 'I use PowerShell.',
-      assistantMessageId: 'm2', assistantText: '',
-    });
-    const inference = new FakeAssistantInference([usesPowerShell]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, 10);
-    assert.ok(summary.completed >= 1);
-    assert.deepEqual(graph.backgroundDecisions.list(ownerId), []);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'failed'), 0);
-    const ownerPerson = graph.nodes.findByCanonicalKey(
-      ownerId, 'person', OWNER_PERSON_CANONICAL_KEY,
-    );
-    assert.notEqual(ownerPerson, null);
-    assert.ok(
-      graph.assertions.listBySubject(ownerId, ownerPerson?.id ?? '', ['active']).length >= 1,
-    );
-    assert.ok(graph.projections.listAll(ownerId).length >= 1);
+    assert.deepEqual(await jobRunner.drain(context.ownerId, 1), { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
+    assert.equal(store.resolve('Chat 2026-08-05 · Editor')?.kind, 'chat');
+    assert.deepEqual(queuedOf(context, 'daily_rollup').map((job) => job.payload_json), [JSON.stringify({ day: '2026-08-05' })]);
+    const tidied = queuedOf(context, 'note_tidy').map((job) => job.payload_json).sort();
+    assert.deepEqual(tidied, [store.resolve('Neovim')?.id, findOwnerNote(context.database)?.id].map((noteId) => JSON.stringify({ noteId })).sort());
   });
 });
 
-test('many mutations between drains leave at most one queued projection_maintenance job', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const owner = graph.nodes.createNode({
-      ownerId, type: 'person', canonicalKey: OWNER_PERSON_CANONICAL_KEY,
-      displayName: 'the user', description: null, sensitivity: 'personal', properties: {},
-    });
-    graph.nodes.addAlias({
-      ownerId, nodeId: owner.id, alias: 'the user',
-      aliasType: 'user_supplied', sourceEvidenceId: null,
-    });
-    const tools = ['PowerShell', 'TypeScript', 'SQLite', 'Godot', 'Git'];
-    const inference = new FakeAssistantInference(tools.map((tool) => JSON.stringify({
-      statements: [{
-        statementKind: 'direct_fact',
-        subject: { nodeType: 'person', displayName: 'the user' },
-        predicate: 'USES',
-        object: { kind: 'unresolved', nodeType: 'software', displayName: tool },
-        scope: null, validFromUtc: null, validToUtc: null,
-        rationale: `The user wrote "I use ${tool}".`, suggestedConfidence: 0.9,
-      }],
-    })));
-    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
-    const ingestor = new ConversationIngestor(pipeline);
-    for (const [index, tool] of tools.entries()) {
-      ingestor.ingestTurn({
-        ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
-        userMessageId: `m${index * 2 + 1}`, userText: `I use ${tool}.`,
-        assistantMessageId: `m${index * 2 + 2}`, assistantText: '',
-      });
-    }
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
+test('follow-ups stay live-idempotent: two turns on one day queue one rollup and one tidy per note', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { inference: new FakeAssistantInference([USES_NEOVIM, USES_NEOVIM]) });
+    enqueueChat(enqueue);
+    enqueueChat(enqueue, { ...TURN, userMessageId: 'msg_2', capturedAtUtc: '2026-08-05T08:40:00.000Z' });
+    await jobRunner.drain(context.ownerId, 2);
+    assert.equal(queuedOf(context, 'daily_rollup').length, 1);
+    assert.equal(queuedOf(context, 'note_tidy').length, 2);
+  });
+});
 
-    const summary = await runner.drain(ownerId, tools.length);
-    assert.equal(summary.completed, tools.length);
-    const queued = graph.jobs.listByStatus(ownerId, 'queued')
-      .filter((job) => job.job_type === 'projection_maintenance');
-    assert.equal(queued.length, 1);
+test('with the tidy pass off a chat turn drains into its chat note and the daily note', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, store, enqueue } = setup(context, { inference: new FakeAssistantInference([USES_NEOVIM]), config: TIDY_OFF });
+    enqueueChat(enqueue);
+    assert.deepEqual(await jobRunner.drain(context.ownerId, -1), { claimed: 2, completed: 2, failed: 0, preempted: 0, recovered: 0 });
+    assert.match(store.resolve('2026-08-05')?.body ?? '', /## Chats\n- \[\[Chat 2026-08-05 · Editor\]\]/);
+    assert.equal(queuedOf(context, 'note_tidy').length, 0);
+  });
+});
+
+test('refreshConfig switches the tidy pass for later jobs', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { inference: new FakeAssistantInference([USES_NEOVIM]), config: TIDY_OFF });
+    jobRunner.refreshConfig(DEFAULT_ASSISTANT_CONFIG);
+    enqueueChat(enqueue);
+    await jobRunner.drain(context.ownerId, 1);
+    assert.equal(queuedOf(context, 'note_tidy').length, 2);
+  });
+});
+
+test('a suppressed chat turn writes nothing and queues no follow-up', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context);
+    enqueueChat(enqueue, { ...TURN, userText: 'Do not remember this.' });
+    assert.equal((await jobRunner.drain(context.ownerId, -1)).completed, 1);
+    assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 0);
+  });
+});
+
+test('a capture note job processes the capture and queues the rollup for its local day', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, store, submitCapture } = setup(context, { inference: new FakeAssistantInference([NO_OPERATIONS]), config: TIDY_OFF });
+    const capture = submitCapture();
+    assert.equal((await jobRunner.drain(context.ownerId, -1)).completed, 2);
+    assert.equal(requireCapture(context.database, capture.attachmentId).state, 'processed');
+    assert.match(store.resolve('2026-08-05')?.body ?? '', /^1 screenshot · 0 chats/);
+  });
+});
+
+test('a capture note job for an already processed capture queues nothing', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue, submitCapture } = setup(context, { inference: new FakeAssistantInference([NO_OPERATIONS]), config: TIDY_OFF });
+    const capture = submitCapture();
+    await jobRunner.drain(context.ownerId, -1);
+    enqueue('capture_note', { attachmentId: capture.attachmentId }, 'capture_note:replay');
+    assert.equal((await jobRunner.drain(context.ownerId, -1)).completed, 1);
+    assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 0);
+  });
+});
+
+test('a capture retention job applies the configured age limit', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const config: AssistantConfig = { ...TIDY_OFF, Vault: { ...TIDY_OFF.Vault, CaptureImageMaxAgeDays: 1 } };
+    const { jobRunner, enqueue, submitCapture } = setup(context, { inference: new FakeAssistantInference([NO_OPERATIONS]), config });
+    const capture = submitCapture();
+    await jobRunner.drain(context.ownerId, -1);
+    context.clock.advanceDays(2);
+    enqueue('capture_retention', { reason: 'schedule' }, 'capture_retention:schedule');
+    assert.equal((await jobRunner.drain(context.ownerId, -1)).completed, 1);
+    assert.equal(requireCapture(context.database, capture.attachmentId).state, 'image_removed');
   });
 });
 
 test('a busy host claims nothing', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
-    new ConversationIngestor(pipeline).ingestTurn({
-      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
-      userMessageId: 'm1', userText: 'I use PowerShell.',
-      assistantMessageId: 'm2', assistantText: '',
-    });
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(false),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-    const summary = await runner.drain(ownerId, 10);
-    assert.equal(summary.claimed, 0);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'server_busy');
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { idleGate: new StaticIdleGate(false) });
+    enqueueChat(enqueue);
+    assert.equal((await jobRunner.drain(context.ownerId, 10)).claimed, 0);
+    assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 1);
+    assert.equal(lastDecision(context), 'server_busy');
   });
 });
 
-test('preemption returns the job to the queue without spending an attempt', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
-    new ConversationIngestor(pipeline).ingestTurn({
-      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
-      userMessageId: 'm1', userText: 'I use PowerShell.',
-      assistantMessageId: 'm2', assistantText: '',
-    });
-
-    class PreemptingInference extends FakeAssistantInference {
-      private runner: AssistantJobRunner | null = null;
-
-      private readonly idleGate: StaticIdleGate;
-
-      constructor(idleGate: StaticIdleGate) {
-        super([usesPowerShell]);
-        this.idleGate = idleGate;
-      }
-
-      attachRunner(runner: AssistantJobRunner): void {
-        this.runner = runner;
-      }
-
-      async complete(request: AssistantInferenceRequest) {
-        this.idleGate.setIdle(false);
-        this.runner?.requestPreemption();
-        if (request.abortSignal?.aborted === true) {
-          throw new Error('Assistant inference aborted by interactive work.');
-        }
-        return super.complete(request);
-      }
-    }
-
+test('preemption mid-call returns the job to the queue without spending an attempt or writing', async () => {
+  await withAssistantContextAsync(async (context) => {
     const idleGate = new StaticIdleGate(true);
-    const inference = new PreemptingInference(idleGate);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(
-        graph, new StructuredOutputRunner(new FakeAssistantInference([])),
-      ),
-      projections: projectionCompiler(graph),
-      idleGate,
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-    inference.attachRunner(runner);
+    const inference = new PreemptingInference(idleGate, [USES_NEOVIM], true);
+    const { jobRunner, store, enqueue } = setup(context, { inference, idleGate });
+    inference.attachRunner(jobRunner);
+    enqueueChat(enqueue);
 
-    const summary = await runner.drain(ownerId, 10);
-    assert.equal(summary.preempted, 1);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
-    const queued = graph.jobs.listByStatus(ownerId, 'queued')[0];
-    assert.equal(queued?.attempts, 0, 'preemption is not failure');
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'preemption_requested');
+    const summary = await jobRunner.drain(context.ownerId, -1);
+    assert.deepEqual([summary.claimed, summary.preempted], [1, 1]);
+    assert.equal(queuedOf(context, 'chat_note')[0]?.attempts, 0, 'preemption is not failure');
+    assert.equal(store.resolve('Chat 2026-08-05 · Editor'), null);
+    assert.equal(lastDecision(context), 'preemption_requested');
   });
 });
 
-test('a job whose evidence vanished fails and eventually dead-letters', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    graph.jobs.enqueue({
-      ownerId, jobType: 'conversation_ingestion',
-      payload: { evidenceId: 'ev_missing', sessionId: 'chat_1' },
-      idempotencyKey: 'conversation_ingestion:ev_missing',
-    }, 800);
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-    const summary = await runner.drain(ownerId, 1);
-    assert.equal(summary.failed, 1);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
-    assert.equal(graph.jobs.listByStatus(ownerId, 'queued')[0]?.attempts, 1);
+test('preemption after the writer committed completes the job instead of replaying it', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const idleGate = new StaticIdleGate(true);
+    const inference = new PreemptingInference(idleGate, [USES_NEOVIM], false);
+    const { jobRunner, enqueue } = setup(context, { inference, idleGate, config: TIDY_OFF });
+    inference.attachRunner(jobRunner);
+    enqueueChat(enqueue);
+
+    assert.deepEqual(await jobRunner.drain(context.ownerId, -1), { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
+    assert.equal(queuedOf(context, 'chat_note').length, 0, 'a replayed chat job would duplicate the transcript');
+    assert.equal(queuedOf(context, 'daily_rollup').length, 1);
+    assert.equal(lastDecision(context), 'preemption_requested');
+  });
+});
+
+test('a failing job requeues with one attempt spent and then leaves nothing claimable', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context);
+    enqueue('note_tidy', { noteId: 'note_missing' }, 'note_tidy:note_missing');
+    const summary = await jobRunner.drain(context.ownerId, -1);
+    assert.deepEqual([summary.claimed, summary.failed], [1, 1]);
+    assert.equal(queuedOf(context, 'note_tidy')[0]?.attempts, 1);
+    assert.equal(lastDecision(context), 'no_claimable_job');
   });
 });
 
 test('recovery re-queues a lease abandoned by a crashed runner', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId, clock }) => {
-    graph.jobs.enqueue({
-      ownerId, jobType: 'projection_maintenance',
-      payload: { reason: 'startup' }, idempotencyKey: 'projection_maintenance:startup',
-    }, 300);
-    graph.jobs.claimNext({ ownerId, leaseOwner: 'crashed', leaseSeconds: 30, modelWorkAllowed: true });
-    clock.advanceSeconds(31);
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-    const summary = await runner.drain(ownerId, 5);
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context);
+    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    context.graph.jobs.claimNext({ ownerId: context.ownerId, leaseOwner: 'crashed', leaseSeconds: 30, modelWorkAllowed: true });
+    context.clock.advanceSeconds(31);
+    const summary = await jobRunner.drain(context.ownerId, 5);
     assert.equal(summary.recovered, 1);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'completed'), 1);
+    assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'completed'), 1);
   });
 });
 
 test('the daily GPU cap skips model-backed jobs but still drains deterministic work', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId, database, clock }) => {
-    graph.jobs.enqueue({
-      ownerId,
-      jobType: 'conversation_ingestion',
-      payload: { evidenceId: 'ev_missing', sessionId: 'chat_1' },
-      idempotencyKey: 'conversation_ingestion:gpu-blocked',
-    }, 800);
-    graph.jobs.enqueue({
-      ownerId,
-      jobType: 'projection_maintenance',
-      payload: { reason: 'startup' },
-      idempotencyKey: 'projection_maintenance:gpu-blocked',
-    }, 300);
-    const resourcePolicy = new AssistantResourcePolicy({
-      database,
-      clock,
-      background: { ...DEFAULT_ASSISTANT_CONFIG.Background, MaxGpuMinutesPerDay: 0 },
-      power: new UnavailablePowerStateProvider(),
-    });
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy,
-      jobPriorities: DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, 5);
-    assert.deepEqual(summary, { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
-    assert.equal(graph.jobs.listByStatus(ownerId, 'queued')[0]?.job_type, 'conversation_ingestion');
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'daily_gpu_limit');
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { resourcePolicy: GPU_CAPPED(context) });
+    enqueueChat(enqueue);
+    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    assert.deepEqual(await jobRunner.drain(context.ownerId, -1), { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
+    assert.equal(queuedOf(context, 'chat_note').length, 1);
+    assert.equal(lastDecision(context), 'daily_gpu_limit');
   });
 });
 
 test('an unlimited drain claims every claimable job and stops when none remain', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    for (const key of ['one', 'two', 'three']) {
-      graph.jobs.enqueue({
-        ownerId, jobType: 'projection_maintenance',
-        payload: { reason: `startup_${key}` }, idempotencyKey: `projection_maintenance:${key}`,
-      }, 300);
-    }
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, -1);
-    assert.deepEqual(summary, { claimed: 3, completed: 3, failed: 0, preempted: 0, recovered: 0 });
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
-  });
-});
-
-test('an unlimited drain still stops on a blocked idle gate', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    graph.jobs.enqueue({
-      ownerId, jobType: 'projection_maintenance',
-      payload: { reason: 'startup' }, idempotencyKey: 'projection_maintenance:idle-gate',
-    }, 300);
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(false),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, -1);
-    assert.equal(summary.claimed, 0);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'server_busy');
-  });
-});
-
-test('an unlimited drain still stops on a blocked resource policy', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId, database, clock }) => {
-    graph.jobs.enqueue({
-      ownerId,
-      jobType: 'conversation_ingestion',
-      payload: { evidenceId: 'ev_missing', sessionId: 'chat_1' },
-      idempotencyKey: 'conversation_ingestion:gpu-blocked-unlimited',
-    }, 800);
-    graph.jobs.enqueue({
-      ownerId,
-      jobType: 'projection_maintenance',
-      payload: { reason: 'startup' },
-      idempotencyKey: 'projection_maintenance:gpu-blocked-unlimited',
-    }, 300);
-    const resourcePolicy = new AssistantResourcePolicy({
-      database,
-      clock,
-      background: { ...DEFAULT_ASSISTANT_CONFIG.Background, MaxGpuMinutesPerDay: 0 },
-      power: new UnavailablePowerStateProvider(),
-    });
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy,
-      jobPriorities: DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, -1);
-    assert.deepEqual(summary, { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
-    assert.equal(graph.jobs.listByStatus(ownerId, 'queued')[0]?.job_type, 'conversation_ingestion');
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'daily_gpu_limit');
-  });
-});
-
-test('an unlimited drain still stops on preemption', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
-    new ConversationIngestor(pipeline).ingestTurn({
-      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
-      userMessageId: 'm1', userText: 'I use PowerShell.',
-      assistantMessageId: 'm2', assistantText: '',
-    });
-
-    class PreemptingInference extends FakeAssistantInference {
-      private runner: AssistantJobRunner | null = null;
-
-      private readonly idleGate: StaticIdleGate;
-
-      constructor(idleGate: StaticIdleGate) {
-        super([usesPowerShell]);
-        this.idleGate = idleGate;
-      }
-
-      attachRunner(runner: AssistantJobRunner): void {
-        this.runner = runner;
-      }
-
-      async complete(request: AssistantInferenceRequest) {
-        this.idleGate.setIdle(false);
-        this.runner?.requestPreemption();
-        if (request.abortSignal?.aborted === true) {
-          throw new Error('Assistant inference aborted by interactive work.');
-        }
-        return super.complete(request);
-      }
-    }
-
-    const idleGate = new StaticIdleGate(true);
-    const inference = new PreemptingInference(idleGate);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(
-        graph, new StructuredOutputRunner(new FakeAssistantInference([])),
-      ),
-      projections: projectionCompiler(graph),
-      idleGate,
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-    inference.attachRunner(runner);
-
-    const summary = await runner.drain(ownerId, -1);
-    assert.equal(summary.claimed, 1);
-    assert.equal(summary.preempted, 1);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
-    assert.equal(graph.jobs.listByStatus(ownerId, 'queued')[0]?.attempts, 0, 'preemption is not failure');
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'preemption_requested');
-  });
-});
-
-test('an unlimited drain still stops on no_claimable_job', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    graph.jobs.enqueue({
-      ownerId, jobType: 'conversation_ingestion',
-      payload: { evidenceId: 'ev_missing', sessionId: 'chat_1' },
-      idempotencyKey: 'conversation_ingestion:ev_missing_unlimited',
-    }, 800);
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, -1);
-    assert.equal(summary.claimed, 1);
-    assert.equal(summary.failed, 1);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'no_claimable_job');
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context);
+    for (const day of ['2026-08-03', '2026-08-04', '2026-08-05']) enqueue('daily_rollup', { day }, `daily_rollup:${day}`);
+    assert.deepEqual(await jobRunner.drain(context.ownerId, -1), { claimed: 3, completed: 3, failed: 0, preempted: 0, recovered: 0 });
+    assert.deepEqual(context.graph.backgroundDecisions.list(context.ownerId), []);
   });
 });
 
 test('a zero drain budget claims nothing', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    graph.jobs.enqueue({
-      ownerId, jobType: 'projection_maintenance',
-      payload: { reason: 'startup' }, idempotencyKey: 'projection_maintenance:zero-budget',
-    }, 300);
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, 0);
-    assert.deepEqual(summary, { claimed: 0, completed: 0, failed: 0, preempted: 0, recovered: 0 });
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
-    assert.deepEqual(graph.backgroundDecisions.list(ownerId), []);
-  });
-});
-
-test('runner executes every Gate C job branch with configured priority order', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const calls: string[] = [];
-    const evidence = graph.evidence.recordTextEvidence({
-      ownerId, deviceId: null, parentEvidenceId: null, sourceType: 'question_answer',
-      sourceEventId: 'question-answer-job', sourceRef: 'question_1',
-      capturedAtUtc: graph.nowUtc(), sourceTimezone: null, sensitivity: 'personal',
-      retentionUntilUtc: null, metadata: {}, text: 'PowerShell.',
-    });
-    graph.jobs.enqueue({
-      ownerId, jobType: 'question_planning', payload: { reason: 'schedule' },
-      idempotencyKey: 'question-planning-job',
-    }, JOB_PRIORITIES.QuestionPlanning);
-    graph.jobs.enqueue({
-      ownerId, jobType: 'question_answer_ingestion',
-      payload: { questionId: 'question_1', evidenceId: evidence.id },
-      idempotencyKey: 'question-answer-job',
-    }, JOB_PRIORITIES.QuestionAnswerIngestion);
-    graph.jobs.enqueue({
-      ownerId, jobType: 'projection_summarization', payload: { projectionId: 'projection_1' },
-      idempotencyKey: 'projection-summarization-job',
-    }, JOB_PRIORITIES.ProjectionMaintenance);
-    graph.jobs.enqueue({
-      ownerId, jobType: 'image_extraction', payload: { evidenceId: evidence.id },
-      idempotencyKey: 'image-extraction-job',
-    }, JOB_PRIORITIES.ImageExtraction);
-
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      questions: {
-        async planPending() {
-          calls.push('question_planning');
-          return { planned: 0, eligible: 0, pendingOnly: 0, expired: 0 };
-        },
-      },
-      questionAnswers: {
-        async ingest() {
-          calls.push('question_answer_ingestion');
-          return { observationIds: [], candidateIds: [], promotions: [] };
-        },
-      },
-      images: {
-        async run(): Promise<ImageExtractionOutcome> {
-          calls.push('image_extraction');
-          return { kind: 'awaiting_capability' };
-        },
-      },
-      retention: {
-        run(): CaptureRetentionSummary {
-          calls.push('capture_retention');
-          return { expired: 0, evicted: 0 };
-        },
-      },
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: RESIDENT,
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-    const summary = await runner.drain(ownerId, 10);
-    assert.equal(summary.failed, 0);
-    assert.ok(summary.completed >= 4);
-    assert.deepEqual(
-      calls, ['question_answer_ingestion', 'question_planning', 'image_extraction'],
-    );
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context);
+    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    assert.deepEqual(await jobRunner.drain(context.ownerId, 0), { claimed: 0, completed: 0, failed: 0, preempted: 0, recovered: 0 });
+    assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 1);
+    assert.deepEqual(context.graph.backgroundDecisions.list(context.ownerId), []);
   });
 });
 
 test('an unloaded model claims no model-backed job and spends no attempt', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
-    new ConversationIngestor(pipeline).ingestTurn({
-      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
-      userMessageId: 'm1', userText: 'I use PowerShell.',
-      assistantMessageId: 'm2', assistantText: '',
-    });
-    graph.jobs.enqueue({
-      ownerId, jobType: 'image_extraction', payload: { evidenceId: 'evidence_1' },
-      idempotencyKey: 'image-extraction:residency-gate',
-    }, JOB_PRIORITIES.ImageExtraction);
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: new StaticResidencyGate(false),
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, 10);
-
-    assert.equal(summary.claimed, 0);
-    assert.equal(summary.failed, 0);
-    const queued = graph.jobs.listByStatus(ownerId, 'queued');
-    const conversation = queued.find((job) => job.job_type === 'conversation_ingestion');
-    const image = queued.find((job) => job.job_type === 'image_extraction');
-    assert.equal(conversation?.attempts, 0, 'a sleeping model must not burn the attempt budget');
-    assert.equal(image?.attempts, 0, 'image extraction must not be claimed against a sleeping model');
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'model_not_resident');
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { residencyGate: new StaticResidencyGate(false) });
+    enqueueChat(enqueue);
+    enqueue('note_tidy', { noteId: 'note_1' }, 'note_tidy:note_1');
+    assert.equal((await jobRunner.drain(context.ownerId, 10)).claimed, 0);
+    assert.deepEqual(context.graph.jobs.listByStatus(context.ownerId, 'queued').map((job) => job.attempts), [0, 0]);
+    assert.equal(lastDecision(context), 'model_not_resident');
   });
 });
 
-test('a model that unloads mid-call requeues the job without spending an attempt', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
-    new ConversationIngestor(pipeline).ingestTurn({
-      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
-      userMessageId: 'm1', userText: 'I use PowerShell.',
-      assistantMessageId: 'm2', assistantText: '',
-    });
-
+test('a model that unloads mid-call requeues the job without spending an attempt or GPU time', async () => {
+  await withAssistantContextAsync(async (context) => {
     const residencyGate = new StaticResidencyGate(true);
     let recordedGpuUse = 0;
 
     class UnloadingInference extends FakeAssistantInference {
-      constructor() {
-        super([]);
-      }
-
       async complete(): Promise<never> {
         residencyGate.setResident(false);
         throw new Error('HTTP 500: inline_model_loading is not True in config.yml.');
@@ -793,67 +379,23 @@ test('a model that unloads mid-call requeues the job without spending an attempt
       }
     }
 
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(
-        graph, new StructuredOutputRunner(new UnloadingInference()),
-      ),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(
-        graph, new StructuredOutputRunner(new FakeAssistantInference([])),
-      ),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate,
-      resourcePolicy: new CountingResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
+    const { jobRunner, enqueue } = setup(context, {
+      inference: new UnloadingInference([]), residencyGate, resourcePolicy: new CountingResourcePolicy(),
     });
-
-    const summary = await runner.drain(ownerId, 10);
-
-    assert.equal(summary.failed, 0);
-    assert.equal(summary.preempted, 1);
-    assert.equal(recordedGpuUse, 0, 'a call that never reached a resident model is not GPU time');
-    const queued = graph.jobs.listByStatus(ownerId, 'queued')
-      .filter((job) => job.job_type === 'conversation_ingestion');
-    assert.equal(queued.length, 1);
-    assert.equal(queued[0]?.attempts, 0);
-    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'model_not_resident');
+    enqueueChat(enqueue);
+    const summary = await jobRunner.drain(context.ownerId, 10);
+    assert.deepEqual([summary.failed, summary.preempted, recordedGpuUse], [0, 1, 0]);
+    assert.equal(queuedOf(context, 'chat_note')[0]?.attempts, 0);
+    assert.equal(lastDecision(context), 'model_not_resident');
   });
 });
 
 test('an unloaded model still lets deterministic jobs drain', async () => {
-  await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    graph.jobs.enqueue({
-      ownerId, jobType: 'capture_retention', payload: { reason: 'schedule' },
-      idempotencyKey: 'capture_retention:schedule',
-    }, JOB_PRIORITIES.CaptureRetention);
-    graph.jobs.enqueue({
-      ownerId, jobType: 'projection_maintenance', payload: { reason: 'schedule' },
-      idempotencyKey: 'projection_maintenance:schedule',
-    }, JOB_PRIORITIES.ProjectionMaintenance);
-    const inference = new FakeAssistantInference([]);
-    const runner = new AssistantJobRunner({
-      graph,
-      ...UNUSED_GATE_C_JOBS,
-      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
-      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
-      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
-      projections: projectionCompiler(graph),
-      idleGate: new StaticIdleGate(true),
-      residencyGate: new StaticResidencyGate(false),
-      resourcePolicy: new NoLimitResourcePolicy(),
-      jobPriorities: JOB_PRIORITIES,
-      leaseOwner: 'runner_test',
-      leaseSeconds: 120,
-    });
-
-    const summary = await runner.drain(ownerId, 10);
-
-    assert.equal(summary.completed, 2);
-    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { residencyGate: new StaticResidencyGate(false) });
+    enqueue('capture_retention', { reason: 'schedule' }, 'capture_retention:schedule');
+    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    assert.equal((await jobRunner.drain(context.ownerId, 10)).completed, 2);
+    assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 0);
   });
 });

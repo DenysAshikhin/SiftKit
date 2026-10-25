@@ -1,4 +1,4 @@
-import type { CaptureSubmissionDto, ForegroundContextDto, VaultWriteMeta } from '@siftkit/contracts';
+import type { CaptureSubmissionDto, ForegroundContextDto, SuppressionAuditDto, VaultWriteMeta } from '@siftkit/contracts';
 
 import type { Clock } from '../assistant/clock.ts';
 import { isUsableCapability, type AssistantImageCapabilityProvider } from '../assistant/images/image-capability.ts';
@@ -102,6 +102,15 @@ export class VaultCaptureIntake {
       this.attachments.delete(attachment.id);
       throw error;
     }
+  }
+
+  /** A capture the shell suppressed. Non-content: the rule id and nothing else. */
+  recordSuppression(ownerId: string, suppression: SuppressionAuditDto): void {
+    this.audit.recordAuditEvent({
+      ownerId, eventType: 'capture_suppressed', targetType: 'desktop_capture', targetId: suppression.ruleId,
+      summary: 'Capture suppressed by the desktop privacy preflight.',
+      details: { ruleId: suppression.ruleId, occurredAtUtc: suppression.occurredAtUtc },
+    });
   }
 
   private recordDuplicate(ownerId: string, eventType: 'duplicate_discarded' | 'skipped_duplicate', summary: string, details: { reason: string; similarityPercent?: number }): void {

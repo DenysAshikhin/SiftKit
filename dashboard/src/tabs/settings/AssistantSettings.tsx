@@ -4,27 +4,20 @@ import { CaptureScopeSchema } from '@siftkit/contracts';
 import type {
   AssistantConfig,
   AssistantBackgroundWorkDecisionDto,
-  AssistantMemoryHistoryEntryDto,
-  AssistantValidationCandidateDto,
   DesktopStateDto,
   PendingCaptureDto,
 } from '../../types.ts';
 import {
   bootstrapAssistantToken,
-  fetchAssistantEvidencePixels,
   getAssistantBackgroundDecisions,
   getAssistantDesktopState,
-  getAssistantMemoryHistory,
   getAssistantPendingCaptures,
-  getAssistantValidation,
-  removeAssistantValidationCandidate,
-  resolveAssistantCandidateIdentity,
-  saveAssistantValidationNotes,
 } from '../../assistant-api.ts';
+import { fetchVaultAttachment } from '../../vault-api.ts';
 import { ImageLightbox } from '../../components/ImageLightbox.tsx';
 import { AssistantMaintenance } from './AssistantMaintenance.tsx';
 
-type AssistantView = 'configuration' | 'validation' | 'history';
+type AssistantView = 'configuration' | 'captures';
 
 type AssistantSettingsProps = {
   assistant: AssistantConfig;
@@ -262,6 +255,10 @@ function ObservationSettings(props: ObservationSettingsProps) {
 
 function AssistantConfiguration(props: ObservationSettingsProps) {
   const { assistant, onChange } = props;
+  const priorities = assistant.Background.JobPriorities;
+  function patchPriorities(next: Partial<AssistantConfig['Background']['JobPriorities']>): void {
+    onChange({ ...assistant, Background: { ...assistant.Background, JobPriorities: { ...priorities, ...next } } });
+  }
   return (
     <div className="assistant-config-groups">
       <Group title="General">
@@ -269,58 +266,30 @@ function AssistantConfiguration(props: ObservationSettingsProps) {
         <TextField label="Owner ID" value={assistant.Owner.Id} onChange={(Id) => onChange({ ...assistant, Owner: { ...assistant.Owner, Id } })} />
         <TextField label="Owner display name" value={assistant.Owner.DisplayName} onChange={(DisplayName) => onChange({ ...assistant, Owner: { ...assistant.Owner, DisplayName } })} />
       </Group>
-      <Group title="Memory budgets">
-        <NumberField label="Tier 1 max tokens" value={assistant.Memory.Tier1.MaxTokens} min={1} onChange={(MaxTokens) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier1: { ...assistant.Memory.Tier1, MaxTokens } } })} />
-        <NumberField label="Tier 1 target tokens" value={assistant.Memory.Tier1.TargetTokens} min={1} onChange={(TargetTokens) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier1: { ...assistant.Memory.Tier1, TargetTokens } } })} />
-        <NumberField label="Tier 2 max documents" value={assistant.Memory.Tier2.MaxDocuments} min={1} onChange={(MaxDocuments) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier2: { ...assistant.Memory.Tier2, MaxDocuments } } })} />
-        <NumberField label="Tier 2 max tokens/document" value={assistant.Memory.Tier2.MaxTokensPerDocument} min={1} onChange={(MaxTokensPerDocument) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier2: { ...assistant.Memory.Tier2, MaxTokensPerDocument } } })} />
-        <NumberField label="Tier 2 target tokens/document" value={assistant.Memory.Tier2.TargetTokensPerDocument} min={1} onChange={(TargetTokensPerDocument) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier2: { ...assistant.Memory.Tier2, TargetTokensPerDocument } } })} />
-        <NumberField label="Tier 3 max documents" value={assistant.Memory.Tier3.MaxDocuments} min={1} onChange={(MaxDocuments) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier3: { ...assistant.Memory.Tier3, MaxDocuments } } })} />
-        <NumberField label="Tier 3 max tokens/document" value={assistant.Memory.Tier3.MaxTokensPerDocument} min={1} onChange={(MaxTokensPerDocument) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier3: { ...assistant.Memory.Tier3, MaxTokensPerDocument } } })} />
-        <NumberField label="Tier 3 target tokens/document" value={assistant.Memory.Tier3.TargetTokensPerDocument} min={1} onChange={(TargetTokensPerDocument) => onChange({ ...assistant, Memory: { ...assistant.Memory, Tier3: { ...assistant.Memory.Tier3, TargetTokensPerDocument } } })} />
-      </Group>
       <Group title="Retrieval">
         <NumberField label="Max context tokens" value={assistant.Retrieval.MaxContextTokens} min={1} onChange={(MaxContextTokens) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxContextTokens } })} />
-        <NumberField label="Max hops" value={assistant.Retrieval.MaxHops} min={1} max={3} onChange={(MaxHops) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxHops } })} />
-        <NumberField label="Max seed nodes" value={assistant.Retrieval.MaxSeedNodes} min={1} onChange={(MaxSeedNodes) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxSeedNodes } })} />
-        <NumberField label="Max nodes" value={assistant.Retrieval.MaxNodes} min={1} onChange={(MaxNodes) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxNodes } })} />
-        <NumberField label="Max assertions" value={assistant.Retrieval.MaxAssertions} min={1} onChange={(MaxAssertions) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxAssertions } })} />
-        <NumberField label="Max fanout/node predicate" value={assistant.Retrieval.MaxFanoutPerNodePredicate} min={1} onChange={(MaxFanoutPerNodePredicate) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxFanoutPerNodePredicate } })} />
+        <NumberField label="Max notes" value={assistant.Retrieval.MaxNotes} min={1} onChange={(MaxNotes) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxNotes } })} />
       </Group>
-      <Group title="Questions">
-        <Toggle label="Questions enabled" value={assistant.Questions.Enabled} onChange={(Enabled) => onChange({ ...assistant, Questions: { ...assistant.Questions, Enabled } })} />
-        <NumberField label="Max/day" value={assistant.Questions.MaxPerDay} min={0} onChange={(MaxPerDay) => onChange({ ...assistant, Questions: { ...assistant.Questions, MaxPerDay } })} />
-        <NumberField label="Max/week" value={assistant.Questions.MaxPerWeek} min={0} onChange={(MaxPerWeek) => onChange({ ...assistant, Questions: { ...assistant.Questions, MaxPerWeek } })} />
-        <NumberField label="Minimum hours between" value={assistant.Questions.MinimumHoursBetweenQuestions} min={0} onChange={(MinimumHoursBetweenQuestions) => onChange({ ...assistant, Questions: { ...assistant.Questions, MinimumHoursBetweenQuestions } })} />
-        <TextField label="Allowed start" type="time" value={assistant.Questions.AllowedLocalTimeStart} onChange={(AllowedLocalTimeStart) => onChange({ ...assistant, Questions: { ...assistant.Questions, AllowedLocalTimeStart } })} />
-        <TextField label="Allowed end" type="time" value={assistant.Questions.AllowedLocalTimeEnd} onChange={(AllowedLocalTimeEnd) => onChange({ ...assistant, Questions: { ...assistant.Questions, AllowedLocalTimeEnd } })} />
-        <NumberField label="Dismissed cooldown days" value={assistant.Questions.DismissedCooldownDays} min={0} onChange={(DismissedCooldownDays) => onChange({ ...assistant, Questions: { ...assistant.Questions, DismissedCooldownDays } })} />
-        <NumberField label="Unanswered expiry days" value={assistant.Questions.UnansweredExpiryDays} min={1} onChange={(UnansweredExpiryDays) => onChange({ ...assistant, Questions: { ...assistant.Questions, UnansweredExpiryDays } })} />
-        <Toggle label="Suppress during fullscreen" value={assistant.Questions.SuppressDuringFullscreen} onChange={(SuppressDuringFullscreen) => onChange({ ...assistant, Questions: { ...assistant.Questions, SuppressDuringFullscreen } })} />
-        <Toggle label="Suppress during do-not-disturb" value={assistant.Questions.SuppressDuringDoNotDisturb} onChange={(SuppressDuringDoNotDisturb) => onChange({ ...assistant, Questions: { ...assistant.Questions, SuppressDuringDoNotDisturb } })} />
-        <NumberField label="Active input suppression seconds" value={assistant.Questions.ActiveInputSuppressionSeconds} min={0} onChange={(ActiveInputSuppressionSeconds) => onChange({ ...assistant, Questions: { ...assistant.Questions, ActiveInputSuppressionSeconds } })} />
+      <Group title="Vault">
+        <Toggle label="Tidy pass" value={assistant.Vault.TidyPassEnabled} onChange={(TidyPassEnabled) => onChange({ ...assistant, Vault: { ...assistant.Vault, TidyPassEnabled } })} />
+        <NumberField label="Capture image max age days (0 keeps them)" value={assistant.Vault.CaptureImageMaxAgeDays} min={0} onChange={(CaptureImageMaxAgeDays) => onChange({ ...assistant, Vault: { ...assistant.Vault, CaptureImageMaxAgeDays } })} />
       </Group>
       <ObservationSettings
         assistant={assistant}
         onChange={onChange}
         desktopState={props.desktopState}
       />
-      <Group title="Retention">
-        <NumberField label="OCR text days" value={assistant.Retention.OcrTextDays} min={1} onChange={(OcrTextDays) => onChange({ ...assistant, Retention: { ...assistant.Retention, OcrTextDays } })} />
-        <NumberField label="Unpromoted observation days" value={assistant.Retention.UnpromotedObservationDays} min={1} onChange={(UnpromotedObservationDays) => onChange({ ...assistant, Retention: { ...assistant.Retention, UnpromotedObservationDays } })} />
-        <NumberField label="Rejected candidate days" value={assistant.Retention.RejectedCandidateDays} min={1} onChange={(RejectedCandidateDays) => onChange({ ...assistant, Retention: { ...assistant.Retention, RejectedCandidateDays } })} />
-      </Group>
       <Group title="Background work">
         <NumberField label="Idle seconds before processing" value={assistant.Background.IdleSecondsBeforeProcessing} min={0} onChange={(IdleSecondsBeforeProcessing) => onChange({ ...assistant, Background: { ...assistant.Background, IdleSecondsBeforeProcessing } })} />
         <NumberField label="Max jobs/idle session" value={assistant.Background.MaxJobsPerIdleSession} min={1} onChange={(MaxJobsPerIdleSession) => onChange({ ...assistant, Background: { ...assistant.Background, MaxJobsPerIdleSession } })} />
         <NumberField label="Max GPU minutes/day" value={assistant.Background.MaxGpuMinutesPerDay} min={0} onChange={(MaxGpuMinutesPerDay) => onChange({ ...assistant, Background: { ...assistant.Background, MaxGpuMinutesPerDay } })} />
         <NumberField label="Minimum battery percent" value={assistant.Background.MinimumBatteryPercent} min={0} max={100} onChange={(MinimumBatteryPercent) => onChange({ ...assistant, Background: { ...assistant.Background, MinimumBatteryPercent } })} />
         <Toggle label="Allow on battery" value={assistant.Background.AllowOnBattery} onChange={(AllowOnBattery) => onChange({ ...assistant, Background: { ...assistant.Background, AllowOnBattery } })} />
-        <NumberField label="Conversation ingestion priority" value={assistant.Background.JobPriorities.ConversationIngestion} onChange={(ConversationIngestion) => onChange({ ...assistant, Background: { ...assistant.Background, JobPriorities: { ...assistant.Background.JobPriorities, ConversationIngestion } } })} />
-        <NumberField label="Question answer priority" value={assistant.Background.JobPriorities.QuestionAnswerIngestion} onChange={(QuestionAnswerIngestion) => onChange({ ...assistant, Background: { ...assistant.Background, JobPriorities: { ...assistant.Background.JobPriorities, QuestionAnswerIngestion } } })} />
-        <NumberField label="Question planning priority" value={assistant.Background.JobPriorities.QuestionPlanning} onChange={(QuestionPlanning) => onChange({ ...assistant, Background: { ...assistant.Background, JobPriorities: { ...assistant.Background.JobPriorities, QuestionPlanning } } })} />
-        <NumberField label="Candidate consolidation priority" value={assistant.Background.JobPriorities.CandidateConsolidation} onChange={(CandidateConsolidation) => onChange({ ...assistant, Background: { ...assistant.Background, JobPriorities: { ...assistant.Background.JobPriorities, CandidateConsolidation } } })} />
-        <NumberField label="Projection maintenance priority" value={assistant.Background.JobPriorities.ProjectionMaintenance} onChange={(ProjectionMaintenance) => onChange({ ...assistant, Background: { ...assistant.Background, JobPriorities: { ...assistant.Background.JobPriorities, ProjectionMaintenance } } })} />
+        <NumberField label="Chat note priority" value={priorities.ChatNote} onChange={(ChatNote) => patchPriorities({ ChatNote })} />
+        <NumberField label="Capture note priority" value={priorities.CaptureNote} onChange={(CaptureNote) => patchPriorities({ CaptureNote })} />
+        <NumberField label="Daily rollup priority" value={priorities.DailyRollup} onChange={(DailyRollup) => patchPriorities({ DailyRollup })} />
+        <NumberField label="Note tidy priority" value={priorities.NoteTidy} onChange={(NoteTidy) => patchPriorities({ NoteTidy })} />
+        <NumberField label="Capture retention priority" value={priorities.CaptureRetention} onChange={(CaptureRetention) => patchPriorities({ CaptureRetention })} />
       </Group>
       <Group title="Private mode">
         <Toggle label="Private mode active" value={assistant.PrivateMode.Active} onChange={(Active) => onChange({ ...assistant, PrivateMode: { ...assistant.PrivateMode, Active } })} />
@@ -330,18 +299,87 @@ function AssistantConfiguration(props: ObservationSettingsProps) {
   );
 }
 
+/** Captures still owed their note-writer pass, previewed from their vault attachments. */
+function PendingCaptures(props: { token: string | null; captures: readonly PendingCaptureDto[]; loading: boolean }) {
+  const { token, captures } = props;
+  const [previews, setPreviews] = React.useState<Record<string, CapturePreview>>({});
+  const [zoomed, setZoomed] = React.useState<PendingCaptureDto | null>(null);
+
+  // Previews load lazily once the list has arrived; each blob is held as an object URL until unmount.
+  React.useEffect(() => {
+    if (token === null || captures.length === 0) return;
+    let active = true;
+    const urls: string[] = [];
+    void (async () => {
+      for (const capture of captures) {
+        try {
+          const blob = await fetchVaultAttachment(token, capture.relativePath);
+          if (!active) return;
+          const url = window.URL.createObjectURL(blob);
+          urls.push(url);
+          setPreviews((prev) => ({ ...prev, [capture.attachmentId]: { kind: 'url', url } }));
+        } catch (caught) {
+          if (!active) return;
+          setPreviews((prev) => ({
+            ...prev,
+            [capture.attachmentId]: { kind: 'error', error: caught instanceof Error ? caught.message : String(caught) },
+          }));
+        }
+      }
+    })();
+    return () => {
+      active = false;
+      for (const url of urls) window.URL.revokeObjectURL(url);
+    };
+  }, [token, captures]);
+
+  const zoomedPreview = zoomed === null ? undefined : previews[zoomed.attachmentId];
+  if (props.loading) return <p className="hint">Loading pending captures…</p>;
+  if (captures.length === 0) return <p className="hint">No captures are waiting for the note-writer.</p>;
+  return (
+    <section className="assistant-pending-captures">
+      {captures.map((capture) => {
+        const preview = previews[capture.attachmentId];
+        return (
+          <article className="assistant-feed-card" key={capture.attachmentId}>
+            <div className="assistant-card-heading">
+              <h3>{capture.noteTitle}</h3>
+              <span className="bdg">{capture.state.replace(/_/g, ' ')}</span>
+            </div>
+            {preview === undefined ? (
+              <p className="hint">Loading preview…</p>
+            ) : preview.kind === 'url' ? (
+              <button
+                type="button"
+                className="image-zoom"
+                aria-label={`Enlarge capture ${capture.noteTitle}`}
+                title="Enlarge"
+                onClick={() => setZoomed(capture)}
+              >
+                <img src={preview.url} alt={capture.noteTitle} />
+              </button>
+            ) : (
+              <p className="error">Preview unavailable: {preview.error}</p>
+            )}
+            <p className="hint">{new Date(capture.capturedAtUtc).toLocaleString()} · {(capture.byteLength / 1024).toFixed(1)} KB</p>
+          </article>
+        );
+      })}
+      {zoomed !== null && zoomedPreview !== undefined && zoomedPreview.kind === 'url' ? (
+        <ImageLightbox src={zoomedPreview.url} alt={zoomed.noteTitle} onClose={() => setZoomed(null)} />
+      ) : null}
+    </section>
+  );
+}
+
 export function AssistantSettings(props: AssistantSettingsProps) {
   const [view, setView] = React.useState<AssistantView>('configuration');
   const [token, setToken] = React.useState<string | null>(null);
-  const [validation, setValidation] = React.useState<AssistantValidationCandidateDto[]>([]);
-  const [history, setHistory] = React.useState<AssistantMemoryHistoryEntryDto[]>([]);
   const [desktopState, setDesktopState] = React.useState<DesktopStateDto | null>(null);
   const [pendingCaptures, setPendingCaptures] = React.useState<PendingCaptureDto[]>([]);
   const [backgroundDecisions, setBackgroundDecisions] = React.useState<
     AssistantBackgroundWorkDecisionDto[]
   >([]);
-  const [capturePreviews, setCapturePreviews] = React.useState<Record<string, CapturePreview>>({});
-  const [zoomedCapture, setZoomedCapture] = React.useState<PendingCaptureDto | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -350,19 +388,13 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     void (async () => {
       try {
         const nextToken = await bootstrapAssistantToken();
-        const [
-          nextValidation, nextHistory, nextDesktopState, nextCaptures, nextBackgroundDecisions,
-        ] = await Promise.all([
-          getAssistantValidation(nextToken),
-          getAssistantMemoryHistory(nextToken),
+        const [nextDesktopState, nextCaptures, nextBackgroundDecisions] = await Promise.all([
           getAssistantDesktopState(nextToken),
           getAssistantPendingCaptures(nextToken),
           getAssistantBackgroundDecisions(nextToken),
         ]);
         if (!active) return;
         setToken(nextToken);
-        setValidation(nextValidation);
-        setHistory(nextHistory);
         setDesktopState(nextDesktopState);
         setPendingCaptures(nextCaptures.captures);
         setBackgroundDecisions(nextBackgroundDecisions);
@@ -375,85 +407,11 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     return () => { active = false; };
   }, []);
 
-  // Pixel fetches are lazy: they start only once the capture list has loaded, and each
-  // decrypted blob is held as an object URL until the view unmounts or reloads the list.
-  React.useEffect(() => {
-    if (token === null || pendingCaptures.length === 0) return;
-    let active = true;
-    const urls: string[] = [];
-    void (async () => {
-      for (const capture of pendingCaptures) {
-        try {
-          const blob = await fetchAssistantEvidencePixels(token, capture.evidenceId);
-          if (!active) return;
-          const url = window.URL.createObjectURL(blob);
-          urls.push(url);
-          setCapturePreviews((prev) => ({ ...prev, [capture.evidenceId]: { kind: 'url', url } }));
-        } catch (caught) {
-          if (!active) return;
-          setCapturePreviews((prev) => ({
-            ...prev,
-            [capture.evidenceId]: { kind: 'error', error: caught instanceof Error ? caught.message : String(caught) },
-          }));
-        }
-      }
-    })();
-    return () => {
-      active = false;
-      for (const url of urls) window.URL.revokeObjectURL(url);
-    };
-  }, [token, pendingCaptures]);
-
-  async function saveNotes(candidate: AssistantValidationCandidateDto): Promise<void> {
-    if (token === null) return;
-    try {
-      await saveAssistantValidationNotes(token, candidate.id, candidate.userNotes);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  /**
-   * Answers the identity hold. Only a promotion removes the card: a rejection or a second hold
-   * leaves the candidate in the queue, so the list is reloaded and the reason shown.
-   */
-  async function resolveIdentity(
-    candidate: AssistantValidationCandidateDto, isOwner: boolean,
-  ): Promise<void> {
-    if (token === null) return;
-    try {
-      const result = await resolveAssistantCandidateIdentity(token, candidate.id, isOwner);
-      if (result.outcome === 'promoted') {
-        setValidation((items) => items.filter((item) => item.id !== candidate.id));
-        return;
-      }
-      setValidation(await getAssistantValidation(token));
-      setError(result.outcome === 'rejected'
-        ? `“${candidate.proposedStatement}” could not be written and stays in the queue.`
-        : `“${candidate.proposedStatement}” raised another question and stays in the queue.`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  async function removeCandidate(candidate: AssistantValidationCandidateDto): Promise<void> {
-    if (token === null || !window.confirm(`Remove “${candidate.proposedStatement}” from validation?`)) return;
-    try {
-      await removeAssistantValidationCandidate(token, candidate.id);
-      setValidation((items) => items.filter((item) => item.id !== candidate.id));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  const zoomedPreview = zoomedCapture === null ? undefined : capturePreviews[zoomedCapture.evidenceId];
-
   return (
     <div className="assistant-settings">
       <div className="segc assistant-view-nav" aria-label="Assistant settings view">
         <button type="button" className={view === 'configuration' ? 'on' : ''} onClick={() => setView('configuration')}>Configuration</button>
-        <button type="button" className={view === 'validation' ? 'on' : ''} onClick={() => setView('validation')}>Pending validation</button>
-        <button type="button" className={view === 'history' ? 'on' : ''} onClick={() => setView('history')}>Memory history</button>
+        <button type="button" className={view === 'captures' ? 'on' : ''} onClick={() => setView('captures')}>Pending captures</button>
       </div>
       <p className="assistant-security-note">Evidence is encrypted at rest; the active key custody is shown under Observation.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
@@ -463,129 +421,11 @@ export function AssistantSettings(props: AssistantSettingsProps) {
           <AssistantMaintenance token={token} />
           <BackgroundWorkDecisions items={backgroundDecisions} loading={loading} />
         </>
-      ) : null}
-      {view === 'validation' ? (
+      ) : (
         <div className="assistant-feed">
-          {loading ? <p className="hint">Loading pending proof…</p> : null}
-          {!loading ? (
-            <section className="assistant-pending-captures">
-              {pendingCaptures.length === 0 ? (
-                <p className="hint">No captures are waiting for image analysis.</p>
-              ) : (
-                <>
-                  <h3>Pending captures</h3>
-                  {pendingCaptures.map((capture) => {
-                    const preview = capturePreviews[capture.evidenceId];
-                    return (
-                      <article className="assistant-feed-card" key={capture.evidenceId}>
-                        <div className="assistant-card-heading">
-                          <h3>{capture.foregroundContextKey}</h3>
-                          <span className="bdg">{capture.state.replace(/_/g, ' ')}</span>
-                        </div>
-                        {preview === undefined ? (
-                          <p className="hint">Loading preview…</p>
-                        ) : preview.kind === 'url' ? (
-                          <button
-                            type="button"
-                            className="image-zoom"
-                            aria-label={`Enlarge capture ${capture.evidenceId}`}
-                            title="Enlarge"
-                            onClick={() => setZoomedCapture(capture)}
-                          >
-                            <img src={preview.url} alt={`Capture from ${capture.foregroundContextKey}`} />
-                          </button>
-                        ) : (
-                          <p className="error">Preview unavailable: {preview.error}</p>
-                        )}
-                        <p className="hint">{new Date(capture.enqueuedAtUtc).toLocaleString()} · {(capture.byteLength / 1024).toFixed(1)} KB</p>
-                      </article>
-                    );
-                  })}
-                </>
-              )}
-            </section>
-          ) : null}
-          {!loading && validation.length === 0 ? <p className="hint">No proof is awaiting validation.</p> : null}
-          {validation.map((candidate) => (
-            <article className="assistant-feed-card" key={candidate.id}>
-              <div className="assistant-card-heading">
-                <h3>{candidate.proposedStatement}</h3>
-                <span className="bdg">{candidate.status.replace('_', ' ')}</span>
-                <span className="bdg">{Math.round(candidate.confidence * 100)}% confidence</span>
-              </div>
-              <p>{candidate.rationale}</p>
-              <p className="hint">Proof: {candidate.evidenceId ?? 'No evidence reference'} · {candidate.sensitivity}</p>
-              {candidate.hold?.kind === 'possible_owner_alias' ? (
-                  <div className="assistant-identity-question">
-                    <p>
-                      “{candidate.hold.name}” is close to one of your own names. Is that you?
-                      Nothing is written until you answer.
-                    </p>
-                    <div className="assistant-card-actions">
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        onClick={() => { void resolveIdentity(candidate, true); }}
-                      >
-                        Yes, that is me
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        onClick={() => { void resolveIdentity(candidate, false); }}
-                      >
-                        No, someone else
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              <label>
-                <span className="assistant-notes-label">Your notes</span>
-                <textarea
-                  aria-label={`Notes for ${candidate.proposedStatement}`}
-                  rows={3}
-                  value={candidate.userNotes}
-                  onChange={(event) => setValidation((items) => items.map((item) => (
-                    item.id === candidate.id ? { ...item, userNotes: event.target.value } : item
-                  )))}
-                />
-              </label>
-              <div className="assistant-card-actions">
-                <button type="button" className="ghost-btn" onClick={() => { void saveNotes(candidate); }}>Save notes</button>
-                <button type="button" className="ghost-btn danger" onClick={() => { void removeCandidate(candidate); }}>Remove from queue</button>
-              </div>
-            </article>
-          ))}
-          {zoomedCapture !== null && zoomedPreview !== undefined && zoomedPreview.kind === 'url' ? (
-            <ImageLightbox
-              src={zoomedPreview.url}
-              alt={`Capture from ${zoomedCapture.foregroundContextKey}`}
-              onClose={() => setZoomedCapture(null)}
-            />
-          ) : null}
+          <PendingCaptures token={token} captures={pendingCaptures} loading={loading} />
         </div>
-      ) : null}
-      {view === 'history' ? (
-        <div className="assistant-feed">
-          {loading ? <p className="hint">Loading memory history…</p> : null}
-          {!loading && history.length === 0 ? <p className="hint">No memory changes have been recorded.</p> : null}
-          {history.map((entry) => (
-            <article className="assistant-feed-card" key={entry.id}>
-              <div className="assistant-card-heading">
-                <h3>{entry.summary}</h3>
-                <span className="bdg">{entry.operation}</span>
-              </div>
-              <p>{entry.reason}</p>
-              <p className="hint">{new Date(entry.createdAtUtc).toLocaleString()}</p>
-              {entry.proofs.map((proof) => (
-                <p className="assistant-proof" key={proof.evidenceId}>
-                  Proof {proof.evidenceId} · {proof.sourceType}{proof.sourceRef ? ` · ${proof.sourceRef}` : ''}
-                </p>
-              ))}
-            </article>
-          ))}
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }

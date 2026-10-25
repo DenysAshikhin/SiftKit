@@ -20,11 +20,6 @@ import {
 import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
 import { AssistantConflictError, AssistantNotFoundError } from '../../src/assistant/errors.ts';
 import { SequentialIdGenerator } from '../../src/assistant/ids.ts';
-import { ProjectionCompiler } from '../../src/assistant/projections/projection-compiler.ts';
-import type {
-  ProjectionSummaryService,
-  SummarizeProjectionResult,
-} from '../../src/assistant/projections/projection-summarizer.ts';
 import { InMemoryDataProtector } from '../helpers/in-memory-data-protector.ts';
 import {
   KeyCustodyService, type AssistantCustodyConfigPort,
@@ -32,7 +27,7 @@ import {
 import { ImportedKeyProvider } from '../../src/assistant/crypto/imported-key-provider.ts';
 import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.ts';
 import { assistantKeyFile, assistantRestoreUploadsDir } from '../../src/assistant/layout.ts';
-import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.ts';
+import { findOwnerNote } from '../../src/vault/owner-identity.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
 import {
   closeAllRuntimeDatabases, getRuntimeDatabase, CURRENT_SCHEMA_VERSION, type RuntimeDatabase,
@@ -47,18 +42,12 @@ import { createTestChatSession } from '../helpers/chat-sessions.ts';
 import { createTestChatRunRecorder } from '../helpers/chat-run-recorder.ts';
 import { getDefaultConfigObject } from '../../src/config/defaults.ts';
 import { ChatJournalStore } from '../../src/state/chat-journal.ts';
-import { seedOwnerAssertion } from '../helpers/gate-e-seed.ts';
+import { seedOwnerAssertion, seedProjection } from '../helpers/gate-e-seed.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from '../helpers/assistant-gates.ts';
 
 // One protector for the whole file: a backup made by one service must unseal in a later one.
 const dataProtector = new InMemoryDataProtector();
-
-class PassthroughSummarizer implements ProjectionSummaryService {
-  async summarize(): Promise<SummarizeProjectionResult> {
-    return { kind: 'unchanged', reason: 'passthrough' };
-  }
-}
 
 class MemoryCustodyConfigPort implements AssistantCustodyConfigPort {
   private custody: KeyCustody;
@@ -243,12 +232,8 @@ test('every blob file on disk reaches the archive with its encrypted bytes intac
 
 test('backup → factory reset → restore round-trips the graph, projections, and blobs', async () => {
   await withAssistantContextAsync(async (context) => {
-    seedOwnerAssertion(context, { objectName: 'Upsilon Tool' });
-    seedOwnerAssertion(context, { objectName: 'Phi Tool' });
-    await new ProjectionCompiler(
-      context.graph, new EstimateTokenCounter(4), new PassthroughSummarizer(),
-      { 1: 10_000, 2: 50_000, 3: 10_000 },
-    ).compileAll(context.ownerId, new AbortController().signal);
+    seedProjection(context, seedOwnerAssertion(context, { objectName: 'Upsilon Tool' }));
+    seedProjection(context, seedOwnerAssertion(context, { objectName: 'Phi Tool' }));
 
     const exports = exportServiceFor(context);
     const before = await archiveEntries(exports.export({ includeDecryptedBlobs: false }));
@@ -517,26 +502,18 @@ test('pending uploads beyond the cap evict the oldest, deleting its parked bytes
   });
 });
 
-test('restore runs through the service maintenance path and refreshes the owner cache', async () => {
+test('restore runs through the service maintenance path and keeps the owner note', async () => {
   try {
     const { service, context } = buildServiceContext();
     seedOwnerAssertion(context, { objectName: 'Iota Tool' });
     const backupBytes = await archiveBytes(service.backups.createBackup());
 
     await service.factoryReset(service.previewFactoryReset().previewToken);
-    assert.equal(service.ownerPersonNodeId, null);
-
     const preview = await service.previewRestore(archiveUploadPath(backupBytes));
     const result = await service.restore(preview.uploadId, preview.confirmToken);
     assert.equal(result.ok, true);
     assert.equal(result.blobsReadable, true);
-
-    // The cached owner person id points at the restored node, not a stale pre-restore one.
-    const restored = service.graph.nodes.findByCanonicalKey(
-      service.ownerId, 'person', OWNER_PERSON_CANONICAL_KEY,
-    );
-    assert.ok(restored !== null);
-    assert.equal(service.ownerPersonNodeId, restored.id);
+    assert.notEqual(findOwnerNote(context.database), null);
   } finally {
     closeAllRuntimeDatabases();
   }

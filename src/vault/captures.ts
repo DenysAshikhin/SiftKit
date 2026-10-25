@@ -1,8 +1,10 @@
+import { PENDING_CAPTURE_LIST_STATES, PendingCaptureDtoSchema, type PendingCaptureDto } from '@siftkit/contracts';
+
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
 import { VaultNotFoundError } from './errors.ts';
 
-export const VAULT_CAPTURE_STATES = ['queued', 'awaiting_image_capability', 'processing', 'processed', 'image_removed'] as const;
+export const VAULT_CAPTURE_STATES = [...PENDING_CAPTURE_LIST_STATES, 'processed', 'image_removed'] as const;
 export const VaultCaptureStateSchema = z.enum(VAULT_CAPTURE_STATES);
 export type VaultCaptureState = z.infer<typeof VaultCaptureStateSchema>;
 
@@ -18,6 +20,10 @@ const PerceptualRowSchema = z.object({ perceptual_hash: z.string() });
 const LiveCaptureRowSchema = z.object({ attachment_id: z.string(), byte_length: z.number(), captured_at_utc: z.string() });
 export type LiveCapture = z.infer<typeof LiveCaptureRowSchema>;
 const FolderCaptureRowSchema = z.object({ note_id: z.string(), relative_path: z.string() });
+const AttachmentIdRowSchema = z.object({ attachment_id: z.string() });
+const CountRowSchema = z.object({ count: z.number() });
+const BytesRowSchema = z.object({ bytes: z.number() });
+const placeholders = (values: readonly string[]) => values.map(() => '?').join(', ');
 
 export function insertCapture(database: RuntimeDatabase, capture: NewVaultCapture): void {
   database.prepare(`
@@ -67,4 +73,32 @@ export function listFolderCaptures(database: RuntimeDatabase, folder: string): z
     JOIN vault_notes n ON n.id = c.note_id JOIN vault_attachments a ON a.id = c.attachment_id
     WHERE n.folder = ? ORDER BY c.captured_at_utc, c.attachment_id
   `).all(folder));
+}
+
+/** Ids of captures in the given states, oldest first; a negative `limit` lists them all. */
+export function listCaptureIdsInStates(database: RuntimeDatabase, states: readonly VaultCaptureState[], limit: number): string[] {
+  return z.array(AttachmentIdRowSchema).parse(database.prepare(`
+    SELECT attachment_id FROM vault_captures WHERE state IN (${placeholders(states)}) ORDER BY captured_at_utc, attachment_id LIMIT ?
+  `).all(...states, limit)).map((row) => row.attachment_id);
+}
+
+export function countCapturesInStates(database: RuntimeDatabase, states: readonly VaultCaptureState[]): number {
+  return CountRowSchema.parse(database.prepare(`SELECT COUNT(*) AS count FROM vault_captures WHERE state IN (${placeholders(states)})`).get(...states)).count;
+}
+
+/** Bytes of capture PNGs still on disk. */
+export function liveCaptureBytes(database: RuntimeDatabase): number {
+  return BytesRowSchema.parse(database.prepare(`
+    SELECT COALESCE(SUM(a.byte_length), 0) AS bytes FROM vault_captures c JOIN vault_attachments a ON a.id = c.attachment_id WHERE c.state <> 'image_removed'
+  `).get()).bytes;
+}
+
+/** Captures the owner is still waiting on, oldest first, for the dashboard pending view. */
+export function listPendingCaptures(database: RuntimeDatabase, limit: number): PendingCaptureDto[] {
+  return z.array(PendingCaptureDtoSchema).parse(database.prepare(`
+    SELECT c.attachment_id AS attachmentId, c.note_id AS noteId, n.title AS noteTitle, c.state, c.captured_at_utc AS capturedAtUtc,
+      a.byte_length AS byteLength, a.relative_path AS relativePath
+    FROM vault_captures c JOIN vault_notes n ON n.id = c.note_id JOIN vault_attachments a ON a.id = c.attachment_id
+    WHERE c.state IN (${placeholders(PENDING_CAPTURE_LIST_STATES)}) ORDER BY c.captured_at_utc, c.attachment_id LIMIT ?
+  `).all(...PENDING_CAPTURE_LIST_STATES, limit));
 }

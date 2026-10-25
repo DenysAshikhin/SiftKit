@@ -161,13 +161,16 @@ export const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as
 /** The pending view adds `processing`: a worker holds it, but the owner is still waiting. */
 export const PENDING_CAPTURE_LIST_STATES = [...PENDING_CAPTURE_STATES, 'processing'] as const;
 
-/** A capture still owed an extraction, listed for the dashboard pending view. */
+/** A capture still owed its note-writer pass, listed for the dashboard pending view. */
 export const PendingCaptureDtoSchema = z.object({
-  evidenceId: z.string().min(1),
+  attachmentId: z.string().min(1),
+  noteId: z.string().min(1),
+  noteTitle: z.string(),
   state: z.enum(PENDING_CAPTURE_LIST_STATES),
-  enqueuedAtUtc: z.string(),
+  capturedAtUtc: z.string(),
   byteLength: z.number().int().positive(),
-  foregroundContextKey: z.string(),
+  /** Under the vault attachments root; served by the vault attachment route. */
+  relativePath: z.string(),
 }).strict();
 export type PendingCaptureDto = z.infer<typeof PendingCaptureDtoSchema>;
 

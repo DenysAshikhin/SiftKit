@@ -54,7 +54,7 @@ test('dashboard vault client writes, reads and conflicts against a live status s
     assert.equal(await resolveVaultTitle(token, 'git'), git.id);
     assert.equal((await searchVault(token, 'visual', 10)).hits[0]?.note.id, editor.id);
     assert.deepEqual((await getVaultGraph(token)).edges, [{ source: [git.id, editor.id].sort()[0], target: [git.id, editor.id].sort()[1] }]);
-    assert.equal((await getVaultStats(token)).notes, 2);
+    assert.equal((await getVaultStats(token)).notes, 3, 'the two notes and the owner note');
 
     await assert.rejects(updateVaultNote(token, editor.id, { body: 'stale' }, 1), (error: Error) => {
       assert.ok(error instanceof VaultRequestError);

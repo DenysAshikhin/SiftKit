@@ -13,23 +13,9 @@ import {
   type DesktopStateDto,
   type PendingCapturesResponse,
 } from '@siftkit/contracts';
-import {
-  bootstrapAssistantToken,
-  getAssistantMemoryHistory,
-  getAssistantValidation,
-  removeAssistantValidationCandidate,
-  resolveAssistantCandidateIdentity,
-  saveAssistantValidationNotes,
-} from './api.ts';
+import { bootstrapAssistantToken } from './api.ts';
 
-export {
-  bootstrapAssistantToken,
-  getAssistantMemoryHistory,
-  getAssistantValidation,
-  removeAssistantValidationCandidate,
-  resolveAssistantCandidateIdentity,
-  saveAssistantValidationNotes,
-};
+export { bootstrapAssistantToken };
 
 async function request<S extends z.ZodTypeAny>(
   path: string,
@@ -71,17 +57,6 @@ export function getAssistantBackgroundDecisions(
   return request(
     '/assistant/background-decisions', token, AssistantBackgroundDecisionHistoryResponseSchema,
   ).then((result) => result.items);
-}
-
-/** Decrypted evidence bytes for a per-item reveal. Held in memory only; never cached. */
-export async function fetchAssistantEvidencePixels(token: string, id: string): Promise<Blob> {
-  const response = await fetch(`/assistant/evidence/blob?id=${encodeURIComponent(id)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    throw new Error(`Evidence pixels are unavailable (${response.status}).`);
-  }
-  return response.blob();
 }
 
 const AssistantOkSchema = z.object({ ok: z.literal(true) }).strict();

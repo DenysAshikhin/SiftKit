@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import type { ChatTurnInput } from '../src/assistant/ingestion/conversation-ingestor.ts';
-import type { RetrieveResult } from '../src/assistant/retrieval/memory-retriever.ts';
+import type { VaultChatTurn } from '../src/vault/note-writer/chat-writer.ts';
+import type { VaultRetrieveResult } from '../src/vault/vault-retriever.ts';
 import { getConfigPath } from '../src/config/index.ts';
 import { writeConfig } from '../src/status-server/config-store.ts';
 import { getDefaultServerConfig } from './helpers/mock-config.ts';
@@ -23,21 +23,16 @@ class RecordingAssistant {
   readonly enabled = true;
   readonly ownerId = 'own_test';
   readonly retrievedMessages: string[] = [];
-  readonly ingestedTurns: ChatTurnInput[] = [];
+  readonly ingestedTurns: VaultChatTurn[] = [];
   interactiveRequestCount = 0;
 
-  async retrieveMemoryContext(userMessage: string): Promise<RetrieveResult> {
+  async retrieveMemoryContext(userMessage: string): Promise<VaultRetrieveResult> {
     this.retrievedMessages.push(userMessage);
-    return {
-      renderedBlock: '## Relevant personal context\n\n- Uses PowerShell. [M:ast_1]',
-      assertionIds: ['ast_1'],
-      projectionIds: [],
-      tokenCount: 12,
-    };
+    return { renderedBlock: '## Relevant personal context\n\n### PowerShell\nYour shell.', noteIds: ['note_1'], tokenCount: 12 };
   }
 
-  ingestChatTurn(input: ChatTurnInput): void {
-    this.ingestedTurns.push(input);
+  ingestChatTurn(turn: VaultChatTurn): void {
+    this.ingestedTurns.push(turn);
   }
 
   onInteractiveRequest(): void {
@@ -47,10 +42,7 @@ class RecordingAssistant {
   async drainJobs(): Promise<void> {}
 
   status() {
-    return {
-      available: true, enabled: true, ownerId: this.ownerId,
-      pendingQuestionCount: 0, pendingValidationCount: 0,
-    };
+    return { available: true, enabled: true, ownerId: this.ownerId };
   }
 
   refreshConfig(): void {}
@@ -103,6 +95,7 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
     assert.equal(assistant.ingestedTurns.length, 1);
     assert.equal(assistant.ingestedTurns[0]?.userText, 'Which shell do I use?');
     assert.equal(assistant.ingestedTurns[0]?.assistantText, 'PowerShell.');
+    assert.equal(assistant.ingestedTurns[0]?.sessionTitle, 'Assistant memory stream');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

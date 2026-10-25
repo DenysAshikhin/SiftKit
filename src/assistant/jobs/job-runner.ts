@@ -1,16 +1,17 @@
 import type { AssistantBackgroundWorkBlock } from '@siftkit/contracts';
-import type { AssistantGraph } from '../assistant-graph.ts';
 import type { AssistantConfig } from '../../config/types.ts';
-import type { CandidateConsolidator } from '../ingestion/consolidator.ts';
-import type { CandidatePromoter } from '../ingestion/candidate-promoter.ts';
-import type { ConversationExtractor } from '../ingestion/conversation-extractor.ts';
-import type { CaptureRetentionService } from '../images/capture-retention.ts';
-import type { ImageExtractor } from '../images/image-extractor.ts';
-import type { ProjectionCompiler } from '../projections/projection-compiler.ts';
-import type { QuestionAnswerIngestor } from '../questions/answer-ingestor.ts';
-import type { QuestionScheduler } from '../questions/scheduler.ts';
+import type { RuntimeDatabase } from '../../state/runtime-db.ts';
+import { captureRetentionLimits, type VaultCaptureRetention } from '../../vault/capture-retention.ts';
+import { requireCapture } from '../../vault/captures.ts';
+import type { VaultCaptureWriter } from '../../vault/note-writer/capture-writer.ts';
+import type { VaultChatWriter } from '../../vault/note-writer/chat-writer.ts';
+import type { VaultDailyRollup } from '../../vault/note-writer/daily-rollup.ts';
+import type { VaultTidyPass } from '../../vault/note-writer/tidy-pass.ts';
+import { localDay } from '../../vault/vault-time.ts';
+import type { BackgroundWorkDecisionStore } from '../storage/background-work-decision-store.ts';
+import type { JobStore } from '../storage/job-store.ts';
 import type { JobRow } from '../storage/rows.ts';
-import { isModelBackedJobType, type AssistantJobType } from './job-types.ts';
+import { isModelBackedJobType, jobPriority, type AssistantJobType } from './job-types.ts';
 import type { ResourcePolicy } from './resource-policy.ts';
 
 /** The host tells the runner when background model work is allowed (§12.4). */
@@ -28,19 +29,18 @@ export interface ModelResidencyGate {
 }
 
 export interface AssistantJobRunnerOptions {
-  readonly graph: AssistantGraph;
-  readonly extractor: ConversationExtractor;
-  readonly promoter: CandidatePromoter;
-  readonly consolidator: CandidateConsolidator;
-  readonly projections: ProjectionCompiler;
-  readonly questions: Pick<QuestionScheduler, 'planPending'>;
-  readonly questionAnswers: Pick<QuestionAnswerIngestor, 'ingest'>;
-  readonly images: Pick<ImageExtractor, 'run'>;
-  readonly retention: Pick<CaptureRetentionService, 'run'>;
+  readonly jobs: JobStore;
+  readonly decisions: BackgroundWorkDecisionStore;
+  readonly database: RuntimeDatabase;
+  readonly captureWriter: VaultCaptureWriter;
+  readonly chatWriter: VaultChatWriter;
+  readonly dailyRollup: VaultDailyRollup;
+  readonly tidyPass: VaultTidyPass;
+  readonly retention: VaultCaptureRetention;
   readonly idleGate: InteractivityGate;
   readonly residencyGate: ModelResidencyGate;
   readonly resourcePolicy: ResourcePolicy;
-  readonly jobPriorities: AssistantConfig['Background']['JobPriorities'];
+  readonly config: AssistantConfig;
   readonly leaseOwner: string;
   readonly leaseSeconds: number;
 }
@@ -53,26 +53,21 @@ export interface DrainSummary {
   readonly recovered: number;
 }
 
-class JobPreemptedError extends Error {
-  constructor() {
-    super('Assistant job preempted by interactive work.');
-  }
-}
-
 export class AssistantJobRunner {
   private preemptionRequested = false;
   private inFlight: AbortController | null = null;
-  private jobPriorities: AssistantConfig['Background']['JobPriorities'];
+  private config: AssistantConfig;
 
   private readonly options: AssistantJobRunnerOptions;
 
   constructor(options: AssistantJobRunnerOptions) {
     this.options = options;
-    this.jobPriorities = options.jobPriorities;
+    this.config = options.config;
   }
 
-  refreshJobPriorities(priorities: AssistantConfig['Background']['JobPriorities']): void {
-    this.jobPriorities = priorities;
+  /** Later jobs use the new priorities, retention limits and tidy switch. */
+  refreshConfig(config: AssistantConfig): void {
+    this.config = config;
   }
 
   /**
@@ -96,7 +91,7 @@ export class AssistantJobRunner {
 
   async drain(ownerId: string, maxJobs: number): Promise<DrainSummary> {
     this.preemptionRequested = false;
-    const recovered = this.options.graph.jobs.recoverExpiredLeases(ownerId);
+    const recovered = this.options.jobs.recoverExpiredLeases(ownerId);
     let claimed = 0;
     let completed = 0;
     let failed = 0;
@@ -118,14 +113,14 @@ export class AssistantJobRunner {
         break;
       }
       const modelWork = this.modelWorkDecision();
-      const job = this.options.graph.jobs.claimNext({
+      const job = this.options.jobs.claimNext({
         ownerId,
         leaseOwner: this.options.leaseOwner,
         leaseSeconds: this.options.leaseSeconds,
         modelWorkAllowed: modelWork.kind === 'allowed',
       });
       if (job === null) {
-        if (this.options.graph.jobs.countByStatus(ownerId, 'queued') > 0) {
+        if (this.options.jobs.countByStatus(ownerId, 'queued') > 0) {
           if (modelWork.kind === 'blocked') {
             this.recordBlock(ownerId, modelWork);
           } else {
@@ -145,18 +140,19 @@ export class AssistantJobRunner {
         if (modelBacked) {
           const currentModelWork = this.modelWorkDecision();
           if (currentModelWork.kind === 'blocked') {
-            this.options.graph.jobs.requeuePreempted(job.id);
+            this.options.jobs.requeuePreempted(job.id);
             this.recordBlock(ownerId, currentModelWork);
             break;
           }
         }
         shouldRecordGpuUse = modelBacked;
         await this.execute(ownerId, job, controller.signal);
-        this.options.graph.jobs.complete(job.id);
+        this.options.jobs.complete(job.id);
         completed += 1;
       } catch (error) {
-        if (this.preemptionRequested || error instanceof JobPreemptedError) {
-          this.options.graph.jobs.requeuePreempted(job.id);
+        // Only a call that threw is replayed: a writer that already committed must not run twice.
+        if (this.preemptionRequested) {
+          this.options.jobs.requeuePreempted(job.id);
           preempted += 1;
           this.recordBlock(ownerId, { reason: 'preemption_requested', details: {} });
           break;
@@ -164,13 +160,13 @@ export class AssistantJobRunner {
         if (modelBacked && !this.options.residencyGate.isModelResident()) {
           // The model went to sleep under the call. That is residency, not a bad job: give the
           // attempt back and stop the drain until the model is resident again.
-          this.options.graph.jobs.requeuePreempted(job.id);
+          this.options.jobs.requeuePreempted(job.id);
           preempted += 1;
           shouldRecordGpuUse = false;
           this.recordBlock(ownerId, { reason: 'model_not_resident', details: {} });
           break;
         }
-        this.options.graph.jobs.fail(
+        this.options.jobs.fail(
           job.id, error instanceof Error ? error.message : String(error),
         );
         failed += 1;
@@ -186,142 +182,48 @@ export class AssistantJobRunner {
   }
 
   private recordBlock(ownerId: string, block: AssistantBackgroundWorkBlock): void {
-    this.options.graph.backgroundDecisions.record(ownerId, block);
+    this.options.decisions.record(ownerId, block);
   }
 
   private async execute(ownerId: string, job: JobRow, signal: AbortSignal): Promise<void> {
+    const { jobs } = this.options;
     switch (job.job_type) {
-      case 'conversation_ingestion':
-        return this.runConversationIngestion(ownerId, job, signal);
-      case 'candidate_consolidation':
-        return this.runConsolidation(ownerId, job, signal);
-      case 'projection_maintenance':
-        return this.runProjectionMaintenance(ownerId, signal);
-      case 'question_planning':
-        this.options.graph.jobs.readQuestionPlanningPayload(job);
-        await this.options.questions.planPending(ownerId, signal);
-        return this.throwIfPreempted();
-      case 'question_answer_ingestion': {
-        const payload = this.options.graph.jobs.readQuestionAnswerPayload(job);
-        await this.options.questionAnswers.ingest(ownerId, payload.evidenceId, signal);
-        this.throwIfPreempted();
-        this.enqueueProjectionMaintenance(ownerId);
+      case 'capture_note': {
+        const { attachmentId } = jobs.readCaptureNotePayload(job);
+        const outcome = await this.options.captureWriter.run(ownerId, attachmentId, signal);
+        if (outcome.kind === 'awaiting_capability' || outcome.kind === 'already_processed') return;
+        this.enqueueFollowUps(ownerId, localDay(requireCapture(this.options.database, attachmentId).captured_at_utc),
+          outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
         return;
       }
-      case 'projection_summarization':
-        this.options.graph.jobs.readProjectionSummarizationPayload(job);
-        await this.options.projections.compileAll(ownerId, signal);
-        return this.throwIfPreempted();
-      case 'image_extraction':
-        return this.runImageExtraction(ownerId, job, signal);
+      case 'chat_note': {
+        const turn = jobs.readChatNotePayload(job);
+        const outcome = await this.options.chatWriter.run(ownerId, turn, signal);
+        if (outcome.kind === 'suppressed') return;
+        this.enqueueFollowUps(ownerId, localDay(turn.capturedAtUtc), outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
+        return;
+      }
+      case 'daily_rollup':
+        this.options.dailyRollup.run(jobs.readDailyRollupPayload(job).day);
+        return;
+      case 'note_tidy':
+        await this.options.tidyPass.run(ownerId, jobs.readNoteTidyPayload(job).noteId, signal);
+        return;
       case 'capture_retention':
-        this.options.retention.run(
-          ownerId, this.options.graph.jobs.readCaptureRetentionPayload(job).reason,
-        );
+        jobs.readCaptureRetentionPayload(job);
+        this.options.retention.run(ownerId, captureRetentionLimits(this.config));
         return;
     }
   }
 
-  private async runConversationIngestion(
-    ownerId: string,
-    job: JobRow,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const payload = this.options.graph.jobs.readConversationPayload(job);
-    const extracted = await this.options.extractor.extract({
-      ownerId, evidenceId: payload.evidenceId, abortSignal: signal,
-    });
-    this.throwIfPreempted();
-
-    if (extracted.candidateIds.length > 1) {
-      this.options.graph.jobs.enqueue({
-        ownerId,
-        jobType: 'candidate_consolidation',
-        payload: { candidateIds: [...extracted.candidateIds] },
-        idempotencyKey: `candidate_consolidation:${payload.evidenceId}`,
-      }, this.priorityFor('candidate_consolidation'));
-      return;
-    }
-    this.promoteAll(ownerId, extracted.candidateIds);
-    this.enqueueProjectionMaintenance(ownerId);
+  /** A written note refreshes its day's rollup and, when enabled, tidies the entity notes it touched. */
+  private enqueueFollowUps(ownerId: string, day: string, touchedNoteIds: readonly string[]): void {
+    this.enqueue(ownerId, 'daily_rollup', { day }, `daily_rollup:${day}`);
+    if (!this.config.Vault.TidyPassEnabled) return;
+    for (const noteId of touchedNoteIds) this.enqueue(ownerId, 'note_tidy', { noteId }, `note_tidy:${noteId}`);
   }
 
-  private async runConsolidation(
-    ownerId: string,
-    job: JobRow,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const payload = this.options.graph.jobs.readConsolidationPayload(job);
-    await this.options.consolidator.consolidate({
-      ownerId, candidateIds: payload.candidateIds, abortSignal: signal,
-    });
-    this.throwIfPreempted();
-    this.promoteAll(
-      ownerId,
-      payload.candidateIds.filter(
-        (id) => this.options.graph.candidates.getCandidate(id)?.status === 'pending',
-      ),
-    );
-    this.enqueueProjectionMaintenance(ownerId);
-  }
-
-  /**
-   * An item the runtime can no longer analyse is not a failure: the extractor puts it back into
-   * `awaiting_image_capability` and the job completes, so nothing burns its retry budget.
-   */
-  private async runImageExtraction(
-    ownerId: string,
-    job: JobRow,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const payload = this.options.graph.jobs.readImageExtractionPayload(job);
-    const outcome = await this.options.images.run(ownerId, payload.evidenceId, signal);
-    this.throwIfPreempted();
-    if (outcome.kind !== 'processed') return;
-    this.promoteAll(ownerId, outcome.candidateIds);
-    this.enqueueProjectionMaintenance(ownerId);
-  }
-
-  private async runProjectionMaintenance(ownerId: string, signal: AbortSignal): Promise<void> {
-    await this.options.projections.compileAll(ownerId, signal);
-  }
-
-  private promoteAll(ownerId: string, candidateIds: readonly string[]): void {
-    for (const candidateId of candidateIds) {
-      this.options.promoter.promote({ ownerId, candidateId });
-    }
-  }
-
-  private enqueueProjectionMaintenance(ownerId: string): void {
-    this.options.graph.enqueueProjectionMaintenance(
-      ownerId, this.priorityFor('projection_maintenance'),
-    );
-  }
-
-  private priorityFor(jobType: AssistantJobType): number {
-    switch (jobType) {
-      case 'conversation_ingestion':
-        return this.jobPriorities.ConversationIngestion;
-      case 'candidate_consolidation':
-        return this.jobPriorities.CandidateConsolidation;
-      case 'projection_maintenance':
-        return this.jobPriorities.ProjectionMaintenance;
-      case 'question_answer_ingestion':
-        return this.jobPriorities.QuestionAnswerIngestion;
-      case 'question_planning':
-        return this.jobPriorities.QuestionPlanning;
-      case 'projection_summarization':
-        return this.jobPriorities.ProjectionMaintenance;
-      case 'image_extraction':
-        return this.jobPriorities.ImageExtraction;
-      case 'capture_retention':
-        return this.jobPriorities.CaptureRetention;
-    }
-  }
-
-  private throwIfPreempted(): void {
-    if (this.preemptionRequested) {
-      throw new JobPreemptedError();
-    }
+  private enqueue(ownerId: string, jobType: AssistantJobType, payload: Record<string, string>, idempotencyKey: string): void {
+    this.options.jobs.enqueue({ ownerId, jobType, payload, idempotencyKey }, jobPriority(this.config.Background.JobPriorities, jobType));
   }
 }

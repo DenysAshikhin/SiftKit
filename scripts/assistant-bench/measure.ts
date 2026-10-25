@@ -1,10 +1,11 @@
 import { hashBytes } from '../../src/assistant/domain/keys.ts';
 import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
-import { CaptureQueueStore } from '../../src/assistant/images/capture-queue-store.ts';
-import { MemoryRetriever } from '../../src/assistant/retrieval/memory-retriever.ts';
-import { OWNER_PERSON_CANONICAL_KEY } from '../../src/assistant/storage/schema.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { hasPixelCaptureSince } from '../../src/vault/captures.ts';
+import { readVaultNote, readVaultNotes } from '../../src/vault/note-rows.ts';
+import { findOwnerNote } from '../../src/vault/owner-identity.ts';
+import { VaultRetriever } from '../../src/vault/vault-retriever.ts';
 import {
   DEFAULT_BENCH_ROOT, OWNER_ID, activityEvent, openBench, readStringArg,
 } from './shared.ts';
@@ -83,27 +84,17 @@ async function main(): Promise<void> {
   const root = readStringArg(process.argv.slice(2), '--root', DEFAULT_BENCH_ROOT);
   const context = openBench(root);
   try {
-    const owner = context.graph.nodes.findByCanonicalKey(
-      OWNER_ID, 'person', OWNER_PERSON_CANONICAL_KEY,
-    );
-    if (owner === null) {
-      throw new Error(`No seeded owner in ${context.root}. Run npm run bench:assistant:seed first.`);
+    if (findOwnerNote(context.database) === null) {
+      throw new Error(`No seeded owner note in ${context.root}. Run npm run bench:assistant:seed first.`);
     }
-    const assertionIds = context.graph.assertions
-      .listBySubject(OWNER_ID, owner.id, ['active'])
-      .slice(0, DEFAULT_ITERATIONS)
-      .map((row) => row.id);
-    if (assertionIds.length === 0) {
-      throw new Error(`No seeded assertions in ${context.root}.`);
-    }
-
-    const retriever = new MemoryRetriever(
-      context.graph,
-      new EstimateTokenCounter(4),
-      DEFAULT_ASSISTANT_CONFIG.Retrieval,
-      context.graph.retrievalUsage,
-    );
-    const captureQueue = new CaptureQueueStore(context.database, context.clock);
+    const noteIds = readVaultNotes(
+      context.database, `SELECT * FROM vault_notes WHERE kind = 'entity' LIMIT ${DEFAULT_ITERATIONS}`,
+    ).map((note) => note.id);
+    const retriever = new VaultRetriever({ database: context.database, tokens: new EstimateTokenCounter(4) });
+    const limits = {
+      maxContextTokens: DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxContextTokens,
+      maxNotes: DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxNotes,
+    };
     const pixels = Buffer.alloc(CAPTURE_PIXEL_BYTES);
     for (let index = 0; index < pixels.byteLength; index += 4_096) {
       pixels[index] = index % 251;
@@ -116,20 +107,14 @@ async function main(): Promise<void> {
     const sinceUtc = new Date(Date.now() - 86_400_000).toISOString();
 
     const measurements = [
-      await measure('Graph lookup', 50, DEFAULT_ITERATIONS, (index) => {
-        context.graph.assertions.getAssertion(assertionIds[index % assertionIds.length] ?? '');
+      await measure('Note lookup', 50, DEFAULT_ITERATIONS, (index) => {
+        readVaultNote(context.database, noteIds[index % noteIds.length] ?? '');
       }),
-      await measure('Tier 1 load', 20, DEFAULT_ITERATIONS, () => {
-        const profile = context.graph.projections.findByTopic(OWNER_ID, 1, 'profile');
-        if (profile !== null) void profile.content.length;
+      await measure('Owner note load', 20, DEFAULT_ITERATIONS, () => {
+        findOwnerNote(context.database);
       }),
       await measure('Retrieval', 150, RETRIEVAL_ITERATIONS, async (index) => {
-        await retriever.retrieve({
-          ownerId: OWNER_ID,
-          userMessage: `which tools do I use for Bench Tool ${index % 2_000}?`,
-          conversationId: null,
-          recordUsage: false,
-        });
+        await retriever.retrieve(`which tools do I use for Bench Tool ${index % noteIds.length}?`, limits);
       }),
       // The only writing measurement: each run appends its own activity rows, so a seeded root
       // grows slightly with every benchmark. Re-seed when comparing runs.
@@ -139,7 +124,7 @@ async function main(): Promise<void> {
         );
       }),
       await measure('Capture dedupe', 250, DEFAULT_ITERATIONS, () => {
-        captureQueue.findByPixelSha(OWNER_ID, hashBytes(pixels), sinceUtc);
+        hasPixelCaptureSince(context.database, hashBytes(pixels), sinceUtc);
       }),
     ];
 

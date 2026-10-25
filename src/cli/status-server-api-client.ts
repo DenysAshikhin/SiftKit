@@ -70,31 +70,15 @@ import type {
   RepoAgentStartRequest,
 } from '../repo-agent/api-schemas.ts';
 import {
-  AssistantAssertionExplanationSchema,
   AssistantConfigPatchRequestSchema,
-  AssistantDeletionPreviewSchema,
-  AssistantEvidenceDeletionPreviewSchema,
   AssistantFactoryResetPreviewSchema,
-  AssistantMutationResponseSchema,
-  AssistantNodeSummarySchema,
-  AssistantAssertionDtoSchema,
-  AssistantProjectionDtoSchema,
-  AssistantPolicyDtoSchema,
   AssistantRestorePreviewResponseSchema,
   AssistantRestoreResultSchema,
   AssistantStatusResponseSchema,
-  AssistantTopicForgetPreviewSchema,
   type AssistantConfig,
-  type AssistantTopicForgetRequest,
 } from '@siftkit/contracts';
 
 const AssistantBootstrapSchema = z.object({ token: z.string().min(1) }).strict();
-const AssistantSearchSchema = z.object({
-  nodes: z.array(AssistantNodeSummarySchema),
-  assertions: z.array(AssistantAssertionDtoSchema),
-  projections: z.array(AssistantProjectionDtoSchema),
-}).strict();
-const AssistantPolicyListSchema = z.object({ items: z.array(AssistantPolicyDtoSchema) }).strict();
 const AssistantOkSchema = z.object({ ok: z.literal(true) }).strict();
 const ZIP_CONTENT_TYPE = 'application/zip';
 
@@ -150,68 +134,6 @@ export class StatusServerApiClient {
     );
   }
 
-  searchAssistantMemory(token: string, query: string, modelIntent: boolean) {
-    const target = new URL(this.getServiceUrl('/assistant/search'));
-    target.searchParams.set('q', query);
-    if (modelIntent) target.searchParams.set('modelIntent', 'true');
-    return this.requestAssistant(target.toString(), 'GET', token, undefined, AssistantSearchSchema);
-  }
-
-  explainAssistantAssertion(token: string, assertionId: string) {
-    return this.requestAssistant(
-      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}/explanation`,
-      'GET', token, undefined, AssistantAssertionExplanationSchema,
-    );
-  }
-
-  mutateAssistantAssertion(token: string, assertionId: string, action: string, payload: JsonObject) {
-    return this.requestAssistant(
-      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}/${action}`,
-      'POST', token, payload, AssistantMutationResponseSchema,
-    );
-  }
-
-  previewAssistantForget(token: string, assertionId: string) {
-    return this.requestAssistant(
-      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}`,
-      'DELETE', token, { mode: 'preview' }, AssistantDeletionPreviewSchema,
-    );
-  }
-
-  confirmAssistantForget(token: string, assertionId: string, previewToken: string) {
-    return this.requestAssistant(
-      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}`,
-      'DELETE', token, { mode: 'confirm', previewToken }, AssistantMutationResponseSchema,
-    );
-  }
-
-  previewAssistantEvidenceDeletion(token: string, evidenceId: string) {
-    return this.requestAssistant(
-      `/assistant/evidence/${encodeURIComponent(evidenceId)}/deletion-preview`,
-      'GET', token, undefined, AssistantEvidenceDeletionPreviewSchema,
-    );
-  }
-
-  confirmAssistantEvidenceDeletion(token: string, evidenceId: string, previewToken: string) {
-    return this.requestAssistant(
-      `/assistant/evidence/${encodeURIComponent(evidenceId)}`,
-      'DELETE', token, { previewToken }, AssistantMutationResponseSchema,
-    );
-  }
-
-  previewAssistantTopicForget(token: string, topicKey: string) {
-    return this.requestAssistant(
-      '/assistant/topics/forget-preview', 'POST', token, { topicKey },
-      AssistantTopicForgetPreviewSchema,
-    );
-  }
-
-  confirmAssistantTopicForget(token: string, request: AssistantTopicForgetRequest) {
-    return this.requestAssistant(
-      '/assistant/topics/forget', 'POST', token, request, AssistantMutationResponseSchema,
-    );
-  }
-
   previewAssistantFactoryReset(token: string) {
     return this.requestAssistant(
       '/assistant/factory-reset/preview', 'GET', token, undefined,
@@ -245,24 +167,6 @@ export class StatusServerApiClient {
     return this.requestAssistant(
       '/assistant/restore', 'POST', token, { uploadId, confirmToken },
       AssistantRestoreResultSchema,
-    );
-  }
-
-  listAssistantPolicies(token: string) {
-    return this.requestAssistant(
-      '/assistant/policies', 'GET', token, undefined, AssistantPolicyListSchema,
-    );
-  }
-
-  blockAssistantPolicyTopic(token: string, topic: string) {
-    return this.requestAssistant(
-      '/assistant/policies/block-topic', 'POST', token, { topic }, AssistantMutationResponseSchema,
-    );
-  }
-
-  rebuildAssistantProjections(token: string) {
-    return this.requestAssistant(
-      '/assistant/projections/rebuild', 'POST', token, {}, AssistantMutationResponseSchema,
     );
   }
 

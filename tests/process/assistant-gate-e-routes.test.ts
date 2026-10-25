@@ -3,9 +3,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  AssistantEvidenceDeletionPreviewSchema, AssistantFactoryResetPreviewSchema,
-  AssistantRestorePreviewResponseSchema, AssistantRestoreResultSchema,
-  AssistantTopicForgetPreviewSchema,
+  AssistantFactoryResetPreviewSchema, AssistantRestorePreviewResponseSchema, AssistantRestoreResultSchema,
 } from '@siftkit/contracts';
 import { AssistantGraph } from '../../src/assistant/assistant-graph.ts';
 import { FixedClock } from '../../src/assistant/clock.ts';
@@ -26,9 +24,6 @@ import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
 } from '../helpers/dashboard-test-repo.ts';
 import { seedOwnerAssertion } from '../helpers/gate-e-seed.ts';
-import {
-  TEST_DEVICE_ID, seedTestDevice, signEnvelope, unsignedEnvelope,
-} from '../helpers/mobile-envelope.ts';
 import { createManagedTempDir, removeDirectoryWithRetries } from '../helpers/temp-dirs.ts';
 import { InMemoryDataProtector } from '../helpers/in-memory-data-protector.ts';
 
@@ -50,7 +45,7 @@ function contextFor(runtimeRoot: string): AssistantTestContext {
   };
 }
 
-test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to end', async () => {
+test('the Gate E routes serve maintenance and transfer end to end, and the retired routes are gone', async () => {
   const tempRoot = createManagedTempDir('siftkit-gate-e-routes-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -68,7 +63,6 @@ test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to
   try {
     const context = contextFor(runtimeRoot);
     const kappa = seedOwnerAssertion(context, { objectName: 'Kappa Tool' });
-    const lambda = seedOwnerAssertion(context, { objectName: 'Lambda Tool' });
 
     const bootstrap = await requestJson(`${baseUrl}/assistant/auth/bootstrap`);
     const token = typeof bootstrap.body.token === 'string' ? bootstrap.body.token : '';
@@ -91,67 +85,9 @@ test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to
     assert.equal(exportBytes.contentType, 'application/zip');
     assert.ok((await readArchiveEntriesFromBytes(exportBytes.body)).has('manifest.json'));
 
-    // Evidence deletion: preview, then a 404 for an id this owner does not have, then a
-    // stale token, then the real thing.
-    const evidencePreview = await requestJson(
-      `${baseUrl}/assistant/evidence/${kappa.evidenceId}/deletion-preview`, { headers },
-    );
-    assert.equal(evidencePreview.statusCode, 200);
-    const preview = AssistantEvidenceDeletionPreviewSchema.parse(evidencePreview.body);
-    assert.equal(preview.targetEvidenceId, kappa.evidenceId);
-    assert.deepEqual(preview.dependentAssertionIds, [kappa.assertion.id]);
-
-    assert.equal((await requestJson(
-      `${baseUrl}/assistant/evidence/ev_nonexistent/deletion-preview`, { headers },
-    )).statusCode, 404);
-
-    assert.equal((await requestJson(`${baseUrl}/assistant/evidence/${kappa.evidenceId}`, {
-      method: 'DELETE', headers, body: JSON.stringify({ previewToken: 'not-a-token' }),
-    })).statusCode, 400, 'an unsigned token is a malformed request');
-
-    // A real token, issued for a different record: signed, current, and still refused.
-    const otherPreview = AssistantEvidenceDeletionPreviewSchema.parse((await requestJson(
-      `${baseUrl}/assistant/evidence/${lambda.evidenceId}/deletion-preview`, { headers },
-    )).body);
-    assert.equal((await requestJson(`${baseUrl}/assistant/evidence/${kappa.evidenceId}`, {
-      method: 'DELETE', headers,
-      body: JSON.stringify({ previewToken: otherPreview.previewToken }),
-    })).statusCode, 409, 'a preview token for another record is a conflict');
-
-    const deleted = await requestJson(`${baseUrl}/assistant/evidence/${kappa.evidenceId}`, {
-      method: 'DELETE', headers, body: JSON.stringify({ previewToken: preview.previewToken }),
-    });
-    assert.equal(deleted.statusCode, 200);
-    assert.equal(context.graph.evidence.getEvidence(kappa.evidenceId)?.status, 'deleted');
-
-    // Forget a topic.
-    const topicPreview = await requestJson(`${baseUrl}/assistant/topics/forget-preview`, {
-      method: 'POST', headers, body: JSON.stringify({ topicKey: lambda.topicKey }),
-    });
-    assert.equal(topicPreview.statusCode, 200);
-    const topic = AssistantTopicForgetPreviewSchema.parse(topicPreview.body);
-    assert.deepEqual(topic.assertionIds, [lambda.assertion.id]);
-
-    // An evidence-deletion token cannot be spent on a topic, however well signed it is.
-    assert.equal((await requestJson(`${baseUrl}/assistant/topics/forget`, {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        topicKey: lambda.topicKey, addPolicy: false, previewToken: otherPreview.previewToken,
-      }),
-    })).statusCode, 409);
-
-    const forgot = await requestJson(`${baseUrl}/assistant/topics/forget`, {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        topicKey: lambda.topicKey, addPolicy: true, previewToken: topic.previewToken,
-      }),
-    });
-    assert.equal(forgot.statusCode, 200);
-    assert.equal(
-      context.graph.assertions.requireAssertion(lambda.assertion.id).status, 'deleted',
-    );
-
-    // §7.6: the mobile route is indistinguishable from absent while the flag is off.
+    for (const retired of ['/assistant/evidence', '/assistant/graph/nodes', '/assistant/questions/current', '/assistant/validation', '/assistant/history']) {
+      assert.equal((await requestJson(`${baseUrl}${retired}`, { headers })).statusCode, 404, `${retired} is retired`);
+    }
     assert.equal((await requestJson(`${baseUrl}/assistant/ingest/mobile`, {
       method: 'POST', headers, body: JSON.stringify({ schemaVersion: 1 }),
     })).statusCode, 404);
@@ -163,17 +99,11 @@ test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to
       method: 'PATCH', headers,
       body: JSON.stringify({ assistant: { ...enabledConfig, Enabled: false } }),
     })).statusCode, 200);
-    assert.equal((await requestJson(`${baseUrl}/assistant/evidence`, { headers })).statusCode, 409);
 
     const resetPreview = await requestJson(`${baseUrl}/assistant/factory-reset/preview`, { headers });
     assert.equal(resetPreview.statusCode, 200);
     const reset = AssistantFactoryResetPreviewSchema.parse(resetPreview.body);
     assert.ok((reset.tableCounts.graph_assertions ?? 0) > 0);
-
-    assert.equal((await requestJson(`${baseUrl}/assistant/factory-reset`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ previewToken: otherPreview.previewToken }),
-    })).statusCode, 409, 'a deletion token does not authorize a factory reset');
 
     assert.equal((await requestJson(`${baseUrl}/assistant/factory-reset`, {
       method: 'POST', headers, body: JSON.stringify({ previewToken: reset.previewToken }),
@@ -205,43 +135,6 @@ test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to
     );
     assert.equal(context.graph.evidence.getEvidence(kappa.evidenceId)?.status, 'active');
 
-    // With the flag on but the assistant off, mobile is no longer hidden — it is refused for
-    // the honest reason.
-    assert.equal((await requestJson(`${baseUrl}/assistant/config`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify({
-        assistant: { ...enabledConfig, Enabled: false, Mobile: { Enabled: true } },
-      }),
-    })).statusCode, 200);
-    const mobile = await requestJson(`${baseUrl}/assistant/ingest/mobile`, {
-      method: 'POST', headers, body: JSON.stringify({ schemaVersion: 1 }),
-    });
-    assert.equal(mobile.statusCode, 409);
-
-    // Enabled on both axes: an unenrolled device is refused, an enrolled one is accepted.
-    assert.equal((await requestJson(`${baseUrl}/assistant/config`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify({
-        assistant: { ...enabledConfig, Enabled: true, Mobile: { Enabled: true } },
-      }),
-    })).statusCode, 200);
-
-    const envelope = signEnvelope(unsignedEnvelope());
-    assert.equal((await requestJson(`${baseUrl}/assistant/ingest/mobile`, {
-      method: 'POST', headers, body: JSON.stringify(envelope),
-    })).statusCode, 403, 'an unenrolled device is refused');
-
-    seedTestDevice(context.graph.devices, LOCAL_OWNER_ID);
-    const accepted = await requestJson(`${baseUrl}/assistant/ingest/mobile`, {
-      method: 'POST', headers, body: JSON.stringify(envelope),
-    });
-    assert.equal(accepted.statusCode, 202);
-    assert.notEqual(
-      context.graph.evidence.findBySourceEventId(
-        LOCAL_OWNER_ID, `mobile:${TEST_DEVICE_ID}:${envelope.nonce}`,
-      ),
-      null,
-    );
   } finally {
     await closeHttpServer(server);
     restoreDashboardTestRepo(previousCwd);

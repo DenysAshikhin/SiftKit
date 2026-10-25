@@ -1,4 +1,4 @@
-import { VAULT_OWNER_TAG, vaultKey, type VaultNote, type VaultWriteMeta } from '@siftkit/contracts';
+import { VAULT_OWNER_TAG, vaultKey, type VaultNote, type VaultWriteMeta, type VaultWriteSource } from '@siftkit/contracts';
 
 import { editDistanceWithin } from '../assistant/domain/owner-identity.ts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
@@ -59,4 +59,15 @@ export function ensureOwnerNote(store: VaultNoteStore, database: RuntimeDatabase
   const named = store.resolve(title);
   if (named !== null) return store.update(named.id, { tags: [...named.tags, VAULT_OWNER_TAG] }, named.revision, meta);
   return store.create({ title, folder: '', kind: 'entity', types: ['person'], aliases: [], tags: [VAULT_OWNER_TAG], body: 'This is you.' }, meta);
+}
+
+/** Ensures the owner note and keeps its title on the configured name; renaming keeps the old title as an alias. */
+export function syncOwnerNote(store: VaultNoteStore, database: RuntimeDatabase, displayName: string, source: VaultWriteSource): VaultNote {
+  const owner = ensureOwnerNote(store, database, displayName, { ...source, summary: 'Created the owner note' });
+  const title = displayName.trim();
+  if (title === '' || vaultKey(title) === vaultKey(owner.title)) return owner;
+  const holder = store.resolveId(title);
+  // Another note already answers to the name; the owner note keeps its title rather than collide.
+  if (holder !== null && holder !== owner.id) return owner;
+  return store.rename(owner.id, title, owner.revision, source).note;
 }

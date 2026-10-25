@@ -2,11 +2,7 @@ import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import type {
   ActivityEventDto,
   AssistantBackgroundWorkDecisionDto,
-  AssistantClaimOwnerResponse,
   AssistantFactoryResetPreview,
-  AssistantGraphCleanupPreview,
-  AssistantGraphCleanupResult,
-  AssistantQuestionDto,
   AssistantRestorePreviewResponse,
   AssistantRestoreResult,
   AssistantStatusResponse,
@@ -15,14 +11,12 @@ import type {
   EnvironmentStateDto,
   PendingCaptureDto,
   KeyCustody,
-  MobileEnvelope,
   SuppressionAuditDto,
 } from '@siftkit/contracts';
-import { PENDING_CAPTURE_LIST_STATES, PENDING_CAPTURE_STATES } from '@siftkit/contracts';
+import { PENDING_CAPTURE_STATES } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.ts';
 import { AssistantGraph } from './assistant-graph.ts';
 import type { Clock } from './clock.ts';
-import { AssistantConflictError, AssistantNotFoundError } from './errors.ts';
 import type { DataProtector } from './crypto/dpapi.ts';
 import { ImportedKeyProvider } from './crypto/imported-key-provider.ts';
 import {
@@ -35,76 +29,47 @@ import type { TokenCounter } from './domain/tokens.ts';
 import type { IdGenerator } from './ids.ts';
 import type { AssistantInferenceClient } from './inference/client.ts';
 import { StructuredOutputRunner } from './inference/structured-runner.ts';
-import { CandidateGate } from './ingestion/candidate-gate.ts';
-import { CandidatePromoter } from './ingestion/candidate-promoter.ts';
-import { CandidateConsolidator } from './ingestion/consolidator.ts';
-import { ConversationExtractor } from './ingestion/conversation-extractor.ts';
-import { ConversationIngestor, type ChatTurnInput } from './ingestion/conversation-ingestor.ts';
-import { IngestionPipeline } from './ingestion/pipeline.ts';
 import {
   AssistantJobRunner, type InteractivityGate, type ModelResidencyGate,
 } from './jobs/job-runner.ts';
+import { ChatNotePayloadSchema, jobPriority, type AssistantJobType, type ChatNotePayload } from './jobs/job-types.ts';
 import { AssistantResourcePolicy } from './jobs/resource-policy.ts';
-import { EnvelopeVerifier, type EnvelopeVerdict } from './mobile/envelope-verifier.ts';
-import { CaptureQueueStore } from './images/capture-queue-store.ts';
-import { CaptureRetentionService } from './images/capture-retention.ts';
 import {
   UnavailableImageCapabilityProvider, isUsableCapability,
   type AssistantImageCapabilityProvider,
 } from './images/image-capability.ts';
-import { ImageExtractor } from './images/image-extractor.ts';
 import { ActivityLog } from './observation/activity-log.ts';
-import { CaptureIntake, type CaptureOutcome } from './observation/capture-intake.ts';
 import {
   DesktopEnvironmentCache, type DesktopInputIdle,
 } from './observation/environment-cache.ts';
-import { ProjectionCompiler } from './projections/projection-compiler.ts';
-import { ProjectionSummarizer } from './projections/projection-summarizer.ts';
-import { MemoryRetriever, type RetrieveResult } from './retrieval/memory-retriever.ts';
-import { GraphQuestionCandidateSource } from './questions/candidates.ts';
-import { QuestionPlanner } from './questions/planner.ts';
-import {
-  GraphQuestionPolicyContext, QuestionPolicyEngine,
-} from './questions/policy-engine.ts';
-import { QuestionScheduler } from './questions/scheduler.ts';
-import { QuestionAnswerIngestor } from './questions/answer-ingestor.ts';
-import { QuestionFeedbackService, type AssistantQuestionConfigWriter } from './questions/feedback-service.ts';
 import { BackupService } from './control/backup-service.ts';
 import { DeletionPreviewService } from './control/deletion-preview.ts';
 import { ExportService } from './control/export-service.ts';
 import { FactoryResetService } from './control/factory-reset-service.ts';
-import {
-  GraphCleanupService,
-  type GraphCleanupOptions,
-} from './control/graph-cleanup-service.ts';
-import { MemoryQueryService } from './control/memory-query-service.ts';
-import { MemoryMutationService } from './control/memory-mutation-service.ts';
-import { PolicyControlService } from './control/policy-control-service.ts';
 import { RestoreService } from './control/restore-service.ts';
-import { ValidationQueueService } from './control/validation-queue-service.ts';
-import { normalizeAliasText } from './domain/keys.ts';
-import { OWNER_PRONOUN_ALIASES } from './domain/owner-identity.ts';
-import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.ts';
+import type { JsonObject } from '../lib/json-types.ts';
+import { VaultAttachments } from '../vault/attachments.ts';
+import { VaultCaptureIntake, type VaultCaptureOutcome } from '../vault/capture-intake.ts';
+import { VaultCaptureRetention, captureRetentionLimits } from '../vault/capture-retention.ts';
+import {
+  countCapturesInStates, listCaptureIdsInStates, listPendingCaptures, liveCaptureBytes, setCaptureState,
+} from '../vault/captures.ts';
+import { VaultCaptureWriter } from '../vault/note-writer/capture-writer.ts';
+import { VaultChatWriter } from '../vault/note-writer/chat-writer.ts';
+import { VaultDailyRollup } from '../vault/note-writer/daily-rollup.ts';
+import { VaultEditApplier } from '../vault/note-writer/edit-applier.ts';
+import { VaultTidyPass } from '../vault/note-writer/tidy-pass.ts';
 import { VaultNoteQueries } from '../vault/note-queries.ts';
 import { VaultNoteStore } from '../vault/note-store.ts';
-import { VaultAttachments } from '../vault/attachments.ts';
+import { syncOwnerNote } from '../vault/owner-identity.ts';
 import { VaultGraphQueries } from '../vault/vault-graph.ts';
+import { VaultRetriever, type VaultRetrieveResult } from '../vault/vault-retriever.ts';
 import { VaultSearch } from '../vault/vault-search.ts';
 
 /** The closed set of desktop-shell payloads whose contract rejections are audited. */
 export type DesktopPayloadKind =
   'key_material' | 'environment_state' | 'activity_event' | 'capture_submission'
   | 'suppression_audit';
-
-class RouteOnlyQuestionConfigWriter implements AssistantQuestionConfigWriter {
-  setQuestionSchedule(): never {
-    throw new Error('Question schedule changes must use the durable assistant config route.');
-  }
-
-  setQuestionRateLimits(): never {
-    throw new Error('Question rate changes must use the durable assistant config route.');
-  }
-}
 
 /** Reads the live custody mode off the service and persists a flip through the durable writer. */
 class ServiceCustodyConfigPort implements AssistantCustodyConfigPort {
@@ -153,8 +118,8 @@ export interface AssistantServiceOptions {
 export interface AssistantRuntime {
   readonly enabled: boolean;
   readonly ownerId: string;
-  ingestChatTurn(input: ChatTurnInput): void;
-  retrieveMemoryContext(userMessage: string): Promise<RetrieveResult>;
+  ingestChatTurn(turn: ChatNotePayload): void;
+  retrieveMemoryContext(userMessage: string): Promise<VaultRetrieveResult>;
   onInteractiveRequest(): void;
   drainJobs(): Promise<void>;
   status(): AssistantStatusResponse;
@@ -170,8 +135,11 @@ const JOB_RETENTION_DAYS = 7;
 /** Drains slower than this are logged so event-loop pressure is visible before it hurts chat. */
 const SLOW_DRAIN_THRESHOLD_MS = 250;
 
-/** Caps each state's rows in the dashboard pending-captures listing. */
-const PENDING_CAPTURE_LIST_LIMIT = 200;
+/** Caps the rows in the dashboard pending-captures listing. */
+const PENDING_CAPTURE_LIST_LIMIT = 600;
+
+/** Settings changes write the owner note as the owner. */
+const OWNER_SOURCE = { actor: 'you', sourceRef: null } as const;
 
 /**
  * §3. Everything assistant-shaped hangs off this object, and the status server holds exactly one
@@ -179,40 +147,28 @@ const PENDING_CAPTURE_LIST_LIMIT = 200;
  */
 export class AssistantService implements AssistantRuntime {
   readonly graph: AssistantGraph;
-  readonly memoryQueries: MemoryQueryService;
   readonly vaultNotes: VaultNoteStore;
   readonly vaultQueries: VaultNoteQueries;
   readonly vaultSearch: VaultSearch;
   readonly vaultGraph: VaultGraphQueries;
   readonly vaultAttachments: VaultAttachments;
-  readonly memoryMutations: MemoryMutationService;
-  readonly policyControl: PolicyControlService;
-  readonly validation: ValidationQueueService;
-  readonly questionFeedback: QuestionFeedbackService;
   readonly keyCustody: KeyCustodyService;
   readonly exports: ExportService;
   readonly backups: BackupService;
 
+  private readonly database: RuntimeDatabase;
   private readonly clock: Clock;
-  private readonly pipeline: IngestionPipeline;
-  private readonly ingestor: ConversationIngestor;
-  private readonly envelopes: EnvelopeVerifier;
-  private readonly retriever: MemoryRetriever;
+  private readonly retriever: VaultRetriever;
   private readonly runner: AssistantJobRunner;
-  private readonly questionScheduler: QuestionScheduler;
   private readonly resourcePolicy: AssistantResourcePolicy;
   private readonly environment: DesktopEnvironmentCache;
   private readonly activityLog: ActivityLog;
-  private readonly captureIntake: CaptureIntake;
-  private readonly captureQueue: CaptureQueueStore;
-  private readonly captureRetention: CaptureRetentionService;
+  private readonly captureIntake: VaultCaptureIntake;
   private readonly imageCapability: AssistantImageCapabilityProvider;
   private readonly configWriter: AssistantConfigWriter;
   private readonly factoryResets: FactoryResetService;
-  private readonly graphCleanup: GraphCleanupService;
   private readonly restoreService: RestoreService;
   private currentConfig: AssistantConfig;
-  private ownerPersonId: string | null;
   private maxJobsPerDrain: number;
   /** How many exclusive operations are queued or running; drains stay out while nonzero. */
   private drainBlockers = 0;
@@ -222,17 +178,17 @@ export class AssistantService implements AssistantRuntime {
   private activeDrain: Promise<void> | null = null;
 
   private constructor(options: AssistantServiceOptions) {
+    const { database, clock, ids } = options;
     this.currentConfig = options.config;
     this.configWriter = options.configWriter;
-    this.clock = options.clock;
-    this.environment = new DesktopEnvironmentCache(options.clock);
+    this.database = database;
+    this.clock = clock;
+    this.environment = new DesktopEnvironmentCache(clock);
     const fileKeys = new FileKeyProvider(assistantKeyFile(options.runtimeRoot));
     const importedKeys = new ImportedKeyProvider();
     const custodyConfig = new ServiceCustodyConfigPort(this);
     this.graph = new AssistantGraph({
-      database: options.database,
-      clock: options.clock,
-      ids: options.ids,
+      database, clock, ids,
       keys: new CustodyDelegatingKeyProvider(custodyConfig, fileKeys, importedKeys),
       runtimeRoot: options.runtimeRoot,
     });
@@ -244,152 +200,57 @@ export class AssistantService implements AssistantRuntime {
       ownerId: this.graph.ownerId,
     });
     this.activityLog = new ActivityLog({
-      database: options.database,
-      clock: options.clock,
-      ids: options.ids,
+      database, clock, ids,
       evidence: this.graph.evidence,
       observations: this.graph.observations,
     });
-    this.captureQueue = new CaptureQueueStore(options.database, options.clock);
     this.imageCapability = options.imageCapability ?? new UnavailableImageCapabilityProvider();
-    this.captureIntake = new CaptureIntake({
-      clock: options.clock,
-      evidence: this.graph.evidence,
-      queue: this.captureQueue,
-      audit: this.graph.audit,
-      capability: this.imageCapability,
-      jobs: this.graph.jobs,
-    });
-    this.captureRetention = new CaptureRetentionService({
-      clock: options.clock,
-      graph: this.graph,
-      queue: this.captureQueue,
-      observation: options.config.Observation,
-    });
-    this.ownerPersonId = options.config.Enabled ? this.ensureOwnerPersonNode() : null;
 
+    const audit = this.graph.audit;
+    const scanner = new SecretScanner();
     const structuredOutput = new StructuredOutputRunner(options.inference);
-    this.pipeline = new IngestionPipeline(
-      this.graph,
-      new SecretScanner(),
-      options.config.Background.JobPriorities.ConversationIngestion,
-    );
-    this.ingestor = new ConversationIngestor(this.pipeline);
-    this.envelopes = new EnvelopeVerifier(this.graph.devices);
-    this.retriever = new MemoryRetriever(
-      this.graph,
-      options.tokens,
-      options.config.Retrieval,
-      this.graph.retrievalUsage,
-    );
-    const extractor = new ConversationExtractor(this.graph, structuredOutput);
-    const promoter = new CandidatePromoter(
-      this.graph, new CandidateGate(this.graph.policies, new SecretScanner()),
-    );
-    const projections = new ProjectionCompiler(
-      this.graph,
-      options.tokens,
-      new ProjectionSummarizer(structuredOutput, options.tokens),
-      {
-        1: options.config.Memory.Tier1.TargetTokens,
-        2: options.config.Memory.Tier2.TargetTokensPerDocument,
-        3: options.config.Memory.Tier3.TargetTokensPerDocument,
-      },
-    );
-    this.memoryQueries = new MemoryQueryService(this.graph);
-    this.vaultNotes = new VaultNoteStore(options.database, options.clock, options.ids);
-    this.vaultQueries = new VaultNoteQueries(options.database);
-    this.vaultSearch = new VaultSearch(options.database);
-    this.vaultGraph = new VaultGraphQueries(options.database);
-    this.vaultAttachments = new VaultAttachments(options.database, options.clock, options.ids, options.runtimeRoot);
-    this.policyControl = new PolicyControlService(this.graph, this.graph.ownerId);
-    this.validation = new ValidationQueueService({
-      graph: this.graph,
-      ownerId: this.graph.ownerId,
-      promoter,
-      projectionPriority: options.config.Background.JobPriorities.ProjectionMaintenance,
-    });
-    this.exports = new ExportService(this.graph, options.database, this.graph.ownerId);
-    this.backups = new BackupService({
-      graph: this.graph,
-      database: options.database,
-      keyCustody: this.keyCustody,
-      dataProtector: options.dataProtector,
-    });
-    const deletionPreviews = new DeletionPreviewService(this.graph, options.database);
-    this.memoryMutations = new MemoryMutationService({
-      graph: this.graph,
-      projectionPriority: options.config.Background.JobPriorities.ProjectionMaintenance,
-      projections,
-      deletionPreviews,
-    });
+    this.vaultNotes = new VaultNoteStore(database, clock, ids);
+    this.vaultQueries = new VaultNoteQueries(database);
+    this.vaultSearch = new VaultSearch(database);
+    this.vaultGraph = new VaultGraphQueries(database);
+    this.vaultAttachments = new VaultAttachments(database, clock, ids, options.runtimeRoot);
+    const store = this.vaultNotes;
+    const attachments = this.vaultAttachments;
+    this.captureIntake = new VaultCaptureIntake({ database, store, attachments, audit, clock, capability: this.imageCapability });
+    this.retriever = new VaultRetriever({ database, tokens: options.tokens });
+    const applier = new VaultEditApplier({ store, database, audit, scanner, ownerDisplayName: options.config.Owner.DisplayName });
+
+    this.exports = new ExportService(this.graph, database, this.graph.ownerId);
+    this.backups = new BackupService({ graph: this.graph, database, keyCustody: this.keyCustody, dataProtector: options.dataProtector });
     this.factoryResets = new FactoryResetService({
-      graph: this.graph,
-      database: options.database,
-      clock: options.clock,
-      keyCustody: this.keyCustody,
-      previews: deletionPreviews,
+      graph: this.graph, database, clock, keyCustody: this.keyCustody, previews: new DeletionPreviewService(this.graph, database),
     });
     this.restoreService = new RestoreService({
-      graph: this.graph,
-      database: options.database,
-      keyCustody: this.keyCustody,
-      dataProtector: options.dataProtector,
-    });
-    this.questionFeedback = new QuestionFeedbackService(
-      this.graph,
-      new SecretScanner(),
-      new RouteOnlyQuestionConfigWriter(),
-      options.config.Background.JobPriorities.QuestionAnswerIngestion,
-    );
-    this.questionScheduler = new QuestionScheduler({
-      graph: this.graph,
-      candidates: new GraphQuestionCandidateSource(this.graph),
-      policy: new QuestionPolicyEngine(
-        this.environment,
-        new GraphQuestionPolicyContext(this.graph),
-      ),
-      planner: new QuestionPlanner(structuredOutput),
-      config: options.config,
+      graph: this.graph, database, keyCustody: this.keyCustody, dataProtector: options.dataProtector,
     });
     this.resourcePolicy = new AssistantResourcePolicy({
-      database: options.database,
-      clock: options.clock,
-      background: options.config.Background,
-      power: this.environment.power,
-    });
-    const images = new ImageExtractor({
-      graph: this.graph,
-      queue: this.captureQueue,
-      runner: structuredOutput,
-      capability: this.imageCapability,
+      database, clock, background: options.config.Background, power: this.environment.power,
     });
     this.runner = new AssistantJobRunner({
-      graph: this.graph,
-      extractor,
-      promoter,
-      consolidator: new CandidateConsolidator(this.graph, structuredOutput),
-      projections,
-      questions: this.questionScheduler,
-      questionAnswers: new QuestionAnswerIngestor(extractor, promoter),
-      images,
-      retention: this.captureRetention,
+      jobs: this.graph.jobs,
+      decisions: this.graph.backgroundDecisions,
+      database,
+      captureWriter: new VaultCaptureWriter({
+        database, store, attachments, applier, audit, scanner, clock, runner: structuredOutput, capability: this.imageCapability,
+      }),
+      chatWriter: new VaultChatWriter({ database, store, applier, audit, scanner, runner: structuredOutput }),
+      dailyRollup: new VaultDailyRollup({ database, store }),
+      tidyPass: new VaultTidyPass({ database, store, audit, scanner, runner: structuredOutput }),
+      retention: new VaultCaptureRetention({ database, attachments, audit, clock }),
       idleGate: options.idleGate,
       residencyGate: options.residencyGate,
       resourcePolicy: this.resourcePolicy,
-      jobPriorities: options.config.Background.JobPriorities,
+      config: options.config,
       leaseOwner: `status-server:${process.pid}`,
       leaseSeconds: JOB_LEASE_SECONDS,
     });
-    this.graphCleanup = new GraphCleanupService({
-      graph: this.graph,
-      database: options.database,
-      queue: this.captureQueue,
-      extractor: images,
-      previews: deletionPreviews,
-      projectionPriority: options.config.Background.JobPriorities.ProjectionMaintenance,
-    });
     this.maxJobsPerDrain = options.config.Background.MaxJobsPerIdleSession;
+    if (options.config.Enabled) this.syncOwnerNote();
   }
 
   static create(options: AssistantServiceOptions): AssistantService {
@@ -404,20 +265,8 @@ export class AssistantService implements AssistantRuntime {
     return this.currentConfig.Enabled;
   }
 
-  get ownerPersonNodeId(): string | null {
-    return this.ownerPersonId;
-  }
-
   status(): AssistantStatusResponse {
-    return {
-      available: true,
-      enabled: this.enabled,
-      ownerId: this.ownerId,
-      pendingQuestionCount: this.enabled ? this.graph.questions.countPending(this.ownerId) : 0,
-      pendingValidationCount: this.enabled
-        ? this.graph.candidates.countValidationQueue(this.ownerId)
-        : 0,
-    };
+    return { available: true, enabled: this.enabled, ownerId: this.ownerId };
   }
 
   get config(): AssistantConfig {
@@ -426,12 +275,11 @@ export class AssistantService implements AssistantRuntime {
 
   /**
    * The shell's poll target (spec §6). Available while the assistant is off — the tray must be
-   * able to say so — and deliberately read-only: a poll never transitions a question.
+   * able to say so. Questions are retired, so `pendingQuestion` is always `null`.
    */
   desktopState(): DesktopStateDto {
     const capability = this.imageCapability.read();
     const custody = this.keyCustody.statusDto();
-    const question = this.enabled ? this.questionScheduler.current(this.ownerId) : null;
     return {
       schemaVersion: 1,
       assistantEnabled: this.enabled,
@@ -445,63 +293,16 @@ export class AssistantService implements AssistantRuntime {
       imageCapability: {
         capable: isUsableCapability(capability),
         instanceId: capability.instanceId,
-        queueDepth: this.captureQueue.countInStates(this.ownerId, PENDING_CAPTURE_STATES),
+        queueDepth: countCapturesInStates(this.database, PENDING_CAPTURE_STATES),
       },
-      pendingQuestion: question === null
-        ? null
-        : { id: question.id, questionText: question.question_text },
+      pendingQuestion: null,
     };
   }
 
   /**
-   * Per-item pixel reveal (spec §6): decrypts the stored bytes for an owned, still-active
-   * evidence record. Everything else — other owners, expired or deleted records, records with
-   * no stored content — is indistinguishable from absent.
-   */
-  readEvidencePixels(evidenceId: string): { readonly mimeType: string; readonly bytes: Buffer } {
-    const evidence = this.graph.evidence.getEvidence(evidenceId);
-    if (evidence === null || evidence.owner_id !== this.ownerId
-      || evidence.blob_id === null || evidence.mime_type === null
-      || evidence.status !== 'active') {
-      throw new AssistantNotFoundError(`Evidence pixels are not available: ${evidenceId}`);
-    }
-    return {
-      mimeType: evidence.mime_type,
-      bytes: this.graph.evidence.readBlobBytes(evidence.blob_id),
-    };
-  }
-
-  /** Popup paint confirmation (spec §6): the only writer of `shown_at_utc`. */
-  markQuestionShown(questionId: string): void {
-    this.requireOwnedQuestion(questionId);
-    this.graph.questions.markShown(questionId);
-  }
-
-  /** The popup was closed without an answer. */
-  dismissQuestion(questionId: string): void {
-    this.requireOwnedQuestion(questionId);
-    this.graph.questions.dismiss(questionId);
-  }
-
-  currentQuestion(): AssistantQuestionDto | null {
-    if (!this.enabled) return null;
-    const row = this.questionScheduler.current(this.ownerId);
-    return row === null ? null : {
-      id: row.id,
-      topicKey: row.topic_key,
-      questionText: row.question_text,
-      questionType: row.question_type,
-      status: row.status,
-      eligibleAfterUtc: row.eligible_after_utc,
-      expiresAtUtc: row.expires_at_utc,
-      createdAtUtc: row.created_at_utc,
-    };
-  }
-
-  /**
-   * Heartbeat from the desktop shell; feeds question policy and the background power gate. It is
-   * also the only signal that a foreground session simply stopped rather than being replaced, so
-   * the last session of the day is closed — and its observation emitted — from here.
+   * Heartbeat from the desktop shell; feeds the background power gate. It is also the only signal
+   * that a foreground session simply stopped rather than being replaced, so the last session of
+   * the day is closed — and its observation emitted — from here.
    */
   ingestEnvironment(state: EnvironmentStateDto): void {
     this.environment.ingest(state);
@@ -513,27 +314,23 @@ export class AssistantService implements AssistantRuntime {
     this.activityLog.ingest(this.ownerId, event, this.currentConfig);
   }
 
-  /** A screenshot the shell's privacy preflight allowed; the daemon decides whether to keep it. */
-  ingestCapture(capture: CaptureSubmissionDto): CaptureOutcome {
-    return this.captureIntake.submit(this.ownerId, capture, this.currentConfig);
+  /**
+   * A screenshot the shell's privacy preflight allowed; the daemon decides whether to keep it.
+   * A queued capture gets its note job, and bytes over the cap get a retention run.
+   */
+  ingestCapture(capture: CaptureSubmissionDto): VaultCaptureOutcome {
+    const outcome = this.captureIntake.submit(this.ownerId, capture, this.currentConfig);
+    if (outcome.kind !== 'accepted') return outcome;
+    if (outcome.state === 'queued') this.enqueueCaptureNote(outcome.attachmentId);
+    if (liveCaptureBytes(this.database) > captureRetentionLimits(this.currentConfig).limitBytes) {
+      this.enqueue('capture_retention', { reason: 'capacity' }, 'capture_retention:capacity');
+    }
+    return outcome;
   }
 
-  /** A capture the shell suppressed. Non-content: the rule id and nothing else. */
-  /** Captures still owed an extraction, oldest first, for the dashboard pending view. */
+  /** Captures still owed their note-writer pass, oldest first, for the dashboard pending view. */
   listPendingCaptures(): PendingCaptureDto[] {
-    const pending: PendingCaptureDto[] = [];
-    for (const state of PENDING_CAPTURE_LIST_STATES) {
-      for (const row of this.captureQueue.listByState(this.ownerId, state, PENDING_CAPTURE_LIST_LIMIT)) {
-        pending.push({
-          evidenceId: row.evidence_id,
-          state,
-          enqueuedAtUtc: row.enqueued_at_utc,
-          byteLength: row.byte_length,
-          foregroundContextKey: row.foreground_context_key,
-        });
-      }
-    }
-    return pending.sort((a, b) => a.enqueuedAtUtc.localeCompare(b.enqueuedAtUtc));
+    return listPendingCaptures(this.database, PENDING_CAPTURE_LIST_LIMIT);
   }
 
   listBackgroundWorkDecisions(): AssistantBackgroundWorkDecisionDto[] {
@@ -572,98 +369,37 @@ export class AssistantService implements AssistantRuntime {
   refreshConfig(config: AssistantConfig): void {
     this.currentConfig = config;
     this.maxJobsPerDrain = config.Background.MaxJobsPerIdleSession;
-    this.retriever.refreshLimits(config.Retrieval);
-    this.questionScheduler.refreshConfig(config);
     this.resourcePolicy.refreshBackground(config.Background);
-    this.runner.refreshJobPriorities(config.Background.JobPriorities);
-    this.memoryMutations.refreshProjectionPriority(
-      config.Background.JobPriorities.ProjectionMaintenance,
-    );
-    this.validation.refreshProjectionPriority(
-      config.Background.JobPriorities.ProjectionMaintenance,
-    );
-    this.questionFeedback.refreshAnswerIngestionPriority(
-      config.Background.JobPriorities.QuestionAnswerIngestion,
-    );
-    this.captureRetention.refreshObservation(config.Observation);
-    if (config.Enabled) {
-      this.ownerPersonId = this.ensureOwnerPersonNode();
-    }
+    this.runner.refreshConfig(config);
+    if (config.Enabled) this.syncOwnerNote();
   }
 
   /**
-   * Request-path ingestion: writes evidence and enqueues work. Never throws at the caller —
-   * a chat turn completes normally even if ingestion fails (§7.1).
+   * Request-path ingestion: enqueues the turn's chat note job and nothing else. Never throws at
+   * the caller — a chat turn completes normally even if ingestion fails (§7.1).
    */
-  ingestChatTurn(input: ChatTurnInput): void {
+  ingestChatTurn(turn: ChatNotePayload): void {
     if (!this.enabled) return;
     try {
-      this.ingestor.ingestTurn(input);
+      const payload = ChatNotePayloadSchema.parse(turn);
+      this.enqueue('chat_note', payload, `chat_note:${payload.sessionId}:${payload.userMessageId}`);
     } catch (error) {
       this.graph.audit.recordAuditEvent({
         ownerId: this.ownerId,
         eventType: 'ingestion_failed',
         targetType: 'chat_session',
-        targetId: input.sessionId,
+        targetId: turn.sessionId,
         summary: 'Chat turn ingestion failed and was skipped.',
         details: { message: error instanceof Error ? error.message : String(error) },
       });
     }
   }
 
-  /**
-   * §7.6 mobile ingestion. Verification is the only mobile-specific step: an accepted envelope
-   * becomes an ordinary text ingestion, so mobile evidence takes exactly the same secret scan,
-   * blocked-topic check, and dedupe path as a chat turn.
-   */
-  ingestMobileEnvelope(envelope: MobileEnvelope): EnvelopeVerdict {
-    const verdict = this.envelopes.verify(envelope);
-    if (verdict.kind === 'rejected') {
-      this.graph.audit.recordAuditEvent({
-        ownerId: this.ownerId,
-        eventType: 'mobile_envelope_rejected',
-        targetType: 'device',
-        targetId: envelope.deviceId,
-        // Reason and device only: a rejected envelope's payload is unauthenticated, so it is
-        // never written anywhere.
-        summary: `Rejected a mobile envelope: ${verdict.reason}.`,
-        details: { reason: verdict.reason, deviceId: envelope.deviceId },
-      });
-      return verdict;
-    }
-    this.pipeline.accept({
-      ownerId: this.ownerId,
-      deviceId: envelope.deviceId,
-      sourceType: 'mobile_event',
-      sourceEventId: `mobile:${envelope.deviceId}:${envelope.nonce}`,
-      sourceRef: null,
-      // The envelope's timestamp is a device-local counter, not a wall clock.
-      capturedAtUtc: this.clock.nowUtc(),
-      sourceTimezone: null,
-      declaredSensitivity: envelope.sensitivity,
-      payload: { kind: 'text', text: envelope.payload.text },
-      metadata: {
-        deviceId: envelope.deviceId,
-        nonce: envelope.nonce,
-        monotonicTimestamp: envelope.monotonicTimestamp,
-        consentMemory: envelope.consent.memory,
-        consentSensitive: envelope.consent.sensitive,
-      },
-    });
-    return verdict;
-  }
-
-  /** Request-path retrieval. Deterministic, no model call. */
-  async retrieveMemoryContext(userMessage: string): Promise<RetrieveResult> {
-    if (!this.enabled) {
-      return { renderedBlock: '', assertionIds: [], projectionIds: [], tokenCount: 0 };
-    }
-    return this.retriever.retrieve({
-      ownerId: this.ownerId,
-      userMessage,
-      conversationId: null,
-      recordUsage: true,
-    });
+  /** Request-path retrieval from the vault. Deterministic, no model call. */
+  async retrieveMemoryContext(userMessage: string): Promise<VaultRetrieveResult> {
+    if (!this.enabled) return { renderedBlock: '', noteIds: [], tokenCount: 0 };
+    const { MaxContextTokens, MaxNotes } = this.currentConfig.Retrieval;
+    return this.retriever.retrieve(userMessage, { maxContextTokens: MaxContextTokens, maxNotes: MaxNotes });
   }
 
   /** Called by the host when interactive work arrives (§12.3). */
@@ -716,70 +452,6 @@ export class AssistantService implements AssistantRuntime {
     await this.runMaintenance(async () => {
       this.factoryResets.confirm(ownerId, previewToken);
     });
-    // The owner person node went with everything else; the next enable re-creates it.
-    this.ownerPersonId = null;
-  }
-
-  /**
-   * The owner confirming a duplicate `person` node names them. OCR reads a name off a title bar
-   * several ways, and each spelling otherwise becomes its own node whose facts no projection ever
-   * sees. The merge is `actorType: 'user'` — the assistant may never make this call itself — and
-   * the returned `mergeId` reverses it.
-   */
-  async claimNodeAsOwner(nodeId: string, reason: string): Promise<AssistantClaimOwnerResponse> {
-    const ownerNodeId = this.ownerPersonId;
-    if (ownerNodeId === null) {
-      throw new AssistantNotFoundError('The assistant has no owner person node.');
-    }
-    const node = this.graph.nodes.getNode(nodeId);
-    if (node === null || node.owner_id !== this.ownerId) {
-      throw new AssistantNotFoundError(`Unknown graph node: ${nodeId}`);
-    }
-    if (node.id === ownerNodeId) {
-      throw new AssistantConflictError('That node is already the owner.');
-    }
-    return this.runMaintenance(async () => {
-      const movedAliases = this.graph.nodes.listAliases(nodeId).map((row) => row.alias);
-      const outcome = this.graph.merges.merge({
-        ownerId: this.ownerId,
-        sourceNodeId: nodeId,
-        targetNodeId: ownerNodeId,
-        actorType: 'user',
-        basis: 'the owner confirmed this node names them',
-        reason,
-      });
-      if (outcome.kind === 'blocked') {
-        throw new AssistantConflictError(outcome.message);
-      }
-      this.graph.enqueueProjectionMaintenance(
-        this.ownerId, this.currentConfig.Background.JobPriorities.ProjectionMaintenance,
-      );
-      return {
-        ok: true,
-        graphVersion: this.graph.graphVersion,
-        mergeId: outcome.mergeId,
-        ownerNodeId,
-        movedAssertionCount: outcome.movedAssertionCount,
-        retiredAssertionCount: outcome.retiredAssertionCount,
-        movedAliases,
-      } as const;
-    });
-  }
-
-  /** What the one-shot repair would touch, with a token that expires when that changes. */
-  previewGraphCleanup(): AssistantGraphCleanupPreview {
-    return this.graphCleanup.preview(this.ownerId);
-  }
-
-  /** Removes the state the pipeline defects produced. Idempotent; refuses a stale preview. */
-  async cleanUpGraph(
-    previewToken: string, options: GraphCleanupOptions,
-  ): Promise<AssistantGraphCleanupResult> {
-    const ownerId = this.ownerId;
-    const result = await this.runMaintenance(
-      async () => this.graphCleanup.run(ownerId, previewToken, options),
-    );
-    return { ok: true, graphVersion: this.graph.graphVersion, ...result };
   }
 
   previewRestore(uploadPath: string): Promise<AssistantRestorePreviewResponse> {
@@ -791,8 +463,7 @@ export class AssistantService implements AssistantRuntime {
     const result = await this.runMaintenance(
       () => this.restoreService.confirm(uploadId, confirmToken),
     );
-    // The restored graph carries its own owner person node; the pre-restore cache is stale.
-    this.ownerPersonId = this.enabled ? this.ensureOwnerPersonNode() : null;
+    if (this.enabled) this.syncOwnerNote();
     return result;
   }
 
@@ -838,18 +509,13 @@ export class AssistantService implements AssistantRuntime {
     this.graph.jobs.pruneTerminal(this.ownerId, cutoffUtc);
     const startedAtMs = Date.now();
     // Retention runs even when observation is paused: it only ever removes data (spec §7).
-    this.graph.jobs.enqueue({
-      ownerId: this.ownerId,
-      jobType: 'capture_retention',
-      payload: { reason: 'schedule' },
-      idempotencyKey: 'capture_retention:schedule',
-    }, this.currentConfig.Background.JobPriorities.CaptureRetention);
-    // A worker that died mid-extraction leaves its capture in `processing`, which no pending
-    // state covers. Recover those before enqueueing so they rejoin the queue instead of sitting
-    // unreachable until they expire.
-    this.captureQueue.recoverStrandedProcessing(
-      this.ownerId, this.graph.jobs.listLiveImageExtractionEvidenceIds(this.ownerId),
-    );
+    this.enqueue('capture_retention', { reason: 'schedule' }, 'capture_retention:schedule');
+    // A worker that died mid-write leaves its capture in `processing`, which no pending state
+    // covers. Recover those first so they rejoin the queue instead of sitting unreachable.
+    const live = new Set(this.graph.jobs.listLiveCaptureNoteAttachmentIds(this.ownerId));
+    for (const attachmentId of listCaptureIdsInStates(this.database, ['processing'], -1)) {
+      if (!live.has(attachmentId)) setCaptureState(this.database, attachmentId, 'queued');
+    }
     this.enqueueWaitingCaptures();
     await this.runner.drain(this.ownerId, this.maxJobsPerDrain);
     const elapsedMs = Date.now() - startedAtMs;
@@ -859,95 +525,36 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /**
-   * A capable runtime is the only thing unprocessed captures were waiting for, so a drain that
-   * finds one enqueues them oldest-first. Enqueue is idempotent per evidence row, so re-checking
-   * every drain costs nothing. The two states share one drain budget: intake picks between them
-   * from the capability at capture time (spec §5), but a drain owes them the same work.
+   * A capable runtime is the only thing waiting captures need, so a drain that finds one enqueues
+   * them oldest-first within its budget. Enqueue is live-idempotent per capture, so re-checking
+   * every drain costs nothing.
    */
   private enqueueWaitingCaptures(): void {
     if (!isUsableCapability(this.imageCapability.read())) {
-      if (this.captureQueue.countInStates(this.ownerId, PENDING_CAPTURE_STATES) > 0) {
+      if (countCapturesInStates(this.database, PENDING_CAPTURE_STATES) > 0) {
         this.graph.backgroundDecisions.record(
           this.ownerId, { reason: 'image_capability_unavailable', details: {} },
         );
       }
       return;
     }
-    let remaining = this.maxJobsPerDrain < 0 ? Number.MAX_SAFE_INTEGER : this.maxJobsPerDrain;
-    for (const state of PENDING_CAPTURE_STATES) {
-      if (remaining <= 0) return;
-      for (const row of this.captureQueue.listByState(this.ownerId, state, remaining)) {
-        this.graph.jobs.enqueue({
-          ownerId: this.ownerId,
-          jobType: 'image_extraction',
-          payload: { evidenceId: row.evidence_id },
-          idempotencyKey: `image_extraction:${row.evidence_id}`,
-        }, this.currentConfig.Background.JobPriorities.ImageExtraction);
-        remaining -= 1;
-      }
+    for (const attachmentId of listCaptureIdsInStates(this.database, PENDING_CAPTURE_STATES, this.maxJobsPerDrain)) {
+      this.enqueueCaptureNote(attachmentId);
     }
   }
 
-  private requireOwnedQuestion(questionId: string): void {
-    const question = this.graph.questions.getQuestion(questionId);
-    if (question === null || question.owner_id !== this.ownerId) {
-      throw new AssistantNotFoundError(`Unknown question for owner: ${questionId}`);
-    }
+  private enqueueCaptureNote(attachmentId: string): void {
+    this.enqueue('capture_note', { attachmentId }, `capture_note:${attachmentId}`);
   }
 
-  private ensureOwnerPersonNode(): string {
-    const ownerId = this.graph.ownerId;
-    const existing = this.graph.nodes.findByCanonicalKey(
-      ownerId, 'person', OWNER_PERSON_CANONICAL_KEY,
+  private enqueue(jobType: AssistantJobType, payload: JsonObject, idempotencyKey: string): void {
+    this.graph.jobs.enqueue(
+      { ownerId: this.ownerId, jobType, payload, idempotencyKey },
+      jobPriority(this.currentConfig.Background.JobPriorities, jobType),
     );
-    if (existing !== null) {
-      this.seedOwnerAliases(existing.id);
-      return existing.id;
-    }
-
-    const transaction = this.graph.transactions.begin();
-    try {
-      const node = this.graph.nodes.createNode({
-        ownerId,
-        type: 'person',
-        canonicalKey: OWNER_PERSON_CANONICAL_KEY,
-        displayName: 'the user',
-        description: null,
-        sensitivity: 'personal',
-        properties: {},
-      });
-      this.seedOwnerAliases(node.id);
-      transaction.commit();
-      return node.id;
-    } catch (error) {
-      return transaction.rollbackAfter(error);
-    }
   }
 
-  /**
-   * Reconciled on every bootstrap and config refresh. The owner row's `display_name` is the last
-   * configured name; when config moves on, the alias that name seeded is retired. Aliases of
-   * other types with the same text were learned from data and stay.
-   */
-  private seedOwnerAliases(nodeId: string): void {
-    const ownerId = this.graph.ownerId;
-    const configured = this.currentConfig.Owner.DisplayName.trim();
-    const previous = this.graph.identity.getOwner().display_name.trim();
-    if (previous !== configured) {
-      const previousIsPronoun = OWNER_PRONOUN_ALIASES
-        .some((pronoun) => pronoun === normalizeAliasText(previous));
-      if (previous !== '' && !previousIsPronoun) {
-        this.graph.nodes.removeAlias(nodeId, previous, 'user_supplied');
-      }
-      this.graph.identity.setOwnerDisplayName(configured, this.graph.nowUtc());
-    }
-    const aliases = configured === ''
-      ? [...OWNER_PRONOUN_ALIASES]
-      : [...OWNER_PRONOUN_ALIASES, configured];
-    for (const alias of aliases) {
-      this.graph.nodes.addAlias({
-        ownerId, nodeId, alias, aliasType: 'user_supplied', sourceEvidenceId: null,
-      });
-    }
+  private syncOwnerNote(): void {
+    syncOwnerNote(this.vaultNotes, this.database, this.currentConfig.Owner.DisplayName, OWNER_SOURCE);
   }
 }

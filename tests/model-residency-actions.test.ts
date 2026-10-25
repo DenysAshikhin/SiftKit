@@ -479,10 +479,9 @@ test('idle unload preempts a blocked assistant drain and waits for it before unl
     fixture.ctx.assistant = service;
     fixture.ctx.assistantControl = service;
     service.ingestChatTurn({
-      ownerId: service.ownerId, sessionId: 'chat_residency',
+      sessionId: 'chat_residency', sessionTitle: 'Residency',
       capturedAtUtc: '2026-08-05T09:00:00.000Z',
-      userMessageId: 'm1', userText: 'I use PowerShell.',
-      assistantMessageId: 'm2', assistantText: 'Noted.',
+      userMessageId: 'm1', userText: 'I use PowerShell.', assistantText: 'Noted.',
     });
 
     const order: string[] = [];

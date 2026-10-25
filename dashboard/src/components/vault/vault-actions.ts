@@ -55,4 +55,6 @@ export interface VaultActions {
   hoverLink(target: string, rect: VaultAnchorRect): void;
   clearHover(): void;
   exportVault(): void;
+  /** Bytes of an embedded attachment; a removed file rejects with a 404 `VaultRequestError`. */
+  attachment(target: string): Promise<Blob>;
 }

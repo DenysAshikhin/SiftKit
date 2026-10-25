@@ -80,3 +80,12 @@ export function seedOwnerAssertion(
     topicKey: toTopicKey(input.objectName),
   };
 }
+
+/** One stored memory document per seeded assertion, so backup and export carry projection rows. */
+export function seedProjection(context: AssistantTestContext, seeded: SeededOwnerAssertion): void {
+  context.graph.projections.upsert({
+    ownerId: context.ownerId, tier: 2, topicKey: seeded.topicKey, title: seeded.topicKey,
+    content: `# ${seeded.topicKey}`, contentHash: seeded.topicKey, tokenCount: 4, tokenizerId: 'estimate',
+    graphVersion: context.graph.graphVersion, includedAssertionIds: [seeded.assertion.id], sensitivity: 'personal',
+  });
+}

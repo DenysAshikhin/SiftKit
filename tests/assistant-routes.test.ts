@@ -13,7 +13,7 @@ import {
 } from './helpers/dashboard-test-repo.ts';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 
-test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serves Gate C routes', async () => {
+test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serves the vault surface', async () => {
   const tempRoot = createManagedTempDir('siftkit-assistant-routes-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -43,42 +43,22 @@ test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serve
     })).statusCode, 401);
 
     for (const route of [
-      '/assistant/status', '/assistant/config', '/assistant/search?q=PowerShell',
-      '/assistant/graph/nodes', '/assistant/graph/assertions', '/assistant/evidence',
-      '/assistant/projections', '/assistant/questions/current', '/assistant/policies',
-      '/assistant/validation', '/assistant/history', '/assistant/background-decisions',
+      '/assistant/status', '/assistant/config', '/assistant/background-decisions',
+      '/assistant/captures/pending', '/assistant/desktop/state', '/assistant/vault/tree',
+      '/assistant/vault/notes', '/assistant/vault/search?q=PowerShell', '/assistant/vault/stats',
     ]) {
       const response = await requestJson(`${baseUrl}${route}`, { headers });
       assert.equal(response.statusCode, 200, route);
     }
-    assert.equal((await requestJson(`${baseUrl}/assistant/graph/assertions/missing`, {
-      headers,
-    })).statusCode, 404);
-    assert.equal((await requestJson(`${baseUrl}/assistant/graph/assertions/missing/confirm`, {
-      method: 'POST', headers, body: JSON.stringify({ reason: 'confirm' }),
-    })).statusCode, 404);
-    // The claim-owner route is registered and authenticated like every other mutation; an unknown
-    // node is a 404 rather than a route miss, which is what proves the pattern matched.
-    assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes/missing/claim-owner`, {
-      method: 'POST', headers, body: JSON.stringify({ reason: 'this is me' }),
-    })).statusCode, 404);
-    assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes/missing/claim-owner`, {
-      method: 'POST', body: JSON.stringify({ reason: 'this is me' }),
-    })).statusCode, 401);
-    const cleanupPreview = await requestJson(`${baseUrl}/assistant/cleanup/preview`, { headers });
-    assert.equal(cleanupPreview.statusCode, 200);
-    assert.equal(typeof cleanupPreview.body.previewToken, 'string');
-    // A token that is not even well-formed is a bad request; staleness is what raises a 409.
-    assert.equal((await requestJson(`${baseUrl}/assistant/cleanup`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ previewToken: 'not-a-token', reclassifyScreenshots: false }),
-    })).statusCode, 400);
-    assert.equal((await requestJson(`${baseUrl}/assistant/cleanup/preview`)).statusCode, 401);
+    assert.equal((await requestJson(`${baseUrl}/assistant/vault/tree`)).statusCode, 401);
     for (const route of [
-      '/assistant/capture/start', '/assistant/ingest/raw',
-      '/assistant/export', '/assistant/backup', '/assistant/not-a-route',
+      '/assistant/search?q=PowerShell', '/assistant/graph/nodes', '/assistant/graph/assertions',
+      '/assistant/evidence', '/assistant/projections', '/assistant/questions/current',
+      '/assistant/policies', '/assistant/validation', '/assistant/history', '/assistant/cleanup/preview',
+      '/assistant/capture/start', '/assistant/ingest/raw', '/assistant/export', '/assistant/backup',
+      '/assistant/not-a-route',
     ]) {
-      assert.equal((await requestJson(`${baseUrl}${route}`, { headers })).statusCode, 404);
+      assert.equal((await requestJson(`${baseUrl}${route}`, { headers })).statusCode, 404, route);
     }
 
     const paused = {
@@ -90,50 +70,10 @@ test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serve
     })).statusCode, 200);
     const status = await requestJson(`${baseUrl}/assistant/status`, { headers });
     assert.equal(status.body.enabled, false);
-    assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes`, { headers })).statusCode, 409);
-    assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes/missing/claim-owner`, {
-      method: 'POST', headers, body: JSON.stringify({ reason: 'this is me' }),
-    })).statusCode, 409);
-    assert.equal(
-      (await requestJson(`${baseUrl}/assistant/cleanup/preview`, { headers })).statusCode, 409,
-    );
+    assert.equal((await requestJson(`${baseUrl}/assistant/vault/tree`, { headers })).statusCode, 409);
     assert.equal((await requestJson(`${baseUrl}/assistant/config`, {
       method: 'PATCH', headers, body: '{',
     })).statusCode, 400);
-  } finally {
-    await closeHttpServer(server);
-    restoreDashboardTestRepo(previousCwd);
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
-});
-
-test('GET /assistant/history responds 200 with items and completes the response', async () => {
-  const tempRoot = createManagedTempDir('siftkit-assistant-history-');
-  const previousCwd = enterDashboardTestRepo(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const initial = getDefaultConfig();
-  writeConfig(getConfigPath(), {
-    ...initial, Assistant: { ...initial.Assistant, Enabled: true },
-  });
-  const server = startStatusServer({ disableManagedEngineStartup: true });
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
-    const bootstrap = await requestJson(`${baseUrl}/assistant/auth/bootstrap`);
-    const token = typeof bootstrap.body.token === 'string' ? bootstrap.body.token : '';
-    const response = await requestJson(`${baseUrl}/assistant/history`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    assert.equal(response.statusCode, 200);
-    assert.ok(Array.isArray(response.body.items));
   } finally {
     await closeHttpServer(server);
     restoreDashboardTestRepo(previousCwd);

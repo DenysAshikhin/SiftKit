@@ -75,6 +75,17 @@ test('non-entity notes and notes without facts are skipped without a model call'
   });
 });
 
+test('a note whose latest revision is already a tidy is skipped without a model call', async () => {
+  await withVaultAsync(async (context) => {
+    const note = context.store.create(entityInput('Visual Studio Code', BODY), TEST_META);
+    const inference = new FakeAssistantInference([JSON.stringify({ lead: 'Your editor.' })]);
+    const { run } = tidy(context, inference);
+    assert.deepEqual(await run(note.id), { kind: 'tidied' });
+    assert.deepEqual(await run(note.id), { kind: 'skipped', reason: 'unchanged' });
+    assert.equal(inference.requests.length, 1);
+  });
+});
+
 test('unusable output, a lead that is not a plain paragraph and a secret are rejected and audited', async () => {
   await withVaultAsync(async (context) => {
     const note = context.store.create(entityInput('Visual Studio Code', BODY), TEST_META);

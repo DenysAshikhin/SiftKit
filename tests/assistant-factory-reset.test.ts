@@ -151,20 +151,14 @@ test('re-running factory reset on an empty assistant is a no-op, not an error', 
   });
 });
 
-test('a factory-reset token is rejected once the graph moves, and cannot be another operation', () => {
+test('a factory-reset token is rejected once the graph moves, and cannot reset another owner', () => {
   withAssistantContext((context) => {
-    const seeded = seedOwnerAssertion(context, { objectName: 'Nu' });
+    seedOwnerAssertion(context, { objectName: 'Nu' });
     const service = factoryResetServiceFor(context);
-    const previews = new DeletionPreviewService(context.graph, context.database);
     const preview = service.preview(context.ownerId);
 
-    // A token minted for a different operation must not authorize the reset.
-    const assertionToken = previews
-      .previewForgetAssertion(context.ownerId, seeded.assertion.id).previewToken;
-    assert.throws(
-      () => service.confirm(context.ownerId, assertionToken),
-      AssistantConflictError,
-    );
+    // A token minted for another owner must not authorize this owner's reset.
+    assert.throws(() => service.confirm('own_other', preview.previewToken), AssistantConflictError);
 
     seedOwnerAssertion(context, { objectName: 'Xi' }); // the graph version moves
 

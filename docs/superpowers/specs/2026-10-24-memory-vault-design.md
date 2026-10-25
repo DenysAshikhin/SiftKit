@@ -242,6 +242,26 @@ Desktop shell:
 
 Factory reset is reimplemented for the vault: preview counts → confirm → wipe the vault tables and attachments. Export replaces backup. Restore from backup is dropped.
 
+**Already removed in Phase 5:**
+- the ingestion pipeline (everything except `ingestion/candidate-hold.ts`);
+- projections (everything except `projections/assertion-view*.ts`);
+- questions (everything except `questions/environment-state.ts`);
+- `retrieval/memory-retriever.ts` and the explicit-intent parser;
+- `mobile/`, the image and conversation extractors, the legacy capture queue and retention;
+- the graph cleanup, memory query/mutation, policy and validation services;
+- every deletion preview except factory reset;
+- the graph, mutation, question, policy and mobile routes, their contracts, CLI commands and dashboard views;
+- the legacy job types (schema upgrade 86 → 87).
+
+**Left for Phase 7** (kept for the migration or still wired to backup, export, restore and factory reset):
+- `assistant-graph.ts`, `graph/`, `crypto/` and every store in `storage/` except `job-store`, `audit-store` and `background-work-decision-store`;
+- `ingestion/candidate-hold.ts`, `projections/assertion-view*.ts`, `domain/{confidence,owner-identity,staleness,node-types,relation-types}.ts`;
+- `control/{backup-format,backup-service,restore-service,temp-archive,export-service}.ts`, with factory reset and `deletion-preview.ts` rewritten for the vault;
+- `questions/environment-state.ts`, which moves next to the environment cache;
+- the `NodeStatusSchema` contract, `DesktopStateDto.pendingQuestion` and `custody`, and `KeyCustody` in config and routes;
+- `ActivityLog`'s evidence and observation writes;
+- the legacy tables and `<runtimeRoot>/assistant/evidence`.
+
 ## 8. Error handling
 
 - A stale `expectedRevision` → `409 conflict`, with the current revision.

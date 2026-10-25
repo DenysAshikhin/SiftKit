@@ -12,32 +12,7 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
   assert.deepEqual(DEFAULT_ASSISTANT_CONFIG, {
     Enabled: false,
     Owner: { Id: 'own_local', DisplayName: 'Local user' },
-    Memory: {
-      Tier1: { MaxTokens: 10_000, TargetTokens: 3_500 },
-      Tier2: { MaxDocuments: 25, MaxTokensPerDocument: 50_000, TargetTokensPerDocument: 8_000 },
-      Tier3: { MaxDocuments: 500, MaxTokensPerDocument: 10_000, TargetTokensPerDocument: 2_500 },
-    },
-    Retrieval: {
-      MaxContextTokens: 1_200,
-      MaxHops: 2,
-      MaxSeedNodes: 12,
-      MaxNodes: 80,
-      MaxAssertions: 160,
-      MaxFanoutPerNodePredicate: 20,
-    },
-    Questions: {
-      Enabled: true,
-      MaxPerDay: 1,
-      MaxPerWeek: 3,
-      MinimumHoursBetweenQuestions: 20,
-      AllowedLocalTimeStart: '18:00',
-      AllowedLocalTimeEnd: '21:30',
-      DismissedCooldownDays: 7,
-      UnansweredExpiryDays: 7,
-      SuppressDuringFullscreen: true,
-      SuppressDuringDoNotDisturb: true,
-      ActiveInputSuppressionSeconds: 120,
-    },
+    Retrieval: { MaxContextTokens: 1_200, MaxNotes: 8 },
     Observation: {
       ActivityMetadataEnabled: true,
       ScreenshotsEnabled: false,
@@ -57,25 +32,16 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
       TitleDenyPatterns: [],
       StartOnSignIn: false,
     },
-    Retention: { OcrTextDays: 7, UnpromotedObservationDays: 90, RejectedCandidateDays: 30 },
     Background: {
       IdleSecondsBeforeProcessing: 180,
       MaxJobsPerIdleSession: -1,
       MaxGpuMinutesPerDay: -1,
       MinimumBatteryPercent: 50,
       AllowOnBattery: false,
-      JobPriorities: {
-        ConversationIngestion: 800,
-        QuestionAnswerIngestion: 850,
-        QuestionPlanning: 600,
-        CandidateConsolidation: 400,
-        ImageExtraction: 350,
-        CaptureRetention: 900,
-        ProjectionMaintenance: 300,
-      },
+      JobPriorities: { CaptureNote: 400, ChatNote: 800, DailyRollup: 500, NoteTidy: 100, CaptureRetention: 900 },
     },
     PrivateMode: { Active: false, ExpiresAtUtc: null },
-    Mobile: { Enabled: false },
+    Vault: { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0 },
     KeyCustody: 'file',
   });
   assert.deepEqual(AssistantConfigSchema.parse(DEFAULT_ASSISTANT_CONFIG), DEFAULT_ASSISTANT_CONFIG);
@@ -188,19 +154,23 @@ test('normalizeAssistantConfig repairs the deny lists and the sign-in startup fl
   assert.equal(kept.StartOnSignIn, true);
 });
 
-test('the mobile envelope gate defaults off and rejects unknown keys', () => {
-  assert.deepEqual(normalizeAssistantConfig({}).Mobile, { Enabled: false });
-  assert.deepEqual(normalizeAssistantConfig({ Mobile: { Enabled: 'yes' } }).Mobile, { Enabled: false });
-  assert.deepEqual(normalizeAssistantConfig({ Mobile: { Enabled: true } }).Mobile, { Enabled: true });
+test('the vault block defaults on with no image age limit and repairs malformed values', () => {
+  assert.deepEqual(normalizeAssistantConfig({}).Vault, { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0 });
+  assert.deepEqual(normalizeAssistantConfig({ Vault: { TidyPassEnabled: 'no', CaptureImageMaxAgeDays: -3 } }).Vault, { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0 });
+  assert.deepEqual(normalizeAssistantConfig({ Vault: { TidyPassEnabled: false, CaptureImageMaxAgeDays: 30 } }).Vault, { TidyPassEnabled: false, CaptureImageMaxAgeDays: 30 });
+  assert.equal(AssistantConfigSchema.safeParse({ ...DEFAULT_ASSISTANT_CONFIG, Vault: { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0, Extra: 1 } }).success, false);
+});
 
-  assert.equal(AssistantConfigSchema.safeParse({
-    ...DEFAULT_ASSISTANT_CONFIG,
-    Mobile: { Enabled: true },
-  }).success, true);
-  assert.equal(AssistantConfigSchema.safeParse({
-    ...DEFAULT_ASSISTANT_CONFIG,
-    Mobile: { Enabled: true, Port: 8080 },
-  }).success, false);
+test('a stored config from before the cutover loads: removed blocks and legacy job priorities are dropped', () => {
+  const normalized = normalizeAssistantConfig({
+    Memory: { Tier1: { MaxTokens: 5 } }, Questions: { Enabled: false }, Retention: { OcrTextDays: 3 }, Mobile: { Enabled: true },
+    Retrieval: { MaxContextTokens: 900, MaxHops: 3 },
+    Background: { JobPriorities: { ConversationIngestion: 1, CaptureRetention: 950 } },
+  });
+  assert.deepEqual(normalized.Retrieval, { MaxContextTokens: 900, MaxNotes: 8 });
+  assert.deepEqual(normalized.Background.JobPriorities, { CaptureNote: 400, ChatNote: 800, DailyRollup: 500, NoteTidy: 100, CaptureRetention: 950 });
+  assert.equal(AssistantConfigSchema.safeParse(normalized).success, true);
+  assert.equal(AssistantConfigSchema.safeParse({ ...DEFAULT_ASSISTANT_CONFIG, Mobile: { Enabled: false } }).success, false);
 });
 
 test('normalizeAssistantConfig repairs each malformed scalar without accepting a mutable owner id', () => {
@@ -208,16 +178,12 @@ test('normalizeAssistantConfig repairs each malformed scalar without accepting a
   const normalized = normalizeAssistantConfig({
     Enabled: true,
     Owner: { Id: 'another_owner', DisplayName: '  Denys  ' },
-    Retrieval: { MaxHops: 99, MaxNodes: -1 },
-    Questions: { MaxPerDay: -1, AllowedLocalTimeStart: 3 },
+    Retrieval: { MaxContextTokens: 0, MaxNotes: 'many' },
     Background: { MinimumBatteryPercent: 101, AllowOnBattery: true },
   });
   assert.equal(normalized.Enabled, true);
   assert.deepEqual(normalized.Owner, { Id: 'own_local', DisplayName: 'Denys' });
-  assert.equal(normalized.Retrieval.MaxHops, 2);
-  assert.equal(normalized.Retrieval.MaxNodes, 80);
-  assert.equal(normalized.Questions.MaxPerDay, 1);
-  assert.equal(normalized.Questions.AllowedLocalTimeStart, '18:00');
+  assert.deepEqual(normalized.Retrieval, { MaxContextTokens: 1_200, MaxNotes: 8 });
   assert.equal(normalized.Background.MinimumBatteryPercent, 50);
   assert.equal(normalized.Background.AllowOnBattery, true);
 });

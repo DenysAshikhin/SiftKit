@@ -1,4 +1,4 @@
-export type AssistantRateLimitKind = 'read' | 'mutation' | 'question_answer';
+export type AssistantRateLimitKind = 'read' | 'mutation';
 
 interface WindowState {
   startedAtMs: number;
@@ -8,7 +8,6 @@ interface WindowState {
 const LIMITS = {
   read: 120,
   mutation: 30,
-  question_answer: 10,
 } as const satisfies Record<AssistantRateLimitKind, number>;
 
 const WINDOW_MS = 60_000;

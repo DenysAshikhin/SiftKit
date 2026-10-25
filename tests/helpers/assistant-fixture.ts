@@ -4,6 +4,7 @@ import type { KeyCustody } from '@siftkit/contracts';
 import {
   AssistantService, type AssistantConfigWriter,
 } from '../../src/assistant/assistant-service.ts';
+import type { AssistantImageCapabilityProvider } from '../../src/assistant/images/image-capability.ts';
 import type { AssistantInferenceClient } from '../../src/assistant/inference/client.ts';
 import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
@@ -98,6 +99,8 @@ export interface BuildAssistantServiceOptions {
   readonly inference?: AssistantInferenceClient;
   readonly privateMode?: boolean;
   readonly ownerDisplayName?: string;
+  readonly imageCapability?: AssistantImageCapabilityProvider;
+  readonly screenshotsEnabled?: boolean;
 }
 
 /** A service on a fresh temp database at the fixture instant. Callers close the database. */
@@ -113,6 +116,7 @@ export function buildAssistantService(
       DisplayName: options.ownerDisplayName ?? DEFAULT_ASSISTANT_CONFIG.Owner.DisplayName,
     },
     PrivateMode: { ...DEFAULT_ASSISTANT_CONFIG.PrivateMode, Active: options.privateMode ?? false },
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: options.screenshotsEnabled ?? false },
   };
   return AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
@@ -126,6 +130,7 @@ export function buildAssistantService(
     residencyGate: ALWAYS_RESIDENT,
     config,
     dataProtector: new InMemoryDataProtector(),
+    imageCapability: options.imageCapability,
   });
 }
 

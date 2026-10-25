@@ -6,17 +6,10 @@ import type { Clock } from '../clock.ts';
 import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.ts';
 import type { IdGenerator } from '../ids.ts';
 import {
-  AssistantJobTypeSchema, CandidateConsolidationPayloadSchema,
-  ConversationIngestionPayloadSchema, ProjectionMaintenancePayloadSchema,
-  MODEL_BACKED_JOB_TYPES,
-  QuestionAnswerIngestionPayloadSchema,
-  QuestionPlanningPayloadSchema, ProjectionSummarizationPayloadSchema,
-  ImageExtractionPayloadSchema, CaptureRetentionPayloadSchema,
-  type AssistantJobType, type CandidateConsolidationPayload,
-  type ConversationIngestionPayload, type ProjectionMaintenancePayload,
-  type QuestionAnswerIngestionPayload,
-  type QuestionPlanningPayload, type ProjectionSummarizationPayload,
-  type ImageExtractionPayload, type CaptureRetentionPayload,
+  AssistantJobTypeSchema, CaptureNotePayloadSchema, CaptureRetentionPayloadSchema, ChatNotePayloadSchema, DailyRollupPayloadSchema,
+  MODEL_BACKED_JOB_TYPES, NoteTidyPayloadSchema,
+  type AssistantJobType, type CaptureNotePayload, type CaptureRetentionPayload, type ChatNotePayload, type DailyRollupPayload,
+  type NoteTidyPayload,
 } from '../jobs/job-types.ts';
 import { IdRowSchema, JobRowSchema, type JobRow } from './rows.ts';
 
@@ -209,11 +202,11 @@ export class JobStore {
     `).all(ownerId, status));
   }
 
-  /** Evidence ids with an extraction still queued, running, or paused. Payloads are parsed. */
-  listLiveImageExtractionEvidenceIds(ownerId: string): string[] {
+  /** Attachment ids with a capture note job still queued, running, or paused. Payloads are parsed. */
+  listLiveCaptureNoteAttachmentIds(ownerId: string): string[] {
     return LIVE_JOB_STATUSES.flatMap((status) => this.listByStatus(ownerId, status))
-      .filter((job) => job.job_type === 'image_extraction')
-      .map((job) => this.readImageExtractionPayload(job).evidenceId);
+      .filter((job) => job.job_type === 'capture_note')
+      .map((job) => this.readCaptureNotePayload(job).attachmentId);
   }
 
   countByStatus(ownerId: string, status: JobStatus): number {
@@ -222,39 +215,24 @@ export class JobStore {
     `).get(ownerId, status)).count;
   }
 
-  readConversationPayload(job: JobRow): ConversationIngestionPayload {
-    this.requireJobType(job, 'conversation_ingestion');
-    return parseJsonText(job.payload_json, ConversationIngestionPayloadSchema);
+  readCaptureNotePayload(job: JobRow): CaptureNotePayload {
+    this.requireJobType(job, 'capture_note');
+    return parseJsonText(job.payload_json, CaptureNotePayloadSchema);
   }
 
-  readConsolidationPayload(job: JobRow): CandidateConsolidationPayload {
-    this.requireJobType(job, 'candidate_consolidation');
-    return parseJsonText(job.payload_json, CandidateConsolidationPayloadSchema);
+  readChatNotePayload(job: JobRow): ChatNotePayload {
+    this.requireJobType(job, 'chat_note');
+    return parseJsonText(job.payload_json, ChatNotePayloadSchema);
   }
 
-  readProjectionPayload(job: JobRow): ProjectionMaintenancePayload {
-    this.requireJobType(job, 'projection_maintenance');
-    return parseJsonText(job.payload_json, ProjectionMaintenancePayloadSchema);
+  readDailyRollupPayload(job: JobRow): DailyRollupPayload {
+    this.requireJobType(job, 'daily_rollup');
+    return parseJsonText(job.payload_json, DailyRollupPayloadSchema);
   }
 
-  readQuestionAnswerPayload(job: JobRow): QuestionAnswerIngestionPayload {
-    this.requireJobType(job, 'question_answer_ingestion');
-    return parseJsonText(job.payload_json, QuestionAnswerIngestionPayloadSchema);
-  }
-
-  readQuestionPlanningPayload(job: JobRow): QuestionPlanningPayload {
-    this.requireJobType(job, 'question_planning');
-    return parseJsonText(job.payload_json, QuestionPlanningPayloadSchema);
-  }
-
-  readProjectionSummarizationPayload(job: JobRow): ProjectionSummarizationPayload {
-    this.requireJobType(job, 'projection_summarization');
-    return parseJsonText(job.payload_json, ProjectionSummarizationPayloadSchema);
-  }
-
-  readImageExtractionPayload(job: JobRow): ImageExtractionPayload {
-    this.requireJobType(job, 'image_extraction');
-    return parseJsonText(job.payload_json, ImageExtractionPayloadSchema);
+  readNoteTidyPayload(job: JobRow): NoteTidyPayload {
+    this.requireJobType(job, 'note_tidy');
+    return parseJsonText(job.payload_json, NoteTidyPayloadSchema);
   }
 
   readCaptureRetentionPayload(job: JobRow): CaptureRetentionPayload {

@@ -1,15 +1,23 @@
 import type { Clock } from '../assistant/clock.ts';
 import type { AuditStore } from '../assistant/storage/audit-store.ts';
+import type { AssistantConfig } from '../config/types.ts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import type { VaultAttachments } from './attachments.ts';
-import { listLiveCapturesOldestFirst, setCaptureState, type LiveCapture } from './captures.ts';
+import { listLiveCapturesOldestFirst, liveCaptureBytes, setCaptureState, type LiveCapture } from './captures.ts';
 
 const MS_PER_DAY = 86_400_000;
+const BYTES_PER_GB = 1024 ** 3;
 
 export interface VaultCaptureRetentionLimits {
   readonly limitBytes: number;
   /** `null` turns the age limit off. */
   readonly maxAgeDays: number | null;
+}
+
+/** The configured caps: `RawStorageLimitGb`, and `CaptureImageMaxAgeDays` where 0 means no age limit. */
+export function captureRetentionLimits(config: AssistantConfig): VaultCaptureRetentionLimits {
+  const maxAgeDays = config.Vault.CaptureImageMaxAgeDays;
+  return { limitBytes: config.Observation.RawStorageLimitGb * BYTES_PER_GB, maxAgeDays: maxAgeDays === 0 ? null : maxAgeDays };
 }
 
 export interface VaultCaptureRetentionSummary {
@@ -51,9 +59,8 @@ export class VaultCaptureRetention {
       }
     }
     let evicted = 0;
-    const live = listLiveCapturesOldestFirst(this.database);
-    let totalBytes = live.reduce((sum, row) => sum + row.byte_length, 0);
-    for (const capture of live) {
+    let totalBytes = liveCaptureBytes(this.database);
+    for (const capture of listLiveCapturesOldestFirst(this.database)) {
       if (totalBytes <= limits.limitBytes) break;
       this.remove(ownerId, capture, 'capture_evicted');
       totalBytes -= capture.byte_length;

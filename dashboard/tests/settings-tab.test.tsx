@@ -66,11 +66,11 @@ test('settings shell renders a section nav, head actions, and a field grid', () 
   assert.match(markup, /class="fgrid"/);
 });
 
-test('assistant section exposes configuration, proof review, and memory history views', () => {
+test('assistant section exposes the configuration and pending captures views', () => {
   const markup = render({ activeSettingsSection: 'assistant' });
   assert.match(markup, /Configuration/);
-  assert.match(markup, /Pending validation/);
-  assert.match(markup, /Memory history/);
+  assert.match(markup, /Pending captures/);
+  assert.doesNotMatch(markup, /Pending validation|Memory history/);
   assert.match(markup, /Evidence is encrypted at rest/);
   assert.match(markup, /Assistant enabled/);
 });

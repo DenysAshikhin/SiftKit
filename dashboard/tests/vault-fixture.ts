@@ -13,6 +13,7 @@ export const NOOP_ACTIONS: VaultActions = {
   openReview: noop, openDaily: noop, newNote: noop, createNote: noop, setSide: noop, setSearch: noop, toggleFolder: noop,
   collapseAll: noop, toggleStubs: noop, setRight: noop, setLocalDepth: noop, setGraphOptions: noop, selectGraphNode: noop,
   rerunLayout: noop, openPalette: noop, closePalette: noop, hoverLink: noop, clearHover: noop, exportVault: noop,
+  attachment: () => new Promise<Blob>(() => {}),
 };
 
 export function vaultNote(overrides: Partial<VaultNote> = {}): VaultNote {

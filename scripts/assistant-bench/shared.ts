@@ -9,6 +9,7 @@ import { assistantKeyFile } from '../../src/assistant/layout.ts';
 import { ActivityLog } from '../../src/assistant/observation/activity-log.ts';
 import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.ts';
 import { getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.ts';
+import { VaultNoteStore } from '../../src/vault/note-store.ts';
 
 export const DEFAULT_BENCH_ROOT = '.bench-assistant';
 export const OWNER_ID = LOCAL_OWNER_ID;
@@ -19,6 +20,7 @@ export interface BenchContext {
   readonly clock: SystemClock;
   readonly graph: AssistantGraph;
   readonly activity: ActivityLog;
+  readonly notes: VaultNoteStore;
 }
 
 /** The same composition `withAssistantContext` uses, on a real clock and a persistent root. */
@@ -40,6 +42,7 @@ export function openBench(root: string): BenchContext {
     activity: new ActivityLog({
       database, clock, ids, evidence: graph.evidence, observations: graph.observations,
     }),
+    notes: new VaultNoteStore(database, clock, ids),
   };
 }
 

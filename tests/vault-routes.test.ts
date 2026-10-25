@@ -64,12 +64,12 @@ test('vault routes create, read, link, search, review and graph notes', async ()
     assert.deepEqual((await vault.ok('GET', '/review', VaultReviewSchema)).items.map((item) => [item.label, item.value]), [['Runs on', '[[Windows]]']]);
 
     const graph = await vault.ok('GET', '/graph', VaultGraphSchema);
-    assert.deepEqual([graph.nodes.length, graph.edges.length], [2, 1]);
+    assert.deepEqual([graph.nodes.length, graph.edges.length], [3, 1], 'the owner note is a node too');
     assert.deepEqual((await vault.ok('GET', '/graph?minLinks=1&hide=Projects', VaultGraphSchema)).nodes.map((node) => node.title), ['Git']);
     assert.equal((await vault.ok('GET', `/graph/local/${git.id}?depth=1`, VaultGraphSchema)).nodes.length, 2);
 
     const stats = await vault.ok('GET', '/stats', VaultStatsSchema);
-    assert.deepEqual([stats.notes, stats.links, stats.notesWithUnverified], [2, 3, 1]);
+    assert.deepEqual([stats.notes, stats.links, stats.notesWithUnverified], [3, 3, 1]);
   });
 });
 
@@ -132,7 +132,7 @@ test('vault export zips every note as markdown and keeps working while the assis
     assert.equal(exported.statusCode, 200, exported.body.toString('utf8'));
     assert.equal(exported.contentType, 'application/zip');
     const entries = await readArchiveEntriesFromBytes(exported.body);
-    assert.deepEqual([...entries.keys()], ['Software/Git.md']);
+    assert.deepEqual([...entries.keys()], ['Local user.md', 'Software/Git.md'], 'the owner note sits at the vault root');
     assert.match(entries.get('Software/Git.md')?.toString('utf8') ?? '', /^---\nkind: note\n[\s\S]*---\n\nGit is a tool\.\n$/);
   });
 });
