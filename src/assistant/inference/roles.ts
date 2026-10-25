@@ -5,6 +5,9 @@ export const ASSISTANT_INFERENCE_ROLES = [
   'projection_summarizer',
   'question_planner',
   'image_extraction',
+  'vault_capture_writer',
+  'vault_chat_writer',
+  'vault_tidy',
 ] as const;
 export type AssistantInferenceRole = (typeof ASSISTANT_INFERENCE_ROLES)[number];
 
@@ -27,6 +30,9 @@ export const ROLE_PROMPT_VERSION = {
   projection_summarizer: '1',
   question_planner: '1',
   image_extraction: '1',
+  vault_capture_writer: '1',
+  vault_chat_writer: '1',
+  vault_tidy: '1',
 } as const satisfies Record<AssistantInferenceRole, string>;
 
 export function buildRoleSystemPrompt(role: AssistantInferenceRole, instructions: string): string {

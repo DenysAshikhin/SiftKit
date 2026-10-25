@@ -6,7 +6,12 @@ import {
   VaultRenameResultSchema, VaultResolveResponseSchema, VaultReviewSchema, VaultRevisionListResponseSchema,
   VaultRevisionSchema, VaultSearchResultSchema, VaultStatsSchema, VaultTreeResponseSchema,
 } from '@siftkit/contracts';
+import { SystemClock } from '../src/assistant/clock.ts';
+import { RandomIdGenerator } from '../src/assistant/ids.ts';
+import { getRuntimeDatabasePath, getRuntimeRoot } from '../src/config/index.ts';
 import { z } from '../src/lib/zod.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { VaultAttachments } from '../src/vault/attachments.ts';
 import { getDefaultConfig } from '../src/status-server/config-store.ts';
 import { readArchiveEntriesFromBytes } from './helpers/archive-bytes.ts';
 import { withAssistantServer, type AssistantServerHarness } from './helpers/assistant-server-harness.ts';
@@ -129,5 +134,23 @@ test('vault export zips every note as markdown and keeps working while the assis
     const entries = await readArchiveEntriesFromBytes(exported.body);
     assert.deepEqual([...entries.keys()], ['Software/Git.md']);
     assert.match(entries.get('Software/Git.md')?.toString('utf8') ?? '', /^---\nkind: note\n[\s\S]*---\n\nGit is a tool\.\n$/);
+  });
+});
+
+test('vault attachments route serves stored image bytes and 404s anything outside the vault', async () => {
+  await withAssistantServer('siftkit-vault-routes-attachments-', ENABLED, async (harness) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 9, 9]);
+    const attachments = new VaultAttachments(getRuntimeDatabase(getRuntimeDatabasePath()), new SystemClock(), new RandomIdGenerator(), getRuntimeRoot());
+    const written = attachments.write({ directory: 'captures', mimeType: 'image/png', bytes: png });
+    const served = await requestBinary(`${harness.baseUrl}/assistant/vault/attachments/${written.relativePath}`, { method: 'GET', headers: harness.headers });
+    assert.equal(served.statusCode, 200);
+    assert.equal(served.contentType, 'image/png');
+    assert.deepEqual(served.body, png);
+    for (const bad of ['captures/missing.png', '..%2F..%2Fconfig.json', '%2E%2E/%2E%2E/config.json']) {
+      const missing = await requestBinary(`${harness.baseUrl}/assistant/vault/attachments/${bad}`, { method: 'GET', headers: harness.headers });
+      assert.equal(missing.statusCode, 404, bad);
+    }
+    const anonymous = await requestBinary(`${harness.baseUrl}/assistant/vault/attachments/${written.relativePath}`, { method: 'GET', headers: {} });
+    assert.equal(anonymous.statusCode, 401);
   });
 });

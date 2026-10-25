@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { addTasks, addUnverified, confirmUnverified, dropLine, mergeEntityDraft } from '@siftkit/contracts';
+import {
+  addTasks, addUnverified, appendSectionLines, confirmUnverified, dropLine, insertSectionLines, mergeEntityDraft, removeCallouts, replaceSection, sectionLines,
+} from '@siftkit/contracts';
 
 const BODY = [
   'Lead.',
@@ -60,4 +62,37 @@ test('mergeEntityDraft keeps an existing lead and unions rows, tasks and unverif
   assert.match(merged, /- \[ \] Ship it\n- \[ \] Celebrate/);
   assert.match(merged, /> - \*\*Owns\*\* \[\[PC\]\] #unverified$/);
   assert.equal(mergeEntityDraft('', { lead: 'New lead.', rows: [], taskSections: [], unverified: [] }), 'New lead.');
+});
+
+test('appendSectionLines adds deduplicated lines to an existing section or a new one at the end', () => {
+  const body = ['Lead.', '', '## Learned', '- a', '', '## Chats', '- c'].join('\n');
+  assert.equal(appendSectionLines(body, 'Learned', ['- a', '- b']), ['Lead.', '', '## Learned', '- a', '- b', '', '## Chats', '- c'].join('\n'));
+  assert.equal(appendSectionLines(body, 'learned', ['- A']), body, 'duplicates compare case-insensitively');
+  assert.equal(appendSectionLines('Lead.', 'Learned', ['- x']), ['Lead.', '', '## Learned', '- x'].join('\n'));
+  assert.equal(appendSectionLines('Lead.', 'Learned', []), 'Lead.');
+});
+
+test('replaceSection swaps a section body, creating it when missing', () => {
+  const body = ['Lead.', '', '## Learned', '- old', '', '## Chats', '- c'].join('\n');
+  assert.equal(replaceSection(body, 'Learned', ['- new']), ['Lead.', '', '## Learned', '- new', '', '## Chats', '- c'].join('\n'));
+  assert.equal(replaceSection('Lead.', 'Chats', ['- c']), ['Lead.', '', '## Chats', '- c'].join('\n'));
+});
+
+test('removeCallouts drops every callout block of one kind', () => {
+  const body = ['![[a.png]]', 'ctx', '', '> [!pending]- Waiting', '> for the note-writer', '', '> [!more]- 1 more · uses', '> [[X]]'].join('\n');
+  assert.equal(removeCallouts(body, 'pending'), ['![[a.png]]', 'ctx', '', '> [!more]- 1 more · uses', '> [[X]]'].join('\n'));
+  assert.equal(removeCallouts('plain', 'pending'), 'plain');
+});
+
+test('insertSectionLines appends every line, repeats included, before the next section', () => {
+  const body = ['## Transcript', '#### You', 'hi', '', '## Learned', '- a'].join('\n');
+  assert.equal(insertSectionLines(body, 'Transcript', ['', '#### You', 'hi']), ['## Transcript', '#### You', 'hi', '', '#### You', 'hi', '', '## Learned', '- a'].join('\n'));
+  assert.equal(insertSectionLines('Lead.', 'Transcript', ['#### You', 'hi']), ['Lead.', '', '## Transcript', '#### You', 'hi'].join('\n'));
+});
+
+test('sectionLines reads a section without its heading or trailing blanks, or null when missing', () => {
+  const body = ['Lead.', '', '## Learned', '- a', '- b', '', '## Chats', '- c'].join('\n');
+  assert.deepEqual(sectionLines(body, 'learned'), ['- a', '- b']);
+  assert.deepEqual(sectionLines('## Learned', 'Learned'), []);
+  assert.equal(sectionLines(body, 'Plans'), null);
 });

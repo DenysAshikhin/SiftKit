@@ -1,3 +1,4 @@
+import { SUPPRESSION_PATTERN } from '../../vault/note-writer/chat-text.ts';
 import type { IngestionPipeline } from './pipeline.ts';
 
 export interface ChatTurnInput {
@@ -15,10 +16,6 @@ export interface ChatTurnIngestResult {
   readonly acceptedEvidenceIds: readonly string[];
   readonly suppressed: boolean;
 }
-
-/** "Do not remember this", in the phrasings a user actually types. */
-const SUPPRESSION_PATTERN =
-  /\b(?:do\s*n(?:o|')t\s+remember\s+(?:this|that)|forget\s+(?:this|that)|don't\s+save\s+this)\b/i;
 
 /**
  * Turns one completed chat turn into ingestion envelopes (§7.2). It reads no session state and

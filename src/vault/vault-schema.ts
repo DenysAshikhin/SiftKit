@@ -1,11 +1,17 @@
-/** Vault notes and their derived indexes (design §3). Links, aliases and tags are rebuilt on every note write. */
+import { VAULT_NOTE_KINDS } from '@siftkit/contracts';
+
+import { VAULT_CAPTURE_STATES } from './captures.ts';
+
+const sqlList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(', ');
+
+/** Vault notes, their derived indexes and capture attachments (design §3). Links, aliases, tags and FTS rows are rebuilt on every note write. */
 export const VAULT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS vault_notes (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     title_key TEXT NOT NULL UNIQUE,
     folder TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL CHECK (kind IN ('entity', 'capture', 'daily', 'chat', 'note')),
+    kind TEXT NOT NULL CHECK (kind IN (${sqlList(VAULT_NOTE_KINDS)})),
     types_json TEXT NOT NULL DEFAULT '[]',
     aliases_json TEXT NOT NULL DEFAULT '[]',
     tags_json TEXT NOT NULL DEFAULT '[]',
@@ -65,4 +71,41 @@ SELECT alias_key, note_id FROM (
     FROM vault_aliases a JOIN vault_notes n ON n.id = a.note_id
     WHERE a.alias_key NOT IN (SELECT title_key FROM vault_notes)
 ) WHERE owner_rank = 1;
+
+-- fts5 has no foreign keys: the store deletes a note's row itself.
+CREATE VIRTUAL TABLE IF NOT EXISTS vault_notes_fts USING fts5(
+    note_id UNINDEXED, title, aliases, body, tokenize = 'unicode61');
+
+CREATE TABLE IF NOT EXISTS vault_attachments (
+    id TEXT PRIMARY KEY,
+    note_id TEXT REFERENCES vault_notes(id) ON DELETE SET NULL,
+    relative_path TEXT NOT NULL UNIQUE,
+    mime_type TEXT NOT NULL,
+    byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+    sha256 TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL
+);
+
+-- Dedupe and note-writer queue state for screenshot attachments; the capture note holds the content.
+CREATE TABLE IF NOT EXISTS vault_captures (
+    attachment_id TEXT PRIMARY KEY REFERENCES vault_attachments(id) ON DELETE CASCADE,
+    note_id TEXT NOT NULL REFERENCES vault_notes(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN (${sqlList(VAULT_CAPTURE_STATES)})),
+    foreground_context_key TEXT NOT NULL,
+    pixel_sha256 TEXT NOT NULL,
+    perceptual_hash TEXT NOT NULL,
+    app TEXT NOT NULL,
+    window_title TEXT,
+    captured_at_utc TEXT NOT NULL,
+    processed_at_utc TEXT
+);
+CREATE INDEX IF NOT EXISTS vault_captures_context_idx ON vault_captures(foreground_context_key, captured_at_utc);
+CREATE INDEX IF NOT EXISTS vault_captures_pixel_idx ON vault_captures(pixel_sha256, captured_at_utc);
+CREATE TABLE IF NOT EXISTS vault_chat_notes (
+    session_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    note_id TEXT NOT NULL REFERENCES vault_notes(id) ON DELETE CASCADE,
+    PRIMARY KEY (session_id, day)
+);
+CREATE INDEX IF NOT EXISTS vault_chat_notes_day_idx ON vault_chat_notes(day);
 `;

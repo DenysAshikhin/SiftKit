@@ -78,6 +78,7 @@ import {
   validationNotesEndpoint,
 } from './assistant/policy-routes.ts';
 import {
+  vaultAttachmentEndpoint,
   vaultCreateNoteEndpoint,
   vaultDeleteNoteEndpoint,
   vaultExportEndpoint,
@@ -245,6 +246,7 @@ const routes = new RouteTable([
   },
   { method: 'POST', path: /^\/assistant\/vault\/notes\/([^/]+)\/restore$/u, endpoint: vaultRestoreEndpoint },
   { method: 'GET', path: '/assistant/vault/resolve', endpoint: vaultResolveEndpoint },
+  { method: 'GET', path: /^\/assistant\/vault\/attachments\/(.+)$/u, endpoint: vaultAttachmentEndpoint },
   { method: 'GET', path: '/assistant/vault/search', endpoint: vaultSearchEndpoint },
   { method: 'GET', path: '/assistant/vault/graph', endpoint: vaultGraphEndpoint },
   { method: 'GET', path: /^\/assistant\/vault\/graph\/local\/([^/]+)$/u, endpoint: vaultLocalGraphEndpoint },

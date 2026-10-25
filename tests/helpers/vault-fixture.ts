@@ -23,14 +23,25 @@ export function entityInput(title: string, body: string, overrides: Partial<Vaul
   return { title, folder: 'Software', kind: 'entity', types: ['software'], aliases: [], tags: [], body, ...overrides };
 }
 
-/** Isolated runtime database with the vault schema and a store over it. */
-export function withVault<T>(body: (context: VaultTestContext) => T): T {
+function openVault(): VaultTestContext {
   const runtimeRoot = createManagedTempDir('siftkit-vault-');
   const database = getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
+  const clock = new FixedClock(VAULT_FIXTURE_START);
+  return { database, clock, store: new VaultNoteStore(database, clock, new SequentialIdGenerator()), runtimeRoot };
+}
+
+/** Isolated runtime database with the vault schema and a store over it. */
+export function withVault<T>(body: (context: VaultTestContext) => T): T {
   try {
-    const clock = new FixedClock(VAULT_FIXTURE_START);
-    const store = new VaultNoteStore(database, clock, new SequentialIdGenerator());
-    return body({ database, clock, store, runtimeRoot });
+    return body(openVault());
+  } finally {
+    closeAllRuntimeDatabases();
+  }
+}
+
+export async function withVaultAsync<T>(body: (context: VaultTestContext) => Promise<T>): Promise<T> {
+  try {
+    return await body(openVault());
   } finally {
     closeAllRuntimeDatabases();
   }

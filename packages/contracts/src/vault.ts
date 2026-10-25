@@ -7,7 +7,7 @@ export type VaultNoteKind = z.infer<typeof VaultNoteKindSchema>;
 export const VaultRevisionNumberSchema = z.number().int().min(1);
 
 /** Who wrote a revision (design §4.2). Closed, so history can render each writer distinctly. */
-export const VAULT_ACTORS = ['you', 'capture-intake', 'migration', 'note-writer · screenshot', 'note-writer · chat', 'note-writer · tidy'] as const;
+export const VAULT_ACTORS = ['you', 'capture-intake', 'migration', 'note-writer · screenshot', 'note-writer · chat', 'note-writer · daily', 'note-writer · tidy'] as const;
 export const VaultActorSchema = z.enum(VAULT_ACTORS);
 export type VaultActor = z.infer<typeof VaultActorSchema>;
 
@@ -187,6 +187,8 @@ export const VaultDeleteResponseSchema = z.object({ ok: z.literal(true) }).stric
 export type VaultDeleteResponse = z.infer<typeof VaultDeleteResponseSchema>;
 
 /** Upper bound on any list a vault route returns in one response. */
+/** The owner's own entity note carries this tag (design §2). */
+export const VAULT_OWNER_TAG = 'me';
 export const VAULT_MAX_PAGE = 1000;
 /** A local graph stops growing at this many notes so a hub neighbourhood stays readable. */
 export const VAULT_LOCAL_GRAPH_CAP = 160;

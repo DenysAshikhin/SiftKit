@@ -15,7 +15,7 @@ test('runtime bootstrap creates every vault table', () => {
     const names = NameRowsSchema.parse(database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'vault_%' ORDER BY name",
     ).all()).map((row) => row.name);
-    for (const table of ['vault_aliases', 'vault_links', 'vault_note_revisions', 'vault_notes', 'vault_tags']) {
+    for (const table of ['vault_aliases', 'vault_attachments', 'vault_captures', 'vault_chat_notes', 'vault_links', 'vault_note_revisions', 'vault_notes', 'vault_notes_fts', 'vault_tags']) {
       assert.ok(names.includes(table), `missing ${table}`);
     }
   } finally {

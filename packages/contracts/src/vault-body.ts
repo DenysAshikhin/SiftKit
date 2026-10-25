@@ -205,3 +205,60 @@ export function mergeEntityDraft(existingBody: string, draft: VaultEntityDraft):
   for (const section of draft.taskSections) body = addTasks(body, section.heading, section.items);
   return addUnverified(body, draft.unverified);
 }
+
+const isSectionBreak = (line: string) => /^#{1,2}\s/.test(line) || line.startsWith('> [!');
+
+/** The lines of a `## heading` section, excluding the heading and trailing blank lines. */
+function sectionBounds(lines: readonly string[], heading: string): { start: number; end: number } | null {
+  const start = lines.findIndex((line) => line.startsWith('## ') && sameVaultValue(line.slice(3), heading));
+  if (start < 0) return null;
+  let end = start + 1;
+  while (end < lines.length && !isSectionBreak(lines[end] ?? '')) end += 1;
+  while (end - 1 > start && (lines[end - 1] ?? '').trim() === '') end -= 1;
+  return { start, end };
+}
+
+/** The lines of a `## heading` section, or `null` when the body has no such section. */
+export function sectionLines(body: string, heading: string): string[] | null {
+  const lines = body.split('\n');
+  const bounds = sectionBounds(lines, heading);
+  return bounds === null ? null : lines.slice(bounds.start + 1, bounds.end);
+}
+
+/** Appends lines the section does not already hold; a missing section is added at the end. */
+export function appendSectionLines(body: string, heading: string, newLines: readonly string[]): string {
+  const existing = sectionLines(body, heading) ?? [];
+  const fresh = dedupeVaultValues(newLines).filter((line) => !existing.some((current) => sameVaultValue(current, line)));
+  return fresh.length === 0 ? body : insertSectionLines(body, heading, fresh);
+}
+
+/** Appends lines at the end of a section as given, repeats included; a missing section is added at the end. */
+export function insertSectionLines(body: string, heading: string, newLines: readonly string[]): string {
+  const lines = body.split('\n');
+  const bounds = sectionBounds(lines, heading);
+  if (bounds === null) lines.push('', `## ${heading}`, ...newLines);
+  else lines.splice(bounds.end, 0, ...newLines);
+  return normalizeVaultLines(lines);
+}
+
+export function replaceSection(body: string, heading: string, newLines: readonly string[]): string {
+  const lines = body.split('\n');
+  const bounds = sectionBounds(lines, heading);
+  if (bounds === null) lines.push('', `## ${heading}`, ...newLines);
+  else lines.splice(bounds.start + 1, bounds.end - bounds.start - 1, ...newLines);
+  return normalizeVaultLines(lines);
+}
+
+/** Removes every `> [!kind]` callout block, header and body lines alike. */
+export function removeCallouts(body: string, kind: string): string {
+  const header = `> [!${kind.toLowerCase()}]`;
+  const kept: string[] = [];
+  let inside = false;
+  for (const line of body.split('\n')) {
+    if (line.toLowerCase().startsWith(header)) { inside = true; continue; }
+    if (inside && line.startsWith('>')) continue;
+    inside = false;
+    kept.push(line);
+  }
+  return normalizeVaultLines(kept);
+}

@@ -95,6 +95,12 @@ export const vaultStatsEndpoint = assistantRoute(({ service, res }) => {
   sendJson(res, 200, service.vaultQueries.stats());
 });
 
+export const vaultAttachmentEndpoint = assistantRoute(({ service, res, match }) => {
+  const file = service.vaultAttachments.read(id(match));
+  res.writeHead(200, { 'Content-Type': file.mimeType, 'Content-Length': file.bytes.byteLength, 'Cache-Control': 'no-store' });
+  res.end(file.bytes);
+});
+
 /** Export stays reachable with the assistant off, like the legacy export: it is the user's own data. */
 export const vaultExportEndpoint = assistantRoute(async ({ service, res }) => {
   await sendArchive(res, exportVault(service.vaultQueries.allNotes()));

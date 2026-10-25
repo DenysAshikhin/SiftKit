@@ -9,14 +9,13 @@ import type { IdGenerator } from '../assistant/ids.ts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
 import { VaultConflictError, VaultNotFoundError, VaultTitleTakenError, VaultValidationError } from './errors.ts';
-import { VaultRevisionRowSchema, readVaultNote, requireVaultNote, toVaultRevision } from './note-rows.ts';
+import { NoteIdRowSchema, VaultRevisionRowSchema, readVaultNote, requireVaultNote, toVaultRevision } from './note-rows.ts';
 
 const TITLE_MAX_LENGTH = 200;
 const TITLE_FORBIDDEN = /[[\]|#^\\/:*?"<>]/;
 /** Rows rebuilt from a note on every write, keyed by the column that names the note. */
 const DERIVED_TABLES = [['vault_links', 'from_note_id'], ['vault_aliases', 'note_id'], ['vault_tags', 'note_id']] as const;
 const IdRowSchema = z.object({ id: z.string() });
-const NoteIdRowSchema = z.object({ note_id: z.string() });
 
 export function validateVaultTitle(title: string): string {
   const trimmed = title.trim();
@@ -24,6 +23,11 @@ export function validateVaultTitle(title: string): string {
     throw new VaultValidationError(`Invalid note title: ${JSON.stringify(title)}`);
   }
   return trimmed;
+}
+
+/** Free text made safe for a title: forbidden characters become spaces. May return an empty string. */
+export function sanitizeVaultTitle(text: string): string {
+  return text.replace(new RegExp(TITLE_FORBIDDEN.source, 'g'), ' ').replace(/\s+/g, ' ').trim();
 }
 
 function normalizeFolder(folder: string): string {
@@ -94,6 +98,13 @@ export class VaultNoteStore {
       this.reindex(note);
       return note;
     })();
+  }
+
+  /** `base`, or `base 2`, `base 3`... when a note already answers to it. */
+  availableTitle(base: string): string {
+    let title = base;
+    for (let suffix = 2; this.resolveId(title) !== null; suffix += 1) title = `${base} ${suffix}`;
+    return title;
   }
 
   resolveId(titleOrAlias: string): string | null {
@@ -181,10 +192,11 @@ export class VaultNoteStore {
     })();
   }
 
-  /** Revisions and derived rows go with the note through ON DELETE CASCADE. */
+  /** Revisions and derived rows go with the note through ON DELETE CASCADE; the fts5 row is deleted explicitly. */
   delete(id: string, expectedRevision: number): void {
     this.database.transaction(() => {
       this.requireRevision(id, expectedRevision);
+      this.database.prepare('DELETE FROM vault_notes_fts WHERE note_id = ?').run(id);
       this.database.prepare('DELETE FROM vault_notes WHERE id = ?').run(id);
     })();
   }
@@ -238,5 +250,8 @@ export class VaultNoteStore {
     for (const alias of note.aliases) insertAlias.run(vaultKey(alias), note.id);
     const insertTag = this.database.prepare('INSERT OR IGNORE INTO vault_tags (note_id, tag) VALUES (?, ?)');
     for (const tag of new Set([...note.tags, ...parsed.tags].map((value) => value.toLowerCase()))) insertTag.run(note.id, tag);
+    this.database.prepare('DELETE FROM vault_notes_fts WHERE note_id = ?').run(note.id);
+    this.database.prepare('INSERT INTO vault_notes_fts (note_id, title, aliases, body) VALUES (?, ?, ?, ?)')
+      .run(note.id, note.title, note.aliases.join(' '), note.body);
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
-  confirmUnverified, dropLine, vaultKey,
+  confirmUnverified, dropLine, VAULT_OWNER_TAG, vaultKey,
   type VaultFolder, type VaultGraph, type VaultLocalGraphDepth, type VaultNote, type VaultNoteDetail, type VaultNoteSummary,
   type VaultReview, type VaultRevision, type VaultRevisionSummary, type VaultSearchResult, type VaultStats,
 } from '@siftkit/contracts';
@@ -13,7 +13,6 @@ import {
 } from '../vault-api.ts';
 import type { StarredNote } from '../components/vault/FileTree.tsx';
 import { FOLDER_LIMIT } from '../components/vault/FileTree.tsx';
-import { OWNER_TAG } from '../components/vault/NoteView.tsx';
 import type { VaultHover } from '../components/vault/VaultChrome.tsx';
 import type {
   VaultActions, VaultAnchorRect, VaultGraphOptions, VaultRightTab, VaultSide, VaultTriage,
@@ -193,7 +192,7 @@ export function useVaultController(visible: boolean): VaultTabProps {
       try {
         const auth = await bootstrapAssistantToken();
         const [owner, projectId, daily] = await Promise.all([
-          searchVault(auth, `tag:#${OWNER_TAG}`, 1), resolveVaultTitle(auth, STARRED_PROJECT_TITLE), listVaultNotes(auth, DAILY_FOLDER, false, 1),
+          searchVault(auth, `tag:#${VAULT_OWNER_TAG}`, 1), resolveVaultTitle(auth, STARRED_PROJECT_TITLE), listVaultNotes(auth, DAILY_FOLDER, false, 1),
         ]);
         await refreshVault(auth, false);
         const project = projectId === null ? null : (await getVaultNote(auth, projectId)).note;

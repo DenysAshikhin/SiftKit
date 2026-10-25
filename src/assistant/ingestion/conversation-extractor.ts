@@ -3,6 +3,7 @@ import type { AssistantGraph } from '../assistant-graph.ts';
 import type { AssertionBasis, ObservationType } from '../domain/enums.ts';
 import { buildProposedStatementSchema } from '../domain/proposal-schema.ts';
 import type { StructuredOutputRunner } from '../inference/structured-runner.ts';
+import { stripUntrustedSpans } from '../../vault/note-writer/chat-text.ts';
 
 const StatementKindSchema = z.enum([
   'direct_fact', 'correction', 'hypothetical', 'quotation', 'request', 'third_party_fact',
@@ -86,7 +87,7 @@ export class ConversationExtractor {
     basis: AssertionBasis,
   ): Promise<ExtractResult> {
     const evidence = this.graph.evidence.requireEvidence(request.evidenceId);
-    const visibleText = this.stripUntrustedSpans(this.graph.evidence.readTextContent(evidence));
+    const visibleText = stripUntrustedSpans(this.graph.evidence.readTextContent(evidence));
     if (visibleText.trim().length === 0) {
       return { observationIds: [], candidateIds: [] };
     }
@@ -157,17 +158,5 @@ export class ConversationExtractor {
     }
 
     return { observationIds, candidateIds };
-  }
-
-  /**
-   * Fenced code blocks and blockquote lines are somebody else's words (§7.2) and are never shown
-   * to the extractor, so a pasted log cannot become a fact about the user — nor can it carry a
-   * prompt-injection payload into the extraction call.
-   */
-  private stripUntrustedSpans(text: string): string {
-    return text
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/^\s*>.*$/gm, ' ')
-      .trim();
   }
 }

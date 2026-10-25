@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { vaultKey, type VaultBacklink, type VaultGraphNode, type VaultNoteDetail } from '@siftkit/contracts';
+import { VAULT_OWNER_TAG, vaultKey, type VaultBacklink, type VaultGraphNode, type VaultNoteDetail } from '@siftkit/contracts';
 
 import { contextGroups } from '../../lib/vault-edits.ts';
 import { MAX_RENDER_LINES } from '../../lib/vault-blocks.ts';
@@ -11,7 +11,6 @@ import type { VaultActions } from './vault-actions.ts';
 
 const ALIASES_SHOWN = 5;
 const CONTEXT_NOTES_SHOWN = 12;
-export const OWNER_TAG = 'me';
 
 /** "Where it shows up": linking notes grouped by the fact row they link from. */
 export function ContextCard(props: { readonly backlinks: readonly VaultBacklink[]; readonly colors: ReadonlyMap<string, string>; readonly actions: VaultActions }) {
@@ -55,7 +54,7 @@ export function NoteView(props: NoteViewProps) {
     setRenaming(false);
     if (draft.trim() !== note.title) actions.rename(note.id, draft.trim());
   };
-  const showContext = note.kind !== 'capture' && note.kind !== 'daily' && !note.tags.includes(OWNER_TAG);
+  const showContext = note.kind !== 'capture' && note.kind !== 'daily' && !note.tags.includes(VAULT_OWNER_TAG);
   const revisions = `${note.revision} revision${note.revision === 1 ? '' : 's'}`;
 
   return (

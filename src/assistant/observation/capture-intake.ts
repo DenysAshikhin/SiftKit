@@ -1,7 +1,4 @@
-import {
-  splitImageDataUrl,
-  type CaptureSubmissionDto, type ImageMime, type SuppressionAuditDto,
-} from '@siftkit/contracts';
+import type { CaptureSubmissionDto, SuppressionAuditDto } from '@siftkit/contracts';
 
 import type { AssistantConfig } from '../../config/types.ts';
 import type { JsonObject } from '../../lib/json-types.ts';
@@ -15,10 +12,8 @@ import { rawStorageLimitBytes } from '../images/capture-retention.ts';
 import type { AuditStore } from '../storage/audit-store.ts';
 import type { EvidenceStore } from '../storage/evidence-store.ts';
 import type { JobStore } from '../storage/job-store.ts';
+import { closestSimilarityPercent, decodeCaptureImage, retentionWindowStartUtc } from './capture-image.ts';
 import { requireObservationAllowed } from './observation-gate.ts';
-
-/** The shell ships a 64-bit dHash; `PerceptualHashSchema` guarantees the 16 hex characters. */
-const PERCEPTUAL_HASH_BITS = 64;
 
 export type CaptureOutcome =
   | { readonly kind: 'accepted'; readonly evidenceId: string; readonly state: CaptureQueueState }
@@ -32,28 +27,6 @@ export interface CaptureIntakeOptions {
   readonly audit: AuditStore;
   readonly capability: AssistantImageCapabilityProvider;
   readonly jobs: JobStore;
-}
-
-function hammingDistance(left: string, right: string): number {
-  let difference = BigInt(`0x${left}`) ^ BigInt(`0x${right}`);
-  let bits = 0;
-  while (difference > 0n) {
-    bits += Number(difference & 1n);
-    difference >>= 1n;
-  }
-  return bits;
-}
-
-function decodeCaptureImage(dataUrl: string): { mimeType: ImageMime; bytes: Buffer } {
-  const split = splitImageDataUrl(dataUrl);
-  if (split === null) {
-    throw new Error('Capture image must be a base64 image data URL.');
-  }
-  const bytes = Buffer.from(split.base64, 'base64');
-  if (bytes.byteLength === 0) {
-    throw new Error('Capture image decoded to zero bytes.');
-  }
-  return { mimeType: split.mime, bytes };
 }
 
 /**
@@ -85,7 +58,7 @@ export class CaptureIntake {
     }
 
     const perceptualHash = capture.perceptualHash;
-    const windowStartUtc = this.retentionWindowStart(config.Observation.RawRetentionHours);
+    const windowStartUtc = retentionWindowStartUtc(this.clock, config.Observation.RawRetentionHours);
     if (this.queue.findByPixelSha(ownerId, capture.pixelSha256, windowStartUtc) !== null) {
       this.audit.recordAuditEvent({
         ownerId,
@@ -98,9 +71,8 @@ export class CaptureIntake {
       return { kind: 'duplicate_discarded' };
     }
 
-    const similarityPercent = this.closestSimilarityPercent(
-      ownerId, capture.foregroundContextKey, perceptualHash, windowStartUtc,
-    );
+    const similarityPercent = closestSimilarityPercent(perceptualHash, this.queue
+      .listContextSince(ownerId, capture.foregroundContextKey, windowStartUtc).map((row) => row.perceptual_hash));
     if (similarityPercent !== null
       && similarityPercent >= config.Observation.DuplicateSimilarityPercent) {
       this.audit.recordAuditEvent({
@@ -177,23 +149,6 @@ export class CaptureIntake {
   /** Queue admission is a live read: without a vision-capable runtime the item simply waits. */
   private admissionState(): CaptureQueueState {
     return isUsableCapability(this.capability.read()) ? 'queued' : 'awaiting_image_capability';
-  }
-
-  private retentionWindowStart(retentionHours: number): string {
-    return new Date(this.clock.nowEpochMs() - retentionHours * 3_600_000).toISOString();
-  }
-
-  /** Highest similarity against live captures of the same foreground context, or `null`. */
-  private closestSimilarityPercent(
-    ownerId: string, foregroundContextKey: string, perceptualHash: string, windowStartUtc: string,
-  ): number | null {
-    let closest: number | null = null;
-    for (const row of this.queue.listContextSince(ownerId, foregroundContextKey, windowStartUtc)) {
-      const distance = hammingDistance(perceptualHash, row.perceptual_hash);
-      const percent = (100 * (PERCEPTUAL_HASH_BITS - distance)) / PERCEPTUAL_HASH_BITS;
-      if (closest === null || percent > closest) closest = percent;
-    }
-    return closest;
   }
 
   private captureMetadata(capture: CaptureSubmissionDto): JsonObject {

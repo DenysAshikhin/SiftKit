@@ -6,6 +6,7 @@ import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { VaultNotFoundError } from './errors.ts';
 
 const StringListSchema = z.array(z.string());
+export const NoteIdRowSchema = z.object({ note_id: z.string() });
 
 /** Link targets, titles and aliases all compare on this key. */
 
