@@ -82,6 +82,13 @@ export function listCaptureIdsInStates(database: RuntimeDatabase, states: readon
   `).all(...states, limit)).map((row) => row.attachment_id);
 }
 
+/** A worker that died mid-write leaves its capture `processing`; those without a live job rejoin the queue. */
+export function requeueStrandedCaptures(database: RuntimeDatabase, liveAttachmentIds: readonly string[]): number {
+  return database.prepare(`
+    UPDATE vault_captures SET state = 'queued' WHERE state = 'processing' AND attachment_id NOT IN (${placeholders(liveAttachmentIds)})
+  `).run(...liveAttachmentIds).changes;
+}
+
 export function countCapturesInStates(database: RuntimeDatabase, states: readonly VaultCaptureState[]): number {
   return CountRowSchema.parse(database.prepare(`SELECT COUNT(*) AS count FROM vault_captures WHERE state IN (${placeholders(states)})`).get(...states)).count;
 }

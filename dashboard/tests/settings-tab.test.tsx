@@ -71,7 +71,7 @@ test('assistant section exposes the configuration and pending captures views', (
   assert.match(markup, /Configuration/);
   assert.match(markup, /Pending captures/);
   assert.doesNotMatch(markup, /Pending validation|Memory history/);
-  assert.match(markup, /Evidence is encrypted at rest/);
+  assert.doesNotMatch(markup, /encrypted at rest/, 'vault notes and capture PNGs are stored in the clear');
   assert.match(markup, /Assistant enabled/);
 });
 

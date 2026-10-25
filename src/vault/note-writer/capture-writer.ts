@@ -25,10 +25,10 @@ const INSTRUCTIONS = [
 ].join('\n');
 
 export type VaultCaptureWriteOutcome =
-  | { readonly kind: 'processed'; readonly learned: readonly string[]; readonly touchedNoteIds: readonly string[] }
+  | { readonly kind: 'processed'; readonly learned: readonly string[]; readonly touchedNoteIds: readonly string[]; readonly capturedAtUtc: string }
   | { readonly kind: 'awaiting_capability' }
   | { readonly kind: 'already_processed' }
-  | { readonly kind: 'rejected'; readonly reason: 'image_missing' | 'invalid_output' };
+  | { readonly kind: 'rejected'; readonly reason: 'image_missing' | 'invalid_output'; readonly capturedAtUtc: string };
 
 export interface VaultCaptureWriterOptions {
   readonly database: RuntimeDatabase;
@@ -80,7 +80,7 @@ export class VaultCaptureWriter {
     // Retention may have deleted the file first; retrying cannot bring it back, so this is terminal.
     if (image === null) {
       this.finish(capture, [], 'image_removed');
-      return { kind: 'rejected', reason: 'image_missing' };
+      return { kind: 'rejected', reason: 'image_missing', capturedAtUtc: capture.captured_at_utc };
     }
     if (this.capability.read().instanceId !== admission.instanceId) return this.awaitCapability(attachmentId);
 
@@ -94,7 +94,7 @@ export class VaultCaptureWriter {
         summary: 'Screenshot note-writer produced no usable structured output.', details: outputRejectionDetails(this.scanner, outcome),
       });
       this.finish(capture, [], 'processed');
-      return { kind: 'rejected', reason: 'invalid_output' };
+      return { kind: 'rejected', reason: 'invalid_output', capturedAtUtc: capture.captured_at_utc };
     }
     return this.database.transaction((): VaultCaptureWriteOutcome => {
       const note = requireVaultNote(this.database, capture.note_id);
@@ -102,7 +102,7 @@ export class VaultCaptureWriter {
         ownerId, operations: outcome.value.operations, actor: 'note-writer · screenshot', sourceRef: attachmentId, summary: `Screenshot ${note.title}`,
       });
       this.finish(capture, result.learned, 'processed');
-      return { kind: 'processed', learned: result.learned, touchedNoteIds: result.touchedNoteIds };
+      return { kind: 'processed', learned: result.learned, touchedNoteIds: result.touchedNoteIds, capturedAtUtc: capture.captured_at_utc };
     })();
   }
 

@@ -31,17 +31,28 @@ export function jobPriority(priorities: AssistantConfig['Background']['JobPriori
   }
 }
 
-export const CaptureNotePayloadSchema = z.object({ attachmentId: z.string() }).strict();
-export type CaptureNotePayload = z.infer<typeof CaptureNotePayloadSchema>;
+/** A job as enqueued: its type and the payload that type carries. */
+export const AssistantJobRequestSchema = z.discriminatedUnion('jobType', [
+  z.object({ jobType: z.literal('capture_note'), payload: z.object({ attachmentId: z.string() }).strict() }).strict(),
+  z.object({ jobType: z.literal('chat_note'), payload: VaultChatTurnSchema }).strict(),
+  z.object({ jobType: z.literal('daily_rollup'), payload: z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict() }).strict(),
+  z.object({ jobType: z.literal('note_tidy'), payload: z.object({ noteId: z.string() }).strict() }).strict(),
+  z.object({ jobType: z.literal('capture_retention'), payload: z.object({}).strict() }).strict(),
+]);
+export type AssistantJobRequest = z.infer<typeof AssistantJobRequestSchema>;
 
-export const ChatNotePayloadSchema = VaultChatTurnSchema;
-export type ChatNotePayload = z.infer<typeof ChatNotePayloadSchema>;
-
-export const DailyRollupPayloadSchema = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict();
-export type DailyRollupPayload = z.infer<typeof DailyRollupPayloadSchema>;
-
-export const NoteTidyPayloadSchema = z.object({ noteId: z.string() }).strict();
-export type NoteTidyPayload = z.infer<typeof NoteTidyPayloadSchema>;
-
-export const CaptureRetentionPayloadSchema = z.object({ reason: z.enum(['schedule', 'capacity']) }).strict();
-export type CaptureRetentionPayload = z.infer<typeof CaptureRetentionPayloadSchema>;
+/** One live job per key, so re-enqueueing the same work is a no-op. */
+export function jobIdempotencyKey(request: AssistantJobRequest): string {
+  switch (request.jobType) {
+    case 'capture_note':
+      return `capture_note:${request.payload.attachmentId}`;
+    case 'chat_note':
+      return `chat_note:${request.payload.sessionId}:${request.payload.userMessageId}`;
+    case 'daily_rollup':
+      return `daily_rollup:${request.payload.day}`;
+    case 'note_tidy':
+      return `note_tidy:${request.payload.noteId}`;
+    case 'capture_retention':
+      return 'capture_retention';
+  }
+}

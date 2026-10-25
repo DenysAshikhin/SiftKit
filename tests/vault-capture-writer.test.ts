@@ -52,6 +52,7 @@ function setup(context: VaultTestContext, responses: readonly string[], capabili
   return { run, note, inference, audit, attachments, attachmentId: outcome.attachmentId };
 }
 
+const CAPTURED_AT = vaultCaptureDto().capturedAtUtc;
 const EMBED_AND_CONTEXT = (attachmentId: string) => [
   `![[attachments/captures/${attachmentId}.png]]`, '', '[[Visual Studio Code]] · `SiftKit - Visual Studio Code` · window change', '',
 ];
@@ -68,7 +69,7 @@ test('the writer sends the screenshot with entity candidates and replaces the pe
     const { run, note, inference, attachmentId } = setup(context, [response]);
 
     const outcome = await run();
-    assert.equal(outcome.kind, 'processed');
+    assert.equal(outcome.kind === 'processed' ? outcome.capturedAtUtc : null, CAPTURED_AT, 'the runner keys follow-ups by the capture time');
     const request = inference.requests[0];
     assert.equal(request?.role, 'vault_capture_writer');
     assert.equal(request?.kind, 'image');
@@ -110,7 +111,7 @@ test('a runtime that changed between admission and dispatch sends the capture ba
 test('unusable model output is audited and still leaves an empty ## Learned', async () => {
   await withVaultAsync(async (context) => {
     const { run, note, inference, audit, attachmentId } = setup(context, ['not json', 'my token is ghp_abcdefghijklmnopqrstuvwxyz0123']);
-    assert.deepEqual(await run(), { kind: 'rejected', reason: 'invalid_output' });
+    assert.deepEqual(await run(), { kind: 'rejected', reason: 'invalid_output', capturedAtUtc: CAPTURED_AT });
     assert.equal(inference.requests.length, 2, 'one repair retry');
     assert.equal(note().body, [...EMBED_AND_CONTEXT(attachmentId), '## Learned'].join('\n'));
     assert.equal(requireCapture(context.database, attachmentId).state, 'processed');
@@ -124,7 +125,7 @@ test('a screenshot whose file is already gone is terminal: no model call, empty 
   await withVaultAsync(async (context) => {
     const { run, note, inference, attachments, attachmentId } = setup(context, []);
     fs.rmSync(path.join(vaultAttachmentsDir(context.runtimeRoot), attachments.require(attachmentId).relativePath));
-    assert.deepEqual(await run(), { kind: 'rejected', reason: 'image_missing' });
+    assert.deepEqual(await run(), { kind: 'rejected', reason: 'image_missing', capturedAtUtc: CAPTURED_AT });
     assert.equal(inference.requests.length, 0);
     assert.equal(note().body, [...EMBED_AND_CONTEXT(attachmentId), '## Learned'].join('\n'));
     assert.equal(requireCapture(context.database, attachmentId).state, 'image_removed');

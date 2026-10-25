@@ -1,4 +1,4 @@
-import { VAULT_OWNER_TAG, vaultKey, type VaultNote, type VaultWriteMeta, type VaultWriteSource } from '@siftkit/contracts';
+import { VAULT_OWNER_TAG, vaultKey, type VaultNote, type VaultWriteSource } from '@siftkit/contracts';
 
 import { editDistanceWithin } from '../assistant/domain/owner-identity.ts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
@@ -52,18 +52,23 @@ export function findOwnerNote(database: RuntimeDatabase): VaultNote | null {
 }
 
 /** Returns the owner note, tagging a note already titled with the display name or creating one. */
-export function ensureOwnerNote(store: VaultNoteStore, database: RuntimeDatabase, displayName: string, meta: VaultWriteMeta): VaultNote {
+export function ensureOwnerNote(store: VaultNoteStore, database: RuntimeDatabase, displayName: string, source: VaultWriteSource): VaultNote {
   const existing = findOwnerNote(database);
   if (existing !== null) return existing;
   const title = displayName.trim() || DEFAULT_OWNER_TITLE;
   const named = store.resolve(title);
-  if (named !== null) return store.update(named.id, { tags: [...named.tags, VAULT_OWNER_TAG] }, named.revision, meta);
-  return store.create({ title, folder: '', kind: 'entity', types: ['person'], aliases: [], tags: [VAULT_OWNER_TAG], body: 'This is you.' }, meta);
+  if (named !== null) {
+    return store.update(named.id, { tags: [...named.tags, VAULT_OWNER_TAG] }, named.revision, { ...source, summary: 'Tagged as the owner note' });
+  }
+  return store.create(
+    { title, folder: '', kind: 'entity', types: ['person'], aliases: [], tags: [VAULT_OWNER_TAG], body: 'This is you.' },
+    { ...source, summary: 'Created the owner note' },
+  );
 }
 
 /** Ensures the owner note and keeps its title on the configured name; renaming keeps the old title as an alias. */
 export function syncOwnerNote(store: VaultNoteStore, database: RuntimeDatabase, displayName: string, source: VaultWriteSource): VaultNote {
-  const owner = ensureOwnerNote(store, database, displayName, { ...source, summary: 'Created the owner note' });
+  const owner = ensureOwnerNote(store, database, displayName, source);
   const title = displayName.trim();
   if (title === '' || vaultKey(title) === vaultKey(owner.title)) return owner;
   const holder = store.resolveId(title);

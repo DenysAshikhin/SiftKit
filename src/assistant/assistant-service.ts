@@ -32,7 +32,7 @@ import { StructuredOutputRunner } from './inference/structured-runner.ts';
 import {
   AssistantJobRunner, type InteractivityGate, type ModelResidencyGate,
 } from './jobs/job-runner.ts';
-import { ChatNotePayloadSchema, jobPriority, type AssistantJobType, type ChatNotePayload } from './jobs/job-types.ts';
+import type { AssistantJobRequest } from './jobs/job-types.ts';
 import { AssistantResourcePolicy } from './jobs/resource-policy.ts';
 import {
   UnavailableImageCapabilityProvider, isUsableCapability,
@@ -47,15 +47,14 @@ import { DeletionPreviewService } from './control/deletion-preview.ts';
 import { ExportService } from './control/export-service.ts';
 import { FactoryResetService } from './control/factory-reset-service.ts';
 import { RestoreService } from './control/restore-service.ts';
-import type { JsonObject } from '../lib/json-types.ts';
 import { VaultAttachments } from '../vault/attachments.ts';
 import { VaultCaptureIntake, type VaultCaptureOutcome } from '../vault/capture-intake.ts';
 import { VaultCaptureRetention, captureRetentionLimits } from '../vault/capture-retention.ts';
 import {
-  countCapturesInStates, listCaptureIdsInStates, listPendingCaptures, liveCaptureBytes, setCaptureState,
+  countCapturesInStates, listCaptureIdsInStates, listPendingCaptures, liveCaptureBytes, requeueStrandedCaptures,
 } from '../vault/captures.ts';
 import { VaultCaptureWriter } from '../vault/note-writer/capture-writer.ts';
-import { VaultChatWriter } from '../vault/note-writer/chat-writer.ts';
+import { VaultChatWriter, type VaultChatTurn } from '../vault/note-writer/chat-writer.ts';
 import { VaultDailyRollup } from '../vault/note-writer/daily-rollup.ts';
 import { VaultEditApplier } from '../vault/note-writer/edit-applier.ts';
 import { VaultTidyPass } from '../vault/note-writer/tidy-pass.ts';
@@ -63,7 +62,7 @@ import { VaultNoteQueries } from '../vault/note-queries.ts';
 import { VaultNoteStore } from '../vault/note-store.ts';
 import { syncOwnerNote } from '../vault/owner-identity.ts';
 import { VaultGraphQueries } from '../vault/vault-graph.ts';
-import { VaultRetriever, type VaultRetrieveResult } from '../vault/vault-retriever.ts';
+import { EMPTY_RETRIEVAL, VaultRetriever, type VaultRetrieveResult } from '../vault/vault-retriever.ts';
 import { VaultSearch } from '../vault/vault-search.ts';
 
 /** The closed set of desktop-shell payloads whose contract rejections are audited. */
@@ -117,8 +116,7 @@ export interface AssistantServiceOptions {
 
 export interface AssistantRuntime {
   readonly enabled: boolean;
-  readonly ownerId: string;
-  ingestChatTurn(turn: ChatNotePayload): void;
+  ingestChatTurn(turn: VaultChatTurn): void;
   retrieveMemoryContext(userMessage: string): Promise<VaultRetrieveResult>;
   onInteractiveRequest(): void;
   drainJobs(): Promise<void>;
@@ -168,6 +166,7 @@ export class AssistantService implements AssistantRuntime {
   private readonly configWriter: AssistantConfigWriter;
   private readonly factoryResets: FactoryResetService;
   private readonly restoreService: RestoreService;
+  private readonly applier: VaultEditApplier;
   private currentConfig: AssistantConfig;
   private maxJobsPerDrain: number;
   /** How many exclusive operations are queued or running; drains stay out while nonzero. */
@@ -219,6 +218,7 @@ export class AssistantService implements AssistantRuntime {
     this.captureIntake = new VaultCaptureIntake({ database, store, attachments, audit, clock, capability: this.imageCapability });
     this.retriever = new VaultRetriever({ database, tokens: options.tokens });
     const applier = new VaultEditApplier({ store, database, audit, scanner, ownerDisplayName: options.config.Owner.DisplayName });
+    this.applier = applier;
 
     this.exports = new ExportService(this.graph, database, this.graph.ownerId);
     this.backups = new BackupService({ graph: this.graph, database, keyCustody: this.keyCustody, dataProtector: options.dataProtector });
@@ -234,7 +234,6 @@ export class AssistantService implements AssistantRuntime {
     this.runner = new AssistantJobRunner({
       jobs: this.graph.jobs,
       decisions: this.graph.backgroundDecisions,
-      database,
       captureWriter: new VaultCaptureWriter({
         database, store, attachments, applier, audit, scanner, clock, runner: structuredOutput, capability: this.imageCapability,
       }),
@@ -321,9 +320,9 @@ export class AssistantService implements AssistantRuntime {
   ingestCapture(capture: CaptureSubmissionDto): VaultCaptureOutcome {
     const outcome = this.captureIntake.submit(this.ownerId, capture, this.currentConfig);
     if (outcome.kind !== 'accepted') return outcome;
-    if (outcome.state === 'queued') this.enqueueCaptureNote(outcome.attachmentId);
+    if (outcome.state === 'queued') this.enqueue({ jobType: 'capture_note', payload: { attachmentId: outcome.attachmentId } });
     if (liveCaptureBytes(this.database) > captureRetentionLimits(this.currentConfig).limitBytes) {
-      this.enqueue('capture_retention', { reason: 'capacity' }, 'capture_retention:capacity');
+      this.enqueue({ jobType: 'capture_retention', payload: {} });
     }
     return outcome;
   }
@@ -371,6 +370,7 @@ export class AssistantService implements AssistantRuntime {
     this.maxJobsPerDrain = config.Background.MaxJobsPerIdleSession;
     this.resourcePolicy.refreshBackground(config.Background);
     this.runner.refreshConfig(config);
+    this.applier.refreshOwnerDisplayName(config.Owner.DisplayName);
     if (config.Enabled) this.syncOwnerNote();
   }
 
@@ -378,11 +378,10 @@ export class AssistantService implements AssistantRuntime {
    * Request-path ingestion: enqueues the turn's chat note job and nothing else. Never throws at
    * the caller — a chat turn completes normally even if ingestion fails (§7.1).
    */
-  ingestChatTurn(turn: ChatNotePayload): void {
+  ingestChatTurn(turn: VaultChatTurn): void {
     if (!this.enabled) return;
     try {
-      const payload = ChatNotePayloadSchema.parse(turn);
-      this.enqueue('chat_note', payload, `chat_note:${payload.sessionId}:${payload.userMessageId}`);
+      this.enqueue({ jobType: 'chat_note', payload: turn });
     } catch (error) {
       this.graph.audit.recordAuditEvent({
         ownerId: this.ownerId,
@@ -397,7 +396,7 @@ export class AssistantService implements AssistantRuntime {
 
   /** Request-path retrieval from the vault. Deterministic, no model call. */
   async retrieveMemoryContext(userMessage: string): Promise<VaultRetrieveResult> {
-    if (!this.enabled) return { renderedBlock: '', noteIds: [], tokenCount: 0 };
+    if (!this.enabled) return EMPTY_RETRIEVAL;
     const { MaxContextTokens, MaxNotes } = this.currentConfig.Retrieval;
     return this.retriever.retrieve(userMessage, { maxContextTokens: MaxContextTokens, maxNotes: MaxNotes });
   }
@@ -509,13 +508,9 @@ export class AssistantService implements AssistantRuntime {
     this.graph.jobs.pruneTerminal(this.ownerId, cutoffUtc);
     const startedAtMs = Date.now();
     // Retention runs even when observation is paused: it only ever removes data (spec §7).
-    this.enqueue('capture_retention', { reason: 'schedule' }, 'capture_retention:schedule');
-    // A worker that died mid-write leaves its capture in `processing`, which no pending state
-    // covers. Recover those first so they rejoin the queue instead of sitting unreachable.
-    const live = new Set(this.graph.jobs.listLiveCaptureNoteAttachmentIds(this.ownerId));
-    for (const attachmentId of listCaptureIdsInStates(this.database, ['processing'], -1)) {
-      if (!live.has(attachmentId)) setCaptureState(this.database, attachmentId, 'queued');
-    }
+    this.enqueue({ jobType: 'capture_retention', payload: {} });
+    // Stranded `processing` captures rejoin the queue before the waiting ones are enqueued.
+    requeueStrandedCaptures(this.database, this.graph.jobs.listLiveCaptureNoteAttachmentIds(this.ownerId));
     this.enqueueWaitingCaptures();
     await this.runner.drain(this.ownerId, this.maxJobsPerDrain);
     const elapsedMs = Date.now() - startedAtMs;
@@ -539,19 +534,12 @@ export class AssistantService implements AssistantRuntime {
       return;
     }
     for (const attachmentId of listCaptureIdsInStates(this.database, PENDING_CAPTURE_STATES, this.maxJobsPerDrain)) {
-      this.enqueueCaptureNote(attachmentId);
+      this.enqueue({ jobType: 'capture_note', payload: { attachmentId } });
     }
   }
 
-  private enqueueCaptureNote(attachmentId: string): void {
-    this.enqueue('capture_note', { attachmentId }, `capture_note:${attachmentId}`);
-  }
-
-  private enqueue(jobType: AssistantJobType, payload: JsonObject, idempotencyKey: string): void {
-    this.graph.jobs.enqueue(
-      { ownerId: this.ownerId, jobType, payload, idempotencyKey },
-      jobPriority(this.currentConfig.Background.JobPriorities, jobType),
-    );
+  private enqueue(request: AssistantJobRequest): void {
+    this.graph.jobs.enqueue(this.ownerId, request, this.currentConfig.Background.JobPriorities);
   }
 
   private syncOwnerNote(): void {

@@ -75,7 +75,7 @@ export class VaultEditApplier {
   private readonly database: RuntimeDatabase;
   private readonly audit: AuditStore;
   private readonly scanner: SecretScanner;
-  private readonly ownerDisplayName: string;
+  private ownerDisplayName: string;
 
   constructor(options: VaultEditApplierOptions) {
     this.store = options.store;
@@ -83,6 +83,11 @@ export class VaultEditApplier {
     this.audit = options.audit;
     this.scanner = options.scanner;
     this.ownerDisplayName = options.ownerDisplayName;
+  }
+
+  /** The name a missing owner note is recreated under follows the configured display name. */
+  refreshOwnerDisplayName(displayName: string): void {
+    this.ownerDisplayName = displayName;
   }
 
   apply(request: VaultEditRequest): VaultEditResult {

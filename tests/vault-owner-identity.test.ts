@@ -48,3 +48,15 @@ test('ensureOwnerNote creates the #me note once, or tags an existing note with t
     assert.deepEqual(tagged.tags, [VAULT_OWNER_TAG]);
   });
 });
+
+test('the owner note history says whether it was created or an existing note was tagged', () => {
+  withVault(({ database, store }) => {
+    const created = ensureOwnerNote(store, database, 'Denys', TEST_META);
+    assert.equal(store.listRevisions(created.id)[0]?.summary, 'Created the owner note');
+  });
+  withVault(({ database, store }) => {
+    const existing = store.create(entityInput('Denys', 'A person.', { folder: 'People' }), TEST_META);
+    ensureOwnerNote(store, database, 'Denys', TEST_META);
+    assert.equal(store.listRevisions(existing.id)[0]?.summary, 'Tagged as the owner note');
+  });
+});

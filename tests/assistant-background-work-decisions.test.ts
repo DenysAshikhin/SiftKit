@@ -13,21 +13,14 @@ import {
   getRuntimeDatabase,
 } from '../src/state/runtime-db.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 
 const START = '2026-08-31T12:00:00.000Z';
 
 afterEach(() => closeAllRuntimeDatabases());
 
 function enqueuePendingJob(jobs: JobStore): void {
-  jobs.enqueue(
-    {
-      ownerId: LOCAL_OWNER_ID,
-      jobType: 'capture_retention',
-      payload: { reason: 'schedule' },
-      idempotencyKey: 'capture_retention:schedule',
-    },
-    900,
-  );
+  jobs.enqueue(LOCAL_OWNER_ID, { jobType: 'capture_retention', payload: {} }, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities);
 }
 
 test('background-work decisions persist across a database reopen', () => {

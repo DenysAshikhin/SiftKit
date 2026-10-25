@@ -11,7 +11,6 @@ const PREVIEW_SECRET_KEY = `${ASSISTANT_METADATA_PREFIX}deletion_preview.secret.
 
 const PreviewPayloadSchema = z.object({
   ownerId: z.string(),
-  operation: z.literal('factory_reset'),
   graphVersion: z.number().int().min(0),
   totalRows: z.number().int().min(0),
 }).strict();
@@ -43,7 +42,6 @@ export class DeletionPreviewService {
     return {
       previewToken: this.sign({
         ownerId,
-        operation: 'factory_reset',
         graphVersion: this.graph.graphVersion,
         totalRows,
       }),
@@ -56,7 +54,7 @@ export class DeletionPreviewService {
 
   validateFactoryReset(ownerId: string, previewToken: string): void {
     const payload = this.verify(previewToken);
-    if (payload.operation !== 'factory_reset' || payload.ownerId !== ownerId) {
+    if (payload.ownerId !== ownerId) {
       throw new AssistantConflictError('Deletion preview token does not authorize a factory reset.');
     }
     if (payload.graphVersion !== this.graph.graphVersion) {

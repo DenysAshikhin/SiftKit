@@ -5,14 +5,13 @@ import { SecretScanner } from '../src/assistant/domain/secrets.ts';
 import type { AssistantInferenceClient, AssistantInferenceRequest } from '../src/assistant/inference/client.ts';
 import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
 import { AssistantJobRunner, type InteractivityGate, type ModelResidencyGate } from '../src/assistant/jobs/job-runner.ts';
-import { jobPriority, type AssistantJobType } from '../src/assistant/jobs/job-types.ts';
+import type { AssistantJobRequest, AssistantJobType } from '../src/assistant/jobs/job-types.ts';
 import {
   AssistantResourcePolicy,
   UnavailablePowerStateProvider,
   type ResourceDecision,
   type ResourcePolicy,
 } from '../src/assistant/jobs/resource-policy.ts';
-import type { JsonObject } from '../src/lib/json-types.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 import type { AssistantConfig } from '../src/config/types.ts';
 import { VaultAttachments } from '../src/vault/attachments.ts';
@@ -98,7 +97,6 @@ function setup(context: AssistantTestContext, overrides: RunnerOverrides = {}) {
   const jobRunner = new AssistantJobRunner({
     jobs: graph.jobs,
     decisions: graph.backgroundDecisions,
-    database,
     captureWriter: new VaultCaptureWriter({ database, store, attachments, applier, audit: graph.audit, scanner, clock, runner, capability }),
     chatWriter: new VaultChatWriter({ database, store, applier, audit: graph.audit, scanner, runner }),
     dailyRollup: new VaultDailyRollup({ database, store }),
@@ -112,13 +110,11 @@ function setup(context: AssistantTestContext, overrides: RunnerOverrides = {}) {
     leaseSeconds: 120,
   });
   const intake = new VaultCaptureIntake({ database, store, attachments, audit: graph.audit, clock, capability });
-  const enqueue = (jobType: AssistantJobType, payload: JsonObject, idempotencyKey: string) => graph.jobs.enqueue(
-    { ownerId: context.ownerId, jobType, payload, idempotencyKey }, jobPriority(DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities, jobType),
-  );
+  const enqueue = (request: AssistantJobRequest) => graph.jobs.enqueue(context.ownerId, request, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities);
   const submitCapture = () => {
     const outcome = intake.submit(context.ownerId, vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:30.000Z' }), SCREENSHOTS_ENABLED);
     if (outcome.kind !== 'accepted') throw new Error('fixture capture was not accepted');
-    enqueue('capture_note', { attachmentId: outcome.attachmentId }, `capture_note:${outcome.attachmentId}`);
+    enqueue({ jobType: 'capture_note', payload: { attachmentId: outcome.attachmentId } });
     return outcome;
   };
   return { jobRunner, store, enqueue, submitCapture };
@@ -140,7 +136,7 @@ const GPU_CAPPED = (context: AssistantTestContext) => new AssistantResourcePolic
   power: new UnavailablePowerStateProvider(),
 });
 
-const enqueueChat = (enqueue: ReturnType<typeof setup>['enqueue'], turn: VaultChatTurn = TURN) => enqueue('chat_note', turn, `chat_note:${turn.sessionId}:${turn.userMessageId}`);
+const enqueueChat = (enqueue: ReturnType<typeof setup>['enqueue'], turn: VaultChatTurn = TURN) => enqueue({ jobType: 'chat_note', payload: turn });
 const queuedOf = (context: AssistantTestContext, jobType: AssistantJobType) => context.graph.jobs.listByStatus(context.ownerId, 'queued')
   .filter((job) => job.job_type === jobType);
 const lastDecision = (context: AssistantTestContext) => context.graph.backgroundDecisions.list(context.ownerId)[0]?.reason;
@@ -237,7 +233,7 @@ test('a capture note job for an already processed capture queues nothing', async
     const { jobRunner, enqueue, submitCapture } = setup(context, { inference: new FakeAssistantInference([NO_OPERATIONS]), config: TIDY_OFF });
     const capture = submitCapture();
     await jobRunner.drain(context.ownerId, -1);
-    enqueue('capture_note', { attachmentId: capture.attachmentId }, 'capture_note:replay');
+    enqueue({ jobType: 'capture_note', payload: { attachmentId: capture.attachmentId } });
     assert.equal((await jobRunner.drain(context.ownerId, -1)).completed, 1);
     assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 0);
   });
@@ -250,7 +246,7 @@ test('a capture retention job applies the configured age limit', async () => {
     const capture = submitCapture();
     await jobRunner.drain(context.ownerId, -1);
     context.clock.advanceDays(2);
-    enqueue('capture_retention', { reason: 'schedule' }, 'capture_retention:schedule');
+    enqueue({ jobType: 'capture_retention', payload: {} });
     assert.equal((await jobRunner.drain(context.ownerId, -1)).completed, 1);
     assert.equal(requireCapture(context.database, capture.attachmentId).state, 'image_removed');
   });
@@ -300,7 +296,7 @@ test('preemption after the writer committed completes the job instead of replayi
 test('a failing job requeues with one attempt spent and then leaves nothing claimable', async () => {
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, enqueue } = setup(context);
-    enqueue('note_tidy', { noteId: 'note_missing' }, 'note_tidy:note_missing');
+    enqueue({ jobType: 'note_tidy', payload: { noteId: 'note_missing' } });
     const summary = await jobRunner.drain(context.ownerId, -1);
     assert.deepEqual([summary.claimed, summary.failed], [1, 1]);
     assert.equal(queuedOf(context, 'note_tidy')[0]?.attempts, 1);
@@ -311,7 +307,7 @@ test('a failing job requeues with one attempt spent and then leaves nothing clai
 test('recovery re-queues a lease abandoned by a crashed runner', async () => {
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, enqueue } = setup(context);
-    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    enqueue({ jobType: 'daily_rollup', payload: { day: '2026-08-05' } });
     context.graph.jobs.claimNext({ ownerId: context.ownerId, leaseOwner: 'crashed', leaseSeconds: 30, modelWorkAllowed: true });
     context.clock.advanceSeconds(31);
     const summary = await jobRunner.drain(context.ownerId, 5);
@@ -324,7 +320,7 @@ test('the daily GPU cap skips model-backed jobs but still drains deterministic w
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, enqueue } = setup(context, { resourcePolicy: GPU_CAPPED(context) });
     enqueueChat(enqueue);
-    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    enqueue({ jobType: 'daily_rollup', payload: { day: '2026-08-05' } });
     assert.deepEqual(await jobRunner.drain(context.ownerId, -1), { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
     assert.equal(queuedOf(context, 'chat_note').length, 1);
     assert.equal(lastDecision(context), 'daily_gpu_limit');
@@ -334,7 +330,7 @@ test('the daily GPU cap skips model-backed jobs but still drains deterministic w
 test('an unlimited drain claims every claimable job and stops when none remain', async () => {
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, enqueue } = setup(context);
-    for (const day of ['2026-08-03', '2026-08-04', '2026-08-05']) enqueue('daily_rollup', { day }, `daily_rollup:${day}`);
+    for (const day of ['2026-08-03', '2026-08-04', '2026-08-05']) enqueue({ jobType: 'daily_rollup', payload: { day } });
     assert.deepEqual(await jobRunner.drain(context.ownerId, -1), { claimed: 3, completed: 3, failed: 0, preempted: 0, recovered: 0 });
     assert.deepEqual(context.graph.backgroundDecisions.list(context.ownerId), []);
   });
@@ -343,7 +339,7 @@ test('an unlimited drain claims every claimable job and stops when none remain',
 test('a zero drain budget claims nothing', async () => {
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, enqueue } = setup(context);
-    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    enqueue({ jobType: 'daily_rollup', payload: { day: '2026-08-05' } });
     assert.deepEqual(await jobRunner.drain(context.ownerId, 0), { claimed: 0, completed: 0, failed: 0, preempted: 0, recovered: 0 });
     assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 1);
     assert.deepEqual(context.graph.backgroundDecisions.list(context.ownerId), []);
@@ -354,7 +350,7 @@ test('an unloaded model claims no model-backed job and spends no attempt', async
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, enqueue } = setup(context, { residencyGate: new StaticResidencyGate(false) });
     enqueueChat(enqueue);
-    enqueue('note_tidy', { noteId: 'note_1' }, 'note_tidy:note_1');
+    enqueue({ jobType: 'note_tidy', payload: { noteId: 'note_1' } });
     assert.equal((await jobRunner.drain(context.ownerId, 10)).claimed, 0);
     assert.deepEqual(context.graph.jobs.listByStatus(context.ownerId, 'queued').map((job) => job.attempts), [0, 0]);
     assert.equal(lastDecision(context), 'model_not_resident');
@@ -393,8 +389,8 @@ test('a model that unloads mid-call requeues the job without spending an attempt
 test('an unloaded model still lets deterministic jobs drain', async () => {
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, enqueue } = setup(context, { residencyGate: new StaticResidencyGate(false) });
-    enqueue('capture_retention', { reason: 'schedule' }, 'capture_retention:schedule');
-    enqueue('daily_rollup', { day: '2026-08-05' }, 'daily_rollup:2026-08-05');
+    enqueue({ jobType: 'capture_retention', payload: {} });
+    enqueue({ jobType: 'daily_rollup', payload: { day: '2026-08-05' } });
     assert.equal((await jobRunner.drain(context.ownerId, 10)).completed, 2);
     assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 0);
   });

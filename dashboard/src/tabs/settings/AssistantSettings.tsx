@@ -14,6 +14,7 @@ import {
   getAssistantPendingCaptures,
 } from '../../assistant-api.ts';
 import { fetchVaultAttachment } from '../../vault-api.ts';
+import { useAttachmentUrl } from '../../hooks/useAttachmentUrl.ts';
 import { ImageLightbox } from '../../components/ImageLightbox.tsx';
 import { AssistantMaintenance } from './AssistantMaintenance.tsx';
 
@@ -23,10 +24,6 @@ type AssistantSettingsProps = {
   assistant: AssistantConfig;
   onChange(value: AssistantConfig): void;
 };
-
-type CapturePreview =
-  | { kind: 'url'; url: string }
-  | { kind: 'error'; error: string };
 
 const BACKGROUND_REASON_LABELS = {
   drain_blocked: 'Drain blocked',
@@ -299,75 +296,47 @@ function AssistantConfiguration(props: ObservationSettingsProps) {
   );
 }
 
+/** One pending capture's thumbnail; it opens the lightbox once loaded. */
+function CapturePreview(props: { token: string; capture: PendingCaptureDto }) {
+  const { token, capture } = props;
+  const [zoomed, setZoomed] = React.useState(false);
+  const preview = useAttachmentUrl((target) => fetchVaultAttachment(token, target), capture.relativePath);
+  if (preview.kind === 'loading') return <p className="hint">Loading preview…</p>;
+  if (preview.kind === 'removed') return <p className="hint">Image removed.</p>;
+  if (preview.kind === 'failed') return <p className="error">Preview unavailable: {preview.message}</p>;
+  return (
+    <>
+      <button
+        type="button"
+        className="image-zoom"
+        aria-label={`Enlarge capture ${capture.noteTitle}`}
+        title="Enlarge"
+        onClick={() => setZoomed(true)}
+      >
+        <img src={preview.url} alt={capture.noteTitle} />
+      </button>
+      {zoomed ? <ImageLightbox src={preview.url} alt={capture.noteTitle} onClose={() => setZoomed(false)} /> : null}
+    </>
+  );
+}
+
 /** Captures still owed their note-writer pass, previewed from their vault attachments. */
 function PendingCaptures(props: { token: string | null; captures: readonly PendingCaptureDto[]; loading: boolean }) {
   const { token, captures } = props;
-  const [previews, setPreviews] = React.useState<Record<string, CapturePreview>>({});
-  const [zoomed, setZoomed] = React.useState<PendingCaptureDto | null>(null);
-
-  // Previews load lazily once the list has arrived; each blob is held as an object URL until unmount.
-  React.useEffect(() => {
-    if (token === null || captures.length === 0) return;
-    let active = true;
-    const urls: string[] = [];
-    void (async () => {
-      for (const capture of captures) {
-        try {
-          const blob = await fetchVaultAttachment(token, capture.relativePath);
-          if (!active) return;
-          const url = window.URL.createObjectURL(blob);
-          urls.push(url);
-          setPreviews((prev) => ({ ...prev, [capture.attachmentId]: { kind: 'url', url } }));
-        } catch (caught) {
-          if (!active) return;
-          setPreviews((prev) => ({
-            ...prev,
-            [capture.attachmentId]: { kind: 'error', error: caught instanceof Error ? caught.message : String(caught) },
-          }));
-        }
-      }
-    })();
-    return () => {
-      active = false;
-      for (const url of urls) window.URL.revokeObjectURL(url);
-    };
-  }, [token, captures]);
-
-  const zoomedPreview = zoomed === null ? undefined : previews[zoomed.attachmentId];
   if (props.loading) return <p className="hint">Loading pending captures…</p>;
   if (captures.length === 0) return <p className="hint">No captures are waiting for the note-writer.</p>;
   return (
     <section className="assistant-pending-captures">
-      {captures.map((capture) => {
-        const preview = previews[capture.attachmentId];
-        return (
-          <article className="assistant-feed-card" key={capture.attachmentId}>
-            <div className="assistant-card-heading">
-              <h3>{capture.noteTitle}</h3>
-              <span className="bdg">{capture.state.replace(/_/g, ' ')}</span>
-            </div>
-            {preview === undefined ? (
-              <p className="hint">Loading preview…</p>
-            ) : preview.kind === 'url' ? (
-              <button
-                type="button"
-                className="image-zoom"
-                aria-label={`Enlarge capture ${capture.noteTitle}`}
-                title="Enlarge"
-                onClick={() => setZoomed(capture)}
-              >
-                <img src={preview.url} alt={capture.noteTitle} />
-              </button>
-            ) : (
-              <p className="error">Preview unavailable: {preview.error}</p>
-            )}
-            <p className="hint">{new Date(capture.capturedAtUtc).toLocaleString()} · {(capture.byteLength / 1024).toFixed(1)} KB</p>
-          </article>
-        );
-      })}
-      {zoomed !== null && zoomedPreview !== undefined && zoomedPreview.kind === 'url' ? (
-        <ImageLightbox src={zoomedPreview.url} alt={zoomed.noteTitle} onClose={() => setZoomed(null)} />
-      ) : null}
+      {captures.map((capture) => (
+        <article className="assistant-feed-card" key={capture.attachmentId}>
+          <div className="assistant-card-heading">
+            <h3>{capture.noteTitle}</h3>
+            <span className="bdg">{capture.state.replace(/_/g, ' ')}</span>
+          </div>
+          {token === null ? <p className="hint">Loading preview…</p> : <CapturePreview token={token} capture={capture} />}
+          <p className="hint">{new Date(capture.capturedAtUtc).toLocaleString()} · {(capture.byteLength / 1024).toFixed(1)} KB</p>
+        </article>
+      ))}
     </section>
   );
 }
@@ -413,7 +382,6 @@ export function AssistantSettings(props: AssistantSettingsProps) {
         <button type="button" className={view === 'configuration' ? 'on' : ''} onClick={() => setView('configuration')}>Configuration</button>
         <button type="button" className={view === 'captures' ? 'on' : ''} onClick={() => setView('captures')}>Pending captures</button>
       </div>
-      <p className="assistant-security-note">Evidence is encrypted at rest; the active key custody is shown under Observation.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
       {view === 'configuration' ? (
         <>

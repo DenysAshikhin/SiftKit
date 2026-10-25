@@ -8,7 +8,8 @@ import {
 
 const ACTIVITY_EVENT_COUNT = 10_000;
 const CHUNK_ROWS = 1_000;
-const SEED_META = { actor: 'migration', summary: 'benchmark seed', sourceRef: null } as const;
+const SEED_SOURCE = { actor: 'migration', sourceRef: null } as const;
+const SEED_META = { ...SEED_SOURCE, summary: 'benchmark seed' };
 
 /** Runs `work` in transactions of `CHUNK_ROWS` rows, so one BEGIN never spans the seed. */
 function inChunks(context: BenchContext, total: number, work: (index: number) => void): void {
@@ -26,7 +27,7 @@ async function main(): Promise<void> {
   const context = openBench(root);
   const startedAtMs = Date.now();
   try {
-    const owner = ensureOwnerNote(context.notes, context.database, 'Local user', SEED_META);
+    const owner = ensureOwnerNote(context.notes, context.database, DEFAULT_ASSISTANT_CONFIG.Owner.DisplayName, SEED_SOURCE);
 
     inChunks(context, noteCount, (index) => {
       const title = `Bench Tool ${index}`;

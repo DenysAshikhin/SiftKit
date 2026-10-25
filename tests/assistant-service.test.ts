@@ -106,6 +106,18 @@ test('renaming the owner renames the owner note and keeps the old title as an al
   });
 });
 
+test('a deleted owner note is recreated by the note-writer under the current name, not the startup one', async () => {
+  const userUsesGit = JSON.stringify({ operations: [{ op: 'add_facts', note: 'the user', label: 'Uses', values: ['Git'] }] });
+  await withService({ ownerDisplayName: 'Denys', inference: new FakeAssistantInference([userUsesGit]) }, async (service) => {
+    service.refreshConfig(named('Dennis'));
+    const owner = ownerNote(service);
+    service.vaultNotes.delete(owner?.id ?? '', owner?.revision ?? 0);
+    service.ingestChatTurn(turn(1));
+    await service.drainJobs();
+    assert.equal(ownerNote(service)?.title, 'Dennis');
+  });
+});
+
 test('an owner note made before the name was set takes the name on refresh', async () => {
   await withService({ ownerDisplayName: '' }, (service) => {
     assert.equal(ownerNote(service)?.title, 'Owner');
@@ -121,9 +133,7 @@ test('a disabled service is inert until a validated config refresh enables it', 
     assert.deepEqual(queuedTypes(service), []);
     assert.equal((await service.retrieveMemoryContext('tool')).renderedBlock, '');
     assert.deepEqual(service.status(), { available: true, enabled: false, ownerId: service.ownerId });
-    service.graph.jobs.enqueue({
-      ownerId: service.ownerId, jobType: 'capture_retention', payload: { reason: 'schedule' }, idempotencyKey: 'capture_retention:disabled',
-    }, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CaptureRetention);
+    service.graph.jobs.enqueue(service.ownerId, { jobType: 'capture_retention', payload: {} }, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities);
     await service.drainJobs();
     assert.equal(service.graph.jobs.listByStatus(service.ownerId, 'queued')[0]?.attempts, 0, 'disabled assistants must not claim deterministic work');
     assert.equal(service.listBackgroundWorkDecisions()[0]?.reason, 'assistant_disabled');
@@ -190,10 +200,11 @@ test('a capture accepted while the runtime is capable queues its capture note jo
 
 test('a capture that pushes stored bytes over the cap queues a capacity retention run', async () => {
   await withService({ imageCapability: new StubImageCapability(true), screenshotsEnabled: true }, (service) => {
-    service.refreshConfig({ ...service.config, Observation: { ...service.config.Observation, RawStorageLimitGb: 1e-12 } });
     service.ingestCapture(vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:30.000Z' }));
-    const retention = service.graph.jobs.listByStatus(service.ownerId, 'queued').find((job) => job.job_type === 'capture_retention');
-    assert.equal(retention?.payload_json, JSON.stringify({ reason: 'capacity' }));
+    assert.deepEqual(queuedTypes(service), ['capture_note'], 'under the cap nothing is evicted');
+    service.refreshConfig({ ...service.config, Observation: { ...service.config.Observation, RawStorageLimitGb: 1e-12 } });
+    service.ingestCapture(vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:40.000Z', pixelSha256: 'b'.repeat(64), foregroundContextKey: 'app:other' }));
+    assert.deepEqual(queuedTypes(service).sort(), ['capture_note', 'capture_note', 'capture_retention']);
   });
 });
 

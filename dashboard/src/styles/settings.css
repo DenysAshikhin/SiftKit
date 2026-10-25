@@ -115,7 +115,6 @@
 
 /* ---- assistant ---- */
 .assistant-view-nav { display: inline-flex; margin-bottom: 8px; }
-.assistant-security-note { color: var(--dim); font-size: 0.7rem; margin: 0 0 14px; }
 .assistant-config-groups { display: grid; gap: 10px; }
 .assistant-settings-group { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 12px 14px; }
 .assistant-settings-group h3 { margin: 0 0 10px; font-size: 0.8rem; }

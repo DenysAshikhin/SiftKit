@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { vaultKey } from '@siftkit/contracts';
 
-import { VaultRequestError } from '../../vault-api.ts';
-
+import { useAttachmentUrl } from '../../hooks/useAttachmentUrl.ts';
 import { noteBlocks, type VaultBlock, type VaultListItem } from '../../lib/vault-blocks.ts';
 import { inlineTokens, pillValue } from '../../lib/vault-inline.ts';
 import type { VaultActions } from './vault-actions.ts';
@@ -96,34 +95,10 @@ function ListItem(props: { readonly item: VaultListItem; readonly ctx: RenderCon
 
 const fileName = (target: string) => target.split('/').at(-1) ?? target;
 
-type EmbedState = { readonly kind: 'loading' } | { readonly kind: 'image'; readonly url: string } | { readonly kind: 'removed' } | { readonly kind: 'failed' };
-
-/** Fetches the attachment once per target and holds it as an object URL until unmount. */
+/** An embedded attachment, loaded through the vault actions and held as an object URL. */
 function EmbedImage(props: { readonly target: string; readonly className: string; readonly actions: VaultActions }) {
   const { target, className } = props;
-  const [state, setState] = useState<EmbedState>({ kind: 'loading' });
-  // The controller rebuilds its actions every render; only a new target should refetch.
-  const load = useRef(props.actions.attachment);
-  load.current = props.actions.attachment;
-  useEffect(() => {
-    let active = true;
-    let url: string | null = null;
-    setState({ kind: 'loading' });
-    void (async () => {
-      try {
-        const blob = await load.current(target);
-        if (!active) return;
-        url = window.URL.createObjectURL(blob);
-        setState({ kind: 'image', url });
-      } catch (error) {
-        if (active) setState({ kind: error instanceof VaultRequestError && error.status === 404 ? 'removed' : 'failed' });
-      }
-    })();
-    return () => {
-      active = false;
-      if (url !== null) window.URL.revokeObjectURL(url);
-    };
-  }, [target]);
+  const state = useAttachmentUrl(props.actions.attachment, target);
   if (state.kind === 'image') return <img className={className} src={state.url} alt={target} />;
   if (state.kind === 'loading') return <div className={className} title={target}>🖼 {fileName(target)}</div>;
   return <div className={`${className} v-embed-missing`} title={target}>{state.kind === 'removed' ? 'image removed' : 'image unavailable'}</div>;

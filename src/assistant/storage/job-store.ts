@@ -1,26 +1,16 @@
 import { z } from '../../lib/zod.ts';
-import { parseJsonText } from '../../lib/json.ts';
-import type { JsonObject } from '../../lib/json-types.ts';
+import { parseJsonObjectText } from '../../lib/json.ts';
+import type { AssistantConfig } from '../../config/types.ts';
 import type { RuntimeDatabase } from '../../state/runtime-db.ts';
 import type { Clock } from '../clock.ts';
 import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.ts';
 import type { IdGenerator } from '../ids.ts';
 import {
-  AssistantJobTypeSchema, CaptureNotePayloadSchema, CaptureRetentionPayloadSchema, ChatNotePayloadSchema, DailyRollupPayloadSchema,
-  MODEL_BACKED_JOB_TYPES, NoteTidyPayloadSchema,
-  type AssistantJobType, type CaptureNotePayload, type CaptureRetentionPayload, type ChatNotePayload, type DailyRollupPayload,
-  type NoteTidyPayload,
+  AssistantJobRequestSchema, MODEL_BACKED_JOB_TYPES, jobIdempotencyKey, jobPriority, type AssistantJobRequest,
 } from '../jobs/job-types.ts';
 import { IdRowSchema, JobRowSchema, type JobRow } from './rows.ts';
 
 const MODEL_BACKED_JOB_TYPE_PLACEHOLDERS = MODEL_BACKED_JOB_TYPES.map(() => '?').join(', ');
-
-export interface EnqueueJobInput {
-  readonly ownerId: string;
-  readonly jobType: AssistantJobType;
-  readonly payload: JsonObject;
-  readonly idempotencyKey: string;
-}
 
 export interface ClaimJobInput {
   readonly ownerId: string;
@@ -53,12 +43,15 @@ export class JobStore {
     this.ids = ids;
   }
 
-  /** Returns `null` when an equivalent job is already live — a replayed enqueue is a no-op. */
-  enqueue(input: EnqueueJobInput, priority: number): JobRow | null {
+  /** Validates the request and keys it by its payload; `null` when the same work is already live. */
+  enqueue(ownerId: string, request: AssistantJobRequest, priorities: AssistantConfig['Background']['JobPriorities']): JobRow | null {
+    const { jobType, payload } = AssistantJobRequestSchema.parse(request);
+    const priority = jobPriority(priorities, jobType);
     if (!Number.isInteger(priority)) {
       throw new Error(`Assistant job priority must be an integer; received ${priority}.`);
     }
-    if (this.findLiveByIdempotencyKey(input.ownerId, input.idempotencyKey) !== null) {
+    const idempotencyKey = jobIdempotencyKey(request);
+    if (this.findLiveByIdempotencyKey(ownerId, idempotencyKey) !== null) {
       return null;
     }
     const id = this.ids.next('job');
@@ -70,24 +63,10 @@ export class JobStore {
         last_error, created_at_utc, updated_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, NULL, NULL, NULL, ?, ?)
     `).run(
-      id, input.ownerId, AssistantJobTypeSchema.parse(input.jobType), priority,
-      JSON.stringify(input.payload), input.idempotencyKey, DEFAULT_MAX_ATTEMPTS,
+      id, ownerId, jobType, priority, JSON.stringify(payload), idempotencyKey, DEFAULT_MAX_ATTEMPTS,
       nowUtc, nowUtc, nowUtc,
     );
     return this.requireJob(id);
-  }
-
-  /**
-   * Enqueues after cancelling every queued job of the same type, so at most one job of this type
-   * waits. Running jobs survive so a newer graph version can queue a follow-up compile.
-   */
-  enqueueSuperseding(input: EnqueueJobInput, priority: number): JobRow | null {
-    this.database.prepare(`
-      UPDATE assistant_jobs
-      SET status = 'cancelled', updated_at_utc = ?
-      WHERE owner_id = ? AND job_type = ? AND status = 'queued'
-    `).run(this.clock.nowUtc(), input.ownerId, AssistantJobTypeSchema.parse(input.jobType));
-    return this.enqueue(input, priority);
   }
 
   claimNext(input: ClaimJobInput): JobRow | null {
@@ -205,8 +184,8 @@ export class JobStore {
   /** Attachment ids with a capture note job still queued, running, or paused. Payloads are parsed. */
   listLiveCaptureNoteAttachmentIds(ownerId: string): string[] {
     return LIVE_JOB_STATUSES.flatMap((status) => this.listByStatus(ownerId, status))
-      .filter((job) => job.job_type === 'capture_note')
-      .map((job) => this.readCaptureNotePayload(job).attachmentId);
+      .map((job) => this.readRequest(job))
+      .flatMap((request) => (request.jobType === 'capture_note' ? [request.payload.attachmentId] : []));
   }
 
   countByStatus(ownerId: string, status: JobStatus): number {
@@ -215,35 +194,9 @@ export class JobStore {
     `).get(ownerId, status)).count;
   }
 
-  readCaptureNotePayload(job: JobRow): CaptureNotePayload {
-    this.requireJobType(job, 'capture_note');
-    return parseJsonText(job.payload_json, CaptureNotePayloadSchema);
-  }
-
-  readChatNotePayload(job: JobRow): ChatNotePayload {
-    this.requireJobType(job, 'chat_note');
-    return parseJsonText(job.payload_json, ChatNotePayloadSchema);
-  }
-
-  readDailyRollupPayload(job: JobRow): DailyRollupPayload {
-    this.requireJobType(job, 'daily_rollup');
-    return parseJsonText(job.payload_json, DailyRollupPayloadSchema);
-  }
-
-  readNoteTidyPayload(job: JobRow): NoteTidyPayload {
-    this.requireJobType(job, 'note_tidy');
-    return parseJsonText(job.payload_json, NoteTidyPayloadSchema);
-  }
-
-  readCaptureRetentionPayload(job: JobRow): CaptureRetentionPayload {
-    this.requireJobType(job, 'capture_retention');
-    return parseJsonText(job.payload_json, CaptureRetentionPayloadSchema);
-  }
-
-  private requireJobType(job: JobRow, expected: AssistantJobType): void {
-    if (AssistantJobTypeSchema.parse(job.job_type) !== expected) {
-      throw new Error(`Job ${job.id} is ${job.job_type}, not ${expected}.`);
-    }
+  /** The request a stored job was enqueued with; a payload that no longer fits its type throws. */
+  readRequest(job: JobRow): AssistantJobRequest {
+    return AssistantJobRequestSchema.parse({ jobType: job.job_type, payload: parseJsonObjectText(job.payload_json) });
   }
 
   private findLiveByIdempotencyKey(ownerId: string, idempotencyKey: string): JobRow | null {

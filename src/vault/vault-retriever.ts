@@ -26,7 +26,8 @@ export interface VaultRetrieverOptions {
   readonly tokens: TokenCounter;
 }
 
-const EMPTY: VaultRetrieveResult = { renderedBlock: '', noteIds: [], tokenCount: 0 };
+/** No personal context: nothing matched, nothing fit, or memory is off. */
+export const EMPTY_RETRIEVAL: VaultRetrieveResult = { renderedBlock: '', noteIds: [], tokenCount: 0 };
 
 /** Links read as their display text and embeds drop out; the model gets prose, not vault syntax. */
 function plainText(text: string): string {
@@ -78,14 +79,14 @@ export class VaultRetriever {
     };
     let low = 0;
     let high = ranked.length;
-    if (fixed.length > 0 && (await measure(0)).tokenCount > limits.maxContextTokens) return EMPTY;
+    if (fixed.length > 0 && (await measure(0)).tokenCount > limits.maxContextTokens) return EMPTY_RETRIEVAL;
     while (low < high) {
       const mid = Math.ceil((low + high) / 2);
       if ((await measure(mid)).tokenCount <= limits.maxContextTokens) low = mid;
       else high = mid - 1;
     }
     const included = [...fixed, ...ranked.slice(0, low)];
-    if (included.length === 0) return EMPTY;
+    if (included.length === 0) return EMPTY_RETRIEVAL;
     const { text, tokenCount } = await measure(low);
     return { renderedBlock: text, noteIds: included.map((entry) => entry.id), tokenCount };
   }

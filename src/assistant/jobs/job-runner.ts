@@ -1,8 +1,6 @@
 import type { AssistantBackgroundWorkBlock } from '@siftkit/contracts';
 import type { AssistantConfig } from '../../config/types.ts';
-import type { RuntimeDatabase } from '../../state/runtime-db.ts';
 import { captureRetentionLimits, type VaultCaptureRetention } from '../../vault/capture-retention.ts';
-import { requireCapture } from '../../vault/captures.ts';
 import type { VaultCaptureWriter } from '../../vault/note-writer/capture-writer.ts';
 import type { VaultChatWriter } from '../../vault/note-writer/chat-writer.ts';
 import type { VaultDailyRollup } from '../../vault/note-writer/daily-rollup.ts';
@@ -11,7 +9,7 @@ import { localDay } from '../../vault/vault-time.ts';
 import type { BackgroundWorkDecisionStore } from '../storage/background-work-decision-store.ts';
 import type { JobStore } from '../storage/job-store.ts';
 import type { JobRow } from '../storage/rows.ts';
-import { isModelBackedJobType, jobPriority, type AssistantJobType } from './job-types.ts';
+import { isModelBackedJobType } from './job-types.ts';
 import type { ResourcePolicy } from './resource-policy.ts';
 
 /** The host tells the runner when background model work is allowed (§12.4). */
@@ -31,7 +29,6 @@ export interface ModelResidencyGate {
 export interface AssistantJobRunnerOptions {
   readonly jobs: JobStore;
   readonly decisions: BackgroundWorkDecisionStore;
-  readonly database: RuntimeDatabase;
   readonly captureWriter: VaultCaptureWriter;
   readonly chatWriter: VaultChatWriter;
   readonly dailyRollup: VaultDailyRollup;
@@ -186,31 +183,27 @@ export class AssistantJobRunner {
   }
 
   private async execute(ownerId: string, job: JobRow, signal: AbortSignal): Promise<void> {
-    const { jobs } = this.options;
-    switch (job.job_type) {
+    const request = this.options.jobs.readRequest(job);
+    switch (request.jobType) {
       case 'capture_note': {
-        const { attachmentId } = jobs.readCaptureNotePayload(job);
-        const outcome = await this.options.captureWriter.run(ownerId, attachmentId, signal);
+        const outcome = await this.options.captureWriter.run(ownerId, request.payload.attachmentId, signal);
         if (outcome.kind === 'awaiting_capability' || outcome.kind === 'already_processed') return;
-        this.enqueueFollowUps(ownerId, localDay(requireCapture(this.options.database, attachmentId).captured_at_utc),
-          outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
+        this.enqueueFollowUps(ownerId, localDay(outcome.capturedAtUtc), outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
         return;
       }
       case 'chat_note': {
-        const turn = jobs.readChatNotePayload(job);
-        const outcome = await this.options.chatWriter.run(ownerId, turn, signal);
+        const outcome = await this.options.chatWriter.run(ownerId, request.payload, signal);
         if (outcome.kind === 'suppressed') return;
-        this.enqueueFollowUps(ownerId, localDay(turn.capturedAtUtc), outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
+        this.enqueueFollowUps(ownerId, localDay(request.payload.capturedAtUtc), outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
         return;
       }
       case 'daily_rollup':
-        this.options.dailyRollup.run(jobs.readDailyRollupPayload(job).day);
+        this.options.dailyRollup.run(request.payload.day);
         return;
       case 'note_tidy':
-        await this.options.tidyPass.run(ownerId, jobs.readNoteTidyPayload(job).noteId, signal);
+        await this.options.tidyPass.run(ownerId, request.payload.noteId, signal);
         return;
       case 'capture_retention':
-        jobs.readCaptureRetentionPayload(job);
         this.options.retention.run(ownerId, captureRetentionLimits(this.config));
         return;
     }
@@ -218,12 +211,9 @@ export class AssistantJobRunner {
 
   /** A written note refreshes its day's rollup and, when enabled, tidies the entity notes it touched. */
   private enqueueFollowUps(ownerId: string, day: string, touchedNoteIds: readonly string[]): void {
-    this.enqueue(ownerId, 'daily_rollup', { day }, `daily_rollup:${day}`);
+    const priorities = this.config.Background.JobPriorities;
+    this.options.jobs.enqueue(ownerId, { jobType: 'daily_rollup', payload: { day } }, priorities);
     if (!this.config.Vault.TidyPassEnabled) return;
-    for (const noteId of touchedNoteIds) this.enqueue(ownerId, 'note_tidy', { noteId }, `note_tidy:${noteId}`);
-  }
-
-  private enqueue(ownerId: string, jobType: AssistantJobType, payload: Record<string, string>, idempotencyKey: string): void {
-    this.options.jobs.enqueue({ ownerId, jobType, payload, idempotencyKey }, jobPriority(this.config.Background.JobPriorities, jobType));
+    for (const noteId of touchedNoteIds) this.options.jobs.enqueue(ownerId, { jobType: 'note_tidy', payload: { noteId } }, priorities);
   }
 }
