@@ -95,3 +95,11 @@ test('runtime profile owns validation shaping and the full-output retry lifecycl
     decision: standard.beginRun(automaticCall),
   }), output);
 });
+
+test('runtime profile owns the invalid-response limit: the orchestrator conversation gets 5, every other kind 3, and a requested limit wins', () => {
+  for (const kind of REPO_SEARCH_TASK_KINDS) {
+    const profile = new RepoSearchRuntimeProfile(kind);
+    assert.equal(profile.resolveMaxInvalidResponses(undefined), kind === 'orchestrator' ? 5 : 3, kind);
+    assert.equal(profile.resolveMaxInvalidResponses(2), 2, kind);
+  }
+});

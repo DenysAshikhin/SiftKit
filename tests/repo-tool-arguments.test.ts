@@ -107,6 +107,15 @@ test('canonical schema accepts and normalizes every native repo-tool call', () =
       output: { toolName: 'ls', args: { path: '.', limit: 10 } },
     },
     {
+      // An empty or blank ls path names the repository root, as an omitted one does.
+      input: { toolName: 'ls', args: { path: '' } },
+      output: { toolName: 'ls', args: { path: '.' } },
+    },
+    {
+      input: { toolName: 'ls', args: { path: '   ' } },
+      output: { toolName: 'ls', args: { path: '.' } },
+    },
+    {
       input: { toolName: 'write', args: { path: '  out.txt  ', content: '\n' } },
       output: { toolName: 'write', args: { path: 'out.txt', content: '\n' } },
     },
@@ -184,7 +193,7 @@ test('canonical schema rejects malformed native arguments at the model boundary'
     { toolName: 'grep', args: { pattern: '   ' } },
     { toolName: 'grep', args: { pattern: 'x', ignoreCase: 'yes' } },
     { toolName: 'find', args: { pattern: '', limit: 1 } },
-    { toolName: 'ls', args: { path: '   ' } },
+    { toolName: 'ls', args: { path: 7 } },
     { toolName: 'write', args: { path: 'x', content: '' } },
     { toolName: 'edit', args: { path: 'x', edits: [] } },
     { toolName: 'edit', args: { path: 'x', edits: [{ oldText: '', newText: '' }] } },

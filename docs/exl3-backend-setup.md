@@ -3,12 +3,13 @@
 ## Installed deployment
 
 - TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `production-upstream` tracking official `main` at `2636ef602b55b5343cf3740dd55a77f21e0a8003` (2026-10-11 deployment; adds the `disk_cache_*` memory options). Roll back with `git checkout be74bf0` (2026-09-29).
-- ExLlamaV3 source: `C:\AI\exl3\dev-20261011\src`, branch `production-20261011` at `a1a91a8`. It contains upstream `dev` at `e7b0d2a` (EXL3 1.6.1, which includes the disk cache tier and the CPU-MoE host-core affinity) plus the Windows WDDM/NVML headroom patch ([#389](https://github.com/turboderp-org/exllamav3/pull/389), `5db9f89`) merged locally. The source checkout records build provenance; the runtime imports the installed wheel. The previous source `C:\AI\exl3\dev-20261006\src` (branch `production-20261006`, `5b88e4a`) remains for rollback.
+- ExLlamaV3 source: `C:\AI\exl3\dev-20261011\src`, branch `production-dev-20261026` at `8f05898`: upstream `dev` at `38a12522` (EXL3 1.6.5, 2026-10-25) plus one local commit carrying the Windows WDDM/NVML headroom patch ([#389](https://github.com/turboderp-org/exllamav3/pull/389)). The source checkout records build provenance; the runtime imports the installed wheel. Branch `production-dev-20261017` (`448f5ea7`, 1.6.3) and `production-20261011` (`a1a91a8`, 1.6.1) remain for rollback.
 - Base interpreter: `C:\AI\exl3\python\cpython-3.14.7-windows-x86_64-none\python.exe`, installed without PATH or registry changes.
 - Python: `C:\AI\exl3\prod-20260924\venv-runtime\Scripts\python.exe` (`3.14.7`)
 - Torch: `2.14.0+cu132`; CUDA build: `13.2`
-- ExLlamaV3: `1.6.1`, built 2026-10-11 with `npm run exl3:build-wheel` (12 jobs, sm_89, CUDA 13.2.2) to `C:\AI\exl3\packages\prod\a1a91a8\exllamav3-1.6.1-cp314-cp314-win_amd64.whl` (SHA-256 `03bf0930…6b5`; `build.json` records provenance). Its extension is `C:\AI\exl3\prod-20260924\venv-runtime\Lib\site-packages\exllamav3_ext.cp314-win_amd64.pyd` (SHA-256 `a266c745…79d7`). Installed into `venv-runtime` on 2026-10-11; `pip check` clean. Swift 5 bpw and Flash Next passed a 46.8k-token prompt, streamed `cached_tokens` (46,592 on repeat) and a reload on 1.6.1. The `5b88e4a` 1.5.4 wheel (previous production) and the `9f2f6f8` 1.5.4 wheel remain available for rollback.
-- Presets: Swift 5 bpw `exl3-3-8-27b-5bpw` (repo-agent, repo-search); Flash Next `exl3-3-8-27b`; Flash Next 3.50bpw FP16 `exl3-3-8-next-3-5bpw` (orchestrator, active) and Q8 `exl3-3-8-next-3-5bpw-q8`.
+- ExLlamaV3: `1.6.5`, built 2026-10-26 with `npm run exl3:build-wheel` (12 jobs, sm_89, CUDA 13.2.2) to `C:\AI\exl3\packages\prod\8f05898\exllamav3-1.6.5-cp314-cp314-win_amd64.whl` (SHA-256 `bfe654bc…c825`; `build.json` records provenance). Its extension is `C:\AI\exl3\prod-20260924\venv-runtime\Lib\site-packages\exllamav3_ext.cp314-win_amd64.pyd` (SHA-256 `128f9a9c…aea5`). Installed into `venv` and `venv-runtime` on 2026-10-26; `pip check` clean, no dependency changes. See the 2026-10-26 validation below.
+- Rollback wheels: 1.6.3 at `C:\AI\exl3\packages\prod\448f5ea\` (SHA-256 `59012262…ab50`, with `pip freeze` of both venvs and the WDDM patch as it stood), 1.6.1 at `C:\AI\exl3\packages\prod\a1a91a8\`. Restore with `pip install --no-deps --force-reinstall <wheel>` in both venvs after stopping the managed runtime.
+- Presets: Swift 5 bpw `exl3-3-8-27b-5bpw` (active; no disk cache); Flash Next 3.50bpw hq Q8 `exl3-3-8-next-3-5bpw-q8`; Swift1.5 Flash Next 3.50bpw hq Q8 `exl3-swift1-5-3-8-next-3-5bpw-q8` (MTP off); Swift1.5 Flash Next 4.00bpw hq2 Q8 `exl3-swift1-5-3-8-next-4bpw-hq2-q8`. The Flash Next presets share `D:\AI\exl3-disk-cache` (51200 MiB).
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
 - Managed command: `C:\AI\exl3\prod-20260924\venv-runtime\Scripts\python.exe main.py`, with the Tabby checkout as its working directory and the active preset's `TABBY_*` overrides.
 - API: `http://127.0.0.1:8098/v1`
@@ -64,6 +65,8 @@ A preset's `DiskCacheDir` enables exllamav3's disk tier behind the CPU page cach
 
 Hybrid recurrent models resume only from a stored recurrent checkpoint, and the disk tier keeps checkpoints no closer than `DiskCacheCheckpointInterval` tokens. Orchestrator parent phases share a ~2–2.5k-token prefix, so at 4096 every first parent request after a swap got 0 cached tokens; at 2048 (the chunk size) it got 2048–4096. The default is therefore 2048; keep it at or below the chunk size for orchestrator presets.
 
+The fingerprint includes the EXL3 version (`manifest.json` → `inputs.exllamav3`), so every EXL3 upgrade starts every model cold and leaves the old folders unreadable. They still count against the root budget: at open a new folder only removes stale siblings until its current size (zero) fits, then evicts its own pages first and reclaims from siblings about 256 MiB at a time. With a full root, a new folder's budget starts near 0.1 GB and a 65k-token prompt is not retained across a switch. After an upgrade, with the managed runtime on a preset without disk cache, move or delete the folders whose manifest names the old version. On 2026-10-26 the two 1.6.3 folders (49.4 GiB) were moved to `D:\AI\exl3-disk-cache-stale-1.6.3` (delete when 1.6.3 rollback is no longer needed).
+
 A failed engine start reports the engine's last Python exception line, for example `TabbyAPI exited unexpectedly (code=1, signal=null): RuntimeError: Insufficient VRAM in split for model and cache`. On WDDM an over-allocated load can instead surface as `RuntimeError: CUDA driver error: device not ready` (the driver could not create a GPU mapping).
 
 Validated 2026-10-11 with `D:\AI\exl3-disk-cache` (50 GiB budget), `CacheRam` 2048 and interval 2048 on both Flash Next presets, Swift 5 bpw (no disk cache) as repo-agent/repo-search:
@@ -73,6 +76,11 @@ Validated 2026-10-11 with `D:\AI\exl3-disk-cache` (50 GiB budget), `CacheRam` 20
 - Since 2026-10-12 a parent answer that fails its schema gets one repair turn constrained by `response_format: json_schema` on the cached prefix (`task_answer_repair_requested` in the transcript), and final verification retries bad citations like task review. With 3.50bpw hq/FP16 as parent: 3 of 3 runs completed, 0 parent phase retries; 3 repairs in 20 parent calls, all schema-valid.
   - With 3.50bpw hq/Q8 (372 CPU experts) as parent, the same test: 3 of 3 runs completed, 0 parent phase retries; 4 repairs in 21 parent calls, all schema-valid. FP16's repairs were wrong shapes; two of Q8's were broken JSON syntax (`Colon expected`). Neither had an invalid tool call. Peak VRAM 23,652 MiB.
   - The constraint did not slow decoding: repair turns ran at 16.7 tok/s (FP16) and 11.6 tok/s (Q8), against 10.7 and 10.8 tok/s for normal turns, which include prefill. A repair costs a full rewrite of the answer, about 2.5 minutes for a whole plan.
+
+Validated 2026-10-26 on 1.6.5 through the managed status server (functional checks; no throughput comparison against 1.6.3):
+- Swift 27B 5 bpw and Swift1.5 Flash Next 4.00bpw hq2: streaming usage with MTP counters (Flash Next 901/949 drafts accepted), `json_schema` output, a 65.6k-token prompt repeated with 65,536 `cached_tokens`, unload/load/reload. Peak VRAM (nvidia-smi) 23,140 MiB Swift, 23,644 MiB Flash Next.
+- Switching Flash Next 4.00bpw hq2 ↔ 3.50bpw Q8 with the root already full of 1.6.3 folders loaded without stalls, but kept only ~0.3 GB per model (see the upgrade note above). After moving the stale folders, each switch back restored 65,536 of 65,578 prompt tokens from disk: first token ~3 s against ~28 s cold.
+- Upstream EXL3 tests against the installed wheel: WDDM headroom, disk cache, tokenizer chunking, prefill scheduling, batched readback, cache edges, quantized-KV staging, GDN, sparse head: 159 passed, 17 skipped (test models or a second GPU unavailable). The full native suite was not run.
 
 ### CPU-MoE host-core affinity
 
@@ -125,7 +133,14 @@ used by SiftKit. Validate the saved presets in `venv-runtime` before using the n
 for managed inference.
 
 The wheel builder replaces the retired editable-install updater. It refuses to overwrite an
-existing commit's build artifacts.
+existing commit's build artifacts. Keep the WDDM patch as a local commit on a new branch from
+`origin/dev` so the source is clean for the builder.
+
+1.6.5 behavior changes reach the managed runtime without Tabby changes: fair prefill/decode
+scheduling is on by default (`prefill_cooldown=4`), quantized-KV prefill staging is capped by
+`EXL3_QC_STAGING_PAGES` (default 256), and batched speculative readback is on
+(`EXL3_NO_BATCH_READBACK=1` restores the serial path). Sparse-head drafting and `draft_max_rows`
+default off and Tabby does not expose them.
 
 Install Tabby's base project without CUDA extras when its requirements change:
 

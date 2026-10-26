@@ -65,6 +65,11 @@ test('the orchestrator prompt delegates code exploration to survey tasks and rev
   assert.equal(prompt.includes('review each'), false, 'surveys are never sent for review');
 });
 
+test('the orchestrator adds implementation tasks in small batches in dependency order', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  assert.ok(prompt.includes('at most 4 tasks per update_tasks call, in dependency order'), prompt);
+});
+
 test('the review step judges every deviation and host finding, and treats a weakened or silenced test as a defect', () => {
   const prompt = buildOrchestratorPrompt(brief());
   for (const rule of ['a weakened or silenced test', 'Judge every deviation and host finding against that list',

@@ -136,11 +136,64 @@ function describeUnparsedJson(args: JsonObject, issue: z.core.$ZodIssue | undefi
   }
 }
 
-function parseDefinitionArguments<T>(
-  toolCall: InferenceToolCall,
-  args: JsonObject,
-  argumentSchema: z.ZodType<T>,
-): T {
+/** The schema node a field path leads to in a tool's JSON-schema parameters. */
+function readSchemaPath(parameters: JsonObject, path: readonly PropertyKey[]): OptionalJsonValue {
+  let node: OptionalJsonValue = parameters;
+  for (const key of path) {
+    const current = firstVariant(node);
+    if (!isJsonObject(current)) return undefined;
+    node = typeof key === 'number' ? current.items : isJsonObject(current.properties) ? current.properties[String(key)] : undefined;
+  }
+  return node;
+}
+
+/** An optional or nullable field is a union; its first non-null branch is the shape to show. */
+function firstVariant(node: OptionalJsonValue): OptionalJsonValue {
+  if (!isJsonObject(node) || !Array.isArray(node.anyOf)) return node;
+  return node.anyOf.find((branch) => !(isJsonObject(branch) && branch.type === 'null'));
+}
+
+// Deep enough to show an array of objects and their fields; anything deeper is elided.
+const MAX_SHAPE_DEPTH = 2;
+
+/** A compact example of the JSON a schema node accepts. */
+function describeShape(schemaNode: OptionalJsonValue, depth: number): string {
+  const node = firstVariant(schemaNode);
+  if (!isJsonObject(node)) return '…';
+  if (node.type === 'array') return depth >= MAX_SHAPE_DEPTH ? '[…]' : `[${describeShape(node.items, depth + 1)}]`;
+  if (node.type === 'object' && isJsonObject(node.properties)) {
+    if (depth >= MAX_SHAPE_DEPTH) return '{…}';
+    return `{${Object.entries(node.properties).map(([key, value]) => `"${key}": ${describeShape(value, depth + 1)}`).join(', ')}}`;
+  }
+  if (node.type === 'string') return '"…"';
+  if (node.type === 'number' || node.type === 'integer') return '0';
+  return node.type === 'boolean' ? 'false' : '…';
+}
+
+/** For a field of the wrong structure, the shape it expects, so the model can resend it right. */
+function describeExpectedShape(parameters: JsonObject, issue: z.core.$ZodIssue | undefined): string {
+  if (issue?.code !== 'invalid_type' || (issue.expected !== 'array' && issue.expected !== 'object')) return '';
+  return `; expected shape: ${describeShape(readSchemaPath(parameters, issue.path), 0)}`;
+}
+
+/** The whole arguments object a model sent inside its only argument, as JSON text or an object. */
+function readWrappedArguments(args: JsonObject, parameters: JsonObject): JsonObject | null {
+  const values = Object.values(args);
+  if (values.length !== 1) return null;
+  let inner: OptionalJsonValue = values[0];
+  if (typeof inner === 'string') {
+    try {
+      inner = JsonValueSchema.parse(JSON.parse(inner));
+    } catch {
+      return null;
+    }
+  }
+  const names = isJsonObject(parameters.properties) ? Object.keys(parameters.properties) : [];
+  if (!isJsonObject(inner) || Object.keys(inner).length === 0) return null;
+  return Object.keys(inner).every((key) => names.includes(key)) ? inner : null;
+}
+
+function validateArguments<T>(args: JsonObject, argumentSchema: z.ZodType<T>): { candidate: JsonObject; validated: z.ZodSafeParseResult<T> } {
   let candidate = args;
   let validated = argumentSchema.safeParse(candidate);
   for (let repairs = 0; !validated.success && repairs < MAX_STRINGIFIED_ARGUMENT_REPAIRS; repairs += 1) {
@@ -151,13 +204,26 @@ function parseDefinitionArguments<T>(
     candidate = repaired;
     validated = argumentSchema.safeParse(candidate);
   }
+  return { candidate, validated };
+}
+
+function parseDefinitionArguments<T>(
+  toolCall: InferenceToolCall,
+  args: JsonObject,
+  argumentSchema: z.ZodType<T>,
+  parameters: JsonObject,
+): T {
+  const direct = validateArguments(args, argumentSchema);
+  const wrapped = direct.validated.success ? null : readWrappedArguments(args, parameters);
+  const { candidate, validated } = wrapped === null ? direct : validateArguments(wrapped, argumentSchema);
   if (validated.success) {
     return validated.data;
   }
   const issue = validated.error.issues[0];
   const detail = issue?.message ?? validated.error.message;
   throw new NativePlannerToolCallError(
-    `Tool "${toolCall.function.name.trim()}" has invalid "${formatIssuePath(issue?.path ?? [])}": ${detail}${describeUnparsedJson(candidate, issue)}`,
+    `Tool "${toolCall.function.name.trim()}" has invalid "${formatIssuePath(issue?.path ?? [])}": ${detail}`
+      + `${describeUnparsedJson(candidate, issue)}${describeExpectedShape(parameters, issue)}`,
     toolCall.id,
     toolCall.function.name.trim(),
     args,
@@ -182,9 +248,9 @@ function parseToolAction(
   }
 
   if (definition.kind === 'finish') {
-    return parseDefinitionArguments(toolCall, args, definition.argumentSchema);
+    return parseDefinitionArguments(toolCall, args, definition.argumentSchema, definition.function.parameters);
   }
-  const validatedArgs = parseDefinitionArguments(toolCall, args, definition.argumentSchema);
+  const validatedArgs = parseDefinitionArguments(toolCall, args, definition.argumentSchema, definition.function.parameters);
 
   return {
     kind: 'tool',

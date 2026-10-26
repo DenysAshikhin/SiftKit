@@ -394,8 +394,57 @@ test('malformed JSON where an array is expected names the parse error so the mod
       { toolDefinitions, contentWithoutTools: 'finish' },
     ),
     (error) => error instanceof NativePlannerToolCallError
-      && /invalid "edits": Invalid input: expected array, received string; the string is not valid JSON: Expected ',' or '\]' after array element in JSON at position 33 \(line 1 column 34\), near: "a", "newText": "b"\}\}\]$/u
+      && /invalid "edits": Invalid input: expected array, received string; the string is not valid JSON: Expected ',' or '\]' after array element in JSON at position 33 \(line 1 column 34\), near: "a", "newText": "b"\}\}\]; expected shape: \[\{"oldText": "…", "newText": "…"\}\]$/u
         .test(error.message),
+  );
+});
+
+test('arguments sent whole inside their only argument, as a JSON string or an object, are read from it', () => {
+  const args = { path: 'README.md', edits: [{ oldText: 'a', newText: 'b' }] };
+  for (const wrapped of [JSON.stringify(args), args]) {
+    assert.deepEqual(
+      parseNativePlannerActions(
+        { text: '', toolCalls: [call('edit-5', 'edit', { edits: wrapped })] },
+        { toolDefinitions, contentWithoutTools: 'finish' },
+      ),
+      [{ kind: 'tool', callId: 'edit-5', toolName: 'edit', args }],
+    );
+  }
+});
+
+test('an object under the only argument is not read as the arguments when it names fields the tool lacks', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '', toolCalls: [call('edit-6', 'edit', { edits: JSON.stringify({ path: 'README.md', unrelated: 1 }) })] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerToolCallError && /invalid "path"/u.test(error.message),
+  );
+});
+
+test('a field of the wrong structure names the shape it expects', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '', toolCalls: [call('edit-7', 'edit', { path: 'README.md', edits: 'replace 161 with 167' })] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerToolCallError
+      && /invalid "edits": Invalid input: expected array, received string; .*; expected shape: \[\{"oldText": "…", "newText": "…"\}\]$/u
+        .test(error.message),
+  );
+});
+
+test('the expected shape stops two levels down', () => {
+  const NestedSchema = z.strictObject({
+    update: z.array(z.strictObject({ taskId: z.string(), set: z.strictObject({ title: z.string() }).partial() })),
+  }).transform((value) => JsonObjectSchema.parse(value));
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '', toolCalls: [call('nested-1', 'nested', { update: 'none' })] },
+      { toolDefinitions: [definition('nested', NestedSchema, { update: [] })], contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerToolCallError
+      && error.message.endsWith('expected shape: [{"taskId": "…", "set": {…}}]'),
   );
 });
 

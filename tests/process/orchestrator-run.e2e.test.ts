@@ -244,6 +244,32 @@ test('a writer that edits a test outside its writePaths reaches the orchestrator
   assert.equal(report.includes('writePaths: src/other.ts'), false, 'a source file outside writePaths is not a test finding');
 });
 
+const INVALID_SAVE_PLAN = tool('save_plan', { tasks: [] });
+
+test('the orchestrator conversation survives four invalid responses in a row and goes on', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-invalid-four-');
+  const { engine } = context;
+  engine.parent.push([INVALID_SAVE_PLAN, INVALID_SAVE_PLAN, INVALID_SAVE_PLAN, INVALID_SAVE_PLAN, savePlan(),
+    { content: '{"status":"blocked","reason":"Stop after the plan."}' }]);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.failure?.code, 'blocked', JSON.stringify(state.failure));
+  assert.ok(state.plan, 'the valid save_plan after four slips was applied');
+});
+
+test('a fifth invalid response in a row ends the orchestrator conversation', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-invalid-five-');
+  const { engine } = context;
+  engine.parent.push([INVALID_SAVE_PLAN, INVALID_SAVE_PLAN, INVALID_SAVE_PLAN, INVALID_SAVE_PLAN, INVALID_SAVE_PLAN, savePlan()]);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.phase, 'failed');
+  assert.match(state.failure?.message ?? '', /invalid_response_limit/u);
+  assert.equal(state.plan, null, 'the save_plan after the fifth slip never ran');
+});
+
 test('a child out of resubmits reports its failing checks, and the orchestrator dispatches a fresh second attempt', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-retry-');
   const { engine } = context;
@@ -341,6 +367,18 @@ test('update_tasks revises the saved plan and its Markdown, and save_plan only m
   assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['greeting', 'pending'], ['read-app', 'completed']]);
   assert.ok(state.planPath);
   assert.match(fs.readFileSync(path.join(context.repo, state.planPath ?? ''), 'utf8'), /Write the greeting module/u);
+});
+
+test('update_tasks sent whole as a string inside its update argument, as a live run did, revises the plan', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-update-wrapped-');
+  const { engine } = context;
+  engine.parent.push([savePlan(), tool('update_tasks', { update: JSON.stringify({ add: [READ_TASK] }) }),
+    { content: '{"status":"blocked","reason":"Stop after the update."}' }]);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.match(engine.parentToolOutputs()[1] ?? '', /^Plan updated: .*plan\.md now has 2 task\(s\)\./u);
+  assert.deepEqual(state.plan?.tasks.map((task) => task.id), ['greeting', 'read-app']);
 });
 
 test('a read-only task is decided by its checks: a pass completes it unreviewed, a failure returns it for one more attempt', async (t) => {

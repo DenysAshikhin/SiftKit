@@ -9,6 +9,8 @@ import {
 } from './validation-command-output-policy.ts';
 
 export const REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT = 50;
+export const DEFAULT_MAX_INVALID_RESPONSES = 3;
+export const ORCHESTRATOR_MAX_INVALID_RESPONSES = 5;
 
 export class RepoSearchRuntimeProfile {
   private readonly validationOutputPolicy = new ValidationCommandOutputPolicy(
@@ -32,6 +34,15 @@ export class RepoSearchRuntimeProfile {
     return this.taskKind === 'repo-agent'
       ? REPO_AGENT_DEFAULT_MAX_TURNS
       : standardDefault;
+  }
+
+  /**
+   * How many invalid responses in a row end the loop. The orchestrator writes the largest tool arguments of a
+   * long, costly conversation, so a few slips there must not end a run that is otherwise healthy.
+   */
+  resolveMaxInvalidResponses(requestedMaxInvalidResponses: number | undefined): number {
+    if (requestedMaxInvalidResponses !== undefined) return requestedMaxInvalidResponses;
+    return this.taskKind === 'orchestrator' ? ORCHESTRATOR_MAX_INVALID_RESPONSES : DEFAULT_MAX_INVALID_RESPONSES;
   }
 
   get loopKind(): RepoSearchLoopKind {

@@ -100,6 +100,51 @@ test('repo-agent resumes after compacting recoverable reasoning history', async 
   }
 });
 
+test('compaction clears the invalid-response streak, so the first slip after it does not end the run', async () => {
+  const dir = createManagedTempDir('siftkit-agent-compaction-streak-');
+  const invalidLs = { name: 'ls', arguments: { recursive: true } };
+  try {
+    const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
+      taskKind: 'repo-agent',
+      prompt: 'inspect the helper directory',
+      repoRoot: dir,
+      config: mockSiftConfig({
+        Server: {
+          ModelPresets: {
+            ActivePresetId: 'default',
+            Presets: [{
+              id: 'default',
+              NumCtx: 9_000,
+              Reasoning: 'on',
+              ReasoningContent: true,
+              PreserveThinking: true,
+              MaintainPerStepThinking: true,
+              IdleAction: 'unload',
+            }],
+          },
+        },
+      }),
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: [
+        { toolCalls: [invalidLs] },
+        // A second slip whose reasoning overflows the next turn, which compacts before asking again.
+        { thinking: 'H'.repeat(18_000), toolCalls: [invalidLs] },
+        { content: 'SUMMARY BODY' },
+        { toolCalls: [invalidLs] },
+        ...repoAgentFinishResponses('completed after a slip past compaction'),
+      ],
+      mockCommandResults: {},
+    });
+
+    assert.equal(result.scorecard.verdict, 'pass', JSON.stringify(result.scorecard.tasks[0]));
+    assert.equal(result.scorecard.tasks[0]?.finalOutput, 'completed after a slip past compaction');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('repo-agent attempts compaction and fails when its summarization prompt is oversized', async () => {
   const dir = createManagedTempDir('siftkit-agent-overflow-');
   try {

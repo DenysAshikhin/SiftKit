@@ -22,7 +22,6 @@ import { TaskResultSchema, taskPassed } from './engine/task-loop-support.ts';
 import type { TurnTokenRecord } from './engine/turn-token-record.ts';
 import type { ApprovalGate } from './engine/approval-gate.ts';
 import {
-  DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_MAX_TURNS,
   DEFAULT_TIMEOUT_MS,
   type RunTaskLoopOptions,
@@ -241,7 +240,7 @@ export async function runRepoSearch(options: {
       totalContextTokens: getConfiguredEngineNumCtx(config),
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
       maxTurns: runtimeProfile.resolveMaxTurns(options.maxTurns, DEFAULT_MAX_TURNS),
-      maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
+      maxInvalidResponses: runtimeProfile.resolveMaxInvalidResponses(options.maxInvalidResponses),
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
       runtimeProfile,
       streamFinishAsAnswer: options.streamFinishAsAnswer,

@@ -34,6 +34,8 @@ export function restoreModelCommandSeparators(value: string): string {
 
 const RequiredTrimmedTextSchema = z.string().trim().min(1);
 const PathSchema = RequiredTrimmedTextSchema.transform((value) => restoreWindowsSeparators(value, 'path'));
+// An empty or blank directory names the repository root, as an omitted one does.
+const DirectoryPathSchema = z.string().trim().transform((value) => (value === '' ? '.' : restoreWindowsSeparators(value, 'path')));
 const CommandSchema = RequiredTrimmedTextSchema.transform(restoreModelCommandSeparators);
 const PositiveIntegerSchema = z.number().int().positive();
 const VerbatimNonEmptyTextSchema = z.string().min(1);
@@ -68,7 +70,7 @@ export const FindToolArgsSchema = z.object({
 }).strict();
 
 export const LsToolArgsSchema = z.object({
-  path: PathSchema.describe('Directory to list (default: repository root)').optional(),
+  path: DirectoryPathSchema.describe('Directory to list (default: repository root)').optional(),
   limit: PositiveIntegerSchema.describe('Maximum number of entries to return (default: 500)').optional(),
 }).strict();
 

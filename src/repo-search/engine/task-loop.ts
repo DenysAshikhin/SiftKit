@@ -66,11 +66,11 @@ import { ForcedFinishController } from './forced-finish.ts';
 import { ProgressReporter } from './progress-reporter.ts';
 import { PromptPreparer, type PreparedTurnBudget } from './prompt-preparer.ts';
 import { ReadWindowGovernor } from './read-window-governor.ts';
+import { DEFAULT_MAX_INVALID_RESPONSES } from './runtime-profile.ts';
 import {
   buildAssistantReplayMessage,
   buildToolLimitReachedSummary,
   buildWebToolsForTaskLoop,
-  DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
   describeStreamTruncation,
   findAnswerSchemaProblem,
@@ -105,7 +105,6 @@ import { ModeSwitchedApprovalRequester } from './approval-mode-requester.ts';
 import type { RepoSearchLoopKind } from '../task-kind.ts';
 
 export {
-  DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
   type RunTaskLoopOptions,
   type TaskDefinition,
@@ -513,6 +512,8 @@ export class TaskLoop {
       // The compacted transcript no longer holds earlier results, so re-reading or repeating them is allowed.
       this.readWindows.invalidateAll();
       this.duplicates.forgetSuccesses();
+      // The slips before compaction came from a context the model no longer holds; its streak starts over.
+      this.counters.invalidResponses = 0;
     }
 
     this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
