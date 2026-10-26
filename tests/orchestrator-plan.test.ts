@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { SiftConfig } from '../src/config/types.ts';
-import { validateOrchestratorPlan } from '../src/orchestrator/plan.ts';
+import { findTestPathsOutsideScope, validateOrchestratorPlan } from '../src/orchestrator/plan.ts';
 import { getDefaultServerConfig } from './helpers/mock-config.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
@@ -82,4 +82,15 @@ test('verification commands and evidence paths are repository scoped too', () =>
     verification: [{ kind: 'command', command: 'npm test', cwd: '../elsewhere', expectedExitCode: 0 }],
   })]);
   assert.throws(() => validateOrchestratorPlan(plan, getDefaultServerConfig(), repoRoot), /path '..\/elsewhere' escapes the repository/u);
+});
+
+test('a changed test file outside the writePaths of its task is out of scope; source files and in-scope tests are not', () => {
+  const task = makeOrchestratorTask({ id: 'greeting', writePaths: ['src/greeting.ts', 'tests/greeting.test.ts', 'tests/fixtures'] });
+  const changed = [
+    'src/greeting.ts', 'src/other.ts', 'tests/greeting.test.ts', 'tests/fixtures/greeting.json',
+    'tests/process/audit.test.ts', 'dashboard/tests/panel.test.tsx', 'src/lib/__tests__/helper.ts', 'src/widget.spec.ts', 'tests/helpers/harness.ts',
+  ];
+  assert.deepEqual(findTestPathsOutsideScope(task, changed),
+    ['tests/process/audit.test.ts', 'dashboard/tests/panel.test.tsx', 'src/lib/__tests__/helper.ts', 'src/widget.spec.ts', 'tests/helpers/harness.ts']);
+  assert.deepEqual(findTestPathsOutsideScope(makeOrchestratorTask({ id: 'root', writePaths: ['.'] }), changed), []);
 });

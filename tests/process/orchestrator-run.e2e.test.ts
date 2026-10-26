@@ -229,6 +229,21 @@ test('failing checks go back to the same child, which fixes them and resubmits i
   assert.doesNotMatch(engine.parentToolOutputs()[1] ?? '', /^@@ /mu, 'and no diff hunks');
 });
 
+test('a writer that edits a test outside its writePaths reaches the orchestrator as a host finding naming that test', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-out-of-scope-test-');
+  const { engine } = context;
+  engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' }), { content: '{"status":"blocked","reason":"Stop after the report."}' }]);
+  engine.children.push([writeFile(GREETING), APPROVING_VERDICT, writeFile('// allow-listed\n', 'tests/audit.test.ts'), APPROVING_VERDICT,
+    writeFile('export const other = 2;\n', 'src/other.ts'), APPROVING_VERDICT, AGENT_REPORT]);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.failure?.code, 'blocked', [JSON.stringify(state.failure), ...engine.parentToolOutputs()].join('\n---\n'));
+  const report = engine.parentToolOutputs()[1] ?? '';
+  assert.match(report, /Host findings:\n- Changed test files outside this task's writePaths: tests\/audit\.test\.ts\./u);
+  assert.equal(report.includes('writePaths: src/other.ts'), false, 'a source file outside writePaths is not a test finding');
+});
+
 test('a child out of resubmits reports its failing checks, and the orchestrator dispatches a fresh second attempt', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-retry-');
   const { engine } = context;

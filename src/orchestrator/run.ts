@@ -59,7 +59,7 @@ import { renderRunDigest } from './digest.ts';
 import { renderAttemptForParent, type HandoffKind } from './handoff.ts';
 import { OrchestratorLiveActivity } from './live-activity.ts';
 import { OrchestratorInfrastructureError, ParentLease } from './parent-lease.ts';
-import { renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
+import { findTestPathsOutsideScope, renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
 import { buildChildInstruction, buildOrchestratorPrompt, type PlanWorker } from './prompts.ts';
 import { findReviewProblems } from './review.ts';
 import { isMutatingTask, planDispatch, workerModelPreset } from './scheduler.ts';
@@ -547,6 +547,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const record = child.submission.record();
     const changes = record?.changes ?? measured;
     const outcome = record?.outcome ?? 'not_submitted';
+    const outsideScope = findTestPathsOutsideScope(child.task, changes.paths);
     const result: OrchestratorAttemptResult = {
       taskId: child.task.id, purpose: child.attempt.purpose, attempt: child.attempt.attempt, childRunId: child.attempt.childRunId,
       workerStatus, workerOutput, report: record?.report ?? null, outcome, submissions: record?.submissions ?? 0,
@@ -554,6 +555,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       findings: [
         ...(workerStatus === 'completed' ? [] : [`The worker ended ${workerStatus}.`]),
         ...(record === null ? ['The child never submitted a report.'] : record.findings),
+        ...(outsideScope.length === 0 ? [] : [`Changed test files outside this task's writePaths: ${outsideScope.join(', ')}.`]),
       ],
       changedPaths: changes.paths,
       changeDigest: changes.digest,

@@ -24,6 +24,14 @@ export function requireOrchestratorWorkerPreset(config: SiftConfig, task: Pick<O
   return preset;
 }
 
+const TEST_PATH = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/u;
+
+/** Changed test files the task never named in writePaths; a review must judge each one. */
+export function findTestPathsOutsideScope(task: Pick<OrchestratorTask, 'writePaths'>, changedPaths: readonly string[]): string[] {
+  const inScope = (path: string): boolean => task.writePaths.some((entry) => entry === '.' || path === entry || path.startsWith(`${entry}/`));
+  return changedPaths.filter((path) => TEST_PATH.test(path) && !inScope(path));
+}
+
 function scopePath(repoRoot: string, owner: string, rawPath: string): string {
   const resolved = resolveRepoScopedPath(repoRoot, rawPath);
   if (resolved === null) throw new Error(`${owner} path '${rawPath.replace(/\\/gu, '/')}' escapes the repository.`);

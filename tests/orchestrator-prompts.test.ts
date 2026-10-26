@@ -65,6 +65,14 @@ test('the orchestrator prompt delegates code exploration to survey tasks and rev
   assert.equal(prompt.includes('review each'), false, 'surveys are never sent for review');
 });
 
+test('the review step judges every deviation and host finding, and treats a weakened or silenced test as a defect', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  for (const rule of ['a weakened or silenced test', 'Judge every deviation and host finding against that list',
+    'a change to a test outside the task', 'is a finding unless the plan asked for it']) {
+    assert.ok(prompt.includes(rule), rule);
+  }
+});
+
 test('a supplied plan is quoted whole, and the task line says to execute it when no task was given', () => {
   const prompt = buildOrchestratorPrompt(brief({ task: null, suppliedPlan: { path: 'docs/plan.md', markdown: '# Plan\n## Task a' } }));
   assert.match(prompt, /Requested task: \(none; execute the supplied plan\)/u);
