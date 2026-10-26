@@ -102,7 +102,7 @@ const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
 const DOT_SEGMENT = /(?:^|[\\/])\.{1,2}(?:[\\/]|$)/u;
 
 /** One key per disk-cache root: separators unified, trailing separators dropped, case-insensitive. */
-function diskCacheRootKey(directory: string): string {
+export function diskCacheRootKey(directory: string): string {
   return directory.replace(/\//gu, '\\').replace(/\\+$/u, '').toLowerCase();
 }
 

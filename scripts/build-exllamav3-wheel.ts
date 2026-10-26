@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 
-const AbsolutePathSchema = z.string().min(1).refine(path.isAbsolute, 'Expected an absolute path');
+export const AbsolutePathSchema = z.string().min(1).refine(path.isAbsolute, 'Expected an absolute path');
 const ToolchainSchema = z.object({
   python: AbsolutePathSchema,
   cuda: AbsolutePathSchema,
@@ -92,8 +92,52 @@ export function buildJobCount(logicalCpus: number) {
   return Math.max(1, Math.floor(logicalCpus / 2));
 }
 
-function hashFile(file: string) {
+export function hashFile(file: string) {
   return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+
+const WHEEL_SHA256_FILE = 'wheel.sha256';
+
+/** Records the wheel's hash beside it as `<sha256> *<wheel name>`. */
+export function writeWheelSha256(wheel: string) {
+  const sha256 = hashFile(wheel);
+  writeFileSync(path.join(path.dirname(wheel), WHEEL_SHA256_FILE), `${sha256} *${path.basename(wheel)}\n`);
+  return sha256;
+}
+
+/** The hash recorded beside the wheel; fails unless the record names this wheel. */
+export function readWheelSha256(wheel: string) {
+  const file = path.join(path.dirname(wheel), WHEEL_SHA256_FILE);
+  if (!existsSync(file)) throw new Error(`${file} is missing; it records the wheel's expected hash.`);
+  const match = /^([a-f0-9]{64}) \*(.+)$/u.exec(readFileSync(file, 'utf8').trim());
+  if (!match?.[1] || match[2] !== path.basename(wheel)) throw new Error(`${file} does not describe ${path.basename(wheel)}.`);
+  return match[1];
+}
+
+/**
+ * Checks every hashed file in the installed wheel's RECORD and fails on a package file the RECORD
+ * does not list (a stale module from an earlier install). Bytecode caches are regenerated, so ignored.
+ */
+export function verifyInstalledRecord(sitePackages: string, version: string) {
+  const record = path.join(sitePackages, `exllamav3-${version}.dist-info`, 'RECORD');
+  if (!existsSync(record)) throw new Error(`${record} is missing; exllamav3 ${version} is not installed.`);
+  const listed = new Set<string>();
+  const problems: string[] = [];
+  for (const line of readFileSync(record, 'utf8').split(/\r?\n/u).filter(Boolean)) {
+    const match = /^(.+),(?:sha256=([A-Za-z0-9_-]+))?,\d*$/u.exec(line);
+    if (!match?.[1]) throw new Error(`Unreadable RECORD line in ${record}: ${line}`);
+    listed.add(match[1]);
+    if (!match[2]) continue;
+    const file = path.join(sitePackages, match[1]);
+    if (!existsSync(file)) problems.push(`missing: ${match[1]}`);
+    else if (createHash('sha256').update(readFileSync(file)).digest('base64url') !== match[2]) problems.push(`changed: ${match[1]}`);
+  }
+  const packageFiles = readdirSync(path.join(sitePackages, 'exllamav3'), { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(sitePackages, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
+    .filter((name) => !name.split('/').includes('__pycache__'));
+  problems.push(...packageFiles.filter((name) => !listed.has(name)).map((name) => `not in the wheel: ${name}`));
+  if (problems.length > 0) throw new Error(`Installed exllamav3 ${version} does not match its wheel:\n${problems.join('\n')}`);
 }
 
 function samePath(left: string, right: string) {
@@ -111,11 +155,15 @@ export function readMsvcEnvironment(vcvars: string, cwd: string) {
   return environment;
 }
 
+function readTorchInfo(python: string, scratch: string) {
+  return TorchInfoSchema.parse(JSON.parse(run(
+    python, ['-c', 'import json, torch; print(json.dumps(dict(version=torch.__version__, cuda=torch.version.cuda, arch=".".join(map(str,torch.cuda.get_device_capability(0))))))'], scratch,
+  )));
+}
+
 function createBuildEnvironment(toolchain: z.infer<typeof ToolchainSchema>, jobs: number) {
   const env = readMsvcEnvironment(toolchain.vcvars, toolchain.scratch);
-  const torch = TorchInfoSchema.parse(JSON.parse(run(
-    toolchain.python, ['-c', 'import json, torch; print(json.dumps(dict(version=torch.__version__, cuda=torch.version.cuda, arch=".".join(map(str,torch.cuda.get_device_capability(0))))))'], toolchain.scratch,
-  )));
+  const torch = readTorchInfo(toolchain.python, toolchain.scratch);
   const nvcc = run(path.join(toolchain.cuda, 'bin', 'nvcc.exe'), ['--version'], toolchain.scratch);
   if (!nvcc.includes(`release ${torch.cuda},`)) throw new Error('CUDA toolkit does not match the installed Torch CUDA version.');
   Object.assign(env, {
@@ -148,6 +196,22 @@ function sourceVersion(repo: string) {
   return match[1];
 }
 
+/** Installs the wheel into the venv, then proves the venv imports exactly that wheel on its unchanged Torch stack. */
+export function installWheel(python: string, wheel: string, version: string, scratch: string) {
+  const torch = readTorchInfo(python, scratch);
+  run(python, ['-m', 'pip', 'install', '--no-deps', '--force-reinstall', wheel], scratch, undefined, path.join(scratch, 'exl3-wheel-install.log'));
+  run(python, ['-m', 'pip', 'check'], scratch);
+  const runtime = probeRuntime(python, scratch);
+  const sitePackages = AbsolutePathSchema.parse(run(python, ['-c', 'import sysconfig; print(sysconfig.get_path("platlib"))'], scratch));
+  if (!samePath(path.dirname(path.dirname(runtime.source)), sitePackages) || !samePath(path.dirname(runtime.extension), sitePackages)) {
+    throw new Error(`Installed EXL3 does not resolve to ${sitePackages}: ${runtime.source}, ${runtime.extension}`);
+  }
+  if (runtime.version !== version) throw new Error(`Installed ${runtime.version} but the wheel is ${version}.`);
+  if (runtime.torch !== torch.version || runtime.cuda !== torch.cuda) throw new Error('Install replaced the Torch stack.');
+  verifyInstalledRecord(sitePackages, version);
+  return runtime;
+}
+
 export function buildExllamav3Wheel(options: z.infer<typeof WheelOptionsSchema>) {
   if (process.platform !== 'win32') throw new Error('This builder requires Windows and MSVC.');
   mkdirSync(options.scratch, { recursive: true });
@@ -158,22 +222,13 @@ export function buildExllamav3Wheel(options: z.infer<typeof WheelOptionsSchema>)
   if (existsSync(outDir) && readdirSync(outDir).length > 0) throw new Error(`${outDir} already holds a build; remove it to rebuild this commit.`);
   mkdirSync(outDir, { recursive: true });
   const jobs = options.jobs ?? buildJobCount(availableParallelism());
-  const { env, torch } = createBuildEnvironment(options, jobs);
+  const { env } = createBuildEnvironment(options, jobs);
   run(options.python, ['-m', 'pip', 'wheel', '--no-deps', '--no-build-isolation', '--no-cache-dir', '--wheel-dir', outDir, options.repo],
     options.scratch, env, path.join(options.scratch, 'exl3-wheel-build.log'));
   const wheel = selectBuiltWheel(outDir, version);
-  const wheelSha256 = hashFile(wheel);
-  writeFileSync(path.join(outDir, 'wheel.sha256'), `${wheelSha256} *${path.basename(wheel)}\n`);
+  const wheelSha256 = writeWheelSha256(wheel);
   writeFileSync(path.join(outDir, 'source.sha'), `${source.commit}\n`);
-  run(options.python, ['-m', 'pip', 'install', '--no-deps', '--force-reinstall', wheel], options.scratch, undefined, path.join(options.scratch, 'exl3-wheel-install.log'));
-  run(options.python, ['-m', 'pip', 'check'], options.scratch);
-  const runtime = probeRuntime(options.python, options.scratch);
-  const sitePackages = AbsolutePathSchema.parse(run(options.python, ['-c', 'import sysconfig; print(sysconfig.get_path("platlib"))'], options.scratch));
-  if (!samePath(path.dirname(path.dirname(runtime.source)), sitePackages) || !samePath(path.dirname(runtime.extension), sitePackages)) {
-    throw new Error(`Installed EXL3 does not resolve to ${sitePackages}: ${runtime.source}, ${runtime.extension}`);
-  }
-  if (runtime.version !== version) throw new Error(`Installed ${runtime.version} but source is ${version}.`);
-  if (runtime.torch !== torch.version || runtime.cuda !== torch.cuda) throw new Error('Install replaced the Torch stack.');
+  const runtime = installWheel(options.python, wheel, version, options.scratch);
   if (validateWheelSource(options.repo).commit !== source.commit) throw new Error('EXL3 source changed during build.');
   const manifest = WheelManifestSchema.parse({ ...runtime, ...source, wheel: path.basename(wheel), wheelSha256, jobs });
   writeFileSync(path.join(outDir, 'build.json'), `${JSON.stringify(manifest, null, 2)}\n`);

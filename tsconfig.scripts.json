@@ -8,6 +8,7 @@
     "scripts/build-clean.ts",
     "scripts/recover-web-chat.ts",
     "scripts/build-exllamav3-wheel.ts",
+    "scripts/promote-exllamav3-wheel.ts",
     "scripts/dashboard-stamp.ts",
     "scripts/start-dev.ts",
     "scripts/start-dev-status.ts",

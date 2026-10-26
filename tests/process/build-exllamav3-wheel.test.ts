@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { z } from 'zod';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
-import { WheelOptionsSchema, validateWheelSource, selectBuiltWheel, buildJobCount, readMsvcEnvironment } from '../../scripts/build-exllamav3-wheel.ts';
+import {
+  WheelOptionsSchema, validateWheelSource, selectBuiltWheel, buildJobCount, readMsvcEnvironment, verifyInstalledRecord,
+} from '../../scripts/build-exllamav3-wheel.ts';
 
 test('production wheel command targets the current source and build environment', () => {
   const packagePath = path.resolve('package.json');
@@ -123,6 +126,40 @@ test('built wheel selection requires exactly one wheel for the expected version'
   assert.equal(selectBuiltWheel(directory, '1.5.1'), path.join(directory, 'exllamav3-1.5.1-cp314-cp314-win_amd64.whl'));
   writeFileSync(path.join(directory, 'exllamav3-1.5.0-cp314-cp314-win_amd64.whl'), '');
   assert.throws(() => selectBuiltWheel(directory, '1.5.1'), /exactly one/u);
+});
+
+function installedFixture(): string {
+  const site = createManagedTempDir('exl3-site-');
+  const files = { 'exllamav3/__init__.py': 'init', 'exllamav3/util/memory.py': 'memory', 'exllamav3_ext.cp314-win_amd64.pyd': 'ext' };
+  const lines = ['exllamav3-1.6.5.dist-info/RECORD,,', 'exllamav3/__pycache__/__init__.cpython-314.pyc,,'];
+  for (const [name, content] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(site, name)), { recursive: true });
+    writeFileSync(path.join(site, name), content);
+    lines.push(`${name},sha256=${createHash('sha256').update(content).digest('base64url')},${content.length}`);
+  }
+  mkdirSync(path.join(site, 'exllamav3-1.6.5.dist-info'));
+  writeFileSync(path.join(site, 'exllamav3-1.6.5.dist-info', 'RECORD'), `${lines.join('\r\n')}\r\n`);
+  return site;
+}
+
+test('installed record verification accepts files matching the wheel record', () => {
+  const site = installedFixture();
+  mkdirSync(path.join(site, 'exllamav3', 'util', '__pycache__'));
+  writeFileSync(path.join(site, 'exllamav3', 'util', '__pycache__', 'memory.cpython-314.pyc'), 'bytecode');
+  verifyInstalledRecord(site, '1.6.5');
+});
+
+test('installed record verification names changed, missing, and stale files', () => {
+  const changed = installedFixture();
+  writeFileSync(path.join(changed, 'exllamav3', 'util', 'memory.py'), 'patched');
+  assert.throws(() => verifyInstalledRecord(changed, '1.6.5'), /changed: exllamav3\/util\/memory\.py/u);
+  const stale = installedFixture();
+  writeFileSync(path.join(stale, 'exllamav3', 'util', 'nvml.py'), 'old module');
+  assert.throws(() => verifyInstalledRecord(stale, '1.6.5'), /not in the wheel: exllamav3\/util\/nvml\.py/u);
+  const missing = installedFixture();
+  rmSync(path.join(missing, 'exllamav3_ext.cp314-win_amd64.pyd'));
+  assert.throws(() => verifyInstalledRecord(missing, '1.6.5'), /missing: exllamav3_ext\.cp314-win_amd64\.pyd/u);
+  assert.throws(() => verifyInstalledRecord(installedFixture(), '1.6.4'), /RECORD/u);
 });
 
 test('built wheel selection rejects directories named like wheel artifacts', () => {
