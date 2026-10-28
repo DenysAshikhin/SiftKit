@@ -1,14 +1,17 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type Serializable } from 'node:child_process';
 import { readdirSync, statSync, watch } from 'node:fs';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
-import { ShutdownMessageSchema } from '../src/status-server/shutdown-message.ts';
+import { BUSY_QUERY_MESSAGE, BusyReplyMessageSchema, ShutdownMessageSchema } from '../src/status-server/shutdown-message.ts';
 import { stopChildProcessTree, stopStatusChild } from './start-dev-process.ts';
 
 export type FileStamp = { mtimeMs: number; size: number };
 export type RestarterOptions = { entry: string; args: string[]; roots: string[]; extensions: string[] };
 
 const RESTART_DEBOUNCE_MS = 200;
+const IDLE_POLL_MS = 1_000;
+const BUSY_REPLY_TIMEOUT_MS = 5_000;
 
 export function readStamp(filePath: string): FileStamp | null {
   const stats = statSync(filePath, { throwIfNoEntry: false });
@@ -35,13 +38,36 @@ function snapshotSources(roots: string[], extensions: string[]): Map<string, Fil
   return stamps;
 }
 
-/** Runs `entry`, restarting it after real source edits; every stop is a graceful IPC shutdown. */
+/** The live runs `child` reports over IPC; a server that cannot answer (starting, exited, hung) holds nothing up. */
+function askBusy(child: ChildProcess): Promise<string[]> {
+  if (child.exitCode !== null || child.signalCode !== null || !child.connected) return Promise.resolve([]);
+  return new Promise((resolve) => {
+    const finish = (busy: string[]): void => {
+      clearTimeout(timer);
+      child.off('message', onMessage);
+      child.off('exit', onExit);
+      resolve(busy);
+    };
+    const onMessage = (message: Serializable): void => {
+      const reply = BusyReplyMessageSchema.safeParse(message);
+      if (reply.success) finish(reply.data.busy);
+    };
+    const onExit = (): void => { finish([]); };
+    const timer = setTimeout(() => { finish([]); }, BUSY_REPLY_TIMEOUT_MS);
+    child.on('message', onMessage);
+    child.once('exit', onExit);
+    child.send(BUSY_QUERY_MESSAGE, (error) => { if (error) finish([]); });
+  });
+}
+
+/** Runs `entry`, restarting it after real source edits once it has no live runs; every stop is a graceful IPC shutdown. */
 export function superviseWithRestarts(options: RestarterOptions): void {
   const watchStartedAtMs = Date.now();
   let stopping = false;
   let restartInFlight = false;
   let restartQueued = false;
   let restartTimer: NodeJS.Timeout | null = null;
+  let lastChanged = '';
 
   const startChild = (): ChildProcess => {
     const next = spawn(process.execPath, [options.entry, ...options.args], { stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
@@ -54,6 +80,21 @@ export function superviseWithRestarts(options: RestarterOptions): void {
     return next;
   };
 
+  /** Holds a restart while the server reports live runs, announcing the wait once. */
+  const waitUntilIdle = async (): Promise<void> => {
+    let announced = false;
+    for (;;) {
+      const busy = stopping ? [] : await askBusy(child);
+      if (busy.length === 0) return;
+      if (!announced) {
+        process.stdout.write(`[start-dev] ${lastChanged} changed; ${path.basename(options.entry)} is busy with ${busy.join(', ')}, `
+          + 'so the restart waits until it is idle.\n');
+        announced = true;
+      }
+      await delay(IDLE_POLL_MS);
+    }
+  };
+
   const restart = async (): Promise<void> => {
     if (restartInFlight) {
       restartQueued = true;
@@ -62,6 +103,9 @@ export function superviseWithRestarts(options: RestarterOptions): void {
     restartInFlight = true;
     do {
       restartQueued = false;
+      await waitUntilIdle();
+      if (stopping) break;
+      process.stdout.write(`[start-dev] ${lastChanged} changed; restarting ${path.basename(options.entry)}.\n`);
       await stopStatusChild(child, 'SIGTERM');
       if (!stopping) child = startChild();
     } while (restartQueued && !stopping);
@@ -80,7 +124,7 @@ export function superviseWithRestarts(options: RestarterOptions): void {
     if (restartTimer !== null) clearTimeout(restartTimer);
     restartTimer = setTimeout(() => {
       restartTimer = null;
-      process.stdout.write(`[start-dev] ${filename} changed; restarting ${path.basename(options.entry)}.\n`);
+      lastChanged = filename;
       void restart();
     }, RESTART_DEBOUNCE_MS);
   };

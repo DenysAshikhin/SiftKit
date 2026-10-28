@@ -149,6 +149,10 @@ export class OrchestratorRunRegistry {
     return this.live.get(runId);
   }
 
+  liveRunIds(): string[] {
+    return [...this.live.keys()];
+  }
+
   subscribe(runId: string, listener: StateListener): () => void {
     return addListener(this.listeners, runId, listener);
   }

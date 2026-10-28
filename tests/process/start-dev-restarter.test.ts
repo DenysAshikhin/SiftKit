@@ -18,10 +18,13 @@ const WAIT_TIMEOUT_MS = 20_000;
 const QUIET_PERIOD_MS = 1_500;
 const FIXED_TIME_S = 1_700_000_000;
 
+// Reports live work while busy.flag exists in its working directory.
 const FAKE_SERVER = [
+  "import fs from 'node:fs';",
   "process.stdout.write('started\\n');",
   "process.on('message', (message) => {",
   "  if (message && message.type === 'shutdown') { process.stdout.write('graceful-stop\\n'); process.exit(0); }",
+  "  if (message && message.type === 'busy_query') process.send({ type: 'busy_reply', busy: fs.existsSync('busy.flag') ? ['orchestrator run r1'] : [] });",
   '});',
   'setInterval(() => {}, 1000);',
 ].join('\n');
@@ -40,15 +43,21 @@ class RestarterProcess {
   readonly child: ChildProcess;
   readonly sourceFile: string;
 
+  readonly busyFlag: string;
+
   constructor(child: ChildProcess, sourceFile: string) {
     this.child = child;
     this.sourceFile = sourceFile;
+    this.busyFlag = path.join(path.dirname(path.dirname(sourceFile)), 'busy.flag');
     let buffer = '';
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
       const parts = (buffer + chunk).split(/\r?\n/u);
       buffer = parts.pop() ?? '';
-      this.lines.push(...parts.filter((line) => line.trim() === 'started' || line.trim() === 'graceful-stop'));
+      this.lines.push(...parts.flatMap((line) => {
+        if (line.trim() === 'started' || line.trim() === 'graceful-stop') return [line.trim()];
+        return line.includes('restart waits until it is idle') ? [line.trim()] : [];
+      }));
     });
     this.exit = new Promise((resolve) => { child.once('exit', (code) => { resolve(code); }); });
   }
@@ -100,6 +109,21 @@ test('a last-access touch does not restart the server; a real edit restarts it a
 
   fs.writeFileSync(restarter.sourceFile, 'export const value = 2;\n');
   await restarter.waitForLines(['started', 'graceful-stop', 'started']);
+});
+
+test('an edit while the server reports live work waits, and restarts once the server is idle', async (t) => {
+  const restarter = await RestarterProcess.start();
+  t.after(() => { restarter.stop(); });
+
+  fs.writeFileSync(restarter.busyFlag, '');
+  fs.writeFileSync(restarter.sourceFile, 'export const value = 2;\n');
+  const deferred = '[start-dev] module.ts changed; server.mjs is busy with orchestrator run r1, so the restart waits until it is idle.';
+  await restarter.waitForLines(['started', deferred]);
+  await delay(QUIET_PERIOD_MS);
+  assert.deepEqual(restarter.lines, ['started', deferred], 'no stop while a run is live');
+
+  fs.rmSync(restarter.busyFlag);
+  await restarter.waitForLines(['started', deferred, 'graceful-stop', 'started']);
 });
 
 test('a shutdown message stops the server gracefully, then the restarter exits cleanly', async (t) => {

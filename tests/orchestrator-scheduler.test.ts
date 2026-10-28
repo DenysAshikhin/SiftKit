@@ -11,7 +11,7 @@ import {
 } from '@siftkit/contracts';
 import { getActiveModelPreset } from '../src/config/getters.ts';
 import type { SiftConfig } from '../src/config/types.ts';
-import { planDispatch, type DispatchRequest } from '../src/orchestrator/scheduler.ts';
+import { fitsBeside, planDispatch, type DispatchRequest } from '../src/orchestrator/scheduler.ts';
 import { getDefaultConfig } from '../src/status-server/config-store.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
@@ -49,11 +49,24 @@ function dispatch(input: { slots?: number; config?: SiftConfig; requested: Dispa
 
 const implement = (...tasks: OrchestratorTask[]): DispatchRequest[] => tasks.map((task) => ({ task, purpose: 'implementation' }));
 
-test('children start together only within the parallel slots of their worker model', () => {
-  assert.deepEqual(dispatch({ slots: 2, requested: implement(READ_A, WRITE) }).problems, []);
+test('children start together only within the parallel slots of their worker model; the rest queue with a warning', () => {
+  const together = dispatch({ slots: 2, requested: implement(READ_A, WRITE) });
+  assert.deepEqual([together.problems, together.start.map(({ task }) => task.id), together.queued, together.warnings],
+    [[], ['read-a', 'write'], [], []]);
   const model = getActiveModelPreset(configWithSlots(1)).id;
-  assert.deepEqual(dispatch({ slots: 1, requested: implement(READ_A, READ_B) }).problems,
-    [`Task 'read-b' cannot start: model ${model} has no free parallel slot.`]);
+  const { problems, start, queued, warnings, schedule } = dispatch({ slots: 1, requested: implement(READ_A, READ_B) });
+  assert.deepEqual(problems, []);
+  assert.deepEqual([start.map(({ task }) => task.id), queued.map(({ task }) => task.id)], [['read-a'], ['read-b']]);
+  assert.deepEqual(warnings, [`Model ${model} has only 1 parallel slot, so read-a, read-b ran in sequence, not in parallel.`]);
+  assert.deepEqual(schedule.waits.find((entry) => entry.taskId === 'read-b')?.wait, { kind: 'model_slot', modelId: model },
+    'a queued child shows why it waits');
+});
+
+test('a queued child starts once a running child frees its model slot', () => {
+  const config = configWithSlots(1);
+  assert.equal(fitsBeside(config, READ_B, [READ_A]), false);
+  assert.equal(fitsBeside(config, READ_B, []), true);
+  assert.equal(fitsBeside(configWithSlots(2), READ_B, [READ_A]), true);
 });
 
 test('one writer runs beside a reader, but two writers never start together', () => {

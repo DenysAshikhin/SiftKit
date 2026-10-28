@@ -448,6 +448,42 @@ test('the expected shape stops two levels down', () => {
   );
 });
 
+const ChildrenSchema = z.strictObject({ children: z.array(z.strictObject({ taskId: z.string(), purpose: z.string() })) })
+  .transform((value) => JsonObjectSchema.parse(value));
+const UpdateSchema = z.strictObject({
+  update: z.array(z.strictObject({ taskId: z.string(), set: z.strictObject({ title: z.string() }).partial() })),
+}).transform((value) => JsonObjectSchema.parse(value));
+
+function nestedError(schema: z.ZodType<JsonObject>, example: JsonObject, args: JsonObject): string {
+  try {
+    parseNativePlannerActions({ text: '', toolCalls: [call('nested-2', 'nested', args)] },
+      { toolDefinitions: [definition('nested', schema, example)], contentWithoutTools: 'finish' });
+  } catch (error) {
+    if (error instanceof NativePlannerToolCallError) return error.message;
+    throw error;
+  }
+  throw new Error('The arguments were accepted.');
+}
+
+test('an unknown key names where that key belongs and the shape around it, down to its fields', () => {
+  const child = { taskId: 'a', purpose: 'p' };
+  assert.equal(nestedError(ChildrenSchema, { children: [] }, { children: [child], taskId: 'a' }),
+    'Tool "nested" has invalid "arguments": Unrecognized key: "taskId"; "taskId" belongs at children[].taskId; '
+      + 'expected shape: {"children": [{"taskId": "…", "purpose": "…"}]}');
+  assert.equal(nestedError(ChildrenSchema, { children: [] }, { children: [child], bogus: 1 }),
+    'Tool "nested" has invalid "arguments": Unrecognized key: "bogus"; expected shape: {"children": [{"taskId": "…", "purpose": "…"}]}',
+    'a key the tool has nowhere still gets the shape');
+  assert.equal(nestedError(UpdateSchema, { update: [] }, { update: [{ taskId: 'a', set: {}, title: 'x' }] }),
+    'Tool "nested" has invalid "update.0": Unrecognized key: "title"; "title" belongs at update[].set.title; '
+      + 'expected shape: {"taskId": "…", "set": {"title": "…"}}');
+});
+
+test('an error inside an array item names the shape of the item around it', () => {
+  assert.equal(nestedError(UpdateSchema, { update: [] }, { update: [{ set: { title: 'x' } }] }),
+    'Tool "nested" has invalid "update.0.taskId": Invalid input: expected string, received undefined; '
+      + 'expected shape of "update.0": {"taskId": "…", "set": {"title": "…"}}');
+});
+
 test('JSON-looking text in a string-typed argument is left untouched', () => {
   assert.deepEqual(
     parseNativePlannerActions(

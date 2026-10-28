@@ -155,25 +155,56 @@ function firstVariant(node: OptionalJsonValue): OptionalJsonValue {
 
 // Deep enough to show an array of objects and their fields; anything deeper is elided.
 const MAX_SHAPE_DEPTH = 2;
+// How deep a misplaced key is looked for, and so the deepest a shape is ever drawn.
+const MAX_LOCATION_DEPTH = 4;
 
-/** A compact example of the JSON a schema node accepts. */
-function describeShape(schemaNode: OptionalJsonValue, depth: number): string {
+/** A compact example of the JSON a schema node accepts, drawn `maxDepth` levels down. */
+function describeShape(schemaNode: OptionalJsonValue, depth: number, maxDepth: number): string {
   const node = firstVariant(schemaNode);
   if (!isJsonObject(node)) return '…';
-  if (node.type === 'array') return depth >= MAX_SHAPE_DEPTH ? '[…]' : `[${describeShape(node.items, depth + 1)}]`;
+  if (node.type === 'array') return depth >= maxDepth ? '[…]' : `[${describeShape(node.items, depth + 1, maxDepth)}]`;
   if (node.type === 'object' && isJsonObject(node.properties)) {
-    if (depth >= MAX_SHAPE_DEPTH) return '{…}';
-    return `{${Object.entries(node.properties).map(([key, value]) => `"${key}": ${describeShape(value, depth + 1)}`).join(', ')}}`;
+    if (depth >= maxDepth) return '{…}';
+    return `{${Object.entries(node.properties).map(([key, value]) => `"${key}": ${describeShape(value, depth + 1, maxDepth)}`).join(', ')}}`;
   }
   if (node.type === 'string') return '"…"';
   if (node.type === 'number' || node.type === 'integer') return '0';
   return node.type === 'boolean' ? 'false' : '…';
 }
 
-/** For a field of the wrong structure, the shape it expects, so the model can resend it right. */
+/** Every place a field name is defined in a schema, as paths like `children[].taskId`, with the depth of its object. */
+function findFieldLocations(schemaNode: OptionalJsonValue, key: string, prefix: string, depth: number): { path: string; depth: number }[] {
+  const node = firstVariant(schemaNode);
+  if (!isJsonObject(node) || depth > MAX_LOCATION_DEPTH) return [];
+  if (node.type === 'array') return findFieldLocations(node.items, key, `${prefix}[]`, depth + 1);
+  if (!isJsonObject(node.properties)) return [];
+  return Object.entries(node.properties).flatMap(([name, child]) => {
+    const path = prefix === '' ? name : `${prefix}.${name}`;
+    return [...(name === key ? [{ path, depth }] : []), ...findFieldLocations(child, key, path, depth + 1)];
+  });
+}
+
+/**
+ * The shape the model should have sent: the field itself when its structure is wrong, the object around an unknown
+ * key with where that key belongs, or the item around an error deeper inside it.
+ */
 function describeExpectedShape(parameters: JsonObject, issue: z.core.$ZodIssue | undefined): string {
-  if (issue?.code !== 'invalid_type' || (issue.expected !== 'array' && issue.expected !== 'object')) return '';
-  return `; expected shape: ${describeShape(readSchemaPath(parameters, issue.path), 0)}`;
+  if (issue === undefined) return '';
+  if (issue.code === 'invalid_type' && (issue.expected === 'array' || issue.expected === 'object')) {
+    return `; expected shape: ${describeShape(readSchemaPath(parameters, issue.path), 0, MAX_SHAPE_DEPTH)}`;
+  }
+  if (issue.code === 'unrecognized_keys') {
+    const placed = issue.keys.map((key) => ({ key, locations: findFieldLocations(parameters, key, '', 0) }))
+      .filter(({ locations }) => locations.length > 0);
+    const deepest = Math.max(0, ...placed.flatMap(({ locations }) => locations.map((location) => location.depth - issue.path.length + 1)));
+    const where = placed.map(({ key, locations }) => `; "${key}" belongs at ${locations.map((location) => location.path).join(' or ')}`).join('');
+    // The object around the key is one level more, so its array items still show their fields.
+    const maxDepth = Math.min(MAX_LOCATION_DEPTH, Math.max(MAX_SHAPE_DEPTH + 1, deepest));
+    return `${where}; expected shape: ${describeShape(readSchemaPath(parameters, issue.path), 0, maxDepth)}`;
+  }
+  if (issue.path.length < 2) return '';
+  const enclosing = issue.path.slice(0, -1);
+  return `; expected shape of "${formatIssuePath(enclosing)}": ${describeShape(readSchemaPath(parameters, enclosing), 0, MAX_SHAPE_DEPTH)}`;
 }
 
 /** The whole arguments object a model sent inside its only argument, as JSON text or an object. */

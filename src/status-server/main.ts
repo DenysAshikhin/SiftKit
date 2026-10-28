@@ -3,7 +3,7 @@ import { getErrorMessage } from '../lib/errors.ts';
 import { waitForChatOwnerLease } from '../state/chat-runtime-owner.ts';
 import { getRuntimeDatabase } from '../state/runtime-db.ts';
 import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from './shutdown-budget.ts';
-import { ShutdownMessageSchema } from './shutdown-message.ts';
+import { BusyQueryMessageSchema, ShutdownMessageSchema, type BusyReplyMessage } from './shutdown-message.ts';
 
 // A server that died without releasing the chat lease holds it for up to one term.
 await waitForChatOwnerLease(getRuntimeDatabase());
@@ -54,4 +54,7 @@ process.on('SIGUSR2', () => { shutdown('SIGUSR2'); });
 // A console Ctrl-C may reach this process alongside the launcher's message; one shutdown is enough.
 process.on('message', (message) => {
   if (ShutdownMessageSchema.safeParse(message).success && !shuttingDown) shutdown('SIGTERM');
+  if (BusyQueryMessageSchema.safeParse(message).success) {
+    process.send?.({ type: 'busy_reply', busy: server.describeLiveWork() } satisfies BusyReplyMessage);
+  }
 });

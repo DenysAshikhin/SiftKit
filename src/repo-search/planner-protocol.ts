@@ -171,7 +171,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   }),
   dispatch: buildRepoToolDefinition({
     toolName: 'dispatch',
-    description: 'Start fresh subagents for saved plan tasks (at most one writer and one reader), then wait. Returns every child report once none is running, or earlier when a child needs your approval decision.',
+    description: 'Start fresh subagents for saved plan tasks (at most one writer per call), then wait. Children beyond the free parallel slots of their model are queued and start as slots free. Returns every child report once none is running or queued, or earlier when a child needs your approval decision.',
     exampleArgs: { children: [{ taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts exporting greeting; keep src/app.ts unchanged.' }] },
   }),
   decide: buildRepoToolDefinition({

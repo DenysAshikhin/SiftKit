@@ -443,6 +443,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       async waitForRequestsIdle(): Promise<void> {
         while (pendingRequests.size > 0) await Promise.allSettled([...pendingRequests]);
       },
+      describeLiveWork: (): string[] => [
+        ...orchestratorRuns.liveRunIds().map((runId) => `orchestrator run ${runId}`),
+        ...ctx.statusRuns.getActiveRuns(Date.now()).map((run) => `${run.taskKind} run ${run.requestId}`),
+      ],
       async waitForTerminalMetadataIdle(timeoutMs = 10_000, minimumCompletedRequestCount?: number): Promise<void> {
         await waitForTerminalMetadataIdle(ctx, timeoutMs, minimumCompletedRequestCount);
         await flushDeferredArtifacts(ctx);

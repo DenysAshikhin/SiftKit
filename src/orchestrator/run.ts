@@ -62,7 +62,7 @@ import { OrchestratorInfrastructureError, ParentLease } from './parent-lease.ts'
 import { findTestPathsOutsideScope, renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
 import { buildChildInstruction, buildOrchestratorPrompt, type PlanWorker } from './prompts.ts';
 import { findReviewProblems } from './review.ts';
-import { isMutatingTask, planDispatch, workerModelPreset } from './scheduler.ts';
+import { describeSchedule, fitsBeside, isMutatingTask, planDispatch, workerModelPreset } from './scheduler.ts';
 import { WorkerSubmission, type SubmissionHost } from './submission.ts';
 import { runVerificationCheck, unexecutedCheck } from './verification.ts';
 import { startOrchestratorChild, toChildOutcome } from './workers.ts';
@@ -161,6 +161,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
   private readonly abortController = new AbortController();
   private readonly activity: OrchestratorLiveActivity;
   private readonly live = new Map<string, LiveChild>();
+  /** Dispatched children waiting for a slot of their model; started as running children settle. */
+  private queued: OrchestratorAttempt['work'][] = [];
   private readonly escalations = new Map<string, Escalation>();
   private readonly unreported: { result: OrchestratorAttemptResult; diffstat: DiffstatEntry[] }[] = [];
   /** Reports handed to the parent and not yet reviewed, by task; the digest repeats them after a compaction. */
@@ -478,14 +480,28 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       return this.refuse(args.children.filter((child) => !requested.some((entry) => entry.taskId === child.taskId))
         .map((child) => `Task '${child.taskId}' is not in the saved plan.`));
     }
-    const { problems, schedule } = planDispatch({ config: this.config, plan, taskStates: this.state.tasks,
+    const { problems, start, queued, warnings, schedule } = planDispatch({ config: this.config, plan, taskStates: this.state.tasks,
       attempts: this.state.attempts, requested });
     if (problems.length > 0) return this.refuse(problems);
     this.activity.setSchedule(schedule);
-    for (const child of requested) {
+    for (const child of start) {
       await this.startChild(child.task, { kind: child.purpose, planPath, planHash, task: child.task, instruction: child.instruction });
     }
-    return this.waitForChildren();
+    this.queued = queued.map((child) => ({ kind: child.purpose, planPath, planHash, task: child.task, instruction: child.instruction }));
+    const outcome = await this.waitForChildren();
+    return warnings.length === 0 ? outcome : { ...outcome, output: [...warnings.map((warning) => `Warning: ${warning}`), outcome.output].join('\n\n') };
+  }
+
+  /** Starts each queued child whose model now has a free slot, in dispatch order. */
+  private async startQueuedChildren(): Promise<void> {
+    const { plan } = this.state;
+    if (plan === null) return;
+    for (const work of [...this.queued]) {
+      if (!fitsBeside(this.config, work.task, [...this.live.values()].map((child) => child.task))) continue;
+      this.queued = this.queued.filter((entry) => entry !== work);
+      await this.startChild(work.task, work);
+      this.activity.setSchedule(describeSchedule(this.config, plan, this.state.tasks, [...this.live.values()].map((child) => child.task)));
+    }
   }
 
   private async startChild(task: OrchestratorTask, work: OrchestratorAttempt['work']): Promise<void> {
@@ -586,7 +602,9 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
   /** Releases the parent's model until every child has settled or one needs the parent's decision. */
   private async waitForChildren(): Promise<OrchestratorToolOutcome> {
     await this.withModelReleased(async () => {
-      while (this.live.size > 0 && this.childFailure === null && !this.hasUnannouncedEscalation()) {
+      for (;;) {
+        if (this.childFailure === null && !this.hasUnannouncedEscalation()) await this.startQueuedChildren();
+        if (this.live.size === 0 || this.childFailure !== null || this.hasUnannouncedEscalation()) break;
         await new Promise<void>((resolve) => {
           this.wakeWaiter = resolve;
         });

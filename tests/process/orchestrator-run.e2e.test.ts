@@ -322,6 +322,27 @@ test('a writer and a reader dispatched together run at once and the reader is ne
   assert.match(engine.prompts('parent')[0] ?? '', /2 parallel slots/u);
 });
 
+test('two readers dispatched together on a one-slot model both run, one after the other, and the parent is warned', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-queued-');
+  const { engine } = context;
+  const again = { ...READ_TASK, id: 'read-again' };
+  engine.parent.push([savePlan(planOf([READ_TASK, again])), dispatch({ taskId: 'read-app' }, { taskId: 'read-again' }),
+    { content: '{"status":"blocked","reason":"Stop after the readers."}' }]);
+  engine.children.push(READER, READER);
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assert.equal(state.failure?.code, 'blocked', [JSON.stringify(state.failure), ...engine.parentToolOutputs()].join('\n---\n'));
+  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['read-app', 'completed'], ['read-again', 'completed']]);
+  const lifecycle = events.filter((event) => / running\.$/u.test(event.message) || event.message.startsWith('Settled'))
+    .map((event) => `${event.taskId} ${event.message.startsWith('Settled') ? 'settled' : 'running'}`);
+  assert.deepEqual(lifecycle, ['read-app running', 'read-app settled', 'read-again running', 'read-again settled'],
+    'the queued reader starts only once the first frees the slot');
+  const reports = engine.parentToolOutputs()[1] ?? '';
+  assert.ok(reports.includes('## read-app (implementation') && reports.includes('## read-again (implementation'), 'one result carries both reports');
+  assert.match(reports, /Model exl3-main has only 1 parallel slot, so read-app, read-again ran in sequence, not in parallel\./u);
+});
+
 test('code refuses an invalid plan or dispatch in the tool result, and the conversation goes on until it finishes blocked', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-refusals-');
   const { engine } = context;
@@ -592,6 +613,7 @@ test('a duplicate submission returns the same run and abort stops a parked child
   assert.equal(conflicting.statusCode, 400);
 
   await waitForApproval(context, started.runId);
+  assert.ok(context.harness.describeLiveWork().includes(`orchestrator run ${started.runId}`), 'a dev restart would wait for the live run');
   const aborted = await requestJson(`${context.baseUrl}/orchestrator/abort`, { method: 'POST', body: JSON.stringify({ runId: started.runId }) });
   assert.equal(aborted.statusCode, 200, JSON.stringify(aborted.body));
   const state = OrchestratorRunStateSchema.parse(aborted.body);
@@ -599,6 +621,7 @@ test('a duplicate submission returns the same run and abort stops a parked child
   assert.equal(state.approval, null);
   assert.equal(fs.existsSync(path.join(context.repo, TARGET)), false, 'the parked write never ran');
   assert.equal((await followRun(context, started.runId)).state.phase, 'aborted', 'a reconnect reports the terminal state');
+  assert.deepEqual(context.harness.describeLiveWork(), [], 'nothing holds a dev restart once the run ended');
 });
 
 class CollectingStream extends Writable {

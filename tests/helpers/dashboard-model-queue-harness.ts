@@ -132,6 +132,12 @@ export class DashboardModelQueueHarness {
     }
   }
 
+  /** The live work the server reports to a dev restarter that wants to restart it. */
+  describeLiveWork(): string[] {
+    if (this.server === null) throw new Error('DashboardModelQueueHarness.describeLiveWork() needs a started server.');
+    return this.server.describeLiveWork();
+  }
+
   /**
    * TabbyAPI's load/unload/model-card surface, enough for `ManagedTabbyRuntime` to drive an
    * engine SiftKit does not own (`Managed: false`), which needs no child process at all.

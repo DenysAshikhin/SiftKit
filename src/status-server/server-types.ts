@@ -136,6 +136,8 @@ export type ExtendedServer = Server & {
   shutdownEngineForProcessExitSync?: () => void;
   startupPromise?: Promise<void>;
   waitForRequestsIdle(): Promise<void>;
+  /** One label per live orchestrator or agent run, which a dev restart would cut short; empty when idle. */
+  describeLiveWork(): string[];
   waitForTerminalMetadataIdle(timeoutMs?: number, minimumCompletedRequestCount?: number): Promise<void>;
   /** Resolves once close() has drained writers, released the owner, and closed its database. */
   waitForShutdown(): Promise<void>;
