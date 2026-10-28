@@ -94,7 +94,7 @@ export class VaultWriterSession implements AgentLoopPromptAdapter, AgentLoopActi
   }): Promise<AgentLoopModelResponse> {
     try {
       const response = await this.input.inference.chat({
-        role: 'vault_writer', messages: options.messages, images: this.input.images, tools: options.tools, abortSignal: this.input.abortSignal,
+        messages: options.messages, images: this.input.images, tools: options.tools, abortSignal: this.input.abortSignal,
       });
       this.promptEstimate = (response.usage.promptTokens ?? 0) + (response.usage.completionTokens ?? 0);
       return { outcome: 'continue', response, data: null };

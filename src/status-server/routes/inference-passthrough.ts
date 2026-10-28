@@ -44,6 +44,7 @@ import { serverLogger } from '../server-logger.ts';
 import { toError } from '../../lib/errors.ts';
 import { readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.ts';
+import { ModelManuallyUnloadedError } from '../preset-runtime-coordinator.ts';
 import {
   INFERENCE_PASSTHROUGH_REQUEST_KIND,
   acquireModelRequestWithWait,
@@ -311,7 +312,7 @@ class WorkloadEndpoint implements RouteEndpoint {
       lock = await acquireModelRequestWithWait(ctx, INFERENCE_PASSTHROUGH_REQUEST_KIND, req, res);
     } catch (error) {
       // Admission readies the model before granting; a failed load answers like any upstream failure.
-      sendJson(res, 502, { error: toError(error).message });
+      sendJson(res, error instanceof ModelManuallyUnloadedError ? 503 : 502, { error: toError(error).message });
       return;
     }
     if (!lock) return;

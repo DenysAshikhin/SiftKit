@@ -23,6 +23,7 @@ import { VaultNoteWriter } from '../src/vault/note-writer/agent/note-writer.ts';
 import type { VaultChatTurn } from '../src/vault/note-writer/chat-turn.ts';
 import { VaultDailyRollup } from '../src/vault/note-writer/daily-rollup.ts';
 import { VaultEditApplier } from '../src/vault/note-writer/edit-applier.ts';
+import { markRollupDay } from '../src/vault/rollup-days.ts';
 import { VaultValidationQueue } from '../src/vault/validation-queue.ts';
 import { ScriptedAgentInference, submitTurn } from './helpers/assistant-inference-fake.ts';
 import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.ts';
@@ -322,7 +323,7 @@ test('the daily GPU cap skips model-backed jobs but still drains maintenance', a
 test('an unlimited drain claims every claimable job and stops when none remain', async () => {
   await withAssistantContextAsync(async (context) => {
     const { jobRunner, store, enqueue } = setup(context);
-    context.database.prepare("INSERT INTO vault_rollup_days (day) VALUES ('2026-08-03'), ('2026-08-04')").run();
+    for (const day of ['2026-08-03', '2026-08-04']) markRollupDay(context.database, day);
     enqueue(VAULT_MAINTENANCE_REQUEST);
     assert.deepEqual(await jobRunner.drain(context.ownerId, -1), { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
     assert.deepEqual(context.graph.backgroundDecisions.list(context.ownerId), []);

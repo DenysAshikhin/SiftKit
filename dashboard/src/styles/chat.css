@@ -150,7 +150,7 @@
 .stream-tail[data-fence] { display: block; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.72rem; }
 .caret::after { content: "▌"; color: var(--acc); }
 
-.msg.memory_context { width: fit-content; background: #14263a; border-color: #2c5378; color: #a9cdf0; font-size: 0.74rem; padding: 5px 12px; }
+.memory-bubble { width: fit-content; margin-top: 8px; background: #14263a; border: 1px solid #2c5378; border-radius: 10px; color: #a9cdf0; font-size: 0.74rem; padding: 5px 12px; }
 .memory-bubble > summary { cursor: pointer; }
 .memory-bubble pre { margin: 6px 0 0; white-space: pre-wrap; }
 .msg.pending { opacity: 0.72; }

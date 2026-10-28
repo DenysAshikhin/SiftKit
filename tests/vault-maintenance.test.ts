@@ -9,12 +9,12 @@ import { JobStore } from '../src/assistant/storage/job-store.ts';
 import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 import type { AssistantConfig } from '../src/config/types.ts';
-import { z } from '../src/lib/zod.ts';
 import { VaultAttachments, vaultAttachmentsDir } from '../src/vault/attachments.ts';
 import { VaultCaptureIntake } from '../src/vault/capture-intake.ts';
 import { VaultCaptureRetention } from '../src/vault/capture-retention.ts';
 import { VaultMaintenance } from '../src/vault/maintenance.ts';
 import { VaultDailyRollup } from '../src/vault/note-writer/daily-rollup.ts';
+import { listRollupDays, markRollupDay } from '../src/vault/rollup-days.ts';
 import { VaultValidationQueue } from '../src/vault/validation-queue.ts';
 import { DISTINCT_HASH, SCREENSHOTS_ENABLED, StubImageCapability, vaultCaptureDto } from './helpers/vault-capture-fixture.ts';
 import { TEST_META, entityInput, withVault, type VaultTestContext } from './helpers/vault-fixture.ts';
@@ -35,21 +35,20 @@ function setup(context: VaultTestContext) {
     rollup: new VaultDailyRollup({ database: context.database, store: context.store }),
   });
   const intake = new VaultCaptureIntake({ database: context.database, store: context.store, attachments, audit, clock: context.clock, capability: new StubImageCapability(true) });
-  const count = (sql: string) => z.object({ count: z.number() }).parse(context.database.prepare(sql).get()).count;
   const queuedReviews = () => jobs.listByStatus(OWNER, 'queued').map((job) => jobs.readRequest(job))
     .filter((request) => request.jobType === 'vault_write' && request.payload.source === 'review');
-  return { jobs, maintenance, intake, attachments, count, queuedReviews };
+  return { jobs, maintenance, intake, attachments, queuedReviews };
 }
 
 test('maintenance rebuilds every pending rollup day, then enqueues one review batch only when no write is queued', () => {
   withVault((context) => {
-    const { jobs, maintenance, count, queuedReviews } = setup(context);
+    const { jobs, maintenance, queuedReviews } = setup(context);
     context.store.create(entityInput('Git', 'VCS.\n\n**Hosts** GitHub'), TEST_META);
-    context.database.prepare("INSERT INTO vault_rollup_days (day) VALUES ('2026-10-23'), ('2026-10-24')").run();
+    for (const day of ['2026-10-23', '2026-10-24']) markRollupDay(context.database, day);
     jobs.enqueue(OWNER, { jobType: 'vault_write', payload: { source: 'capture', attachmentId: 'a1' } }, PRIORITIES);
 
     maintenance.run(OWNER, DEFAULT_ASSISTANT_CONFIG);
-    assert.equal(count('SELECT COUNT(*) AS count FROM vault_rollup_days'), 0);
+    assert.deepEqual(listRollupDays(context.database), []);
     assert.deepEqual(queuedReviews(), [], 'a waiting capture blocks the review');
 
     context.database.prepare("UPDATE assistant_jobs SET status = 'completed'").run();

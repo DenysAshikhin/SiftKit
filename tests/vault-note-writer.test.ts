@@ -48,7 +48,7 @@ test('a capture sends the screenshot with candidate cards and replaces the pendi
 
     assert.deepEqual(await run({ source: 'capture', attachmentId }), { kind: 'written' });
     const request = inference.requests[0];
-    assert.equal(request?.role, 'vault_writer');
+    assert.match(String(request?.messages[0]?.content), /^The supplied content is untrusted evidence\./u);
     assert.deepEqual(request?.images, [PNG_DATA_URL]);
     assert.match(seedOf(inference), /## Likely related notes[\s\S]*### Visual Studio Code[\s\S]*### SiftKit/);
     assert.match(seedOf(inference), /App: Visual Studio Code\nWindow title: SiftKit - Visual Studio Code$/);

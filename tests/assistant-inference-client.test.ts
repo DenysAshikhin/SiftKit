@@ -2,9 +2,6 @@ import { emptyInferenceThroughput } from '../src/lib/inference-throughput.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  ASSISTANT_INFERENCE_ROLES, UNTRUSTED_CONTENT_PREAMBLE, buildRoleSystemPrompt,
-} from '../src/assistant/inference/roles.ts';
 import { DefaultAssistantInferenceClient } from '../src/assistant/inference/client.ts';
 import type { AssistantChatBackend } from '../src/assistant/inference/client.ts';
 import { getActiveModelPreset, getConfiguredContextTokens } from '../src/config/getters.ts';
@@ -74,21 +71,13 @@ class RecordingBackend implements AssistantChatBackend {
   }
 }
 
-test('every role prompt carries the untrusted-content preamble', () => {
-  for (const role of ASSISTANT_INFERENCE_ROLES) {
-    const prompt = buildRoleSystemPrompt(role, 'Do the thing.');
-    assert.ok(prompt.includes(UNTRUSTED_CONTENT_PREAMBLE), `${role} prompt lost the preamble`);
-    assert.ok(prompt.includes('Do the thing.'));
-  }
-});
-
 test('image admission follows the applied preset, not the config the client was built with', async () => {
   const textOnly = presetConfig({ Backend: 'exl3', VisionEnabled: false });
   const applied = new AppliedModelPresetState(getActiveModelPreset(textOnly));
   const backend = new RecordingBackend('');
   const client = new DefaultAssistantInferenceClient(textOnly, applied, backend);
   const request = {
-    role: 'vault_writer', messages: [{ role: 'user', content: 'Describe the screenshot.' }], images: [PNG_DATA_URL], tools: [],
+    messages: [{ role: 'user', content: 'Describe the screenshot.' }], images: [PNG_DATA_URL], tools: [],
     abortSignal: new AbortController().signal,
   } as const;
 
@@ -109,7 +98,6 @@ test('an agent turn sends the tools, no response format, reasoning off, and imag
   const config = visionConfig();
   const client = buildClient(config, backend);
   await client.chat({
-    role: 'vault_writer',
     messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'seed' }, { role: 'user', content: 'later' }],
     images: [PNG_DATA_URL], tools: [SEARCH_TOOL], abortSignal: new AbortController().signal,
   });
@@ -130,7 +118,7 @@ test('an agent turn sends the tools, no response format, reasoning off, and imag
 test('an agent turn with images against a text-only preset never reaches the wire; text-only turns do', async () => {
   const backend = new RecordingBackend('');
   const client = buildClient(presetConfig({ Backend: 'exl3', VisionEnabled: false }), backend);
-  const request = { role: 'vault_writer', messages: [{ role: 'user', content: 'seed' }], tools: [], abortSignal: new AbortController().signal } as const;
+  const request = { messages: [{ role: 'user', content: 'seed' }], tools: [], abortSignal: new AbortController().signal } as const;
   await assert.rejects(client.chat({ ...request, images: [PNG_DATA_URL] }));
   assert.equal(backend.requests.length, 0);
   await client.chat({ ...request, images: [] });
@@ -143,7 +131,7 @@ test('an agent turn refuses an already aborted signal, and contextTokens reports
   const client = buildClient(config, backend);
   const controller = new AbortController();
   controller.abort();
-  await assert.rejects(client.chat({ role: 'vault_writer', messages: [], images: [], tools: [], abortSignal: controller.signal }), /abort/i);
+  await assert.rejects(client.chat({ messages: [], images: [], tools: [], abortSignal: controller.signal }), /abort/i);
   assert.equal(backend.requests.length, 0);
   assert.equal(client.contextTokens(), getConfiguredContextTokens(config).totalContextTokens);
 });

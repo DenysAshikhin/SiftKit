@@ -86,7 +86,7 @@ test('the badge is identical across the live to settled transition', () => {
     [],
   );
   const live: ChatTurn = {
-    key: 'live', isLive: true, messages: liveMessages, main: null, liveThinking: [],
+    key: 'live', isLive: true, messages: liveMessages, main: null, memory: null, liveThinking: [],
     steps: [], shownImages: [], recentActivities: [], showRecentActivity: false,
   };
 
@@ -99,7 +99,7 @@ test('the badge is identical across the live to settled transition', () => {
     answerMessage('a1', 60),
   ];
   const settled: ChatTurn = {
-    key: 'run:run-1', isLive: false, messages: settledMessages, main: settledMessages[4] ?? null,
+    key: 'run:run-1', isLive: false, messages: settledMessages, main: settledMessages[4] ?? null, memory: null,
     liveThinking: [], steps: [], shownImages: [], recentActivities: [], showRecentActivity: false,
   };
 
@@ -115,7 +115,7 @@ test('the badge is identical across the live to settled transition', () => {
 test('a settled turn counts every per-step thinking row, not just the answer row', () => {
   const messages = [thinkingMessage('t1', 120), thinkingMessage('t2', 95), answerMessage('a1', 60)];
   const settled: ChatTurn = {
-    key: 'run:run-1', isLive: false, messages, main: messages[2] ?? null, liveThinking: [],
+    key: 'run:run-1', isLive: false, messages, main: messages[2] ?? null, memory: null, liveThinking: [],
     steps: [], shownImages: [], recentActivities: [], showRecentActivity: false,
   };
   assert.equal(getTurnTokenDisplay(settled, new Map()).tokenCount, 275);
@@ -124,7 +124,7 @@ test('a settled turn counts every per-step thinking row, not just the answer row
 test('the display is inexact when any contributing row is estimated', () => {
   const estimated = { ...thinkingMessage('t1', 120), thinkingTokensEstimated: true };
   const settled: ChatTurn = {
-    key: 'run:run-1', isLive: false, messages: [estimated], main: null, liveThinking: [],
+    key: 'run:run-1', isLive: false, messages: [estimated], main: null, memory: null, liveThinking: [],
     steps: [], shownImages: [], recentActivities: [], showRecentActivity: false,
   };
   assert.equal(getTurnTokenDisplay(settled, new Map()).exact, false);

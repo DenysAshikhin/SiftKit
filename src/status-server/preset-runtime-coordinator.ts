@@ -11,10 +11,16 @@ import type { AppliedModelPresetState } from './applied-model-preset-state.ts';
 import { persistAppliedModelSelection, readConfig, restorePreviousModelSelection } from './config-store.ts';
 
 const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is in progress; retry once it completes.';
-const MANUAL_UNLOAD_ERROR = 'The model was unloaded manually; load it or send an interactive request.';
 
 /** Raised when a restart is asked of a preset whose server SiftKit did not launch. */
 export class ExternalServerRestartError extends Error {}
+
+/** Raised when a request that may not wake the model finds it manually unloaded. */
+export class ModelManuallyUnloadedError extends Error {
+  constructor() {
+    super('The model was unloaded manually; load it or send an interactive request.');
+  }
+}
 
 /** Administrative switches apply a saved selection; requested ones persist theirs inside the switch; restarts force a new process. */
 type SwitchKind = 'administrative' | 'requested' | 'restart';
@@ -99,7 +105,7 @@ export class PresetRuntimeCoordinator {
       else await this.waitForCurrentAdmissionBlocker();
     }
     if (this.manuallyUnloaded) {
-      if (!wakesManualUnload) throw new Error(MANUAL_UNLOAD_ERROR);
+      if (!wakesManualUnload) throw new ModelManuallyUnloadedError();
       this.manuallyUnloaded = false;
     }
     const currentConfig = readConfig(this.configPath);

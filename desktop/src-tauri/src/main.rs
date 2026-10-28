@@ -317,6 +317,11 @@ fn observation_tick(
     })
 }
 
+/// The first poll is always due; after that, one every [`DESKTOP_STATE_POLL_SECONDS`].
+fn desktop_state_poll_due(last_polled_at: Option<u64>, now: u64) -> bool {
+    last_polled_at.map_or(true, |polled_at| now >= polled_at + DESKTOP_STATE_POLL_SECONDS)
+}
+
 /// Returns only when the shell can no longer observe the desktop; the caller ends the process.
 #[allow(clippy::too_many_lines)]
 fn worker_loop(
@@ -401,7 +406,7 @@ fn worker_loop(
                     state.attention.store(true, Ordering::Relaxed);
                     desktop_poll = None;
                     update_tray(&app, &state, None);
-                    std::thread::sleep(Duration::from_secs(5));
+                    std::thread::sleep(RETRY_DELAY);
                     continue;
                 }
             };
@@ -747,22 +752,11 @@ mod tests {
             "an unknown scope is a contract problem, not a silent foreground_window",
         );
     }
-}
-
-/// The first poll is always due; after that, one every [`DESKTOP_STATE_POLL_SECONDS`].
-fn desktop_state_poll_due(last_polled_at: Option<u64>, now: u64) -> bool {
-    last_polled_at.map_or(true, |polled_at| now >= polled_at + DESKTOP_STATE_POLL_SECONDS)
-}
-
-#[cfg(test)]
-mod desktop_poll_tests {
-    use super::desktop_state_poll_due;
 
     #[test]
-    fn desktop_state_is_polled_first_and_then_every_five_seconds() {
+    fn desktop_state_is_polled_first_and_then_every_poll_interval() {
         assert!(desktop_state_poll_due(None, 100));
-        assert!(!desktop_state_poll_due(Some(100), 101));
-        assert!(!desktop_state_poll_due(Some(100), 104));
-        assert!(desktop_state_poll_due(Some(100), 105));
+        assert!(!desktop_state_poll_due(Some(100), 100 + DESKTOP_STATE_POLL_SECONDS - 1));
+        assert!(desktop_state_poll_due(Some(100), 100 + DESKTOP_STATE_POLL_SECONDS));
     }
 }

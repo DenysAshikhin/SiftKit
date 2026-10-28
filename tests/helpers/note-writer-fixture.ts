@@ -8,6 +8,7 @@ import { z } from '../../src/lib/zod.ts';
 import { VaultAttachments } from '../../src/vault/attachments.ts';
 import { VaultCaptureIntake } from '../../src/vault/capture-intake.ts';
 import { VaultNoteWriter } from '../../src/vault/note-writer/agent/note-writer.ts';
+import { listRollupDays } from '../../src/vault/rollup-days.ts';
 import type { VaultWriterJob } from '../../src/vault/note-writer/agent/writer-job.ts';
 import type { VaultChatTurn } from '../../src/vault/note-writer/chat-turn.ts';
 import { VaultEditApplier } from '../../src/vault/note-writer/edit-applier.ts';
@@ -41,7 +42,7 @@ export function noteWriterFixture(context: VaultTestContext, inference: Assistan
   };
   const run = (job: VaultWriterJob, signal = new AbortController().signal) => writer.run(LOCAL_OWNER_ID, job, signal);
   const chatNoteIds = () => z.array(z.object({ note_id: z.string() })).parse(context.database.prepare('SELECT note_id FROM vault_chat_notes').all()).map((row) => row.note_id);
-  const rollupDays = () => z.array(z.object({ day: z.string() })).parse(context.database.prepare('SELECT day FROM vault_rollup_days ORDER BY day').all()).map((row) => row.day);
+  const rollupDays = () => listRollupDays(context.database);
   const auditTypes = () => audit.listAuditEvents(LOCAL_OWNER_ID, 10).map((event) => event.event_type);
   return { writer, audit, attachments, submitCapture, run, chatNoteIds, rollupDays, auditTypes };
 }

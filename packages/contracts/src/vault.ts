@@ -9,6 +9,13 @@ export const VaultRevisionNumberSchema = z.number().int().min(1);
 /** Who wrote a revision (design §4.2). Closed, so history can render each writer distinctly. */
 export const VAULT_ACTORS = ['you', 'capture-intake', 'migration', 'note-writer · screenshot', 'note-writer · chat', 'note-writer · daily', 'note-writer · tidy', 'note-writer · review'] as const;
 export const VaultActorSchema = z.enum(VAULT_ACTORS);
+
+/** Each note in the memory block a chat turn injects opens with this heading. */
+export const MEMORY_NOTE_HEADING_PREFIX = '### ';
+
+export function countMemoryNotes(block: string): number {
+  return block.split('\n').filter((line) => line.startsWith(MEMORY_NOTE_HEADING_PREFIX)).length;
+}
 export type VaultActor = z.infer<typeof VaultActorSchema>;
 
 export const VaultNoteSchema = z.object({

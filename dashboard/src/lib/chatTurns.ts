@@ -19,6 +19,8 @@ export type ChatTurn = {
   /** The activity shell stays visible for the live assistant phase, including before its first tool. */
   showRecentActivity: boolean;
   main: ChatMessage | null;
+  /** The vault memory injected into this run's prompt; shown as its own bubble, never a step. */
+  memory: ChatMessage | null;
 };
 
 function isAnswerMessage(message: ChatMessage): boolean {
@@ -28,6 +30,10 @@ function isAnswerMessage(message: ChatMessage): boolean {
 function isStepMessage(message: ChatMessage): boolean {
   const kind = message.kind;
   return kind === 'assistant_thinking' || kind === 'assistant_tool_call' || kind === 'assistant_narration' || kind === 'assistant_progress';
+}
+
+function isMemoryMessage(message: ChatMessage): boolean {
+  return message.kind === 'memory_context';
 }
 
 function isStatusUpdate(message: ChatMessage): boolean {
@@ -56,8 +62,6 @@ function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
   // optimistic bubble into the assistant's live turn, where the streaming answer takes
   // the main slot and the user's own words get demoted into Internal Logic.
   if (startsUserTurn(message)) return `user:${message.id}`;
-  // Injected memory is its own bubble; folded into the run it would land in Internal Logic.
-  if (message.kind === 'memory_context') return `memory:${message.id}`;
   if (isLive) return 'live';
   const runId = typeof message.sourceRunId === 'string' ? message.sourceRunId.trim() : '';
   return runId ? `run:${runId}` : `solo:${message.id}`;
@@ -72,7 +76,7 @@ function pickMainMessage(turn: ChatTurn, answer: ChatMessage | undefined): ChatM
   // No answer or status: surface the last non-step message (e.g. a lone user_text message,
   // or the live user bubble before the assistant side starts). A run that is
   // only thinking/tool steps has no main slot.
-  const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message));
+  const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message) && !isMemoryMessage(message));
   return nonStepMessages[nonStepMessages.length - 1] ?? null;
 }
 
@@ -96,12 +100,14 @@ function finalizeTurn(turn: ChatTurn): void {
   turn.main = main;
   turn.liveThinking = liveThinking;
   turn.recentActivities = pickRecentActivities(turn, liveUnanswered);
-  turn.showRecentActivity = liveUnanswered && turn.messages.some((message) => message.role === 'assistant' && message.kind !== 'memory_context');
+  turn.showRecentActivity = liveUnanswered && turn.messages.some((message) => message.role === 'assistant');
+  turn.memory = turn.messages.find(isMemoryMessage) ?? null;
   // Live tools belong only to the recent ring. Everything else that is not the
   // main slot or thinking stack stays in Internal Logic.
   turn.shownImages = turn.messages.filter(isShownImageMessage);
   turn.steps = turn.messages.filter((message) => (
     message !== main
+    && message !== turn.memory
     && !liveThinking.includes(message)
     && !isShownImageMessage(message)
     && !(liveUnanswered && isToolCallMessage(message))
@@ -141,6 +147,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
         recentActivities: [],
         showRecentActivity: false,
         main: null,
+        memory: null,
       });
     }
     lastGroupingKey = key;

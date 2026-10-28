@@ -5,7 +5,7 @@ import path from 'node:path';
 import { ChatSessionSchema } from '@siftkit/contracts';
 
 import type { VaultChatTurn } from '../src/vault/note-writer/chat-turn.ts';
-import type { VaultRetrieveResult } from '../src/vault/vault-retriever.ts';
+import { EMPTY_RETRIEVAL, type VaultRetrieveResult } from '../src/vault/vault-retriever.ts';
 import { getConfigPath } from '../src/config/index.ts';
 import { writeConfig } from '../src/status-server/config-store.ts';
 import { getDefaultServerConfig } from './helpers/mock-config.ts';
@@ -36,9 +36,7 @@ class RecordingAssistant {
 
   async retrieveMemoryContext(userMessage: string): Promise<VaultRetrieveResult> {
     this.retrievedMessages.push(userMessage);
-    return this.renderedBlock === ''
-      ? { renderedBlock: '', noteIds: [], tokenCount: 0 }
-      : { renderedBlock: this.renderedBlock, noteIds: ['note_1'], tokenCount: 12 };
+    return this.renderedBlock === '' ? EMPTY_RETRIEVAL : { renderedBlock: this.renderedBlock, noteIds: ['note_1'], tokenCount: 12 };
   }
 
   ingestChatTurn(turn: VaultChatTurn): void {

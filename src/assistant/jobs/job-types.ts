@@ -6,13 +6,11 @@ export const ASSISTANT_JOB_TYPES = ['vault_write', 'vault_maintenance'] as const
 export const AssistantJobTypeSchema = z.enum(ASSISTANT_JOB_TYPES);
 export type AssistantJobType = z.infer<typeof AssistantJobTypeSchema>;
 
-export const MODEL_BACKED_JOB_TYPES = ['vault_write'] as const satisfies readonly AssistantJobType[];
+/** §12.1: only writes call the model, so only they wait for the residency and resource gates. */
+export const MODEL_BACKED_JOB_TYPE = 'vault_write' satisfies AssistantJobType;
 
-const MODEL_BACKED_JOB_TYPE_SET: ReadonlySet<AssistantJobType> = new Set<AssistantJobType>(MODEL_BACKED_JOB_TYPES);
-
-/** §12.1: model-backed jobs wait for the residency and resource gates; maintenance never touches the model. */
 export function isModelBackedJobType(jobType: AssistantJobType): boolean {
-  return MODEL_BACKED_JOB_TYPE_SET.has(jobType);
+  return jobType === MODEL_BACKED_JOB_TYPE;
 }
 
 /** A job as enqueued: its type and the payload that type carries. */

@@ -872,23 +872,29 @@ test('persisted repo-agent approvals render compact audit rows', () => {
   assert.doesNotMatch(markup, /class="approval-card"/u);
 });
 
-test('injected memory renders as its own collapsible memory bubble with its note count', () => {
-  const memoryRow = (id: string, content: string): ChatSession['messages'][number] => ({
-    id, role: 'assistant', kind: 'memory_context', content,
+test('injected memory renders as a collapsible memory bubble in its turn, and deleting the turn deletes it', async () => {
+  const row = (id: string, runId: string, kind: 'memory_context' | 'assistant_answer', content: string): ChatSession['messages'][number] => ({
+    id, role: 'assistant', kind, content,
     inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
-    createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: OPERATION_ID,
+    createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: runId,
   });
-  const markup = render({
+  const deleted: string[][] = [];
+  const view = renderComponent(<ChatTab {...buildProps({
     selectedSession: { ...SESSION_A, messages: [
-      memoryRow('memory-two', '## Relevant personal context\n\n### D (you)\nLikes Neovim.\n\n### SiftKit\nA repo.'),
-      memoryRow('memory-one', '## Relevant personal context\n\n### D (you)\nLikes Neovim.'),
+      row('memory-two', 'run-1', 'memory_context', '## Relevant personal context\n\n### D (you)\nLikes Neovim.\n\n### SiftKit\nA repo.'),
+      row('answer-two', 'run-1', 'assistant_answer', 'Hey D'),
+      row('memory-one', 'run-2', 'memory_context', '## Relevant personal context\n\n### D (you)\nLikes Neovim.'),
     ] },
     runtimeHub: new ChatRuntimeHub(buildDefaultStore(SESSION_A.id)),
-  });
-  assert.match(markup, /class="msg memory_context"/u);
+    onDeleteTurn: async (messageIds) => { deleted.push(messageIds); },
+  })} />);
+  const markup = view.container.innerHTML;
   assert.match(markup, /<details class="memory-bubble"><summary>Memory · 2 notes<\/summary>/u);
   assert.match(markup, /<summary>Memory · 1 note<\/summary>/u);
   assert.match(markup, /### SiftKit\nA repo\./u);
+  await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: 'Delete turn' })[0]); });
+  assert.deepEqual(deleted, [['memory-two', 'answer-two']]);
+  view.unmount();
 });
 
 test('a locally active operation offers Queue and an enabled Stop button', async () => {

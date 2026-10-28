@@ -482,7 +482,7 @@ test('chunkAtTurnStarts never splits a turn and returns no chunks for no rows', 
   assert.deepEqual(chunkAtTurnStarts([], 25), []);
 });
 
-test('injected memory is its own turn between the user row and the answer, never folded into Internal Logic', () => {
+test('injected memory belongs to its run turn but is never its main slot or an Internal Logic step', () => {
   const messages = [
     message({ id: 'u1', role: 'user', kind: 'user_text', content: 'hi' }),
     message({ id: 'm1', role: 'assistant', kind: 'memory_context', content: '### D (you)', sourceRunId: 'run-1' }),
@@ -491,7 +491,9 @@ test('injected memory is its own turn between the user row and the answer, never
   ];
   for (const live of [new Set<string>(), new Set(['m1', 't1', 'a1'])]) {
     const turns = groupMessagesIntoTurns(messages, live);
-    assert.deepEqual(turns.map((turn) => [turn.main?.id, turn.steps.map((step) => step.id)]), [['u1', []], ['m1', []], ['a1', ['t1']]]);
-    assert.equal(turns[1]?.showRecentActivity, false);
+    assert.deepEqual(turns.map((turn) => [turn.main?.id, turn.memory?.id, turn.steps.map((step) => step.id)]), [['u1', undefined, []], ['a1', 'm1', ['t1']]]);
+    assert.deepEqual(turns[1]?.messages.map((row) => row.id), ['m1', 't1', 'a1'], 'deleting the turn deletes its memory');
   }
+  const memoryOnly = groupMessagesIntoTurns(messages.slice(0, 2), new Set(['m1']));
+  assert.equal(memoryOnly[1]?.main, null, 'before the answer streams, memory does not take the main slot');
 });

@@ -7,7 +7,6 @@ import type { Clock } from '../../../assistant/clock.ts';
 import type { SecretScanner } from '../../../assistant/domain/secrets.ts';
 import { isUsableCapability, type AssistantImageCapabilityProvider } from '../../../assistant/images/image-capability.ts';
 import type { AssistantInferenceClient } from '../../../assistant/inference/client.ts';
-import { buildRoleSystemPrompt } from '../../../assistant/inference/roles.ts';
 import type { AuditStore } from '../../../assistant/storage/audit-store.ts';
 import type { RuntimeDatabase } from '../../../state/runtime-db.ts';
 import type { VaultAttachments } from '../../attachments.ts';
@@ -16,20 +15,21 @@ import { VaultNotFoundError } from '../../errors.ts';
 import { stampValidated } from '../../fact-points.ts';
 import { NoteIdRowSchema, requireVaultNote } from '../../note-rows.ts';
 import { sanitizeVaultTitle, type VaultNoteStore } from '../../note-store.ts';
+import { markRollupDay } from '../../rollup-days.ts';
 import type { VaultValidationQueue } from '../../validation-queue.ts';
 import { CHATS_FOLDER, LEARNED_HEADING, PENDING_CALLOUT_KIND } from '../../vault-layout.ts';
 import { localDay } from '../../vault-time.ts';
 import type { VaultChatTurn } from '../chat-turn.ts';
 import { SUPPRESSION_PATTERN, stripUntrustedSpans } from '../chat-text.ts';
 import type { VaultEditApplier } from '../edit-applier.ts';
-import { outputRejectionDetails } from '../rejections.ts';
 import { candidateCards, ownerCard, reviewCards } from './cards.ts';
-import { writerInstructions, type VaultWriterSourceKind } from './prompt.ts';
+import { writerSystemPrompt, type VaultWriterSourceKind } from './prompt.ts';
 import { VaultWriterSession, type VaultWriterSessionOutcome } from './session.ts';
 import { VaultWriterTools } from './tools.ts';
 import type { VaultWriterJob } from './writer-job.ts';
 
 const UNTITLED_SESSION = 'Untitled';
+const SCREENSHOT_ACTOR = 'note-writer · screenshot';
 const TRANSCRIPT_HEADING = 'Transcript';
 const WITHHELD = '_Withheld: the message contained credential material._';
 /** Message lines that would otherwise parse as vault structure: headings and callouts. */
@@ -133,7 +133,7 @@ export class VaultNoteWriter {
       } else {
         const note = requireVaultNote(this.database, capture.note_id);
         learned = this.applier.apply({
-          ownerId, operations: outcome.operations, actor: 'note-writer · screenshot', sourceRef: attachmentId, summary: `Screenshot ${note.title}`, scopeNoteIds: [],
+          ownerId, operations: outcome.operations, actor: SCREENSHOT_ACTOR, sourceRef: attachmentId, summary: `Screenshot ${note.title}`, scopeNoteIds: [],
         }).learned;
       }
       this.finishCapture(capture, learned, 'processed');
@@ -180,7 +180,7 @@ export class VaultNoteWriter {
       const body = appendSectionLines(insertSectionLines(base, TRANSCRIPT_HEADING, transcript), LEARNED_HEADING, learned);
       if (existing === null) this.createChatNote(turn, day, body, meta);
       else this.store.update(existing.id, { body }, existing.revision, meta);
-      this.recordRollupDay(day);
+      markRollupDay(this.database, day);
     })();
     return WRITTEN;
   }
@@ -207,7 +207,7 @@ export class VaultNoteWriter {
   /** Runs the agent; an abort throws before anything is written, so the runner re-queues the job. */
   private async agent(source: VaultWriterSourceKind, seedText: string, images: readonly ImageDataUrl[], day: string, signal: AbortSignal): Promise<AgentOutcome> {
     const outcome = await new VaultWriterSession({
-      systemPrompt: buildRoleSystemPrompt('vault_writer', writerInstructions(source)), seedText, images, inference: this.inference, abortSignal: signal,
+      systemPrompt: writerSystemPrompt(source), seedText, images, inference: this.inference, abortSignal: signal,
       tools: new VaultWriterTools({ database: this.database, store: this.store, clock: this.clock, day }),
     }).run();
     if (outcome.kind === 'aborted') throw new Error('Vault writer aborted before writing.');
@@ -220,15 +220,17 @@ export class VaultNoteWriter {
     return [ownerCard(this.database, nowUtc), candidateCards(this.database, sourceText, nowUtc), source].join('\n\n');
   }
 
+  /** Audits a run that submitted no edits; the raw sample is kept only when it holds no secret. */
   private rejectAudit(ownerId: string, targetType: string, targetId: string, summary: string, outcome: Extract<AgentOutcome, { kind: 'invalid_output' }>): void {
+    const scan = this.scanner.scan(outcome.rawSample);
     this.audit.recordAuditEvent({
       ownerId, eventType: 'vault_writer_rejected', targetType, targetId, summary,
-      details: outputRejectionDetails(this.scanner, outcome.rawSample, { code: 'invalid_output', turns: outcome.trace.turns }),
+      details: {
+        code: 'invalid_output', turns: outcome.trace.turns,
+        rawSample: scan.containsSecret ? null : outcome.rawSample,
+        ...(scan.containsSecret ? { rawSampleWithheld: [...scan.matchedRuleIds] } : {}),
+      },
     });
-  }
-
-  private recordRollupDay(day: string): void {
-    this.database.prepare('INSERT OR IGNORE INTO vault_rollup_days (day) VALUES (?)').run(day);
   }
 
   private awaitCapability(attachmentId: string): VaultNoteWriterOutcome {
@@ -250,10 +252,10 @@ export class VaultNoteWriter {
   private finishCapture(capture: VaultCaptureRow, learned: readonly string[], state: 'processed' | 'image_removed'): void {
     this.database.transaction(() => {
       const note = requireVaultNote(this.database, capture.note_id);
-      const meta: VaultWriteMeta = { actor: 'note-writer · screenshot', summary: 'Learned from screenshot', sourceRef: capture.attachment_id };
+      const meta: VaultWriteMeta = { actor: SCREENSHOT_ACTOR, summary: 'Learned from screenshot', sourceRef: capture.attachment_id };
       this.store.update(note.id, { body: replaceSection(removeCallouts(note.body, PENDING_CALLOUT_KIND), LEARNED_HEADING, learned) }, note.revision, meta);
       finishCapture(this.database, capture.attachment_id, state, this.clock.nowUtc());
-      this.recordRollupDay(localDay(capture.captured_at_utc));
+      markRollupDay(this.database, localDay(capture.captured_at_utc));
     })();
   }
 

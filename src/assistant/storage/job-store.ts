@@ -6,11 +6,9 @@ import type { Clock } from '../clock.ts';
 import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.ts';
 import type { IdGenerator } from '../ids.ts';
 import {
-  AssistantJobRequestSchema, MODEL_BACKED_JOB_TYPES, jobIdempotencyKey, jobPriority, type AssistantJobRequest, type AssistantJobType,
+  AssistantJobRequestSchema, MODEL_BACKED_JOB_TYPE, jobIdempotencyKey, jobPriority, type AssistantJobRequest, type AssistantJobType,
 } from '../jobs/job-types.ts';
 import { IdRowSchema, JobRowSchema, type JobRow } from './rows.ts';
-
-const MODEL_BACKED_JOB_TYPE_PLACEHOLDERS = MODEL_BACKED_JOB_TYPES.map(() => '?').join(', ');
 
 export interface ClaimJobInput {
   readonly ownerId: string;
@@ -75,14 +73,14 @@ export class JobStore {
     const candidate = this.database.prepare(`
       SELECT id FROM assistant_jobs
       WHERE owner_id = ? AND status = 'queued' AND available_at_utc <= ?
-        AND (? = 1 OR job_type NOT IN (${MODEL_BACKED_JOB_TYPE_PLACEHOLDERS}))
+        AND (? = 1 OR job_type != ?)
       ORDER BY priority DESC, available_at_utc ASC, created_at_utc ASC, id ASC
       LIMIT 1
     `).get(
       input.ownerId,
       nowUtc,
       input.modelWorkAllowed ? 1 : 0,
-      ...MODEL_BACKED_JOB_TYPES,
+      MODEL_BACKED_JOB_TYPE,
     );
     if (candidate === undefined || candidate === null) {
       return null;

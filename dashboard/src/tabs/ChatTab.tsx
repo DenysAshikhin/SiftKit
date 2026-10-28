@@ -29,7 +29,7 @@ import { MessageImages } from '../components/MessageImages.tsx';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar.tsx';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard.tsx';
 import type { RepoAgentDecision } from '../api.ts';
-import { REPO_AGENT_DEFAULT_MAX_TURNS, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply } from '@siftkit/contracts';
+import { REPO_AGENT_DEFAULT_MAX_TURNS, countMemoryNotes, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply } from '@siftkit/contracts';
 import { ChatQuestionCard } from '../components/ChatQuestionCard.tsx';
 import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl.tsx';
 import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl.tsx';
@@ -691,10 +691,10 @@ function TurnList({ messages, liveMessageIds, liveTokenDisplays, sessionId, pend
           && turn.shownImages.length === 0
           && turn.liveThinking.length === 0
           && turn.recentActivities.length === 0
-          && !turn.showRecentActivity) {
+          && !turn.showRecentActivity
+          && turn.memory === null) {
           const message = turn.main;
           if (!message) { return null; }
-          if (message.kind === 'memory_context') return <MemoryContextRow key={message.id} content={message.content} />;
           if (message.kind === 'repo_agent_approval') {
             return (
               <React.Fragment key={message.id}>
@@ -741,16 +741,14 @@ function TurnList({ messages, liveMessageIds, liveTokenDisplays, sessionId, pend
   );
 }
 
-/** The memory injected into one turn's system prompt; the retriever renders each note under a `### ` heading. */
+/** The memory injected into one turn's system prompt. */
 function MemoryContextRow({ content }: { content: string }) {
-  const notes = content.match(/^### /gmu)?.length ?? 0;
+  const notes = countMemoryNotes(content);
   return (
-    <article className="msg memory_context">
-      <details className="memory-bubble">
-        <summary>Memory · {notes} {notes === 1 ? 'note' : 'notes'}</summary>
-        <pre className="mono">{content}</pre>
-      </details>
-    </article>
+    <details className="memory-bubble">
+      <summary>Memory · {notes} {notes === 1 ? 'note' : 'notes'}</summary>
+      <pre className="mono">{content}</pre>
+    </details>
   );
 }
 
@@ -1118,6 +1116,7 @@ function ChatTurnBubble({ turn, tokenDisplays, sessionId, isDirectChatMode, chat
           ) : null}
         </span>
       </div>
+      {turn.memory ? <MemoryContextRow content={turn.memory.content} /> : null}
       {turn.steps.length > 0 ? (
         <details className="internal-logic" onToggle={(event) => setExpandedLogic(event.currentTarget.open)}>
           <summary>Internal Logic ({turn.steps.length})</summary>

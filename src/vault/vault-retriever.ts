@@ -1,4 +1,4 @@
-import { parseNoteBody, VAULT_LINK_PATTERN, VAULT_VALUE_SEPARATOR, type VaultNote } from '@siftkit/contracts';
+import { MEMORY_NOTE_HEADING_PREFIX, parseNoteBody, VAULT_LINK_PATTERN, VAULT_VALUE_SEPARATOR, type VaultNote } from '@siftkit/contracts';
 
 import type { Clock } from '../assistant/clock.ts';
 import type { TokenCounter } from '../assistant/domain/tokens.ts';
@@ -47,7 +47,7 @@ function plainText(text: string): string {
 function renderNote(note: VaultNote, heading: string, withRows: boolean): string {
   const parsed = parseNoteBody(note.body);
   const rows = withRows ? parsed.factRows.map((row) => `**${row.label}** ${row.values.map(plainText).join(VAULT_VALUE_SEPARATOR)}`) : [];
-  return [`### ${heading}`, ...(parsed.lead === null ? [] : [plainText(parsed.lead.text)]), ...rows].join('\n');
+  return [`${MEMORY_NOTE_HEADING_PREFIX}${heading}`, ...(parsed.lead === null ? [] : [plainText(parsed.lead.text)]), ...rows].join('\n');
 }
 
 /**

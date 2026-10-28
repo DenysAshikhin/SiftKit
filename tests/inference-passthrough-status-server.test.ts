@@ -580,6 +580,17 @@ test('chat passthrough fails the request when the engine cannot tokenize it', as
   assert.match(String(response.body.error), /tokeniz/iu);
 });
 
+test('chat passthrough answers 503, not an upstream failure, while the model is manually unloaded', async () => {
+  await using server = await startCountingServer();
+  await server.forwardedChat({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal((await requestJsonPost(`${server.baseUrl}/runtime/model/unload`, {}, 30_000)).statusCode, 200);
+
+  const response = await server.postChat({ messages: [{ role: 'user', content: 'hi again' }] });
+
+  assert.equal(response.statusCode, 503);
+  assert.match(String(response.body.error), /unloaded manually/u);
+});
+
 test('chat passthrough counts with the caller authorization', async () => {
   await using server = await startCountingServer();
   const first = [{ role: 'user', content: 'hi' }];

@@ -11,11 +11,9 @@ import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.
 import type {
   InferenceChatMessage, InferenceToolDefinition, NormalizedInferenceChatResponse,
 } from '../../llm-protocol/types.ts';
-import type { AssistantInferenceRole } from './roles.ts';
 
 /** One note-writer agent turn: the whole history, the offered tools, and the source's images. */
 export interface AssistantAgentTurnRequest {
-  readonly role: AssistantInferenceRole;
   readonly messages: readonly InferenceChatMessage[];
   /** Attached to the first user message; empty for text-only sources. */
   readonly images: readonly ImageDataUrl[];
@@ -83,7 +81,7 @@ export class DefaultAssistantInferenceClient implements AssistantInferenceClient
       idleTimeoutSeconds: ASSISTANT_IDLE_TIMEOUT_SECONDS,
       reasoningOverride: 'off',
       throughputAudit: {
-        operationType: 'assistant', operationId, requestId: operationId, stage: `agent_${request.role}`, model, presetId: this.presets.getPreset().id,
+        operationType: 'assistant', operationId, requestId: operationId, stage: 'agent_vault_writer', model, presetId: this.presets.getPreset().id,
       },
       abortSignal: request.abortSignal,
     });
@@ -101,5 +99,4 @@ export class DefaultAssistantInferenceClient implements AssistantInferenceClient
     return messages.map((message, index) => (index === first && typeof message.content === 'string'
       ? { ...message, content: buildUserContent(message.content, admitted) } : message));
   }
-
 }

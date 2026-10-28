@@ -354,6 +354,7 @@ async function runChatEngineTurn(options: {
   const memory = new ChatMemorySeam(options.ctx.assistant);
   const memoryContext = await memory.buildMemoryContext(selected.preset, options.content);
   throwIfAborted(abortSignal);
+  // Injected memory is shown as its own transcript row; the system prompt drops an empty one.
   if (memoryContext.length > 0) options.recorder.recordDisplay({ kind: 'memory_context', content: memoryContext });
   const reader = new JsonRecordReader(options.parsedBody);
   // Web access and the turn limit were settled at admission; execution does not re-read the body.
@@ -371,11 +372,7 @@ async function runChatEngineTurn(options: {
     repoRoot: process.cwd(),
     statusBackendUrl: `${options.ctx.getServiceBaseUrl()}/status`,
     config,
-    systemPrompt: buildChatSystemContent(
-      config,
-      selected.session,
-      memoryContext.length === 0 ? {} : { memoryContext },
-    ),
+    systemPrompt: buildChatSystemContent(config, selected.session, { memoryContext }),
     history: options.recorder.readHistory(),
     thinkingEnabled: selected.session.thinkingEnabled !== false,
     allowedTools: resolveChatRunAllowedTools({ operation: 'chat', webEnabled }),

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { countMemoryNotes } from '@siftkit/contracts';
+
 import type { TokenCount, TokenCounter } from '../src/assistant/domain/tokens.ts';
 import { z } from '../src/lib/zod.ts';
 import { ensureOwnerNote } from '../src/vault/owner-identity.ts';
@@ -40,6 +42,7 @@ test('the owner lead comes first, then matching entity notes with lead and fact 
     ].join('\n'));
     assert.equal(result.tokenCount, result.renderedBlock.length);
     assert.equal(result.noteIds.length, 2);
+    assert.equal(countMemoryNotes(result.renderedBlock), result.noteIds.length, 'the dashboard counts the notes the retriever injected');
   });
 });
 
