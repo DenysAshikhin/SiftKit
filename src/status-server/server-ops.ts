@@ -7,7 +7,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { MIXED_MODEL_PRESET_LABEL } from '@siftkit/contracts';
+import { MIXED_MODEL_PRESET_LABEL, type ModelLifecycleActionResult } from '@siftkit/contracts';
 import { getErrorMessage, toError } from '../lib/errors.ts';
 import { readConfig, persistAppliedModelSelection } from './config-store.ts';
 import { MissingModelPathError } from '../inference-presets/exl3-preset-adapter.ts';
@@ -22,6 +22,7 @@ import {
   type ModelRequestCandidate,
 } from './model-request-selection.ts';
 import type { SiftConfig } from '../config/types.ts';
+import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.ts';
 import { getActiveModelPreset } from '../config/getters.ts';
 import {
   STATUS_TRUE,
@@ -708,7 +709,7 @@ async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
   }
   try {
     if (coordinator) {
-      await coordinator.ensureRequestPresetReady(selection.context.modelPreset);
+      await coordinator.ensureRequestPresetReady(selection.context.modelPreset, waiter.kind !== INFERENCE_PASSTHROUGH_REQUEST_KIND);
     } else {
       admitCompatibleProfileWithoutCoordinator(ctx, config, selection);
     }
@@ -924,4 +925,13 @@ function armActivePresetIdle(ctx: ServerContext, finishedAtMs: number): void {
 
 export function resumeModelRequestAdmission(ctx: ServerContext): void {
   requestModelRequestDrain(ctx);
+}
+
+/** OpenAI-compatible passthrough requests; they never reload a manually unloaded model. */
+export const INFERENCE_PASSTHROUGH_REQUEST_KIND = 'inference_passthrough';
+
+/** Background assistant work talks to the model directly, so it is stopped before a manual unload. */
+export async function unloadModelManually(ctx: ServerContext, coordinator: PresetRuntimeCoordinator): Promise<ModelLifecycleActionResult> {
+  await ctx.assistantControl?.onModelResidencyChanging();
+  return coordinator.unloadActivePresetNow();
 }

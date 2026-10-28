@@ -11,6 +11,7 @@ import type { AppliedModelPresetState } from './applied-model-preset-state.ts';
 import { persistAppliedModelSelection, readConfig, restorePreviousModelSelection } from './config-store.ts';
 
 const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is in progress; retry once it completes.';
+const MANUAL_UNLOAD_ERROR = 'The model was unloaded manually; load it or send an interactive request.';
 
 /** Raised when a restart is asked of a preset whose server SiftKit did not launch. */
 export class ExternalServerRestartError extends Error {}
@@ -26,6 +27,8 @@ export class PresetRuntimeCoordinator {
   private rollback: string | null = null;
   private idleDeadlineUtc: string | null = null;
   private residencyActionInProgress = false;
+  /** Set by a manual unload; only a manual load, a restart or an interactive request reloads the model. */
+  private manuallyUnloaded = false;
   private admissionBlockerCount = 0;
   private admissionBlockerPromise: Promise<void> = Promise.resolve();
   private resolveAdmissionBlocker: (() => void) | null = null;
@@ -89,11 +92,15 @@ export class PresetRuntimeCoordinator {
   }
 
   // Keep the target frozen while joining existing lifecycle work and preserve newer config saves.
-  async ensureRequestPresetReady(target: ModelRuntimePreset): Promise<void> {
+  async ensureRequestPresetReady(target: ModelRuntimePreset, wakesManualUnload: boolean): Promise<void> {
     const requested = structuredClone(target);
     while (!this.canGrantModelRequest()) {
       if (this.switchPromise !== null) await this.switchPromise;
       else await this.waitForCurrentAdmissionBlocker();
+    }
+    if (this.manuallyUnloaded) {
+      if (!wakesManualUnload) throw new Error(MANUAL_UNLOAD_ERROR);
+      this.manuallyUnloaded = false;
     }
     const currentConfig = readConfig(this.configPath);
     this.findPreset(currentConfig, requested.id);
@@ -127,11 +134,14 @@ export class PresetRuntimeCoordinator {
         `Preset '${configured.id}' uses an external inference server, so SiftKit does not own its lifecycle and cannot restart it.`,
       );
     }
+    this.manuallyUnloaded = false;
     this.setPendingSwitch(configured, 'restart');
     await this.startPendingSwitch();
   }
 
+  /** Readies the configured preset for a config read; a manual unload is left alone. */
   async ensureActivePresetReady(): Promise<void> {
+    if (this.manuallyUnloaded) return;
     // Join a running switch and re-check, since config can be re-saved mid-switch. A queued switch is
     // not joined: it waits on in-flight model requests, which may be the caller (or a minutes-long run).
     for (;;) {
@@ -221,6 +231,7 @@ export class PresetRuntimeCoordinator {
     const busy = this.refuseIfBusy();
     if (busy) return busy;
     const runtime = this.runtime;
+    this.manuallyUnloaded = true;
     if (runtime.getModelState() === 'unloaded') return { status: 'noop' };
     this.beginResidencyAction();
     try {
@@ -239,6 +250,7 @@ export class PresetRuntimeCoordinator {
     if (busy) return busy;
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.runtime;
+    this.manuallyUnloaded = false;
     if (runtime.getModelState() === 'ready') return { status: 'noop' };
     this.beginResidencyAction();
     try {

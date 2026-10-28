@@ -16,6 +16,7 @@ import { StatusServerResidencyGate } from '../src/status-server/assistant-reside
 import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
 import { ModelIdleController } from '../src/status-server/model-idle-controller.ts';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
+import { unloadModelManually } from '../src/status-server/server-ops.ts';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
@@ -281,7 +282,7 @@ test('request-triggered cold reload blocks competing residency actions', async (
     assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
     fixture.exl3Runtime.setBlockedTransition('ensure');
-    const ensurePromise = fixture.coordinator.ensureActivePresetReady();
+    const ensurePromise = fixture.coordinator.ensureRequestPresetReady(fixture.preset, true);
     await fixture.exl3Runtime.transitionStarted.promise;
 
     assert.equal(fixture.coordinator.canGrantModelRequest(), false);
@@ -342,18 +343,53 @@ test('manual load cold loads after a manual unload', async () => {
     fixture.events.length = 0;
     assert.equal((await fixture.coordinator.loadActivePresetNow()).status, 'done');
     assert.deepEqual(fixture.events, ['load:exl3-main']);
+    assert.equal(await fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'unload'), true);
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.equal(fixture.events.at(-1), 'load:exl3-main', 'a manual load ends the sticky state');
   } finally {
     await fixture.cleanup();
   }
 });
-test('model request readiness cold loads after a manual unload', async () => {
+test('an interactive request cold loads after a manual unload and ends the sticky state', async () => {
+  const fixture = createCoordinatorFixture();
+  try {
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
+    fixture.events.length = 0;
+    await fixture.coordinator.ensureRequestPresetReady(fixture.preset, true);
+    assert.deepEqual(fixture.events, ['load:exl3-main']);
+    assert.equal(await fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'unload'), true);
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.deepEqual(fixture.events, ['load:exl3-main', 'unload:exl3', 'load:exl3-main'], 'an idle unload still wakes on the next config read');
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('a manual unload is sticky: config reads and passthrough requests do not reload the model', async () => {
   const fixture = createCoordinatorFixture();
   try {
     await fixture.coordinator.ensureActivePresetReady();
     assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
     await fixture.coordinator.ensureActivePresetReady();
-    assert.deepEqual(fixture.events, ['load:exl3-main']);
+    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(fixture.preset, false), /unloaded manually/);
+    assert.deepEqual(fixture.events, []);
+    assert.equal(fixture.coordinator.getStatus().modelState, 'unloaded');
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('a manual unload of an already idle-unloaded model is sticky too', async () => {
+  const fixture = createCoordinatorFixture();
+  try {
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.equal(await fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'unload'), true);
+    assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'noop');
+    fixture.events.length = 0;
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.deepEqual(fixture.events, []);
   } finally {
     await fixture.cleanup();
   }
@@ -507,6 +543,56 @@ test('idle unload preempts a blocked assistant drain and waits for it before unl
 
     fixture.exl3Runtime.releaseTransition();
     await waitForEvent(fixture.events, 'unload:exl3');
+    assert.deepEqual(fixture.events, ['unload:exl3']);
+  } finally {
+    inference.releaseCall();
+    fixture.exl3Runtime.releaseTransition();
+    if (drain) await drain;
+    await fixture.cleanup();
+  }
+});
+
+test('a manual unload preempts a blocked assistant drain and waits for it before unloading', async () => {
+  const fixture = createCoordinatorFixture({ idleAction: 'none', blockedTransition: 'unload' });
+  const inference = new BlockingAssistantInference();
+  let drain: Promise<void> | null = null;
+  try {
+    await fixture.coordinator.ensureActivePresetReady();
+    fixture.events.length = 0;
+    const service = AssistantService.create({
+      database: getRuntimeDatabase(fixture.configPath),
+      runtimeRoot: dirname(fixture.configPath),
+      clock: new FixedClock('2026-08-05T09:00:00.000Z'),
+      ids: new SequentialIdGenerator(),
+      configWriter: new MemoryAssistantConfigWriter({ ...DEFAULT_ASSISTANT_CONFIG, Enabled: true }),
+      inference,
+      tokens: new EstimateTokenCounter(4),
+      idleGate: ALWAYS_IDLE,
+      residencyGate: new StatusServerResidencyGate(fixture.coordinator),
+      config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true },
+      dataProtector: new InMemoryDataProtector(),
+    });
+    fixture.ctx.assistant = service;
+    fixture.ctx.assistantControl = service;
+    service.ingestChatTurn({
+      sessionId: 'chat_manual', sessionTitle: 'Manual', capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      userMessageId: 'm1', userText: 'I use PowerShell.', assistantText: 'Noted.',
+    });
+    drain = service.drainJobs();
+    await inference.callStarted.promise;
+
+    let unloadStarted = false;
+    void fixture.exl3Runtime.transitionStarted.promise.then(() => { unloadStarted = true; });
+    const unload = unloadModelManually(fixture.ctx, fixture.coordinator);
+    await inference.callAborted.promise;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(unloadStarted, false, 'unload must not start while the assistant drain is still blocked');
+
+    inference.releaseCall();
+    await drain;
+    await fixture.exl3Runtime.transitionStarted.promise;
+    fixture.exl3Runtime.releaseTransition();
+    assert.equal((await unload).status, 'done');
     assert.deepEqual(fixture.events, ['unload:exl3']);
   } finally {
     inference.releaseCall();

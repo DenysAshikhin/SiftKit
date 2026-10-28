@@ -172,7 +172,7 @@ test('a request for another model during the startup load waits for it, then swi
     const startup = coordinator.initialize();
     await runtime.transitionStarted.promise;
     assert.equal(coordinator.canGrantModelRequest(), false, 'no request is admitted while the startup load runs');
-    const request = coordinator.ensureRequestPresetReady(alt);
+    const request = coordinator.ensureRequestPresetReady(alt, true);
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(events, [], 'the switch does not touch the runtime until the startup load ends');
     runtime.releaseTransition();
@@ -491,7 +491,7 @@ test('an automatic request switch remains selected after readiness is checked ag
     const target = readConfig(fixture.configPath).Server.ModelPresets.Presets
       .find(preset => preset.id === 'exl3-alt');
     assert.ok(target);
-    await fixture.coordinator.ensureRequestPresetReady(target);
+    await fixture.coordinator.ensureRequestPresetReady(target, true);
     fixture.events.length = 0;
     await fixture.coordinator.ensureActivePresetReady();
     assert.equal(fixture.coordinator.getStatus().activePresetId, target.id);
@@ -513,7 +513,7 @@ test('a same-residency request updates the applied profile without lifecycle cal
     const target = { ...current, label: 'Renamed main' };
     events.length = 0;
 
-    await coordinator.ensureRequestPresetReady(target);
+    await coordinator.ensureRequestPresetReady(target, true);
 
     assert.deepEqual(events, []);
     assert.equal(coordinator.getStatus().activePresetLabel, 'Renamed main');
@@ -536,7 +536,7 @@ test('a same-id request with a changed loading key performs one ordered transiti
     const target = { ...current, Model: 'changed-model' };
     events.length = 0;
 
-    await coordinator.ensureRequestPresetReady(target);
+    await coordinator.ensureRequestPresetReady(target, true);
 
     assert.deepEqual(events, ['unload:exl3', 'load:exl3-main']);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
@@ -558,7 +558,7 @@ test('a failed requested switch rolls back the previous model and releases the a
     const target = { ...broken, Model: 'broken-model' }; // changed loading key forces a real transition
     events.length = 0;
 
-    await assert.rejects(coordinator.ensureRequestPresetReady(target), /load failed: broken-exl3/u);
+    await assert.rejects(coordinator.ensureRequestPresetReady(target, true), /load failed: broken-exl3/u);
 
     assert.deepEqual(events, ['unload:exl3', 'load:broken-exl3', 'unload:exl3', 'load:exl3-main']);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
@@ -598,7 +598,7 @@ test('a settings save landing while a requested switch is blocked is preserved',
     runtime.setBlockedTransition('ensure');
     events.length = 0;
 
-    const ready = coordinator.ensureRequestPresetReady(target);
+    const ready = coordinator.ensureRequestPresetReady(target, true);
     await runtime.transitionStarted.promise;
     assert.equal(coordinator.canGrantModelRequest(), false);
     persistActivePreset(configPath, 'external-exl3'); // newer save lands mid-transition
@@ -625,7 +625,7 @@ test('a readiness check joining a requested switch sees the new selection and ne
     runtime.setBlockedTransition('ensure');
     events.length = 0;
 
-    const requested = coordinator.ensureRequestPresetReady(target);
+    const requested = coordinator.ensureRequestPresetReady(target, true);
     await runtime.transitionStarted.promise;
     const readiness = coordinator.ensureActivePresetReady(); // what GET /config does
     runtime.setBlockedTransition(null);
@@ -649,7 +649,7 @@ for (const sameResidency of [true, false]) {
       const current = getActiveModelPreset(config);
       const target = { ...current, id: 'removed-model', Model: sameResidency ? current.Model : 'removed-weights' };
       fixture.events.length = 0;
-      await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target), /does not exist/u);
+      await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target, true), /does not exist/u);
       assert.deepEqual(fixture.events, []);
       assert.equal(fixture.appliedState.getPreset().id, current.id);
       assert.equal(fixture.coordinator.canGrantModelRequest(), true);
@@ -669,7 +669,7 @@ test('a failed target and failed rollback release admission for a later request'
     assert.ok(target);
     failures.add(target.id);
     failures.add('exl3-main');
-    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target), /load failed: broken-exl3/u);
+    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target, true), /load failed: broken-exl3/u);
     assert.equal(fixture.coordinator.canGrantModelRequest(), true);
     await fixture.coordinator.waitForCurrentAdmissionBlocker();
     assert.match(fixture.coordinator.getStatus().rollback ?? '', /load failed: exl3-main/u);

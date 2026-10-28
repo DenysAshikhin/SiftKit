@@ -45,6 +45,7 @@ import { toError } from '../../lib/errors.ts';
 import { readBody, sendBodyReadError, sendJson } from '../http-utils.ts';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.ts';
 import {
+  INFERENCE_PASSTHROUGH_REQUEST_KIND,
   acquireModelRequestWithWait,
   releaseModelRequest,
 } from '../server-ops.ts';
@@ -307,7 +308,7 @@ class WorkloadEndpoint implements RouteEndpoint {
     }
     let lock: ModelRequestLock | null;
     try {
-      lock = await acquireModelRequestWithWait(ctx, 'inference_passthrough', req, res);
+      lock = await acquireModelRequestWithWait(ctx, INFERENCE_PASSTHROUGH_REQUEST_KIND, req, res);
     } catch (error) {
       // Admission readies the model before granting; a failed load answers like any upstream failure.
       sendJson(res, 502, { error: toError(error).message });

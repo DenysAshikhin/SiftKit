@@ -31,6 +31,7 @@ import {
   getModelRequestQueueDiagnostics,
   getPublishedStatusText,
   resumeModelRequestAdmission,
+  unloadModelManually,
 } from '../server-ops.ts';
 import { ChatSessionSchema, InferenceRuntimeDashboardStatusSchema, ModelLifecycleRequestSchema, ModelLifecycleResponseSchema } from '@siftkit/contracts';
 import type { ModelLifecycleAction } from '@siftkit/contracts';
@@ -345,7 +346,7 @@ export class ModelResidencyEndpoint implements RouteEndpoint {
       const action = ModelLifecycleRequestSchema.parse({ action: this.action }).action;
       const result = action === 'load'
         ? await coordinator.loadActivePresetNow()
-        : await coordinator.unloadActivePresetNow();
+        : await unloadModelManually(ctx, coordinator);
       if (result.status === 'busy') sendJson(res, 409, ModelLifecycleResponseSchema.parse({ ok: false, error: result.reason }));
       else sendJson(res, 200, ModelLifecycleResponseSchema.parse({ ok: true, status: result.status }));
     } catch (error) {
