@@ -6,6 +6,8 @@ const EXPLORE = [
   'neighbors to check how notes relate, day_context for what earlier sources today already recorded.',
   'Never create a note another name already covers; add an alias instead. Never repeat a value a row already holds.',
   'Put each fact on the note it is about. Link known notes as [[Title]] values.',
+  'Record only what will still be true next week. Skip screen state: usage meters, quotas, timers, counters, progress,',
+  'notifications, window and panel layout, branch or sync status, and lists of open or changed files.',
 ].join('\n');
 
 const SOURCE = {

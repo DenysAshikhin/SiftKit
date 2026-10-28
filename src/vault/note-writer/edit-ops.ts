@@ -34,10 +34,11 @@ export const VAULT_EDIT_INSTRUCTIONS = [
   '- add_aliases {note, aliases}: other names the note goes by.',
   '- add_task {note, text}: something the user plans or wants to do.',
   '- learned {note, label, value}: one line summarising what this source taught about a note.',
-  '- set_lead {note, lead}: rewrite the 1-3 sentence lead of a note this batch also edits.',
+  '- set_lead {note, lead}: rewrite the 1-3 sentence lead of a note this batch also edits. A lead says what the note is: no paths, counts, dates or current status.',
   '- flag_conflict {note, label, value, conflictsWith}: the source contradicts a held value; the user decides.',
   '- flag_doubt {note, label, value, reason}: a held value looks wrong (implausible, bad link, stale); the user decides.',
   'Refer to notes by their exact title. Refer to the user as "the user". Never change or delete an existing fact; flag it.',
+  'Keep values under 200 characters and labels under 40. A value is a short fact in your own words; never paste tool output into it.',
   'Record only what is clearly shown. Jokes, fiction, misreads and impossible claims are not facts about the user.',
   'Never record credentials, protected traits, or a medical diagnosis. Submit {"operations": []} when nothing durable is shown.',
 ].join('\n');
