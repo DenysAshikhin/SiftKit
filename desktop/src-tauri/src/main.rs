@@ -46,6 +46,8 @@ const POPUP_LABEL: &str = "siftkit-question-popup";
 const SNOOZE_SECONDS: u64 = 4 * 3600;
 /// How often the worker re-reads the daemon config.
 const CONFIG_POLL_SECONDS: u64 = 30;
+/// How often the worker polls desktop state (tray, popup, pause); the loop itself still ticks every second.
+const DESKTOP_STATE_POLL_SECONDS: u64 = 5;
 /// Back-off after a failed connect or an errored desktop-state poll.
 const RETRY_DELAY: Duration = Duration::from_secs(5);
 /// How long `connect` waits for a freshly spawned daemon: attempts × interval.
@@ -330,6 +332,7 @@ fn worker_loop(
         observation.window_change_capture,
     );
     let mut last_config_fetch = 0u64;
+    let mut desktop_poll: Option<(u64, DesktopStateDto)> = None;
     let mut was_paused = false;
 
     loop {
@@ -380,33 +383,39 @@ fn worker_loop(
         }
         was_paused = paused;
 
-        // Desktop state poll: tray + popup.
-        let desktop = {
-            let client = state.client.lock().expect("client lock");
-            client.desktop_state()
-        };
-        let desktop = match desktop {
-            Ok(desktop) => desktop,
-            Err(ClientError::Disconnected(_)) => {
-                state.connected.store(false, Ordering::Relaxed);
-                update_tray(&app, &state, None);
-                continue;
+        // Desktop state poll: tray + popup. Between polls the last state steers the loop.
+        if desktop_state_poll_due(desktop_poll.as_ref().map(|(polled_at, _)| *polled_at), now) {
+            let polled = {
+                let client = state.client.lock().expect("client lock");
+                client.desktop_state()
+            };
+            let polled = match polled {
+                Ok(polled) => polled,
+                Err(ClientError::Disconnected(_)) => {
+                    state.connected.store(false, Ordering::Relaxed);
+                    desktop_poll = None;
+                    update_tray(&app, &state, None);
+                    continue;
+                }
+                Err(_) => {
+                    state.attention.store(true, Ordering::Relaxed);
+                    desktop_poll = None;
+                    update_tray(&app, &state, None);
+                    std::thread::sleep(Duration::from_secs(5));
+                    continue;
+                }
+            };
+            update_tray(&app, &state, Some(&polled));
+            {
+                let mut controller = state.controller.lock().expect("controller lock");
+                let mut window = TauriPopupWindow { app: app.clone() };
+                controller.on_poll(&polled, &mut window);
+                *state.current_question_id.lock().expect("question lock") =
+                    polled.pending_question.as_ref().map(|question| question.id.clone());
             }
-            Err(_) => {
-                state.attention.store(true, Ordering::Relaxed);
-                update_tray(&app, &state, None);
-                std::thread::sleep(Duration::from_secs(5));
-                continue;
-            }
-        };
-        update_tray(&app, &state, Some(&desktop));
-        {
-            let mut controller = state.controller.lock().expect("controller lock");
-            let mut window = TauriPopupWindow { app: app.clone() };
-            controller.on_poll(&desktop, &mut window);
-            *state.current_question_id.lock().expect("question lock") =
-                desktop.pending_question.as_ref().map(|question| question.id.clone());
+            desktop_poll = Some((now, polled));
         }
+        let Some((_, desktop)) = desktop_poll.as_ref() else { continue };
 
         let daemon_paused = desktop.paused || !desktop.assistant_enabled;
         let effective_paused = paused || daemon_paused;
@@ -737,5 +746,23 @@ mod tests {
             serde_json::from_str::<ObservationConfig>(r#"{"CaptureScope":"everything"}"#).is_err(),
             "an unknown scope is a contract problem, not a silent foreground_window",
         );
+    }
+}
+
+/// The first poll is always due; after that, one every [`DESKTOP_STATE_POLL_SECONDS`].
+fn desktop_state_poll_due(last_polled_at: Option<u64>, now: u64) -> bool {
+    last_polled_at.map_or(true, |polled_at| now >= polled_at + DESKTOP_STATE_POLL_SECONDS)
+}
+
+#[cfg(test)]
+mod desktop_poll_tests {
+    use super::desktop_state_poll_due;
+
+    #[test]
+    fn desktop_state_is_polled_first_and_then_every_five_seconds() {
+        assert!(desktop_state_poll_due(None, 100));
+        assert!(!desktop_state_poll_due(Some(100), 101));
+        assert!(!desktop_state_poll_due(Some(100), 104));
+        assert!(desktop_state_poll_due(Some(100), 105));
     }
 }

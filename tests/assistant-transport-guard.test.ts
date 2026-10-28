@@ -3,17 +3,12 @@ import test from 'node:test';
 
 import { AssistantRateLimiter } from '../src/status-server/assistant-rate-limiter.ts';
 
-test('assistant rate limits use independent fixed windows per bearer and operation class', () => {
+test('assistant mutations are limited per bearer in fixed one-minute windows', () => {
   const limiter = new AssistantRateLimiter();
-  for (let index = 0; index < 120; index += 1) {
-    assert.equal(limiter.consume('token-a', 'read', 1_000), true);
+  for (let index = 0; index < 30; index += 1) {
+    assert.equal(limiter.consumeMutation('token-a', 1_000), true);
   }
-  assert.equal(limiter.consume('token-a', 'read', 1_000), false);
-  assert.equal(limiter.consume('token-a', 'mutation', 1_000), true);
-  assert.equal(limiter.consume('token-b', 'read', 1_000), true);
-  assert.equal(limiter.consume('token-a', 'read', 61_000), true);
-  for (let index = 1; index < 30; index += 1) {
-    assert.equal(limiter.consume('token-a', 'mutation', 1_000), true);
-  }
-  assert.equal(limiter.consume('token-a', 'mutation', 1_000), false);
+  assert.equal(limiter.consumeMutation('token-a', 1_000), false);
+  assert.equal(limiter.consumeMutation('token-b', 1_000), true, 'each bearer has its own window');
+  assert.equal(limiter.consumeMutation('token-a', 61_000), true, 'the window resets after a minute');
 });

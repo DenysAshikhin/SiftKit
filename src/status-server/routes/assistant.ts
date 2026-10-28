@@ -125,7 +125,7 @@ export async function handleAssistantRoute(
     return true;
   }
   const token = (header(req, 'authorization') ?? '').slice('Bearer '.length);
-  if (!ctx.assistantRateLimiter.consume(token, req.method === 'GET' ? 'read' : 'mutation')) {
+  if (req.method !== 'GET' && !ctx.assistantRateLimiter.consumeMutation(token)) {
     sendError(res, 429, 'rate_limited', 'Assistant request rate exceeded.');
     return true;
   }
