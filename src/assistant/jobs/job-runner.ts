@@ -1,7 +1,8 @@
-import type { AssistantBackgroundWorkBlock } from '@siftkit/contracts';
+import type { AssistantBackgroundWorkBlock, AssistantRunJobResponse } from '@siftkit/contracts';
 import type { AssistantConfig } from '../../config/types.ts';
 import type { VaultMaintenance } from '../../vault/maintenance.ts';
 import type { VaultNoteWriter } from '../../vault/note-writer/agent/note-writer.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../errors.ts';
 import type { BackgroundWorkDecisionStore } from '../storage/background-work-decision-store.ts';
 import type { JobStore } from '../storage/job-store.ts';
 import type { JobRow } from '../storage/rows.ts';
@@ -43,6 +44,21 @@ export interface DrainSummary {
   readonly recovered: number;
 }
 
+type JobRunOutcome =
+  | { readonly kind: 'completed' }
+  | { readonly kind: 'failed'; readonly error: string }
+  | { readonly kind: 'preempted'; readonly block: AssistantBackgroundWorkBlock }
+  | { readonly kind: 'blocked'; readonly block: AssistantBackgroundWorkBlock };
+
+function outcomeDetail(outcome: JobRunOutcome): string | null {
+  switch (outcome.kind) {
+    case 'completed': return null;
+    case 'failed': return outcome.error;
+    case 'preempted':
+    case 'blocked': return outcome.block.reason;
+  }
+}
+
 export class AssistantJobRunner {
   private preemptionRequested = false;
   private inFlight: AbortController | null = null;
@@ -74,6 +90,10 @@ export class AssistantJobRunner {
     if (resource.kind === 'blocked') {
       return { kind: 'blocked', reason: resource.reason, details: {} };
     }
+    return this.residencyDecision();
+  }
+
+  private residencyDecision(): BackgroundWorkAdmissionDecision {
     return this.options.residencyGate.isModelResident()
       ? { kind: 'allowed' }
       : { kind: 'blocked', reason: 'model_not_resident', details: {} };
@@ -120,55 +140,73 @@ export class AssistantJobRunner {
         break;
       }
       claimed += 1;
-
-      const controller = new AbortController();
-      this.inFlight = controller;
-      const modelBacked = isModelBackedJobType(job.job_type);
-      const gpuStartedAtMs = Date.now();
-      let shouldRecordGpuUse = false;
-      try {
-        if (modelBacked) {
-          const currentModelWork = this.modelWorkDecision();
-          if (currentModelWork.kind === 'blocked') {
-            this.options.jobs.requeuePreempted(job.id);
-            this.recordBlock(ownerId, currentModelWork);
-            break;
-          }
-        }
-        shouldRecordGpuUse = modelBacked;
-        await this.execute(ownerId, job, controller.signal);
-        this.options.jobs.complete(job.id);
+      const outcome = await this.runClaimed(ownerId, job, this.modelWorkDecision());
+      if (outcome.kind === 'completed') {
         completed += 1;
-      } catch (error) {
-        // Only a call that threw is replayed: a writer that already committed must not run twice.
-        if (this.preemptionRequested) {
-          this.options.jobs.requeuePreempted(job.id);
-          preempted += 1;
-          this.recordBlock(ownerId, { reason: 'preemption_requested', details: {} });
-          break;
-        }
-        if (modelBacked && !this.options.residencyGate.isModelResident()) {
-          // The model went to sleep under the call. That is residency, not a bad job: give the
-          // attempt back and stop the drain until the model is resident again.
-          this.options.jobs.requeuePreempted(job.id);
-          preempted += 1;
-          shouldRecordGpuUse = false;
-          this.recordBlock(ownerId, { reason: 'model_not_resident', details: {} });
-          break;
-        }
-        this.options.jobs.fail(
-          job.id, error instanceof Error ? error.message : String(error),
-        );
+      } else if (outcome.kind === 'failed') {
         failed += 1;
-      } finally {
-        if (shouldRecordGpuUse) {
-          this.options.resourcePolicy.recordGpuUse(gpuStartedAtMs, Date.now());
-        }
-        this.inFlight = null;
+      } else {
+        if (outcome.kind === 'preempted') preempted += 1;
+        this.recordBlock(ownerId, outcome.block);
+        break;
       }
     }
 
     return { claimed, completed, failed, preempted, recovered };
+  }
+
+  /** Runs one queued job now, past the idle and resource gates; a model-backed job still needs the model resident. */
+  async runNow(ownerId: string, jobId: string | null): Promise<AssistantRunJobResponse> {
+    this.preemptionRequested = false;
+    const lease = { leaseOwner: this.options.leaseOwner, leaseSeconds: this.options.leaseSeconds };
+    const job = jobId === null
+      ? this.options.jobs.claimNext({ ownerId, ...lease, modelWorkAllowed: true })
+      : this.options.jobs.claimById(ownerId, jobId, lease);
+    if (job === null) {
+      if (jobId === null) throw new AssistantConflictError('No queued job to run.', { code: 'no_queued_job' });
+      throw new AssistantNotFoundError(`No queued job ${jobId}.`);
+    }
+    const outcome = await this.runClaimed(ownerId, job, this.residencyDecision());
+    return { jobId: job.id, jobType: job.job_type, outcome: outcome.kind, detail: outcomeDetail(outcome) };
+  }
+
+  /** Executes a claimed job; a model-backed one goes back to the queue unless `modelWork` allows it. */
+  private async runClaimed(ownerId: string, job: JobRow, modelWork: BackgroundWorkAdmissionDecision): Promise<JobRunOutcome> {
+    const modelBacked = isModelBackedJobType(job.job_type);
+    if (modelBacked && modelWork.kind === 'blocked') {
+      this.options.jobs.requeuePreempted(job.id);
+      return { kind: 'blocked', block: modelWork };
+    }
+    const controller = new AbortController();
+    this.inFlight = controller;
+    const gpuStartedAtMs = Date.now();
+    let shouldRecordGpuUse = modelBacked;
+    try {
+      await this.execute(ownerId, job, controller.signal);
+      this.options.jobs.complete(job.id);
+      return { kind: 'completed' };
+    } catch (error) {
+      // Only a call that threw is replayed: a writer that already committed must not run twice.
+      if (this.preemptionRequested) {
+        this.options.jobs.requeuePreempted(job.id);
+        return { kind: 'preempted', block: { reason: 'preemption_requested', details: {} } };
+      }
+      if (modelBacked && !this.options.residencyGate.isModelResident()) {
+        // The model went to sleep under the call. That is residency, not a bad job: give the
+        // attempt back and stop until the model is resident again.
+        this.options.jobs.requeuePreempted(job.id);
+        shouldRecordGpuUse = false;
+        return { kind: 'preempted', block: { reason: 'model_not_resident', details: {} } };
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.options.jobs.fail(job.id, message);
+      return { kind: 'failed', error: message };
+    } finally {
+      if (shouldRecordGpuUse) {
+        this.options.resourcePolicy.recordGpuUse(gpuStartedAtMs, Date.now());
+      }
+      this.inFlight = null;
+    }
   }
 
   private recordBlock(ownerId: string, block: AssistantBackgroundWorkBlock): void {

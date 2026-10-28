@@ -19,6 +19,7 @@ import {
   keyImportEndpoint,
   restoreEndpoint,
   restorePreviewEndpoint,
+  runJobEndpoint,
   statusEndpoint,
 } from './assistant/admin-routes.ts';
 import {
@@ -53,6 +54,7 @@ import { assistantErrorResponse, header, sendError } from './assistant/helpers.t
 const routes = new RouteTable([
   { method: 'GET', path: '/assistant/status', endpoint: statusEndpoint },
   { method: 'GET', path: '/assistant/background-decisions', endpoint: backgroundDecisionsEndpoint },
+  { method: 'POST', path: '/assistant/jobs/run', endpoint: runJobEndpoint },
   { method: 'GET', path: '/assistant/config', endpoint: configReadEndpoint },
   { method: 'PATCH', path: '/assistant/config', endpoint: configPatchEndpoint },
   { method: 'GET', path: '/assistant/keys/custody', endpoint: custodyEndpoint },

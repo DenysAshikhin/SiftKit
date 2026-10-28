@@ -85,7 +85,16 @@ export class JobStore {
     if (candidate === undefined || candidate === null) {
       return null;
     }
-    const jobId = IdRowSchema.parse(candidate).id;
+    return this.lease(IdRowSchema.parse(candidate).id, input);
+  }
+
+  /** Claims one named queued job regardless of its retry backoff; `null` when it is not queued. */
+  claimById(ownerId: string, jobId: string, input: Omit<ClaimJobInput, 'ownerId' | 'modelWorkAllowed'>): JobRow | null {
+    const job = this.getJob(jobId);
+    return job !== null && job.owner_id === ownerId ? this.lease(jobId, input) : null;
+  }
+
+  private lease(jobId: string, input: Omit<ClaimJobInput, 'ownerId' | 'modelWorkAllowed'>): JobRow | null {
     const leaseExpiresAtUtc =
       new Date(this.clock.nowEpochMs() + input.leaseSeconds * 1000).toISOString();
     const updated = this.database.prepare(`
@@ -93,7 +102,7 @@ export class JobStore {
       SET status = 'running', attempts = attempts + 1, lease_owner = ?,
           lease_expires_at_utc = ?, updated_at_utc = ?
       WHERE id = ? AND status = 'queued'
-    `).run(input.leaseOwner, leaseExpiresAtUtc, nowUtc, jobId);
+    `).run(input.leaseOwner, leaseExpiresAtUtc, this.clock.nowUtc(), jobId);
     return updated.changes === 1 ? this.requireJob(jobId) : null;
   }
 

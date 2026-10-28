@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SecretScanner } from '../src/assistant/domain/secrets.ts';
+import { AssistantConflictError, AssistantNotFoundError } from '../src/assistant/errors.ts';
 import type { AssistantInferenceClient, AssistantAgentTurnRequest } from '../src/assistant/inference/client.ts';
 import { AssistantJobRunner, type InteractivityGate, type ModelResidencyGate } from '../src/assistant/jobs/job-runner.ts';
 import { VAULT_MAINTENANCE_REQUEST, type AssistantJobRequest, type AssistantJobType } from '../src/assistant/jobs/job-types.ts';
@@ -387,5 +388,59 @@ test('an unloaded model still lets maintenance drain', async () => {
     enqueue(VAULT_MAINTENANCE_REQUEST);
     assert.equal((await jobRunner.drain(context.ownerId, 10)).completed, 1);
     assert.equal(context.graph.jobs.countByStatus(context.ownerId, 'queued'), 0);
+  });
+});
+
+test('a forced run executes the named job while the host is busy and the GPU cap is spent', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, store, enqueue } = setup(context, {
+      inference: new ScriptedAgentInference([USES_NEOVIM]), idleGate: new StaticIdleGate(false), resourcePolicy: GPU_CAPPED(context),
+    });
+    enqueue(VAULT_MAINTENANCE_REQUEST);
+    const chat = enqueueChat(enqueue);
+    assert.ok(chat !== null);
+    assert.deepEqual(await jobRunner.runNow(context.ownerId, chat.id), { jobId: chat.id, jobType: 'vault_write', outcome: 'completed', detail: null });
+    assert.equal(store.resolve('Chat 2026-08-05 · Editor')?.kind, 'chat');
+    assert.equal(queuedOf(context, 'vault_maintenance').length, 1, 'the forced run leaves the other queued job alone');
+  });
+});
+
+test('a forced run without a job id runs the highest-priority queued job', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { idleGate: new StaticIdleGate(false) });
+    enqueueChat(enqueue);
+    const maintenance = enqueue(VAULT_MAINTENANCE_REQUEST);
+    assert.ok(maintenance !== null);
+    assert.deepEqual(await jobRunner.runNow(context.ownerId, null), { jobId: maintenance.id, jobType: 'vault_maintenance', outcome: 'completed', detail: null });
+    assert.equal(queuedOf(context, 'vault_write').length, 1);
+  });
+});
+
+test('a forced run reports a failing job and spends one attempt', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context);
+    const chat = enqueueChat(enqueue);
+    assert.ok(chat !== null);
+    const result = await jobRunner.runNow(context.ownerId, chat.id);
+    assert.deepEqual([result.outcome, typeof result.detail], ['failed', 'string']);
+    assert.equal(queuedOf(context, 'vault_write')[0]?.attempts, 1);
+  });
+});
+
+test('a forced run refuses a model-backed job while the model is unloaded and spends no attempt', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner, enqueue } = setup(context, { residencyGate: new StaticResidencyGate(false) });
+    const chat = enqueueChat(enqueue);
+    assert.ok(chat !== null);
+    assert.deepEqual(await jobRunner.runNow(context.ownerId, chat.id), { jobId: chat.id, jobType: 'vault_write', outcome: 'blocked', detail: 'model_not_resident' });
+    assert.equal(queuedOf(context, 'vault_write')[0]?.attempts, 0);
+  });
+});
+
+test('a forced run of a job that is not queued is not found, and an empty queue is a conflict', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const { jobRunner } = setup(context);
+    await assert.rejects(jobRunner.runNow(context.ownerId, 'job_missing'), AssistantNotFoundError);
+    await assert.rejects(jobRunner.runNow(context.ownerId, null), (error) => error instanceof AssistantConflictError && error.code === 'no_queued_job');
   });
 });

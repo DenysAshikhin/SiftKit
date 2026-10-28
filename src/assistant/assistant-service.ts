@@ -15,6 +15,7 @@ import type {
   VaultNote,
   VaultStats,
   VaultTriageRequest,
+  AssistantRunJobResponse,
 } from '@siftkit/contracts';
 import { PENDING_CAPTURE_STATES } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.ts';
@@ -28,6 +29,7 @@ import {
 import { FileKeyProvider } from './crypto/key-provider.ts';
 import { assistantKeyFile } from './layout.ts';
 import { SecretScanner } from './domain/secrets.ts';
+import { AssistantConflictError } from './errors.ts';
 import type { TokenCounter } from './domain/tokens.ts';
 import type { IdGenerator } from './ids.ts';
 import type { AssistantInferenceClient } from './inference/client.ts';
@@ -503,6 +505,22 @@ export class AssistantService implements AssistantRuntime {
       await drain;
     } finally {
       if (this.activeDrain === drain) this.activeDrain = null;
+    }
+  }
+
+  /** The manual trigger: one queued job now, refused while a drain or exclusive work holds the runner. */
+  async runJob(jobId: string | null): Promise<AssistantRunJobResponse> {
+    if (this.drainBlockers > 0 || this.activeDrain !== null) {
+      throw new AssistantConflictError('Background work is already running.', { code: 'runner_busy' });
+    }
+    const run = this.runner.runNow(this.ownerId, jobId);
+    // Held as the active drain so maintenance waits for it and the idle tick stays out.
+    const settled = run.then(() => undefined, () => undefined);
+    this.activeDrain = settled;
+    try {
+      return await run;
+    } finally {
+      if (this.activeDrain === settled) this.activeDrain = null;
     }
   }
 

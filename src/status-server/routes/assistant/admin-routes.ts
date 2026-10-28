@@ -7,6 +7,7 @@ import {
   AssistantConfirmTokenRequestSchema,
   AssistantExportRequestSchema,
   AssistantRestoreConfirmRequestSchema,
+  AssistantRunJobRequestSchema,
   KeyMaterialDtoSchema,
 } from '@siftkit/contracts';
 import { readConfig, writeConfig } from '../../config-store.ts';
@@ -47,6 +48,11 @@ export const keyImportEndpoint = assistantRoute(async ({ service, req, res }) =>
   service.keyCustody.importFromShell(material);
   sendJson(res, 200, service.keyCustody.statusDto());
 }, { requireEnabled: false });
+
+export const runJobEndpoint = assistantRoute(async ({ service, req, res }) => {
+  const request = await body(req, AssistantRunJobRequestSchema);
+  sendJson(res, 200, await service.runJob(request.jobId ?? null));
+});
 
 export const desktopStateEndpoint = assistantRoute(({ service, res }) => {
   sendJson(res, 200, service.desktopState());
