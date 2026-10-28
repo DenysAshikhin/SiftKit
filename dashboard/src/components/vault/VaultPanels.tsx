@@ -34,6 +34,13 @@ export function VaultStatsPanel(props: { readonly stats: VaultStats | null }) {
         </div>
       </div>
       <div className="v-rsec">
+        <h4>Validation</h4>
+        <div className="v-stat-grid">
+          <div className="v-stat"><b>{num(stats.validation.queueDepth)}</b><small>notes awaiting validation</small></div>
+          <div className="v-stat"><b>{stats.validation.oldestValidatedAtUtc?.slice(0, 10) ?? 'never'}</b><small>oldest validation</small></div>
+        </div>
+      </div>
+      <div className="v-rsec">
         <h4>By kind</h4>
         <div className="v-stat-grid">
           {Object.entries(stats.byKind).map(([kind, count]) => <div key={kind} className="v-stat"><b>{num(count)}</b><small>{kind}</small></div>)}
@@ -185,6 +192,7 @@ export function ReviewView(props: { readonly review: VaultReview | null; readonl
       <div className="v-stat-grid" style={{ margin: '12px 0 18px' }}>
         <div className="v-stat"><b>{num(review.total)}</b><small>unverified facts</small></div>
         <div className="v-stat"><b>{num(stats?.notesWithUnverified ?? 0)}</b><small>notes with unverified facts</small></div>
+        <div className="v-stat"><b>{num(stats?.validation.queueDepth ?? 0)}</b><small>notes awaiting validation</small></div>
       </div>
       <div className="v-md">
         <ul>

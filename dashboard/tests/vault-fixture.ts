@@ -46,7 +46,7 @@ export function vaultTabProps(overrides: Partial<VaultTabProps> = {}): VaultTabP
     expanded: new Set(),
     starred: [{ note: summaryOf(note), owner: false }],
     showStubs: false,
-    stats: { notes: 12, links: 30, tags: 4, stubs: 5, notesWithUnverified: 2, byKind: { entity: 10, capture: 0, daily: 1, chat: 0, note: 1 } },
+    stats: { notes: 12, links: 30, tags: 4, stubs: 5, notesWithUnverified: 2, byKind: { entity: 10, capture: 0, daily: 1, chat: 0, note: 1 }, validation: { queueDepth: 3, oldestValidatedAtUtc: null } },
     side: 'files',
     search: '',
     searchResult: null,

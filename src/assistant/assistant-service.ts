@@ -13,6 +13,7 @@ import type {
   KeyCustody,
   SuppressionAuditDto,
   VaultNote,
+  VaultStats,
   VaultTriageRequest,
 } from '@siftkit/contracts';
 import { PENDING_CAPTURE_STATES } from '@siftkit/contracts';
@@ -395,6 +396,10 @@ export class AssistantService implements AssistantRuntime {
         details: { message: error instanceof Error ? error.message : String(error) },
       });
     }
+  }
+
+  vaultStats(): VaultStats {
+    return this.vaultQueries.stats(this.clock.nowUtc());
   }
 
   /** Keep or Drop one Review item; Keep on a doubt stamps that fact value validated. */

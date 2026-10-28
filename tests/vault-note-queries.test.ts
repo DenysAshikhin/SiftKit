@@ -5,7 +5,9 @@ import { VaultNotFoundError } from '../src/vault/errors.ts';
 import { degreeOf, loadAdjacency } from '../src/vault/link-graph.ts';
 import { VaultNoteQueries } from '../src/vault/note-queries.ts';
 import type { VaultNoteStore } from '../src/vault/note-store.ts';
-import { TEST_META, entityInput, withVault } from './helpers/vault-fixture.ts';
+import { TEST_META, VAULT_FIXTURE_START, entityInput, withVault } from './helpers/vault-fixture.ts';
+
+const NOW = VAULT_FIXTURE_START;
 
 function seed(store: VaultNoteStore) {
   const me = store.create(entityInput('Denys', 'This is you.\n\n**Uses** [[VS Code]] · [[Git]]\n\n> [!unverified]- 1 unverified fact\n> - **Owns** [[PC]] #unverified', { folder: '', types: ['person'], tags: ['me'] }), TEST_META);
@@ -59,7 +61,10 @@ test('review lists unverified facts; stats counts notes, links, tags and stubs',
   const { me } = seed(store);
   const queries = new VaultNoteQueries(database);
   assert.deepEqual(queries.review(100), { total: 1, items: [{ note: { id: me.id, title: 'Denys', folder: '', kind: 'entity', isStub: false, updatedAtUtc: me.updatedAtUtc }, line: 5, label: 'Owns', value: '[[PC]]', flag: null }] });
-  assert.deepEqual(queries.stats(), { notes: 5, links: 6, tags: 2, stubs: 1, notesWithUnverified: 1, byKind: { entity: 3, capture: 1, daily: 1, chat: 0, note: 0 } });
+  assert.deepEqual(queries.stats(NOW), {
+    notes: 5, links: 6, tags: 2, stubs: 1, notesWithUnverified: 1, byKind: { entity: 3, capture: 1, daily: 1, chat: 0, note: 0 },
+    validation: { queueDepth: 3, oldestValidatedAtUtc: null },
+  });
 }));
 
 test('backlinks and outgoing for an unknown note throw not-found', () => withVault(({ database }) => {
@@ -71,7 +76,7 @@ test('backlinks and outgoing for an unknown note throw not-found', () => withVau
 test('a tag that merely starts with unverified does not count as an unverified fact', () => withVault(({ store, database }) => {
   store.create(entityInput('Lookalike', 'Mentions #unverifiedish things.'), TEST_META);
   const queries = new VaultNoteQueries(database);
-  assert.equal(queries.stats().notesWithUnverified, 0);
+  assert.equal(queries.stats(NOW).notesWithUnverified, 0);
   assert.equal(queries.review(10).total, 0);
 }));
 

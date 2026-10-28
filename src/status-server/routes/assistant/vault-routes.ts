@@ -97,7 +97,7 @@ export const vaultReviewEndpoint = assistantRoute(({ service, res, url }) => {
 });
 
 export const vaultStatsEndpoint = assistantRoute(({ service, res }) => {
-  sendJson(res, 200, service.vaultQueries.stats());
+  sendJson(res, 200, service.vaultStats());
 });
 
 export const vaultAttachmentEndpoint = assistantRoute(({ service, res, match }) => {

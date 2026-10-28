@@ -6,6 +6,7 @@ import {
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
 import { degreeOf, loadAdjacency } from './link-graph.ts';
+import { VaultValidationQueue } from './validation-queue.ts';
 import { VaultNoteRowSchema, readVaultNotes, requireVaultNote, toVaultNoteSummary } from './note-rows.ts';
 
 const SummaryRowsSchema = z.array(VaultNoteRowSchema.pick({ id: true, title: true, folder: true, kind: true, is_stub: true, updated_at_utc: true }));
@@ -20,8 +21,11 @@ function toSummary(row: z.infer<typeof SummaryRowsSchema>[number]): VaultNoteSum
 export class VaultNoteQueries {
   private readonly database: RuntimeDatabase;
 
+  private readonly queue: VaultValidationQueue;
+
   constructor(database: RuntimeDatabase) {
     this.database = database;
+    this.queue = new VaultValidationQueue(database);
   }
 
   folders(options: { readonly includeStubs: boolean }): VaultFolder[] {
@@ -82,7 +86,7 @@ export class VaultNoteQueries {
     return { total: items.length, items: items.slice(0, limit) };
   }
 
-  stats(): VaultStats {
+  stats(nowUtc: string): VaultStats {
     const count = (sql: string, ...params: readonly string[]) => CountSchema.parse(this.database.prepare(sql).get(...params)).count;
     const byKind: VaultStats['byKind'] = { entity: 0, capture: 0, daily: 0, chat: 0, note: 0 };
     for (const row of z.array(z.object({ kind: VaultNoteKindSchema, count: z.number() })).parse(
@@ -94,6 +98,7 @@ export class VaultNoteQueries {
       tags: count('SELECT COUNT(DISTINCT tag) AS count FROM vault_tags'),
       stubs: count('SELECT COUNT(*) AS count FROM vault_notes WHERE is_stub = 1'),
       notesWithUnverified: count('SELECT COUNT(*) AS count FROM vault_tags WHERE tag = ?', UNVERIFIED_TAG_NAME),
+      validation: this.queue.depth(nowUtc),
       byKind,
     };
   }

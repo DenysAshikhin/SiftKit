@@ -170,11 +170,12 @@ test('ReviewView shows totals and one triage row per unverified fact, with what 
         { note, line: 7, label: 'Editor', value: 'Helix', flag: { kind: 'replaces', value: 'Neovim' } },
         { note, line: 8, label: 'Hobby', value: 'juggling', flag: { kind: 'doubt', reason: 'implausible' } },
       ] }}
-      stats={{ notes: 1, links: 0, tags: 0, stubs: 0, notesWithUnverified: 1, byKind: { entity: 1, capture: 0, daily: 0, chat: 0, note: 0 } }}
+      stats={{ notes: 1, links: 0, tags: 0, stubs: 0, notesWithUnverified: 1, byKind: { entity: 1, capture: 0, daily: 0, chat: 0, note: 0 }, validation: { queueDepth: 4, oldestValidatedAtUtc: '2026-08-01T00:00:00.000Z' } }}
       actions={NOOP_ACTIONS}
     />,
   );
   assert.match(html, /<b>3<\/b><small>unverified facts<\/small>/);
+  assert.match(html, /<b>4<\/b><small>notes awaiting validation<\/small>/);
   assert.match(html, /Helix<small class="v-flag"> replaces Neovim<\/small>/);
   assert.match(html, /juggling<small class="v-flag"> doubt: implausible<\/small>/);
   assert.match(html, /<a class="v-wl">Visual Studio Code<\/a> · <span class="v-mini-label">Uses<\/span><a class="v-wl" data-link="GitHub">GitHub<\/a>/);
@@ -184,7 +185,7 @@ test('ReviewView shows totals and one triage row per unverified fact, with what 
 test('StatusBar shows vault counts, the active note size and the export button', () => {
   const html = renderToStaticMarkup(
     <StatusBar
-      stats={{ notes: 1200, links: 30, tags: 4, stubs: 5, notesWithUnverified: 7, byKind: { entity: 1, capture: 0, daily: 0, chat: 0, note: 0 } }}
+      stats={{ notes: 1200, links: 30, tags: 4, stubs: 5, notesWithUnverified: 7, byKind: { entity: 1, capture: 0, daily: 0, chat: 0, note: 0 }, validation: { queueDepth: 4, oldestValidatedAtUtc: '2026-08-01T00:00:00.000Z' } }}
       activeBody={'a\nb'} activeDegree={9} actions={NOOP_ACTIONS}
     />,
   );

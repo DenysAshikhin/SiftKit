@@ -126,6 +126,8 @@ export const VaultStatsSchema = z.object({
   tags: z.number().int().min(0),
   stubs: z.number().int().min(0),
   notesWithUnverified: z.number().int().min(0),
+  /** Entity notes never validated or not validated in 30 days, and the oldest validation. */
+  validation: z.object({ queueDepth: z.number().int().min(0), oldestValidatedAtUtc: z.string().nullable() }).strict(),
   byKind: z.record(VaultNoteKindSchema, z.number().int().min(0)),
 }).strict();
 export type VaultStats = z.infer<typeof VaultStatsSchema>;
