@@ -99,7 +99,7 @@ export class VaultCaptureWriter {
     return this.database.transaction((): VaultCaptureWriteOutcome => {
       const note = requireVaultNote(this.database, capture.note_id);
       const result = this.applier.apply({
-        ownerId, operations: outcome.value.operations, actor: 'note-writer · screenshot', sourceRef: attachmentId, summary: `Screenshot ${note.title}`,
+        ownerId, operations: outcome.value.operations, actor: 'note-writer · screenshot', sourceRef: attachmentId, summary: `Screenshot ${note.title}`, scopeNoteIds: [],
       });
       this.finish(capture, result.learned, 'processed');
       return { kind: 'processed', learned: result.learned, touchedNoteIds: result.touchedNoteIds, capturedAtUtc: capture.captured_at_utc };

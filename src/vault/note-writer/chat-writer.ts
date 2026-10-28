@@ -123,8 +123,8 @@ export class VaultChatWriter {
       }
       const meta: VaultWriteMeta = { actor: 'note-writer · chat', summary: `Chat turn in ${turn.sessionTitle}`, sourceRef };
       const result = outcome?.ok === true
-        ? this.applier.apply({ ownerId, operations: outcome.value.operations, actor: 'note-writer · chat', sourceRef, summary: meta.summary })
-        : { learned: [], touchedNoteIds: [] };
+        ? this.applier.apply({ ownerId, operations: outcome.value.operations, actor: 'note-writer · chat', sourceRef, summary: meta.summary, scopeNoteIds: [] })
+        : { learned: [], touchedNoteIds: [], dropped: 0, flagged: [] };
       const day = localDay(turn.capturedAtUtc);
       const existing = this.chatNote(turn.sessionId, day);
       const base = existing?.body ?? `## ${TRANSCRIPT_HEADING}\n\n## ${LEARNED_HEADING}`;

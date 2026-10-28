@@ -17,7 +17,8 @@ const OWNER_ID = LOCAL_OWNER_ID;
 function applier(context: VaultTestContext) {
   const audit = new AuditStore(context.database, context.clock, new SequentialIdGenerator());
   const edits = new VaultEditApplier({ store: context.store, database: context.database, audit, scanner: new SecretScanner(), ownerDisplayName: 'Denys' });
-  const apply = (operations: readonly VaultEditOp[]) => edits.apply({ ownerId: OWNER_ID, operations, actor: 'note-writer · screenshot', sourceRef: 'vatt_1', summary: 'Screenshot 09:00' });
+  const apply = (operations: readonly VaultEditOp[], scopeNoteIds: readonly string[] = []) =>
+    edits.apply({ ownerId: OWNER_ID, operations, actor: 'note-writer · screenshot', sourceRef: 'vatt_1', summary: 'Screenshot 09:00', scopeNoteIds });
   return { apply, audit };
 }
 
@@ -97,5 +98,81 @@ test('create_note for an existing title or the owner is a no-op, not a drop', ()
     assert.equal(result.dropped, 0);
     assert.equal(context.store.resolve('Git')?.revision, git.revision);
     assert.equal(findOwnerNote(context.database), null);
+  });
+});
+
+const reasonOf = (detailsJson: string) => z.object({ reason: z.string() }).parse(JSON.parse(detailsJson)).reason;
+
+test('a near-duplicate create_note becomes an alias of the existing note and is audited as merged_into_existing', () => {
+  withVault((context) => {
+    const { apply, audit } = applier(context);
+    const existing = context.store.create(entityInput('VS Code', 'Editor.'), TEST_META);
+    const result = apply([{ op: 'create_note', title: 'vs-code', type: 'software', lead: 'Editor.' }]);
+    assert.equal(context.store.resolve('vs-code')?.id, existing.id);
+    assert.deepEqual(context.store.resolve('VS Code')?.aliases, ['vs-code']);
+    assert.equal(result.dropped, 0);
+    assert.deepEqual(result.touchedNoteIds, [existing.id]);
+    const merged = audit.listAuditEvents(OWNER_ID, 10).filter((event) => event.event_type === 'vault_edit_merged');
+    assert.deepEqual(merged.map((event) => reasonOf(event.details_json)), ['merged_into_existing']);
+  });
+});
+
+test('a value already in its row is dropped silently', () => {
+  withVault((context) => {
+    const { apply, audit } = applier(context);
+    const note = context.store.create(entityInput('Git', 'VCS.\n\n**Hosts** GitHub'), TEST_META);
+    const result = apply([{ op: 'add_facts', note: 'Git', label: 'hosts', values: ['github'] }]);
+    assert.equal(context.store.resolve('Git')?.revision, note.revision);
+    assert.equal(result.dropped, 0);
+    assert.equal(audit.listAuditEvents(OWNER_ID, 10).length, 0);
+  });
+});
+
+test('flag_conflict lands in Review when the note holds the replaced value; an unknown fact is dropped and audited', () => {
+  withVault((context) => {
+    const { apply, audit } = applier(context);
+    context.store.create(entityInput('Pet Safety', 'A project.\n\n**Editor** [[Neovim]]'), TEST_META);
+    const result = apply([
+      { op: 'flag_conflict', note: 'Pet Safety', label: 'Editor', value: 'Helix', conflictsWith: 'Neovim' },
+      { op: 'flag_conflict', note: 'Pet Safety', label: 'Editor', value: 'Emacs', conflictsWith: 'Notepad' },
+    ]);
+    const body = context.store.resolve('Pet Safety')?.body ?? '';
+    assert.match(body, /^\*\*Editor\*\* \[\[Neovim\]\]$/m, 'the held value is not changed');
+    assert.match(body, /^> - \*\*Editor\*\* Helix #unverified \(replaces: Neovim\)$/m);
+    assert.doesNotMatch(body, /Emacs/);
+    assert.equal(result.dropped, 1);
+    assert.deepEqual(audit.listAuditEvents(OWNER_ID, 10).map((event) => reasonOf(event.details_json)), ['unknown_fact']);
+  });
+});
+
+test('flag_doubt marks a held value and reports it flagged by its stored key', () => {
+  withVault((context) => {
+    const { apply } = applier(context);
+    const note = context.store.create(entityInput('Pet Safety', 'A project.\n\n**Uses** [[Neovim]] · TypeScript'), TEST_META);
+    const result = apply([
+      { op: 'flag_doubt', note: 'Pet Safety', label: 'Uses', value: 'Neovim', reason: 'bad link: an editor is not part of a pet-safety project' },
+      { op: 'flag_doubt', note: 'Pet Safety', label: 'Uses', value: 'Rust', reason: 'stale' },
+    ]);
+    assert.match(context.store.resolve('Pet Safety')?.body ?? '', /^> - \*\*Uses\*\* Neovim #unverified \(doubt: bad link: an editor/m);
+    assert.deepEqual(result.flagged, [{ noteId: note.id, labelKey: 'uses', valueKey: '[[neovim]]' }]);
+    assert.equal(result.dropped, 1);
+  });
+});
+
+test('set_lead applies only to notes the batch touches or the review scope holds', () => {
+  withVault((context) => {
+    const { apply } = applier(context);
+    context.store.create(entityInput('Git', 'Old lead.\n\n**Hosts** GitHub'), TEST_META);
+    const excel = context.store.create(entityInput('Excel', 'Old lead.'), TEST_META);
+    const result = apply([
+      { op: 'set_lead', note: 'Git', lead: 'Git is a version control system.' },
+      { op: 'add_facts', note: 'Git', label: 'Hosts', values: ['GitLab'] },
+      { op: 'set_lead', note: 'Excel', lead: 'Excel is a spreadsheet.' },
+    ]);
+    assert.match(context.store.resolve('Git')?.body ?? '', /^Git is a version control system\.\n/);
+    assert.equal(context.store.resolve('Excel')?.body, 'Old lead.');
+    assert.equal(result.dropped, 1);
+    apply([{ op: 'set_lead', note: 'Excel', lead: 'Excel is a spreadsheet.' }], [excel.id]);
+    assert.equal(context.store.resolve('Excel')?.body, 'Excel is a spreadsheet.');
   });
 });
