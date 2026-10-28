@@ -7,7 +7,14 @@ import {
   AssistantShellConfigSchema,
   decideAssistantShellAction,
   getAssistantShellPath,
+  stageAssistantShell,
 } from '../scripts/start-dev-assistant-shell.ts';
+import { createManagedTempDir } from './helpers/temp-dirs.ts';
+
+function writeBuild(repoRoot: string, contents: string): void {
+  fs.mkdirSync(path.dirname(getAssistantShellPath(repoRoot)), { recursive: true });
+  fs.writeFileSync(getAssistantShellPath(repoRoot), contents);
+}
 
 test('assistant shell starts when the switch is already on at startup', () => {
   assert.equal(decideAssistantShellAction(null, true, false), 'start');
@@ -45,6 +52,31 @@ test('assistant shell path points at the release desktop build', () => {
   );
 });
 
+test('assistant shell runs from a staged copy so the release build stays writable for the bundler', () => {
+  const repoRoot = createManagedTempDir('siftkit-shell-stage-');
+  writeBuild(repoRoot, 'build-1');
+
+  const runPath = stageAssistantShell(repoRoot);
+
+  assert.equal(runPath, path.join(repoRoot, '.siftkit', 'desktop-shell', 'siftkit-assistant-shell.exe'));
+  assert.equal(fs.readFileSync(runPath, 'utf8'), 'build-1');
+});
+
+test('assistant shell staging picks up a rebuilt shell', () => {
+  const repoRoot = createManagedTempDir('siftkit-shell-restage-');
+  writeBuild(repoRoot, 'build-1');
+  stageAssistantShell(repoRoot);
+  writeBuild(repoRoot, 'build-2');
+
+  assert.equal(fs.readFileSync(stageAssistantShell(repoRoot), 'utf8'), 'build-2');
+});
+
+test('assistant shell staging fails loudly when the release build is missing', () => {
+  const repoRoot = createManagedTempDir('siftkit-shell-missing-');
+
+  assert.throws(() => stageAssistantShell(repoRoot), /ENOENT/u);
+});
+
 test('assistant shell config schema extracts only the enabled flag', () => {
   const parsed = AssistantShellConfigSchema.parse({
     Assistant: { Enabled: true, Owner: { Id: 'own_local' } },
@@ -59,6 +91,8 @@ test('start-dev wires the assistant shell watcher into the dev stack', () => {
 
   assert.match(script, /start-dev-assistant-shell\.ts/u);
   assert.match(script, /decideAssistantShellAction/u);
+  assert.match(script, /stageAssistantShell\(process\.cwd\(\)\)/u);
+  assert.doesNotMatch(script, /startProcess\(shellPath/u);
   assert.match(script, /\/config/u);
   assert.doesNotMatch(script, /4765/u);
   assert.match(script, /getStatusServerPort/u);

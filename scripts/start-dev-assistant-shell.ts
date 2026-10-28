@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { copyFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { z } from '../src/lib/zod.ts';
 
@@ -32,4 +33,12 @@ export function decideAssistantShellAction(
 
 export function getAssistantShellPath(repoRoot: string): string {
   return join(repoRoot, 'desktop', 'src-tauri', 'target', 'release', 'siftkit-assistant-shell.exe');
+}
+
+/** Copies the release build out of `target/`; a running build exe blocks the Tauri bundler from patching it. */
+export function stageAssistantShell(repoRoot: string): string {
+  const runPath = join(repoRoot, '.siftkit', 'desktop-shell', 'siftkit-assistant-shell.exe');
+  mkdirSync(dirname(runPath), { recursive: true });
+  copyFileSync(getAssistantShellPath(repoRoot), runPath);
+  return runPath;
 }

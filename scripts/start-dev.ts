@@ -7,6 +7,7 @@ import {
   AssistantShellConfigSchema,
   decideAssistantShellAction,
   getAssistantShellPath,
+  stageAssistantShell,
 } from './start-dev-assistant-shell.ts';
 import { resolveDashboardLaunch } from './start-dev-dashboard.ts';
 import { isBackendReadyStatusCode } from './start-dev-health.ts';
@@ -133,8 +134,17 @@ async function syncAssistantShell(): Promise<void> {
       );
       return;
     }
+    let runPath: string;
+    try {
+      runPath = stageAssistantShell(process.cwd());
+    } catch (error) {
+      // A shell left running from an earlier stack holds the staged copy.
+      process.stderr.write(`[start-dev] Could not stage the desktop shell: ${error instanceof Error ? error.message : String(error)}. `
+        + 'Quit the running SiftKit Assistant, then toggle the assistant off and on again.\n');
+      return;
+    }
     process.stdout.write('[start-dev] Assistant enabled; starting the desktop shell.\n');
-    assistantShellProcess = startProcess(shellPath, []);
+    assistantShellProcess = startProcess(runPath, []);
   } else if (action === 'stop') {
     process.stdout.write('[start-dev] Assistant disabled; stopping the desktop shell.\n');
     stopChildProcessTree(assistantShellProcess);
