@@ -117,6 +117,18 @@ test('vault triage route keeps or drops a Review item under revision checks', as
   });
 });
 
+test('opening a note in the vault UI does not count as access', async () => {
+  await withAssistantServer('siftkit-vault-routes-access-', ENABLED, async (harness) => {
+    const vault = vaultClient(harness);
+    const note = await vault.ok('POST', '/notes', VaultNoteSchema, { title: 'Neovim', body: 'Editor.\n\n**Uses** [[Lua]]' });
+    await vault.ok('GET', `/notes/${note.id}`, VaultNoteDetailSchema);
+    await vault.ok('GET', '/search?q=neovim', VaultSearchResultSchema);
+    const accessed = z.object({ last_accessed_at_utc: z.string().nullable() }).parse(
+      getRuntimeDatabase(getRuntimeDatabasePath()).prepare('SELECT last_accessed_at_utc FROM vault_notes WHERE id = ?').get(note.id));
+    assert.equal(accessed.last_accessed_at_utc, null);
+  });
+});
+
 test('vault routes reject bad requests with typed errors', async () => {
   await withAssistantServer('siftkit-vault-routes-errors-', ENABLED, async (harness) => {
     const vault = vaultClient(harness);

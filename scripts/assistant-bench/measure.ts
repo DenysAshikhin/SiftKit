@@ -90,7 +90,7 @@ async function main(): Promise<void> {
     const noteIds = readVaultNotes(
       context.database, `SELECT * FROM vault_notes WHERE kind = 'entity' LIMIT ${DEFAULT_ITERATIONS}`,
     ).map((note) => note.id);
-    const retriever = new VaultRetriever({ database: context.database, tokens: new EstimateTokenCounter(4) });
+    const retriever = new VaultRetriever({ database: context.database, tokens: new EstimateTokenCounter(4), clock: context.clock });
     const limits = {
       maxContextTokens: DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxContextTokens,
       maxNotes: DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxNotes,

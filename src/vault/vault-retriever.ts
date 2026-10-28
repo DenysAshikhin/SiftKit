@@ -1,8 +1,10 @@
 import { parseNoteBody, VAULT_LINK_PATTERN, VAULT_VALUE_SEPARATOR, type VaultNote } from '@siftkit/contracts';
 
+import type { Clock } from '../assistant/clock.ts';
 import type { TokenCounter } from '../assistant/domain/tokens.ts';
 import { QueryIntentExtractor } from '../assistant/retrieval/query-intent.ts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
+import { bodyFactPoints, touchAccess, type FactPointKey } from './fact-points.ts';
 import { readVaultNote } from './note-rows.ts';
 import { findOwnerNote } from './owner-identity.ts';
 import { searchNoteIds } from './vault-fts.ts';
@@ -24,6 +26,8 @@ export interface VaultRetrieveResult {
 export interface VaultRetrieverOptions {
   readonly database: RuntimeDatabase;
   readonly tokens: TokenCounter;
+  /** Injected notes, and the values shown, are stamped accessed. */
+  readonly clock: Clock;
 }
 
 /** No personal context: nothing matched, nothing fit, or memory is off. */
@@ -53,18 +57,22 @@ function renderNote(note: VaultNote, heading: string, withRows: boolean): string
 export class VaultRetriever {
   private readonly database: RuntimeDatabase;
   private readonly tokens: TokenCounter;
+  private readonly clock: Clock;
 
   constructor(options: VaultRetrieverOptions) {
     this.database = options.database;
     this.tokens = options.tokens;
+    this.clock = options.clock;
   }
 
   async retrieve(userMessage: string, limits: VaultRetrievalLimits): Promise<VaultRetrieveResult> {
     const owner = findOwnerNote(this.database);
     const hitIds = searchNoteIds(this.database, new QueryIntentExtractor().extract(userMessage).terms, ['entity', 'note'], limits.maxNotes + 1);
     const hits = hitIds.filter((id) => id !== owner?.id).slice(0, limits.maxNotes).flatMap((id) => readVaultNote(this.database, id) ?? []);
-    const fixed = owner === null ? [] : [{ id: owner.id, block: renderNote(owner, `${owner.title} (you)`, hitIds.includes(owner.id)) }];
-    const ranked = hits.map((note) => ({ id: note.id, block: renderNote(note, note.title, true) }));
+    const shown = (note: VaultNote, withRows: boolean): FactPointKey[] => (withRows ? bodyFactPoints(note.body) : []);
+    const ownerRows = owner !== null && hitIds.includes(owner.id);
+    const fixed = owner === null ? [] : [{ id: owner.id, keys: shown(owner, ownerRows), block: renderNote(owner, `${owner.title} (you)`, ownerRows) }];
+    const ranked = hits.map((note) => ({ id: note.id, keys: shown(note, true), block: renderNote(note, note.title, true) }));
 
     // Token count grows with every included note, so the largest fitting prefix is a binary search:
     // O(log n) tokenizer calls, each of which may be an HTTP round trip in production.
@@ -88,6 +96,10 @@ export class VaultRetriever {
     const included = [...fixed, ...ranked.slice(0, low)];
     if (included.length === 0) return EMPTY_RETRIEVAL;
     const { text, tokenCount } = await measure(low);
+    const nowUtc = this.clock.nowUtc();
+    this.database.transaction(() => {
+      for (const entry of included) touchAccess(this.database, entry.id, entry.keys, nowUtc);
+    })();
     return { renderedBlock: text, noteIds: included.map((entry) => entry.id), tokenCount };
   }
 }

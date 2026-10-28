@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { TokenCount, TokenCounter } from '../src/assistant/domain/tokens.ts';
+import { z } from '../src/lib/zod.ts';
 import { ensureOwnerNote } from '../src/vault/owner-identity.ts';
 import { VaultRetriever } from '../src/vault/vault-retriever.ts';
 import { TEST_META, entityInput, withVaultAsync } from './helpers/vault-fixture.ts';
@@ -26,7 +27,7 @@ test('the owner lead comes first, then matching entity notes with lead and fact 
     context.store.create(entityInput('Discord', 'Chat app.'), TEST_META);
     context.store.create(entityInput('2026-10-24 09.00.00 · Visual Studio Code', 'vscode screenshot', { kind: 'capture', folder: 'Captures/2026-10-24', types: [] }), TEST_META);
 
-    const result = await new VaultRetriever({ database: context.database, tokens: new CharacterTokenCounter() }).retrieve('How do I set up vscode keybindings?', UNLIMITED);
+    const result = await new VaultRetriever({ database: context.database, tokens: new CharacterTokenCounter(), clock: context.clock }).retrieve('How do I set up vscode keybindings?', UNLIMITED);
     assert.equal(result.renderedBlock, [
       '## Relevant personal context',
       '',
@@ -46,7 +47,7 @@ test('the owner block carries its fact rows when the owner note itself matches',
   await withVaultAsync(async (context) => {
     const owner = ensureOwnerNote(context.store, context.database, 'Denys', TEST_META);
     context.store.update(owner.id, { body: 'This is you.\n\n**Prefers** tea' }, owner.revision, TEST_META);
-    const result = await new VaultRetriever({ database: context.database, tokens: new CharacterTokenCounter() }).retrieve('Do I like tea?', UNLIMITED);
+    const result = await new VaultRetriever({ database: context.database, tokens: new CharacterTokenCounter(), clock: context.clock }).retrieve('Do I like tea?', UNLIMITED);
     assert.equal(result.renderedBlock, '## Relevant personal context\n\n### Denys (you)\nThis is you.\n**Prefers** tea');
   });
 });
@@ -57,7 +58,7 @@ test('notes are fitted to the token budget by binary search, with logarithmic to
       context.store.create(entityInput(`Budget Tool ${String(index).padStart(2, '0')}`, `Budget tool number ${index}.`), TEST_META);
     }
     const tokens = new CharacterTokenCounter();
-    const retriever = new VaultRetriever({ database: context.database, tokens });
+    const retriever = new VaultRetriever({ database: context.database, tokens, clock: context.clock });
     const all = await retriever.retrieve('budget tool', { maxContextTokens: 100_000, maxNotes: 40 });
     assert.equal(all.noteIds.length, 40);
     const budget = Math.floor(all.tokenCount / 2);
@@ -72,9 +73,31 @@ test('notes are fitted to the token budget by binary search, with logarithmic to
 
 test('nothing is rendered without an owner note or matches, or when even the owner block is over budget', async () => {
   await withVaultAsync(async (context) => {
-    const retriever = new VaultRetriever({ database: context.database, tokens: new CharacterTokenCounter() });
+    const retriever = new VaultRetriever({ database: context.database, tokens: new CharacterTokenCounter(), clock: context.clock });
     assert.deepEqual(await retriever.retrieve('anything at all', UNLIMITED), { renderedBlock: '', noteIds: [], tokenCount: 0 });
     ensureOwnerNote(context.store, context.database, 'Denys', TEST_META);
     assert.deepEqual(await retriever.retrieve('anything', { maxContextTokens: 10, maxNotes: 10 }), { renderedBlock: '', noteIds: [], tokenCount: 0 });
+  });
+});
+
+test('notes injected into a chat prompt, and the values shown, are stamped accessed; unmatched notes are not', async () => {
+  await withVaultAsync(async (context) => {
+    const owner = ensureOwnerNote(context.store, context.database, 'Denys', TEST_META);
+    context.store.update(owner.id, { body: 'This is you.\n\n**Drinks** tea' }, owner.revision, TEST_META);
+    const hit = context.store.create(entityInput('Neovim', 'Editor.\n\n**Uses** [[Lua]]'), TEST_META);
+    const miss = context.store.create(entityInput('Excel', 'Spreadsheets.\n\n**Uses** formulas'), TEST_META);
+    context.clock.advanceDays(2);
+    await new VaultRetriever({ database: context.database, tokens: new CharacterTokenCounter(), clock: context.clock }).retrieve('how do I configure neovim', UNLIMITED);
+    const accessed = (id: string) => z.object({ last_accessed_at_utc: z.string().nullable() })
+      .parse(context.database.prepare('SELECT last_accessed_at_utc FROM vault_notes WHERE id = ?').get(id)).last_accessed_at_utc;
+    const pointAccess = (id: string) => z.array(z.object({ last_accessed_at_utc: z.string().nullable() }))
+      .parse(context.database.prepare('SELECT last_accessed_at_utc FROM vault_fact_points WHERE note_id = ?').all(id)).map((row) => row.last_accessed_at_utc);
+    const now = context.clock.nowUtc();
+    assert.equal(accessed(hit.id), now);
+    assert.deepEqual(pointAccess(hit.id), [now]);
+    assert.equal(accessed(owner.id), now, 'the owner lead is always injected');
+    assert.deepEqual(pointAccess(owner.id), [null], 'its rows were not shown, so its values stay unstamped');
+    assert.equal(accessed(miss.id), null);
+    assert.deepEqual(pointAccess(miss.id), [null]);
   });
 });

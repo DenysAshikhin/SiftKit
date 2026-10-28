@@ -219,7 +219,7 @@ export class AssistantService implements AssistantRuntime {
     const store = this.vaultNotes;
     const attachments = this.vaultAttachments;
     this.captureIntake = new VaultCaptureIntake({ database, store, attachments, audit, clock, capability: this.imageCapability });
-    this.retriever = new VaultRetriever({ database, tokens: options.tokens });
+    this.retriever = new VaultRetriever({ database, tokens: options.tokens, clock });
     const applier = new VaultEditApplier({ store, database, audit, scanner, ownerDisplayName: options.config.Owner.DisplayName });
     this.applier = applier;
 
