@@ -154,6 +154,7 @@ export const ChatTranscriptMessageKindSchema = z.enum([
   'tool_image',
   'compaction_summary',
   'repo_agent_approval',
+  'memory_context',
 ]);
 export type ChatTranscriptMessageKind = z.infer<typeof ChatTranscriptMessageKindSchema>;
 
@@ -238,11 +239,18 @@ const ChatTranscriptStreamTextMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.enum(['assistant_narration', 'assistant_progress']),
 });
 
+/** The personal context memory injected into one turn's system prompt; shown, never replayed. */
+const ChatMemoryContextMessageSchema = ChatMessageBaseSchema.extend({
+  role: z.literal('assistant'),
+  kind: z.literal('memory_context'),
+});
+
 export const ChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
   ChatTranscriptToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
   ChatTranscriptNonToolMessageSchema,
   ChatTranscriptStreamTextMessageSchema,
+  ChatMemoryContextMessageSchema,
 ]);
 export type ChatTranscriptMessage = z.infer<typeof ChatTranscriptMessageSchema>;
 
@@ -295,6 +303,7 @@ export const PersistedChatTranscriptMessageSchema = z.discriminatedUnion('kind',
   ChatRepoAgentApprovalMessageSchema,
   ChatTranscriptNonToolMessageSchema,
   ChatTranscriptStreamTextMessageSchema,
+  ChatMemoryContextMessageSchema,
 ]);
 export type PersistedChatTranscriptMessage = z.infer<typeof PersistedChatTranscriptMessageSchema>;
 

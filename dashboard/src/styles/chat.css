@@ -150,6 +150,9 @@
 .stream-tail[data-fence] { display: block; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.72rem; }
 .caret::after { content: "▌"; color: var(--acc); }
 
+.msg.memory_context { width: fit-content; background: #14263a; border-color: #2c5378; color: #a9cdf0; font-size: 0.74rem; padding: 5px 12px; }
+.memory-bubble > summary { cursor: pointer; }
+.memory-bubble pre { margin: 6px 0 0; white-space: pre-wrap; }
 .msg.pending { opacity: 0.72; }
 .msg.pending .who { color: var(--dim); }
 .image-zoom { border: none; background: none; padding: 0; cursor: zoom-in; display: block; line-height: 0; max-width: 100%; }

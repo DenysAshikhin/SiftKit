@@ -53,6 +53,7 @@ export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('user_message'), message: ChatStreamQueuedUserMessageSchema }),
   z.strictObject({ kind: z.literal('tool_outcome'), outcome: ChatToolOutcomeSchema }),
   z.strictObject({ kind: z.literal('submission'), message: ChatSubmittedUserMessageSchema }),
+  z.strictObject({ kind: z.literal('memory_context'), content: z.string().min(1) }),
 ]);
 export type ChatTranscriptEvent = z.infer<typeof ChatTranscriptEventSchema>;
 
@@ -85,7 +86,7 @@ const ChatMessageIdentitySchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('tool'), toolCallId: z.string().min(1) }),
   z.strictObject({ kind: z.literal('approval'), approvalId: z.string().min(1) }),
   z.strictObject({ kind: z.literal('summary'), revision: z.number().int().positive() }),
-  z.strictObject({ kind: z.enum(['user', 'progress', 'answer-final', 'answer-stopped']) }),
+  z.strictObject({ kind: z.enum(['user', 'progress', 'memory', 'answer-final', 'answer-stopped']) }),
 ]);
 
 export function buildChatMessageId(messageIdPrefix: string, input: z.infer<typeof ChatMessageIdentitySchema>): string {
@@ -127,7 +128,7 @@ function upsertMessage(
 
 function textMessage(
   id: string,
-  kind: TextRowKind,
+  kind: TextRowKind | 'memory_context',
   content: string,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage {
@@ -340,6 +341,9 @@ export function reduceChatTranscript(
   if (event.kind === 'user_message') return reduceUserMessageEvent(messages, event.message, metadata);
   if (event.kind === 'submission') return reduceUserMessageEvent(messages, event.message, metadata);
   if (event.kind === 'tool_outcome') return reduceToolOutcomeEvent(messages, event, metadata);
+  if (event.kind === 'memory_context') {
+    return upsertMessage(messages, textMessage(buildChatMessageId(metadata.messageIdPrefix, { kind: 'memory' }), 'memory_context', event.content, metadata));
+  }
   return reduceToolEvent(messages, event, metadata);
 }
 

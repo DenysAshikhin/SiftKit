@@ -481,3 +481,17 @@ test('chunkAtTurnStarts never splits a turn and returns no chunks for no rows', 
   assert.deepEqual(chunkAtTurnStarts(turn, 1).map((chunk) => chunk.messages.length), [4]);
   assert.deepEqual(chunkAtTurnStarts([], 25), []);
 });
+
+test('injected memory is its own turn between the user row and the answer, never folded into Internal Logic', () => {
+  const messages = [
+    message({ id: 'u1', role: 'user', kind: 'user_text', content: 'hi' }),
+    message({ id: 'm1', role: 'assistant', kind: 'memory_context', content: '### D (you)', sourceRunId: 'run-1' }),
+    message({ id: 't1', kind: 'assistant_thinking', sourceRunId: 'run-1' }),
+    message({ id: 'a1', kind: 'assistant_answer', content: 'Hey D', sourceRunId: 'run-1' }),
+  ];
+  for (const live of [new Set<string>(), new Set(['m1', 't1', 'a1'])]) {
+    const turns = groupMessagesIntoTurns(messages, live);
+    assert.deepEqual(turns.map((turn) => [turn.main?.id, turn.steps.map((step) => step.id)]), [['u1', []], ['m1', []], ['a1', ['t1']]]);
+    assert.equal(turns[1]?.showRecentActivity, false);
+  }
+});

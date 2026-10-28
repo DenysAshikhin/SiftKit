@@ -354,6 +354,7 @@ async function runChatEngineTurn(options: {
   const memory = new ChatMemorySeam(options.ctx.assistant);
   const memoryContext = await memory.buildMemoryContext(selected.preset, options.content);
   throwIfAborted(abortSignal);
+  if (memoryContext.length > 0) options.recorder.recordDisplay({ kind: 'memory_context', content: memoryContext });
   const reader = new JsonRecordReader(options.parsedBody);
   // Web access and the turn limit were settled at admission; execution does not re-read the body.
   const settings = options.recorder.settings;

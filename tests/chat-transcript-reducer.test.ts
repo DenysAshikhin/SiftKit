@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   finalizeChatRunTranscript,
+  isReplayableChatMessage,
   reduceChatTranscript,
   type ChatTranscriptMessage,
   type ChatStreamUsageEvent,
@@ -406,4 +407,14 @@ test('chat transcript reducer folds progress deltas onto one row and a new turn 
 test('an empty progress delta creates no row, like the other text channels', () => {
   const messages = reduceChatTranscript([], { kind: 'progress', delta: { turn: 1, offset: 0, text: '' } }, metadata);
   assert.deepEqual(messages, []);
+});
+
+test('injected memory is one display-only row that the model never replays and a finished run keeps', () => {
+  const block = '## Relevant personal context\n\n### D (you)\nLikes Neovim.';
+  const messages = reduceChatTranscript([], { kind: 'memory_context', content: block }, metadata);
+  assert.deepEqual(messages.map((message) => [message.id, message.role, message.kind, message.content]), [
+    ['test-memory', 'assistant', 'memory_context', block],
+  ]);
+  assert.equal(messages.some(isReplayableChatMessage), false);
+  assert.deepEqual(finalizeChatRunTranscript(messages, 'completed', metadata).map((message) => message.kind), ['memory_context']);
 });

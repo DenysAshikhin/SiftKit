@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
+import { ChatSessionSchema } from '@siftkit/contracts';
+
 import type { VaultChatTurn } from '../src/vault/note-writer/chat-turn.ts';
 import type { VaultRetrieveResult } from '../src/vault/vault-retriever.ts';
 import { getConfigPath } from '../src/config/index.ts';
@@ -18,6 +20,7 @@ import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp
 
 const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const CHAT_SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
+const MEMORY_BLOCK = '## Relevant personal context\n\n### PowerShell\nYour shell.';
 
 class RecordingAssistant {
   readonly enabled = true;
@@ -25,10 +28,17 @@ class RecordingAssistant {
   readonly retrievedMessages: string[] = [];
   readonly ingestedTurns: VaultChatTurn[] = [];
   interactiveRequestCount = 0;
+  private readonly renderedBlock: string;
+
+  constructor(renderedBlock: string) {
+    this.renderedBlock = renderedBlock;
+  }
 
   async retrieveMemoryContext(userMessage: string): Promise<VaultRetrieveResult> {
     this.retrievedMessages.push(userMessage);
-    return { renderedBlock: '## Relevant personal context\n\n### PowerShell\nYour shell.', noteIds: ['note_1'], tokenCount: 12 };
+    return this.renderedBlock === ''
+      ? { renderedBlock: '', noteIds: [], tokenCount: 0 }
+      : { renderedBlock: this.renderedBlock, noteIds: ['note_1'], tokenCount: 12 };
   }
 
   ingestChatTurn(turn: VaultChatTurn): void {
@@ -48,7 +58,8 @@ class RecordingAssistant {
   refreshConfig(): void {}
 }
 
-test('streaming dashboard chat retrieves and ingests opted-in assistant memory', async () => {
+/** One streamed chat turn against a server backed by `assistant`; returns the settled session. */
+async function streamChatTurn(assistant: RecordingAssistant) {
   const tempRoot = createManagedTempDir('siftkit-assistant-stream-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -56,7 +67,6 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const config = getDefaultServerConfig();
   writeConfig(getConfigPath(), config);
-  const assistant = new RecordingAssistant();
   const server = startStatusServer({ disableManagedEngineStartup: true, assistant });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -67,11 +77,7 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
       method: 'POST',
       body: JSON.stringify({ title: 'Assistant memory stream' }),
     });
-    const session = created.body?.session;
-    if (typeof session !== 'object' || session === null || Array.isArray(session)) {
-      throw new Error('Expected a created chat session.');
-    }
-    const sessionId = typeof session.id === 'string' ? session.id : '';
+    const sessionId = ChatSessionSchema.parse(created.body?.session).id;
     const response = await requestSse(
       `${baseUrl}/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
       {
@@ -90,12 +96,8 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.events.some((event) => event.event === 'error'), false);
-    assert.deepEqual(assistant.retrievedMessages, ['Which shell do I use?']);
-    assert.equal(assistant.interactiveRequestCount, 1);
-    assert.equal(assistant.ingestedTurns.length, 1);
-    assert.equal(assistant.ingestedTurns[0]?.userText, 'Which shell do I use?');
-    assert.equal(assistant.ingestedTurns[0]?.assistantText, 'PowerShell.');
-    assert.equal(assistant.ingestedTurns[0]?.sessionTitle, 'Assistant memory stream');
+    const fetched = await requestJson(`${baseUrl}/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`);
+    return ChatSessionSchema.parse(fetched.body?.session);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -110,4 +112,26 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
     }
     await removeDirectoryWithRetries(tempRoot);
   }
+}
+
+test('streaming dashboard chat retrieves and ingests opted-in assistant memory and shows it as its own row', async () => {
+  const assistant = new RecordingAssistant(MEMORY_BLOCK);
+  const session = await streamChatTurn(assistant);
+
+  assert.deepEqual(assistant.retrievedMessages, ['Which shell do I use?']);
+  assert.equal(assistant.interactiveRequestCount, 1);
+  assert.equal(assistant.ingestedTurns.length, 1);
+  assert.equal(assistant.ingestedTurns[0]?.userText, 'Which shell do I use?');
+  assert.equal(assistant.ingestedTurns[0]?.assistantText, 'PowerShell.');
+  assert.equal(assistant.ingestedTurns[0]?.sessionTitle, 'Assistant memory stream');
+  assert.deepEqual(session.messages.map((message) => [message.kind, message.content]), [
+    ['user_text', 'Which shell do I use?'],
+    ['memory_context', MEMORY_BLOCK],
+    ['assistant_answer', 'PowerShell.'],
+  ]);
+});
+
+test('a chat turn with no injected memory has no memory row', async () => {
+  const session = await streamChatTurn(new RecordingAssistant(''));
+  assert.deepEqual(session.messages.map((message) => message.kind), ['user_text', 'assistant_answer']);
 });

@@ -694,6 +694,7 @@ function TurnList({ messages, liveMessageIds, liveTokenDisplays, sessionId, pend
           && !turn.showRecentActivity) {
           const message = turn.main;
           if (!message) { return null; }
+          if (message.kind === 'memory_context') return <MemoryContextRow key={message.id} content={message.content} />;
           if (message.kind === 'repo_agent_approval') {
             return (
               <React.Fragment key={message.id}>
@@ -737,6 +738,19 @@ function TurnList({ messages, liveMessageIds, liveTokenDisplays, sessionId, pend
         );
       })}
     </>
+  );
+}
+
+/** The memory injected into one turn's system prompt; the retriever renders each note under a `### ` heading. */
+function MemoryContextRow({ content }: { content: string }) {
+  const notes = content.match(/^### /gmu)?.length ?? 0;
+  return (
+    <article className="msg memory_context">
+      <details className="memory-bubble">
+        <summary>Memory · {notes} {notes === 1 ? 'note' : 'notes'}</summary>
+        <pre className="mono">{content}</pre>
+      </details>
+    </article>
   );
 }
 

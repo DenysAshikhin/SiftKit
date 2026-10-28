@@ -56,6 +56,8 @@ function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
   // optimistic bubble into the assistant's live turn, where the streaming answer takes
   // the main slot and the user's own words get demoted into Internal Logic.
   if (startsUserTurn(message)) return `user:${message.id}`;
+  // Injected memory is its own bubble; folded into the run it would land in Internal Logic.
+  if (message.kind === 'memory_context') return `memory:${message.id}`;
   if (isLive) return 'live';
   const runId = typeof message.sourceRunId === 'string' ? message.sourceRunId.trim() : '';
   return runId ? `run:${runId}` : `solo:${message.id}`;
@@ -94,7 +96,7 @@ function finalizeTurn(turn: ChatTurn): void {
   turn.main = main;
   turn.liveThinking = liveThinking;
   turn.recentActivities = pickRecentActivities(turn, liveUnanswered);
-  turn.showRecentActivity = liveUnanswered && turn.messages.some((message) => message.role === 'assistant');
+  turn.showRecentActivity = liveUnanswered && turn.messages.some((message) => message.role === 'assistant' && message.kind !== 'memory_context');
   // Live tools belong only to the recent ring. Everything else that is not the
   // main slot or thinking stack stays in Internal Logic.
   turn.shownImages = turn.messages.filter(isShownImageMessage);
