@@ -9,6 +9,7 @@ import type { IdGenerator } from '../assistant/ids.ts';
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
 import { VaultConflictError, VaultNotFoundError, VaultTitleTakenError, VaultValidationError } from './errors.ts';
+import { syncFactPoints } from './fact-points.ts';
 import { NoteIdRowSchema, VaultRevisionRowSchema, readVaultNote, requireVaultNote, toVaultRevision } from './note-rows.ts';
 
 const TITLE_MAX_LENGTH = 200;
@@ -253,5 +254,6 @@ export class VaultNoteStore {
     this.database.prepare('DELETE FROM vault_notes_fts WHERE note_id = ?').run(note.id);
     this.database.prepare('INSERT INTO vault_notes_fts (note_id, title, aliases, body) VALUES (?, ?, ?, ?)')
       .run(note.id, note.title, note.aliases.join(' '), note.body);
+    syncFactPoints(this.database, note.id, note.body, note.updatedAtUtc);
   }
 }

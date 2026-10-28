@@ -4,6 +4,23 @@ import { VAULT_CAPTURE_STATES } from './captures.ts';
 
 const sqlList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(', ');
 
+/** Created by the 87 -> 88 upgrade on existing databases and by the schema on fresh ones. */
+export const VAULT_VALIDATION_TABLES_SQL = `
+CREATE TABLE IF NOT EXISTS vault_fact_points (
+    note_id TEXT NOT NULL REFERENCES vault_notes(id) ON DELETE CASCADE,
+    label_key TEXT NOT NULL,
+    value_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    value TEXT NOT NULL,
+    added_at_utc TEXT NOT NULL,
+    edited_at_utc TEXT NOT NULL,
+    last_accessed_at_utc TEXT,
+    validated_at_utc TEXT,
+    PRIMARY KEY (note_id, label_key, value_key)
+);
+CREATE TABLE IF NOT EXISTS vault_rollup_days (day TEXT PRIMARY KEY);
+`;
+
 /** Vault notes, their derived indexes and capture attachments (design §3). Links, aliases, tags and FTS rows are rebuilt on every note write. */
 export const VAULT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS vault_notes (
@@ -19,7 +36,9 @@ CREATE TABLE IF NOT EXISTS vault_notes (
     revision INTEGER NOT NULL CHECK (revision >= 1),
     is_stub INTEGER NOT NULL CHECK (is_stub IN (0, 1)),
     created_at_utc TEXT NOT NULL,
-    updated_at_utc TEXT NOT NULL
+    updated_at_utc TEXT NOT NULL,
+    last_accessed_at_utc TEXT,
+    validated_at_utc TEXT
 );
 CREATE INDEX IF NOT EXISTS vault_notes_folder_idx ON vault_notes(folder, title_key);
 
@@ -108,4 +127,8 @@ CREATE TABLE IF NOT EXISTS vault_chat_notes (
     PRIMARY KEY (session_id, day)
 );
 CREATE INDEX IF NOT EXISTS vault_chat_notes_day_idx ON vault_chat_notes(day);
+${VAULT_VALIDATION_TABLES_SQL}
+-- The validation queue (note-writer agent spec 4.5) reads these in order; never-accessed sorts first.
+CREATE INDEX IF NOT EXISTS vault_notes_validation_idx ON vault_notes(kind, last_accessed_at_utc, validated_at_utc);
+CREATE INDEX IF NOT EXISTS vault_fact_points_validation_idx ON vault_fact_points(last_accessed_at_utc, validated_at_utc);
 `;
