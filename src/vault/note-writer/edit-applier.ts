@@ -1,5 +1,5 @@
 import {
-  addRowValues, addTasks, addUnverified, buildEntityBody, findRowValue, replaceLead, VAULT_OWNER_TAG, VAULT_VALUE_SEPARATOR,
+  addRowValues, addTasks, addUnverified, buildEntityBody, findRowValue, replaceLead, sameFactValue, VAULT_OWNER_TAG, VAULT_VALUE_SEPARATOR,
   type VaultActor, type VaultNote, type VaultWriteMeta,
 } from '@siftkit/contracts';
 
@@ -25,7 +25,7 @@ const TYPE_FOLDERS: Readonly<Record<string, string>> = {
 };
 const KeyOwnerRowsSchema = z.array(z.object({ key: z.string(), note_id: z.string() }));
 
-type DropReason = 'secret' | 'unknown_note' | 'invalid_title' | 'unknown_fact' | 'out_of_scope';
+type DropReason = 'secret' | 'unknown_note' | 'invalid_title' | 'unknown_fact' | 'out_of_scope' | 'task_not_allowed';
 type SetLeadOp = Extract<VaultEditOp, { op: 'set_lead' }>;
 
 export interface VaultEditApplierOptions {
@@ -44,6 +44,8 @@ export interface VaultEditRequest {
   readonly summary: string;
   /** Notes a review batch may lead-edit without touching them otherwise. */
   readonly scopeNoteIds: readonly string[];
+  /** A source that may not add Plans entries has its add_task operations dropped. */
+  readonly tasksAllowed: boolean;
 }
 
 export interface VaultFlaggedPoint extends FactPointKey {
@@ -79,7 +81,6 @@ const opStrings = (op: VaultEditOp): string[] => {
     case 'add_facts': return [op.note, op.label, ...op.values];
     case 'add_aliases': return [op.note, ...op.aliases];
     case 'add_task': return [op.note, op.text];
-    case 'learned': return [op.note, op.label, op.value];
     case 'set_lead': return [op.note, op.lead];
     case 'flag_conflict': return [op.note, op.label, op.value, op.conflictsWith];
     case 'flag_doubt': return [op.note, op.label, op.value, op.reason];
@@ -152,6 +153,7 @@ export class VaultEditApplier {
         const secretRules = opStrings(op).flatMap((value) => this.scanner.scan(value).matchedRuleIds);
         if (secretRules.length > 0) { drop(op, 'secret', [...new Set(secretRules)]); continue; }
         if (op.op === 'set_lead') { leads.push(op); continue; }
+        if (op.op === 'add_task' && !request.tasksAllowed) { drop(op, 'task_not_allowed'); continue; }
         if (op.op === 'create_note') {
           if (owner.matches(op.title) || this.store.resolveId(op.title) !== null) continue;
           const near = this.findNearDuplicate(op.title);
@@ -171,6 +173,7 @@ export class VaultEditApplier {
             }, meta);
             touched.add(note.id);
             created.add(note.id);
+            learned.push(`- [[${note.title}]]: ${op.lead}`);
           } catch (error) {
             if (!(error instanceof VaultValidationError)) throw error;
             drop(op, 'invalid_title');
@@ -179,11 +182,20 @@ export class VaultEditApplier {
         }
         const draft = draftFor(op.note);
         if (draft === null) { drop(op, 'unknown_note'); continue; }
-        if (op.op === 'add_facts') draft.body = addRowValues(draft.body, op.label, op.values.map(linkValue));
+        if (op.op === 'add_facts') {
+          const fresh = op.values.map(linkValue).filter((value, index, values) =>
+            findRowValue(draft.body, op.label, value) === null && values.findIndex((other) => sameFactValue(other, value)) === index);
+          if (fresh.length === 0) continue;
+          draft.body = addRowValues(draft.body, op.label, fresh);
+          learned.push(`- [[${draft.note.title}]]: **${op.label}** ${fresh.join(VAULT_VALUE_SEPARATOR)}`);
+        }
         // An owner-like name is only ever an alias of the owner note itself.
         else if (op.op === 'add_aliases') draft.aliases = [...draft.aliases, ...op.aliases.filter((alias) => draft.note.tags.includes(VAULT_OWNER_TAG) || !owner.matches(alias))];
-        else if (op.op === 'add_task') draft.body = addTasks(draft.body, PLANS_HEADING, [op.text]);
-        else if (op.op === 'learned') learned.push(`- [[${draft.note.title}]]: **${op.label}** ${op.value}`);
+        else if (op.op === 'add_task') {
+          const before = draft.body;
+          draft.body = addTasks(draft.body, PLANS_HEADING, [op.text]);
+          if (draft.body !== before) learned.push(`- [[${draft.note.title}]]: **${PLANS_HEADING}** ${op.text}`);
+        }
         else if (op.op === 'flag_conflict') {
           if (findRowValue(draft.body, op.label, op.conflictsWith) === null) { drop(op, 'unknown_fact'); continue; }
           draft.body = addUnverified(draft.body, [{ label: op.label, value: op.value, flag: { kind: 'replaces', value: op.conflictsWith } }]);

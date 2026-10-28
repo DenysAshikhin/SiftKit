@@ -34,7 +34,7 @@ export class StubImageCapability implements AssistantImageCapabilityProvider {
   }
 }
 
-type CaptureOverrides = Partial<Pick<CaptureSubmissionDto, 'capturedAtUtc' | 'pixelSha256' | 'perceptualHash' | 'foregroundContextKey' | 'reason'>> & {
+export type CaptureOverrides = Partial<Pick<CaptureSubmissionDto, 'capturedAtUtc' | 'pixelSha256' | 'perceptualHash' | 'foregroundContextKey' | 'reason'>> & {
   readonly title?: string | null;
   readonly processName?: string | null;
 };

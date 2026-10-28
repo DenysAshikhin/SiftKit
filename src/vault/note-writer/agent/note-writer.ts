@@ -10,10 +10,10 @@ import type { AssistantInferenceClient } from '../../../assistant/inference/clie
 import type { AuditStore } from '../../../assistant/storage/audit-store.ts';
 import type { RuntimeDatabase } from '../../../state/runtime-db.ts';
 import type { VaultAttachments } from '../../attachments.ts';
-import { finishCapture, requireCapture, setCaptureState, type VaultCaptureRow } from '../../captures.ts';
+import { finishCapture, listRecentContextCaptureNoteIds, requireCapture, setCaptureState, type VaultCaptureRow } from '../../captures.ts';
 import { VaultNotFoundError } from '../../errors.ts';
 import { stampValidated } from '../../fact-points.ts';
-import { NoteIdRowSchema, requireVaultNote } from '../../note-rows.ts';
+import { NoteIdRowSchema, readVaultNote, requireVaultNote } from '../../note-rows.ts';
 import { sanitizeVaultTitle, type VaultNoteStore } from '../../note-store.ts';
 import { markRollupDay } from '../../rollup-days.ts';
 import type { VaultValidationQueue } from '../../validation-queue.ts';
@@ -23,7 +23,7 @@ import type { VaultChatTurn } from '../chat-turn.ts';
 import { SUPPRESSION_PATTERN, stripUntrustedSpans } from '../chat-text.ts';
 import type { VaultEditApplier } from '../edit-applier.ts';
 import { candidateCards, ownerCard, reviewCards } from './cards.ts';
-import { writerSystemPrompt, type VaultWriterSourceKind } from './prompt.ts';
+import { SOURCE_ALLOWS_TASKS, writerSystemPrompt, type VaultWriterSourceKind } from './prompt.ts';
 import { VaultWriterSession, type VaultWriterSessionOutcome } from './session.ts';
 import { VaultWriterTools } from './tools.ts';
 import type { VaultWriterJob } from './writer-job.ts';
@@ -34,6 +34,8 @@ const TRANSCRIPT_HEADING = 'Transcript';
 const WITHHELD = '_Withheld: the message contained credential material._';
 /** Message lines that would otherwise parse as vault structure: headings and callouts. */
 const STRUCTURAL_LINE = /^(#{1,6}\s|> \[!)/;
+/** Earlier captures of the same window within this span tell the agent what is already recorded. */
+const RECENT_CONTEXT_MS = 20 * 60_000;
 
 export type VaultNoteWriterSkip = 'awaiting_capability' | 'already_processed' | 'suppressed' | 'invalid_review';
 
@@ -122,7 +124,9 @@ export class VaultNoteWriter {
     }
     if (this.capability.read().instanceId !== admission.instanceId) return this.awaitCapability(attachmentId);
 
+    const recent = this.recentlyLearned(capture);
     const source = [
+      ...(recent.length === 0 ? [] : ['## Recently learned from this window', ...recent, '']),
       '## Source: screenshot (attached)', `App: ${capture.app}`, ...(capture.window_title === null ? [] : [`Window title: ${capture.window_title}`]),
     ].join('\n');
     const outcome = await this.agent('capture', this.seed(`${capture.app} ${capture.window_title ?? ''}`, source), [image], day, signal);
@@ -134,6 +138,7 @@ export class VaultNoteWriter {
         const note = requireVaultNote(this.database, capture.note_id);
         learned = this.applier.apply({
           ownerId, operations: outcome.operations, actor: SCREENSHOT_ACTOR, sourceRef: attachmentId, summary: `Screenshot ${note.title}`, scopeNoteIds: [],
+          tasksAllowed: SOURCE_ALLOWS_TASKS.capture,
         }).learned;
       }
       this.finishCapture(capture, learned, 'processed');
@@ -170,7 +175,9 @@ export class VaultNoteWriter {
       if (outcome?.kind === 'invalid_output') this.rejectAudit(ownerId, 'chat_session', turn.sessionId, 'Chat note-writer submitted no edits.', outcome);
       const meta: VaultWriteMeta = { actor: 'note-writer · chat', summary: `Chat turn in ${turn.sessionTitle}`, sourceRef };
       const learned = outcome?.kind === 'submitted'
-        ? this.applier.apply({ ownerId, operations: outcome.operations, actor: meta.actor, sourceRef, summary: meta.summary, scopeNoteIds: [] }).learned
+        ? this.applier.apply({
+          ownerId, operations: outcome.operations, actor: meta.actor, sourceRef, summary: meta.summary, scopeNoteIds: [], tasksAllowed: SOURCE_ALLOWS_TASKS.chat,
+        }).learned
         : [];
       const existing = this.chatNote(turn.sessionId, day);
       const base = existing?.body ?? `## ${TRANSCRIPT_HEADING}\n\n## ${LEARNED_HEADING}`;
@@ -197,6 +204,7 @@ export class VaultNoteWriter {
     this.database.transaction(() => {
       const result = this.applier.apply({
         ownerId, operations: outcome.operations, actor: 'note-writer · review', sourceRef: 'review', summary: 'Review pass', scopeNoteIds: noteIds,
+        tasksAllowed: SOURCE_ALLOWS_TASKS.review,
       });
       const validatedAt = this.clock.nowUtc();
       for (const id of noteIds) stampValidated(this.database, id, result.flagged.filter((point) => point.noteId === id), validatedAt);
@@ -236,6 +244,14 @@ export class VaultNoteWriter {
   private awaitCapability(attachmentId: string): VaultNoteWriterOutcome {
     setCaptureState(this.database, attachmentId, 'awaiting_image_capability');
     return skipped('awaiting_capability');
+  }
+
+  /** The Learned lines of recent captures of the same window, so the agent records only what is new. */
+  private recentlyLearned(capture: VaultCaptureRow): string[] {
+    const sinceUtc = new Date(Date.parse(capture.captured_at_utc) - RECENT_CONTEXT_MS).toISOString();
+    const lines = listRecentContextCaptureNoteIds(this.database, capture, sinceUtc)
+      .flatMap((noteId) => sectionLines(readVaultNote(this.database, noteId)?.body ?? '', LEARNED_HEADING) ?? []);
+    return [...new Set(lines.filter((line) => line.trim().length > 0))];
   }
 
   private readImage(capture: VaultCaptureRow): ImageDataUrl | null {

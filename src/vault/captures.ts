@@ -3,6 +3,7 @@ import { PENDING_CAPTURE_LIST_STATES, PendingCaptureDtoSchema, type PendingCaptu
 import type { RuntimeDatabase } from '../state/runtime-db.ts';
 import { z } from '../lib/zod.ts';
 import { VaultNotFoundError } from './errors.ts';
+import { NoteIdRowSchema } from './note-rows.ts';
 
 export const VAULT_CAPTURE_STATES = [...PENDING_CAPTURE_LIST_STATES, 'processed', 'image_removed'] as const;
 export const VaultCaptureStateSchema = z.enum(VAULT_CAPTURE_STATES);
@@ -56,6 +57,15 @@ export function listContextHashesSince(database: RuntimeDatabase, foregroundCont
   return z.array(PerceptualRowSchema).parse(database.prepare(
     'SELECT perceptual_hash FROM vault_captures WHERE foreground_context_key = ? AND captured_at_utc >= ?',
   ).all(foregroundContextKey, sinceUtc)).map((row) => row.perceptual_hash);
+}
+
+/** Notes of processed captures of the same window taken in `[sinceUtc, capture]`, oldest first. */
+export function listRecentContextCaptureNoteIds(database: RuntimeDatabase, capture: VaultCaptureRow, sinceUtc: string): string[] {
+  return z.array(NoteIdRowSchema).parse(database.prepare(`
+    SELECT note_id FROM vault_captures
+    WHERE foreground_context_key = ? AND attachment_id != ? AND processed_at_utc IS NOT NULL AND captured_at_utc BETWEEN ? AND ?
+    ORDER BY captured_at_utc
+  `).all(capture.foreground_context_key, capture.attachment_id, sinceUtc, capture.captured_at_utc)).map((row) => row.note_id);
 }
 
 /** Captures whose PNG is still on disk, oldest first, with the file size retention weighs. */

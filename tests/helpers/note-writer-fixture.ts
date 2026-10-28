@@ -13,7 +13,7 @@ import type { VaultWriterJob } from '../../src/vault/note-writer/agent/writer-jo
 import type { VaultChatTurn } from '../../src/vault/note-writer/chat-turn.ts';
 import { VaultEditApplier } from '../../src/vault/note-writer/edit-applier.ts';
 import { VaultValidationQueue } from '../../src/vault/validation-queue.ts';
-import { SCREENSHOTS_ENABLED, StubImageCapability, vaultCaptureDto } from './vault-capture-fixture.ts';
+import { SCREENSHOTS_ENABLED, StubImageCapability, vaultCaptureDto, type CaptureOverrides } from './vault-capture-fixture.ts';
 import type { VaultTestContext } from './vault-fixture.ts';
 
 export const CHAT_TURN: VaultChatTurn = {
@@ -35,8 +35,8 @@ export function noteWriterFixture(context: VaultTestContext, inference: Assistan
   const intake = new VaultCaptureIntake({
     database: context.database, store: context.store, attachments, audit, clock: context.clock, capability: new StubImageCapability(true),
   });
-  const submitCapture = () => {
-    const outcome = intake.submit(LOCAL_OWNER_ID, vaultCaptureDto(), SCREENSHOTS_ENABLED);
+  const submitCapture = (overrides: CaptureOverrides = {}) => {
+    const outcome = intake.submit(LOCAL_OWNER_ID, vaultCaptureDto(overrides), SCREENSHOTS_ENABLED);
     if (outcome.kind !== 'accepted') throw new Error('fixture capture was not accepted');
     return outcome;
   };

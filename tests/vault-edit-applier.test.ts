@@ -18,7 +18,7 @@ function applier(context: VaultTestContext) {
   const audit = new AuditStore(context.database, context.clock, new SequentialIdGenerator());
   const edits = new VaultEditApplier({ store: context.store, database: context.database, audit, scanner: new SecretScanner(), ownerDisplayName: 'Denys' });
   const apply = (operations: readonly VaultEditOp[], scopeNoteIds: readonly string[] = []) =>
-    edits.apply({ ownerId: OWNER_ID, operations, actor: 'note-writer · screenshot', sourceRef: 'vatt_1', summary: 'Screenshot 09:00', scopeNoteIds });
+    edits.apply({ ownerId: OWNER_ID, operations, actor: 'note-writer · screenshot', sourceRef: 'vatt_1', summary: 'Screenshot 09:00', scopeNoteIds, tasksAllowed: true });
   return { apply, audit };
 }
 
@@ -26,6 +26,7 @@ test('the edit response JSON schema is flat: no $ref anywhere', () => {
   assert.doesNotMatch(JSON.stringify(z.toJSONSchema(VaultEditResponseSchema)), /\$ref/);
   assert.equal(VaultEditResponseSchema.safeParse({ operations: [{ op: 'add_task', note: 'X', text: 't', extra: 1 }] }).success, false);
   assert.equal(VaultEditResponseSchema.safeParse({ operations: [{ op: 'add_facts', note: 'X', label: 'Uses', values: Array(9).fill('v') }] }).success, false);
+  assert.equal(VaultEditResponseSchema.safeParse({ operations: [{ op: 'learned', note: 'X', label: 'Is', value: 'v' }] }).success, false, 'learned lines come from the edits');
 });
 
 test('create_note makes an entity note in its type folder, and later ops in the batch can target it', () => {
@@ -35,14 +36,13 @@ test('create_note makes an entity note in its type folder, and later ops in the 
     const result = apply([
       { op: 'create_note', title: 'GitLens', type: 'software', lead: 'GitLens is a VS Code extension.' },
       { op: 'add_facts', note: 'gitlens', label: 'Works with', values: ['[[Git]]', 'blame view'] },
-      { op: 'learned', note: 'GitLens', label: 'Shows', value: 'inline blame' },
     ]);
     const note = context.store.resolve('GitLens');
     assert.ok(note);
     assert.deepEqual([note.folder, note.kind, note.types], ['Software', 'entity', ['software']]);
     assert.equal(note.body, 'GitLens is a VS Code extension.\n\n**Works with** [[Git]] · blame view');
     assert.equal(note.revision, 2, 'creation plus one batched edit');
-    assert.deepEqual(result.learned, ['- [[GitLens]]: **Shows** inline blame']);
+    assert.deepEqual(result.learned, ['- [[GitLens]]: GitLens is a VS Code extension.', '- [[GitLens]]: **Works with** [[Git]] · blame view']);
     assert.deepEqual(result.touchedNoteIds, [note.id]);
     assert.equal(context.store.listRevisions(note.id)[0]?.actor, 'note-writer · screenshot');
     assert.equal(context.store.listRevisions(note.id)[0]?.sourceRef, 'vatt_1');
@@ -53,7 +53,7 @@ test('owner references resolve to the #me note, creating it on first use, and va
   withVault((context) => {
     const { apply } = applier(context);
     context.store.create(entityInput('Visual Studio Code', 'Editor.', { aliases: ['vscode'] }), TEST_META);
-    apply([
+    const result = apply([
       { op: 'add_facts', note: 'the user', label: 'Uses', values: ['VSCode', 'Dark · theme'] },
       { op: 'add_aliases', note: 'user denyz', aliases: ['DenysA'] },
       { op: 'add_task', note: 'me', text: 'Try Cursor' },
@@ -62,6 +62,7 @@ test('owner references resolve to the #me note, creating it on first use, and va
     assert.ok(owner);
     assert.deepEqual([owner.title, owner.tags, owner.aliases], ['Denys', [VAULT_OWNER_TAG], ['DenysA']]);
     assert.equal(owner.body, 'This is you.\n\n**Uses** [[Visual Studio Code]] · Dark, theme\n\n## Plans\n- [ ] Try Cursor');
+    assert.deepEqual(result.learned, ['- [[Denys]]: **Uses** [[Visual Studio Code]] · Dark, theme', '- [[Denys]]: **Plans** Try Cursor']);
   });
 });
 
@@ -73,17 +74,31 @@ test('ops on unknown notes, invalid titles and secrets are dropped and audited w
       { op: 'add_facts', note: 'Nowhere', label: 'Uses', values: ['x'] },
       { op: 'create_note', title: 'Bad/Title', type: 'software', lead: 'x' },
       { op: 'add_facts', note: 'Git', label: 'Token', values: ['ghp_abcdefghijklmnopqrstuvwxyz0123'] },
-      { op: 'learned', note: 'Ghost', label: 'Is', value: 'nothing' },
+      { op: 'add_facts', note: 'Ghost', label: 'Is', values: ['nothing'] },
       { op: 'add_facts', note: 'Git', label: 'Runs on', values: ['Windows'] },
     ]);
     assert.equal(result.dropped, 4);
-    assert.deepEqual(result.learned, []);
+    assert.deepEqual(result.learned, ['- [[Git]]: **Runs on** Windows'], 'only the applied op is learned');
     assert.equal(context.store.resolve('Git')?.body, 'Version control.\n\n**Runs on** Windows');
     const events = audit.listAuditEvents(OWNER_ID, 10);
     assert.equal(events.length, 4);
     assert.ok(events.every((event) => event.event_type === 'vault_edit_dropped'));
     assert.deepEqual(events.map((event) => z.object({ reason: z.string() }).parse(JSON.parse(event.details_json)).reason).sort(), ['invalid_title', 'secret', 'unknown_note', 'unknown_note']);
     assert.doesNotMatch(JSON.stringify(events), /ghp_/, 'the secret itself is never audited');
+  });
+});
+
+test('learned lines list only what a batch added: held values, existing notes and known tasks are not learned again', () => {
+  withVault((context) => {
+    const { apply } = applier(context);
+    context.store.create(entityInput('Git', 'Version control.'), TEST_META);
+    const batch: VaultEditOp[] = [
+      { op: 'create_note', title: 'git', type: 'software', lead: 'Other lead.' },
+      { op: 'add_facts', note: 'Git', label: 'Runs on', values: ['Windows', 'windows', 'Linux'] },
+      { op: 'add_task', note: 'Git', text: 'Learn rebase' },
+    ];
+    assert.deepEqual(apply(batch).learned, ['- [[Git]]: **Runs on** Windows · Linux', '- [[Git]]: **Plans** Learn rebase']);
+    assert.deepEqual(apply([...batch, { op: 'add_facts', note: 'Git', label: 'Runs on', values: ['Linux', 'macOS'] }]).learned, ['- [[Git]]: **Runs on** macOS']);
   });
 });
 

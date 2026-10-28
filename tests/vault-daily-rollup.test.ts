@@ -59,8 +59,8 @@ test('the daily note gathers the day\'s screenshots, the union of ## Learned and
     capture('2026-10-23T20:00:00.000Z', '3', NEAR_HASH);
     learn(first.noteId, ['- [[Git]]: **Uses** rebase']);
     await chat([
-      { op: 'learned', note: 'Git', label: 'Uses', value: 'rebase' },
-      { op: 'learned', note: 'Neovim', label: 'Plugin', value: 'Telescope' },
+      { op: 'add_facts', note: 'Git', label: 'Uses', values: ['rebase'] },
+      { op: 'add_facts', note: 'Neovim', label: 'Plugin', values: ['Telescope'] },
     ]);
 
     const outcome = rollup.run('2026-10-24');

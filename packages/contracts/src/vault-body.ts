@@ -34,7 +34,7 @@ const sameVaultValue = (left: string, right: string): boolean =>
 
 const LONE_LINK = /^\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/;
 /** A value compared by its plain name, so `[[Neovim]]` and `neovim` are the same fact. */
-const sameFactValue = (left: string, right: string): boolean =>
+export const sameFactValue = (left: string, right: string): boolean =>
   sameVaultValue(left.trim().match(LONE_LINK)?.[1] ?? left, right.trim().match(LONE_LINK)?.[1] ?? right);
 
 function dedupeVaultValues(values: readonly string[]): string[] {

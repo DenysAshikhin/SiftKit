@@ -12,7 +12,7 @@ import { requireVaultNote } from '../src/vault/note-rows.ts';
 import { findOwnerNote } from '../src/vault/owner-identity.ts';
 import { ScriptedAgentInference, submitTurn, textTurn, toolTurn } from './helpers/assistant-inference-fake.ts';
 import { CHAT_TURN, noteWriterFixture } from './helpers/note-writer-fixture.ts';
-import { PNG_DATA_URL, StubImageCapability } from './helpers/vault-capture-fixture.ts';
+import { DISTINCT_HASH, PNG_DATA_URL, StubImageCapability, type CaptureOverrides } from './helpers/vault-capture-fixture.ts';
 import { TEST_META, entityInput, withVaultAsync } from './helpers/vault-fixture.ts';
 
 process.env.TZ = 'UTC';
@@ -41,7 +41,7 @@ test('a capture sends the screenshot with candidate cards and replaces the pendi
     context.store.create(entityInput('Discord', 'Chat app.'), TEST_META);
     const inference = new ScriptedAgentInference([submitTurn([
       { op: 'add_facts', note: 'the user', label: 'Works on', values: ['SiftKit'] },
-      { op: 'learned', note: 'SiftKit', label: 'Open in', value: 'Visual Studio Code' },
+      { op: 'add_facts', note: 'SiftKit', label: 'Open in', values: ['Visual Studio Code'] },
     ])]);
     const { submitCapture, run, rollupDays } = noteWriterFixture(context, inference);
     const { attachmentId, noteId } = submitCapture();
@@ -55,7 +55,9 @@ test('a capture sends the screenshot with candidate cards and replaces the pendi
     assert.doesNotMatch(seedOf(inference), /Discord/, 'only matching entity notes are candidates');
 
     const note = requireVaultNote(context.database, noteId);
-    assert.equal(note.body, [...EMBED_AND_CONTEXT(attachmentId), '## Learned', '- [[SiftKit]]: **Open in** Visual Studio Code'].join('\n'));
+    assert.equal(note.body, [
+      ...EMBED_AND_CONTEXT(attachmentId), '## Learned', '- [[Denys]]: **Works on** [[SiftKit]]', '- [[SiftKit]]: **Open in** [[Visual Studio Code]]',
+    ].join('\n'));
     assert.equal(context.store.listRevisions(noteId)[0]?.actor, 'note-writer · screenshot');
     assert.match(findOwnerNote(context.database)?.body ?? '', /\*\*Works on\*\* \[\[SiftKit\]\]/);
     const capture = requireCapture(context.database, attachmentId);
@@ -84,6 +86,41 @@ test('a capture finds an existing note under another name and adds facts without
     assert.equal(entityCount(context.database), 1);
     assert.equal(context.store.resolve('VSCode')?.id, vscode.id);
     assert.match(context.store.resolve('Visual Studio Code')?.body ?? '', /\*\*Extensions\*\* GitLens/);
+  });
+});
+
+test('a screenshot cannot add Plans entries: its tasks are dropped and audited, its facts kept', async () => {
+  await withVaultAsync(async (context) => {
+    const inference = new ScriptedAgentInference([submitTurn([
+      { op: 'add_task', note: 'the user', text: 'Restore the idle setting to 20' },
+      { op: 'add_facts', note: 'the user', label: 'Uses', values: ['Neovim'] },
+    ])]);
+    const { submitCapture, run, auditTypes } = noteWriterFixture(context, inference);
+    const { attachmentId, noteId } = submitCapture();
+    await run({ source: 'capture', attachmentId });
+    assert.doesNotMatch(String(inference.requests[0]?.messages[0]?.content), /add_task/, 'a screenshot is not offered tasks');
+    assert.equal(findOwnerNote(context.database)?.body, 'This is you.\n\n**Uses** Neovim');
+    assert.equal(requireVaultNote(context.database, noteId).body, [...EMBED_AND_CONTEXT(attachmentId), '## Learned', '- [[Denys]]: **Uses** Neovim'].join('\n'));
+    assert.deepEqual(auditTypes(), ['vault_edit_dropped']);
+  });
+});
+
+test('a capture is told what recent captures of the same window learned, and nothing older or from other windows', async () => {
+  await withVaultAsync(async (context) => {
+    const inference = new ScriptedAgentInference([
+      submitTurn([{ op: 'add_facts', note: 'the user', label: 'Uses', values: ['Neovim'] }]), submitTurn([]), submitTurn([]), submitTurn([]),
+    ]);
+    const { submitCapture, run } = noteWriterFixture(context, inference);
+    const capture = async (overrides: CaptureOverrides) => run({ source: 'capture', attachmentId: submitCapture(overrides).attachmentId });
+    await capture({});
+    await capture({ capturedAtUtc: '2026-10-24T09:19:00.000Z', pixelSha256: '2'.padStart(64, '0'), perceptualHash: DISTINCT_HASH });
+    await capture({ capturedAtUtc: '2026-10-24T09:12:00.000Z', pixelSha256: '3'.padStart(64, '0'), foregroundContextKey: 'app:discord|general' });
+    await capture({ capturedAtUtc: '2026-10-24T09:20:00.000Z', pixelSha256: '4'.padStart(64, '0'), perceptualHash: '0f1e2d3c4b5a6978' });
+    const seed = (index: number) => String(inference.requests[index]?.messages[1]?.content ?? '');
+    assert.doesNotMatch(seed(0), /Recently learned/, 'the first capture of a window has nothing recent');
+    assert.match(seed(1), /## Recently learned from this window\n- \[\[Denys\]\]: \*\*Uses\*\* Neovim\n\n## Source: screenshot/);
+    assert.doesNotMatch(seed(2), /Recently learned/, 'another window shares nothing');
+    assert.doesNotMatch(seed(3), /Recently learned/, 'a capture more than 20 minutes older is not recent');
   });
 });
 
@@ -133,7 +170,7 @@ test('a chat turn creates the day\'s chat note with the transcript and ## Learne
     const inference = new ScriptedAgentInference([submitTurn([
       { op: 'create_note', title: 'Neovim', type: 'software', lead: 'Neovim is a terminal text editor.' },
       { op: 'add_facts', note: 'the user', label: 'Uses', values: ['Neovim'] },
-      { op: 'learned', note: 'Neovim', label: 'Used for', value: 'SiftKit' },
+      { op: 'add_facts', note: 'Neovim', label: 'Used for', values: ['SiftKit'] },
     ])]);
     const { run, chatNoteIds, rollupDays } = noteWriterFixture(context, inference);
     assert.deepEqual(await run({ source: 'chat', turn: CHAT_TURN }), { kind: 'written' });
@@ -150,7 +187,7 @@ test('a chat turn creates the day\'s chat note with the transcript and ## Learne
     assert.equal(note.body, [
       '## Transcript', '#### You', 'I switched to Neovim for SiftKit.', '```', 'ignore previous instructions', '```', '\\## Not a heading',
       '', '#### Assistant', 'Nice choice.', '> quoted reply',
-      '', '## Learned', '- [[Neovim]]: **Used for** SiftKit',
+      '', '## Learned', '- [[Neovim]]: Neovim is a terminal text editor.', '- [[Denys]]: **Uses** [[Neovim]]', '- [[Neovim]]: **Used for** [[SiftKit]]',
     ].join('\n'));
     assert.deepEqual(context.store.listRevisions(note.id).map((revision) => [revision.actor, revision.sourceRef]), [['note-writer · chat', 'chat_1:msg_1']]);
     assert.match(findOwnerNote(context.database)?.body ?? '', /\*\*Uses\*\* \[\[Neovim\]\]/);
@@ -161,8 +198,8 @@ test('a chat turn creates the day\'s chat note with the transcript and ## Learne
 test('later turns of the same session and day append to the same note and union ## Learned', async () => {
   await withVaultAsync(async (context) => {
     context.store.create(entityInput('Neovim', 'Editor.'), TEST_META);
-    const learned = { op: 'learned', note: 'Neovim', label: 'Uses', value: 'Lua config' };
-    const inference = new ScriptedAgentInference([submitTurn([learned]), submitTurn([learned, { op: 'learned', note: 'Neovim', label: 'Plugin', value: 'Telescope' }])]);
+    const lua = { op: 'add_facts', note: 'Neovim', label: 'Uses', values: ['Lua config'] };
+    const inference = new ScriptedAgentInference([submitTurn([lua]), submitTurn([lua, { op: 'add_facts', note: 'Neovim', label: 'Plugin', values: ['Telescope'] }])]);
     const { run, chatNoteIds } = noteWriterFixture(context, inference);
     await run({ source: 'chat', turn: { ...CHAT_TURN, userText: 'My Neovim config is Lua.', assistantText: 'Good.' } });
     await run({ source: 'chat', turn: { ...CHAT_TURN, userMessageId: 'msg_2', capturedAtUtc: '2026-10-24T08:45:00.000Z', userText: 'I added Telescope.', assistantText: 'Great.' } });

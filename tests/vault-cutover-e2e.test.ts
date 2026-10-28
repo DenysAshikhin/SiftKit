@@ -31,7 +31,6 @@ const SessionResponseSchema = z.object({ session: z.object({ id: z.string() }) }
 const CAPTURE_EDITS = submitTurn([
   { op: 'create_note', title: 'Ripgrep', type: 'software', lead: 'Ripgrep is a fast code search tool.' },
   { op: 'add_facts', note: 'Ripgrep', label: 'Used for', values: ['code search'] },
-  { op: 'learned', note: 'Ripgrep', label: 'Used for', value: 'code search' },
 ]);
 
 /** Answers a screenshot with the Ripgrep edits and every text source (chat, review) with none. */

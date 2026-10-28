@@ -16,7 +16,6 @@ export const VaultEditOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add_facts'), note: NoteRef, label: Label, values: z.array(Value).min(1).max(MAX_VALUES) }).strict(),
   z.object({ op: z.literal('add_aliases'), note: NoteRef, aliases: z.array(NoteRef).min(1).max(MAX_VALUES) }).strict(),
   z.object({ op: z.literal('add_task'), note: NoteRef, text: text(300) }).strict(),
-  z.object({ op: z.literal('learned'), note: NoteRef, label: Label, value: Value }).strict(),
   z.object({ op: z.literal('set_lead'), note: NoteRef, lead: text(600) }).strict(),
   z.object({ op: z.literal('flag_conflict'), note: NoteRef, label: Label, value: Value, conflictsWith: Value }).strict(),
   z.object({ op: z.literal('flag_doubt'), note: NoteRef, label: Label, value: Value, reason: Value }).strict(),
@@ -26,14 +25,13 @@ export type VaultEditOp = z.infer<typeof VaultEditOpSchema>;
 export const VaultEditResponseSchema = z.object({ operations: z.array(VaultEditOpSchema).max(MAX_OPERATIONS) }).strict();
 export type VaultEditResponse = z.infer<typeof VaultEditResponseSchema>;
 
-/** The operation vocabulary the note-writer agent submits with `submit_edits`. */
-export const VAULT_EDIT_INSTRUCTIONS = [
+/** The operation vocabulary the note-writer agent submits with `submit_edits`; add_task only for a source that may add tasks. */
+export const vaultEditInstructions = (tasksAllowed: boolean): string => [
   'Finish by calling submit_edits with {"operations": [...]}. Each operation is one of:',
   '- create_note {title, type, lead}: a new entity (tool, project, person, place, topic...). Only after searching shows no note fits.',
   '- add_facts {note, label, values}: durable facts as a short row label ("Uses", "Works on", "Prefers") and up to 8 values. Write a known note as [[Title]].',
   '- add_aliases {note, aliases}: other names the note goes by.',
-  '- add_task {note, text}: something the user plans or wants to do.',
-  '- learned {note, label, value}: one line summarising what this source taught about a note.',
+  ...(tasksAllowed ? ['- add_task {note, text}: something the user plans or wants to do.'] : []),
   '- set_lead {note, lead}: rewrite the 1-3 sentence lead of a note this batch also edits. A lead says what the note is: no paths, counts, dates or current status.',
   '- flag_conflict {note, label, value, conflictsWith}: the source contradicts a held value; the user decides.',
   '- flag_doubt {note, label, value, reason}: a held value looks wrong (implausible, bad link, stale); the user decides.',
