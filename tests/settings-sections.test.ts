@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  HYBRID_DRAFT_TOKENS_LABEL,
   NGRAM_RAM_LABEL,
   POLICY_MODE_OPTIONS,
   SETTINGS_SECTION_ORDER,
@@ -79,6 +80,7 @@ test('settings tooltip labels include the documented fields', () => {
       'Enable speculative decoding',
       'SpeculativeDraftMax',
       'SpeculativeDynamic',
+      HYBRID_DRAFT_TOKENS_LABEL,
       'ReasoningBudget',
       'ReasoningBudgetMessage',
       'StartupTimeoutMs',

@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SiftKit vault · note-writer data flow</title>
+<style>
+  :root {
+    --bg: #0d131a; --panel: #121b24; --line: #223140; --text: #d8e2ec; --dim: #8597a8;
+    --src: #5aa9e6; --ingest: #9b7be8; --queue: #e0a84f; --gate: #e86a5a; --model: #2fbfa0; --det: #8fb6cf; --vault: #c9d65a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 22px 32px 6px; }
+  h1 { margin: 0 0 4px; font-size: 1.35rem; }
+  h2 { font-size: 1rem; margin: 34px 32px 10px; letter-spacing: .02em; }
+  .sub { color: var(--dim); margin: 0; max-width: 100ch; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 12px 32px 0; color: var(--dim); font-size: .8rem; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; background: var(--c); vertical-align: -1px; }
+
+  #flow { position: relative; margin: 18px 32px 0; display: grid; grid-template-columns: repeat(6, minmax(170px, 1fr)); gap: 0 46px; }
+  #wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .col { display: flex; flex-direction: column; gap: 14px; position: relative; z-index: 1; }
+  .col > h3 { margin: 0 0 2px; font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--dim); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 9px; padding: 9px 11px; cursor: default; transition: border-color .15s, box-shadow .15s; }
+  .card b { display: block; font-size: .86rem; }
+  .card small { display: block; color: var(--dim); font-size: .74rem; margin-top: 3px; }
+  .card .when { display: inline-block; margin-top: 6px; font-size: .68rem; color: var(--c); border: 1px solid var(--c); border-radius: 999px; padding: 0 7px; }
+  .card.hot { box-shadow: 0 0 0 2px var(--c); }
+  .src { --c: var(--src); } .ingest { --c: var(--ingest); } .queue { --c: var(--queue); } .gate { --c: var(--gate); }
+  .model { --c: var(--model); } .det { --c: var(--det); } .vault { --c: var(--vault); }
+  .gatelist { margin: 4px 0 0; padding-left: 16px; color: var(--dim); font-size: .72rem; }
+  path.wire { fill: none; stroke: #3a5068; stroke-width: 1.6; }
+  path.wire.hot { stroke: var(--model); stroke-width: 2.4; }
+  path.wire.followup { stroke-dasharray: 5 4; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 0 32px; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .box h4 { margin: 0 0 8px; font-size: .9rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .8rem; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; }
+  code { background: #0a1016; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: .78rem; }
+  pre { background: #0a1016; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: .75rem; white-space: pre-wrap; margin: 6px 0 0; }
+  .gap { border-color: color-mix(in srgb, var(--gate) 60%, var(--line)); }
+  .gap h4 { color: #f2a397; }
+  ol.timeline { margin: 0; padding-left: 20px; font-size: .82rem; }
+  ol.timeline li { margin-bottom: 6px; }
+  footer { color: var(--dim); font-size: .75rem; padding: 26px 32px 30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vault note-writer · data flow</h1>
+  <p class="sub">Where vault notes come from: what feeds the background job queue, which gates hold it, which writer each job runs and what it writes.
+    Hover a card to trace its path. Solid lines carry data; dashed lines are follow-up jobs a writer enqueues. Current behaviour after Phase 5.</p>
+</header>
+<div class="legend">
+  <span style="--c:var(--src)">source</span><span style="--c:var(--ingest)">ingest (request path)</span><span style="--c:var(--queue)">job queue</span>
+  <span style="--c:var(--gate)">drain gates</span><span style="--c:var(--model)">model-backed writer</span><span style="--c:var(--det)">deterministic job</span><span style="--c:var(--vault)">vault output</span>
+</div>
+
+<div id="flow">
+  <svg id="wires"></svg>
+
+  <div class="col">
+    <h3>Sources</h3>
+    <div class="card src" id="shell"><b>Desktop app (tray)</b><small>Main loop: polls desktop state, sends heartbeats and activity, runs the capture scheduler.</small><span class="when">every 1 s</span></div>
+    <div class="card src" id="scheduler"><b>Capture scheduler</b><small>Fixed cadence (default 30 s) or window change, after 5 s on the window. Skips private mode, a locked screen, fullscreen and deny lists.</small><span class="when">every 30 s</span></div>
+    <div class="card src" id="chat"><b>Dashboard chat</b><small>A streamed turn on a preset with assistant memory switched on.</small><span class="when">each turn</span></div>
+    <div class="card src" id="timer"><b>Drain timer</b><small>Status-server interval; calls <code>drainJobs()</code>.</small><span class="when">every 20 s</span></div>
+  </div>
+
+  <div class="col">
+    <h3>Ingest</h3>
+    <div class="card ingest" id="intake"><b>Capture intake</b><small>Drops exact-pixel and ≥92% look-alike duplicates. Stores the PNG plus a pending capture note in <code>Captures/&lt;day&gt;</code>.</small><span class="when">POST ingest/capture</span></div>
+    <div class="card ingest" id="retrieve"><b>Retriever (before the answer)</b><small>Owner note lead plus full-text matches, cut to fit 1,200 tokens and 8 notes. Fed into the chat prompt; no model call.</small><span class="when">each turn</span></div>
+    <div class="card ingest" id="seam"><b>Chat memory seam (after the answer)</b><small>Sends the turn on, skipping presets without memory.</small><span class="when">each turn</span></div>
+    <div class="card ingest" id="prep"><b>Drain preparation</b><small>Prunes jobs older than 7 days, schedules retention, re-queues stranded captures and queues waiting captures once a capable model is up.</small><span class="when">each drain</span></div>
+  </div>
+
+  <div class="col">
+    <h3>Job queue</h3>
+    <div class="card queue" id="q-retention"><b>capture_retention · 900</b><small>Key <code>capture_retention</code>.</small></div>
+    <div class="card queue" id="q-chat"><b>chat_note · 800</b><small>Key <code>chat_note:&lt;session&gt;:&lt;msg&gt;</code>.</small></div>
+    <div class="card queue" id="q-daily"><b>daily_rollup · 500</b><small>Key <code>daily_rollup:&lt;day&gt;</code>.</small></div>
+    <div class="card queue" id="q-capture"><b>capture_note · 400</b><small>Key <code>capture_note:&lt;attachment&gt;</code>.</small></div>
+    <div class="card queue" id="q-tidy"><b>note_tidy · 100</b><small>Key <code>note_tidy:&lt;note&gt;</code>.</small></div>
+  </div>
+
+  <div class="col">
+    <h3>Gates (in order)</h3>
+    <div class="card gate" id="gates"><b>Drain admission</b>
+      <ol class="gatelist">
+        <li>server not busy</li>
+        <li>desktop heartbeat fresh</li>
+        <li>no model call for 180 s</li>
+        <li>mouse idle ≥ 180 s</li>
+        <li>keyboard idle ≥ 180 s</li>
+        <li>battery and GPU budget</li>
+      </ol>
+    </div>
+    <div class="card gate" id="resident"><b>Model work admission</b><small>Model jobs also need the model loaded (never loads it) and the resource budget. Capture notes need a vision-capable preset.</small></div>
+    <div class="card gate" id="preempt"><b>Preemption</b><small>Any interactive request or model unload aborts the in-flight call. The job is re-queued only if it hadn't committed.</small></div>
+  </div>
+
+  <div class="col">
+    <h3>Writers</h3>
+    <div class="card model" id="w-capture"><b>Capture writer</b><small>One call: screenshot + app + window title + up to 20 matching note titles → edit operations.</small><span class="when">vault_capture_writer</span></div>
+    <div class="card model" id="w-chat"><b>Chat writer</b><small>One call: user text (code and quotes stripped) + reply + up to 20 matching titles → edit operations.</small><span class="when">vault_chat_writer</span></div>
+    <div class="card model" id="w-tidy"><b>Tidy pass</b><small>One call: title, types, lead, facts, plans → new lead. Skipped if the last revision is already a tidy.</small><span class="when">vault_tidy</span></div>
+    <div class="card det" id="w-daily"><b>Daily rollup</b><small>No model. Rebuilds the day note from that day's captures and chats.</small></div>
+    <div class="card det" id="w-retention"><b>Capture retention</b><small>No model. Removes images past the age limit, then the oldest beyond 5 GB.</small></div>
+    <div class="card det" id="applier"><b>Edit applier</b><small>Maps "the user" to the owner note. Drops unknown notes, bad titles and secrets. One revision per note.</small></div>
+  </div>
+
+  <div class="col">
+    <h3>Vault</h3>
+    <div class="card vault" id="v-capture"><b>Capture notes</b><small><code>Captures/&lt;day&gt;/</code> embed, context line and the Learned section.</small></div>
+    <div class="card vault" id="v-chat"><b>Chat notes</b><small><code>Chats/</code> transcript and the Learned section.</small></div>
+    <div class="card vault" id="v-entity"><b>Entity notes</b><small>Tools, projects, people… lead, fact rows, tasks, aliases, links.</small></div>
+    <div class="card vault" id="v-owner"><b>Owner note (#me)</b><small>Title follows the configured display name.</small></div>
+    <div class="card vault" id="v-daily"><b>Daily notes</b><small><code>Daily/</code> summary, thumbnails, Learned and chats.</small></div>
+    <div class="card vault" id="v-images"><b>Attachments</b><small>Capture PNGs on disk; removed by retention.</small></div>
+  </div>
+</div>
+
+<h2>When does each writer run?</h2>
+<div class="grid2">
+  <div class="box">
+    <h4>Triggers</h4>
+    <table>
+      <tr><th>Job</th><th>Enqueued when</th><th>Runs when</th></tr>
+      <tr><td>capture_note</td><td>A capture is accepted with a vision model loaded, or a later drain finds a capable model for captures still waiting.</td><td>Next drain that passes every gate plus model admission.</td></tr>
+      <tr><td>chat_note</td><td>Right after a memory-enabled chat answer.</td><td>Same as capture_note; it outranks captures (800 vs 400).</td></tr>
+      <tr><td>daily_rollup</td><td>After any capture or chat note is written, for that note's local day.</td><td>Any drain past the idle gates; needs no model.</td></tr>
+      <tr><td>note_tidy</td><td>After a writer touches an entity note, if the tidy pass is on.</td><td>Lowest priority; only after everything else.</td></tr>
+      <tr><td>capture_retention</td><td>Every drain, and whenever a capture pushes storage over the cap.</td><td>Highest priority; runs even while private mode is on.</td></tr>
+    </table>
+  </div>
+  <div class="box">
+    <h4>One capture, end to end</h4>
+    <ol class="timeline">
+      <li>The scheduler fires (30 s cadence); the desktop app posts the screenshot.</li>
+      <li>Intake drops duplicates, stores the PNG and writes a <b>pending</b> capture note.</li>
+      <li><code>capture_note</code> is queued (or the capture waits for a vision model).</li>
+      <li>Every 20 s a drain checks the gates. With you active it stops at <i>mouse idle</i>.</li>
+      <li>After 3 idle minutes the capture writer runs one model call.</li>
+      <li>The applier writes entity facts; the capture note gets its Learned section.</li>
+      <li>Follow-ups: <code>daily_rollup:&lt;day&gt;</code> and <code>note_tidy</code> for each touched entity.</li>
+      <li>Retention later deletes the PNG; the note stays and says "image removed".</li>
+    </ol>
+  </div>
+</div>
+
+<h2>What a model writer sees today</h2>
+<div class="grid2">
+  <div class="box">
+    <h4>Prompt shape (capture writer)</h4>
+<pre>system: untrusted-content preamble
+        Role: vault_capture_writer
+        "Record what it shows about the user…" + operation list
+user:   [screenshot]
+        App: Google Chrome
+        Window title: SiftKit Dashboard - Google Chrome
+        Known notes:
+        - SiftKit            ← titles only, ≤ 20, from app + title search
+response_format: {"operations": [create_note | add_facts | add_aliases | add_task | learned]}</pre>
+  </div>
+  <div class="box gap">
+    <h4>Why it gets things wrong</h4>
+    <table>
+      <tr><td><b>Duplicates</b></td><td>It sees titles, not aliases or contents, and the search uses only app + window title. An entity visible on screen but missing from the list becomes a new note.</td></tr>
+      <tr><td><b>Wrong attribution</b></td><td>No note types or folders and no relations, so it can't tell project from tool from person.</td></tr>
+      <tr><td><b>Repeats / contradicts</b></td><td>Existing fact rows are never shown, so it re-adds or conflicts with them.</td></tr>
+      <tr><td><b>Missed relations</b></td><td>No links or neighbours, and nothing from the rest of the day.</td></tr>
+    </table>
+  </div>
+</div>
+
+<footer>Generated from the code at Phase 5. Sources: <code>desktop/src-tauri/src/main.rs</code>, <code>src/status-server/index.ts</code>,
+  <code>src/assistant/assistant-service.ts</code>, <code>src/assistant/jobs/*</code>, <code>src/vault/note-writer/*</code>, <code>src/config/defaults.ts</code>.</footer>
+
+<script>
+  // [from, to, follow-up?]: wires are drawn between card edges and redrawn on resize.
+  const EDGES = [
+    ['shell', 'scheduler'], ['scheduler', 'intake'], ['chat', 'retrieve'], ['chat', 'seam'], ['timer', 'prep'],
+    ['intake', 'q-capture'], ['intake', 'q-retention'], ['intake', 'v-capture'], ['intake', 'v-images'], ['seam', 'q-chat'],
+    ['prep', 'q-retention'], ['prep', 'q-capture'],
+    ['q-retention', 'gates'], ['q-chat', 'gates'], ['q-daily', 'gates'], ['q-capture', 'gates'], ['q-tidy', 'gates'],
+    ['gates', 'resident'], ['resident', 'w-capture'], ['resident', 'w-chat'], ['resident', 'w-tidy'],
+    ['gates', 'w-daily'], ['gates', 'w-retention'],
+    ['w-capture', 'applier'], ['w-chat', 'applier'],
+    ['applier', 'v-entity'], ['applier', 'v-owner'], ['w-capture', 'v-capture'], ['w-chat', 'v-chat'],
+    ['w-tidy', 'v-entity'], ['w-daily', 'v-daily'], ['w-retention', 'v-images'],
+    ['v-entity', 'retrieve'], ['v-owner', 'retrieve'],
+    ['w-capture', 'q-daily', true], ['w-chat', 'q-daily', true], ['w-capture', 'q-tidy', true], ['w-chat', 'q-tidy', true],
+  ];
+  const flow = document.getElementById('flow');
+  const svg = document.getElementById('wires');
+
+  function anchor(el, side) {
+    const box = el.getBoundingClientRect();
+    const origin = flow.getBoundingClientRect();
+    return { x: (side === 'right' ? box.right : box.left) - origin.left, y: box.top + box.height / 2 - origin.top, mid: box.left + box.width / 2 - origin.left };
+  }
+
+  function draw() {
+    svg.innerHTML = '';
+    for (const [from, to, followUp] of EDGES) {
+      const a = document.getElementById(from);
+      const b = document.getElementById(to);
+      const forward = a.getBoundingClientRect().left < b.getBoundingClientRect().left;
+      const start = anchor(a, forward ? 'right' : 'left');
+      const end = anchor(b, forward ? 'left' : 'right');
+      const bend = Math.max(40, Math.abs(end.x - start.x) / 2);
+      const sameCol = Math.abs(a.getBoundingClientRect().left - b.getBoundingClientRect().left) < 5;
+      const d = sameCol
+        ? `M${start.mid},${start.y + a.offsetHeight / 2} L${end.mid},${end.y - b.offsetHeight / 2}`
+        : `M${start.x},${start.y} C${start.x + (forward ? bend : -bend)},${start.y} ${end.x + (forward ? -bend : bend)},${end.y} ${end.x},${end.y}`;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('class', `wire${followUp ? ' followup' : ''}`);
+      path.dataset.from = from;
+      path.dataset.to = to;
+      svg.appendChild(path);
+    }
+  }
+
+  // Hovering a card lights up everything reachable from it downstream and upstream.
+  function reach(start, forward) {
+    const seen = new Set([start]);
+    const stack = [start];
+    while (stack.length > 0) {
+      const id = stack.pop();
+      for (const [from, to] of EDGES) {
+        const next = forward ? (from === id ? to : null) : (to === id ? from : null);
+        if (next !== null && !seen.has(next)) { seen.add(next); stack.push(next); }
+      }
+    }
+    return seen;
+  }
+
+  for (const card of document.querySelectorAll('.card')) {
+    card.addEventListener('mouseenter', () => {
+      const lit = new Set([...reach(card.id, true), ...reach(card.id, false)]);
+      for (const other of document.querySelectorAll('.card')) other.classList.toggle('hot', lit.has(other.id));
+      for (const wire of svg.querySelectorAll('path')) wire.classList.toggle('hot', lit.has(wire.dataset.from) && lit.has(wire.dataset.to));
+    });
+    card.addEventListener('mouseleave', () => {
+      for (const el of document.querySelectorAll('.hot')) el.classList.remove('hot');
+    });
+  }
+
+  window.addEventListener('resize', draw);
+  draw();
+</script>
+</body>
+</html>

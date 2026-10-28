@@ -44,6 +44,8 @@ const Exl3BaseLaunchEnvironmentSchema = z.object({
   TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string().optional(),
   /** Per-job draft windows adapted from the acceptance EMA, capped by DRAFT_NUM_TOKENS. */
   TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: z.enum(['true', 'false']),
+  /** Prompt-lookup draft length; Tabby applies it with or without a draft mode, '0' disables. */
+  TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: z.string(),
   TABBY_MODEL_VISION: z.enum(['true', 'false']),
   /** Pins the vision tower in host RAM and streams it per request; Tabby ignores it while vision is off. */
   TABBY_MODEL_VISION_OFFLOAD: z.enum(['true', 'false']),
@@ -173,6 +175,7 @@ export class Exl3PresetAdapter {
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
       TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: envFlag(preset.SpeculativeEnabled && preset.SpeculativeDynamic),
+      TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: String(preset.HybridDraftTokens),
       TABBY_MODEL_VISION: envFlag(preset.VisionEnabled),
       TABBY_MODEL_VISION_OFFLOAD: envFlag(preset.VisionOffload),
       TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: String(preset.NcpuMoe),

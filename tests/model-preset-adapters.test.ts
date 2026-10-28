@@ -76,6 +76,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
+    TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: '5',
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
@@ -117,6 +118,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'false',
+    TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: '5',
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
@@ -233,6 +235,28 @@ test('EXL3 adapter maps NgramRam onto TABBY_MODEL_NGRAM_RAM', () => {
 
   const resident = adapter.buildLaunchEnvironment(createModelPreset({ ...base, NgramRam: true }));
   assert.equal(resident.TABBY_MODEL_NGRAM_RAM, 'true');
+});
+
+test('EXL3 adapter ships HybridDraftTokens with speculation on or off', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', KvCacheQuantization: 'f16' as const };
+
+  const alone = adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: false, HybridDraftTokens: 5 }));
+  assert.equal(alone.TABBY_DRAFT_MODEL_DRAFT_MODE, 'disabled');
+  assert.equal(alone.TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS, '5');
+
+  const withMtp = adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, HybridDraftTokens: 8 }));
+  assert.equal(withMtp.TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS, '8');
+
+  const off = adapter.buildLaunchEnvironment(createModelPreset({ ...base, HybridDraftTokens: 0 }));
+  assert.equal(off.TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS, '0');
+});
+
+test('the model preset schema rejects a negative HybridDraftTokens', () => {
+  assert.throws(
+    () => createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', HybridDraftTokens: -1 }),
+    /HybridDraftTokens/u,
+  );
 });
 
 test('EXL3 adapter maps NcpuMoe onto TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS', () => {
@@ -374,6 +398,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   SpeculativeEnabled: MANAGED_ONLY,
   SpeculativeDraftMax: MANAGED_ONLY,
   SpeculativeDynamic: MANAGED_ONLY,
+  HybridDraftTokens: MANAGED_ONLY,
   ReasoningBudget: ALWAYS,
   ReasoningBudgetMessage: ALWAYS,
   StartupTimeoutMs: ALWAYS,

@@ -67,6 +67,8 @@ const ModelPresetSettingsShape = {
   Reasoning: ReasoningSchema, ReasoningEffort: ReasoningEffortSchema, ReasoningContent: z.boolean(),
   PreserveThinking: z.boolean(), MaintainPerStepThinking: z.boolean(),
   SpeculativeEnabled: z.boolean(), SpeculativeDraftMax: z.number(), SpeculativeDynamic: z.boolean(),
+  /** Prompt-lookup draft length; independent of SpeculativeEnabled. 0 turns it off. */
+  HybridDraftTokens: z.number().int().nonnegative(),
   ReasoningBudget: z.number(),
   ReasoningBudgetMessage: z.string().nullable(), StartupTimeoutMs: z.number(), HealthcheckTimeoutMs: z.number(),
   HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), IdleAction: ModelIdleActionSchema,
@@ -81,7 +83,7 @@ export const ModelPresetFieldSchema = z.enum([
   'CacheRecurrentRam', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
-  'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'ReasoningBudget',
+  'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'HybridDraftTokens', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
   'SleepIdleSeconds', 'IdleAction', 'VisionEnabled', 'VisionOffload', 'VisionImageRetention',
   'VisionMaxImagePixels', 'UnlockAllSettings',

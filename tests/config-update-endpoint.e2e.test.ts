@@ -142,6 +142,29 @@ test('PUT /config round-trips an enabled NgramRam', async () => {
   }
 });
 
+test('PUT /config round-trips HybridDraftTokens', async () => {
+  const { server, close } = await startServerWithRuntime('siftkit-config-hybrid-draft-');
+  try {
+    const config = await readConfigBody(server.baseUrl);
+    const presets = asObjectArray(asObject(asObject(config.Server).ModelPresets).Presets);
+    const activePreset = presets[0];
+    assert.ok(activePreset, 'expected at least one model preset');
+    assert.equal(activePreset.HybridDraftTokens, 5, 'HybridDraftTokens must default to 5');
+    activePreset.HybridDraftTokens = 8;
+
+    const saved = await requestJson(`${server.baseUrl}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+    assert.equal(saved.statusCode, 200);
+
+    const persisted = asObjectArray(asObject(asObject((await readConfigBody(server.baseUrl)).Server).ModelPresets).Presets);
+    assert.equal(persisted[0]?.HybridDraftTokens, 8, 'HybridDraftTokens must persist as 8');
+  } finally {
+    await close();
+  }
+});
+
 test('rejects a config payload that normalization refuses', async () => {
   const server = await DashboardTestServer.start('siftkit-config-invalid-');
   try {

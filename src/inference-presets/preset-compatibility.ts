@@ -115,6 +115,7 @@ const PRESET_FIELD_SUPPORT = {
   SpeculativeEnabled: 'managed-only',
   SpeculativeDraftMax: 'managed-only',
   SpeculativeDynamic: 'managed-only',
+  HybridDraftTokens: 'managed-only',
   ReasoningBudget: 'always',
   ReasoningBudgetMessage: 'always',
   StartupTimeoutMs: 'always',

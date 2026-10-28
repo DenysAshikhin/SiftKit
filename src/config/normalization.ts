@@ -521,6 +521,7 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     SpeculativeEnabled: input.SpeculativeEnabled === true,
     SpeculativeDraftMax: getSpeculativeInteger(input.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16)),
     SpeculativeDynamic: getBooleanWithDefault(input.SpeculativeDynamic, defaults.SpeculativeDynamic),
+    HybridDraftTokens: getFiniteNonNegativeInteger(input.HybridDraftTokens, defaults.HybridDraftTokens),
     ReasoningBudget: getFinitePositiveInteger(input.ReasoningBudget, Number(defaults.ReasoningBudget ?? SIFT_DEFAULT_ENGINE_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(input.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)

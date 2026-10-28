@@ -461,6 +461,29 @@ test('NgramRam defaults to false when omitted from a persisted preset', () => {
   assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).NgramRam, false);
 });
 
+test('HybridDraftTokens defaults to 5 and schema accepts 0 to turn it off', () => {
+  assert.equal(activePreset(normalizeConfig(getDefaultConfig())).HybridDraftTokens, 5);
+
+  const config = defaultConfigObject();
+  activePresetObject(config).HybridDraftTokens = 0;
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).HybridDraftTokens, 0);
+});
+
+test('HybridDraftTokens defaults to 5 when omitted from a persisted preset', () => {
+  const config = defaultConfigObject();
+  delete activePresetObject(config).HybridDraftTokens;
+
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).HybridDraftTokens, 5);
+});
+
+test('HybridDraftTokens falls back to 5 for a negative or fractional persisted value', () => {
+  for (const invalid of [-1, 2.5]) {
+    const config = defaultConfigObject();
+    activePresetObject(config).HybridDraftTokens = invalid;
+    assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).HybridDraftTokens, 5, String(invalid));
+  }
+});
+
 test('VisionImageRetention defaults to 8 when omitted from a persisted preset', () => {
   const config = defaultConfigObject();
   delete activePresetObject(config).VisionImageRetention;

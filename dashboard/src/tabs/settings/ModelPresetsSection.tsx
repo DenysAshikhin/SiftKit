@@ -5,7 +5,7 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups.ts';
 import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.tsx';
-import { NGRAM_RAM_LABEL } from '../../settings-sections.ts';
+import { HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL } from '../../settings-sections.ts';
 import { getModelPresetAssignments } from '../../model-runtime-presets.ts';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema } from '@siftkit/contracts';
 import {
@@ -339,6 +339,15 @@ export function ModelPresetsSection({
               </label>
             </ModelPresetControl>
           ) : null}
+          <ModelPresetControl preset={preset} profile={profile} field="HybridDraftTokens" label={HYBRID_DRAFT_TOKENS_LABEL}>
+            <input
+              type="number"
+              min={0}
+              aria-label={HYBRID_DRAFT_TOKENS_LABEL}
+              value={preset.HybridDraftTokens}
+              onChange={(event) => modelPresetActions.setInteger('HybridDraftTokens', parseIntegerInput(event.target.value, preset.HybridDraftTokens))}
+            />
+          </ModelPresetControl>
         </>
       ))}
 

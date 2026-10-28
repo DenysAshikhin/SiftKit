@@ -242,6 +242,7 @@ test('managed Tabby launches with the complete preset environment', async () => 
         TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
         TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
         TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
+        TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: '5',
         TABBY_MODEL_VISION: 'false',
         TABBY_MODEL_VISION_OFFLOAD: 'false',
         TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',

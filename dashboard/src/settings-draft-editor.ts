@@ -59,6 +59,7 @@ export type ModelIntegerField =
   | 'DiskCacheCheckpointInterval'
   | 'TopK'
   | 'SpeculativeDraftMax'
+  | 'HybridDraftTokens'
   | 'ReasoningBudget'
   | 'StartupTimeoutMs'
   | 'HealthcheckTimeoutMs'
