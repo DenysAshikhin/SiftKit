@@ -1,15 +1,11 @@
 import type { AssistantBackgroundWorkBlock } from '@siftkit/contracts';
 import type { AssistantConfig } from '../../config/types.ts';
-import { captureRetentionLimits, type VaultCaptureRetention } from '../../vault/capture-retention.ts';
-import type { VaultCaptureWriter } from '../../vault/note-writer/capture-writer.ts';
-import type { VaultChatWriter } from '../../vault/note-writer/chat-writer.ts';
-import type { VaultDailyRollup } from '../../vault/note-writer/daily-rollup.ts';
-import type { VaultTidyPass } from '../../vault/note-writer/tidy-pass.ts';
-import { localDay } from '../../vault/vault-time.ts';
+import type { VaultMaintenance } from '../../vault/maintenance.ts';
+import type { VaultNoteWriter } from '../../vault/note-writer/agent/note-writer.ts';
 import type { BackgroundWorkDecisionStore } from '../storage/background-work-decision-store.ts';
 import type { JobStore } from '../storage/job-store.ts';
 import type { JobRow } from '../storage/rows.ts';
-import { isModelBackedJobType } from './job-types.ts';
+import { VAULT_MAINTENANCE_REQUEST, isModelBackedJobType } from './job-types.ts';
 import type { ResourcePolicy } from './resource-policy.ts';
 
 /** The host tells the runner when background model work is allowed (§12.4). */
@@ -29,11 +25,8 @@ export interface ModelResidencyGate {
 export interface AssistantJobRunnerOptions {
   readonly jobs: JobStore;
   readonly decisions: BackgroundWorkDecisionStore;
-  readonly captureWriter: VaultCaptureWriter;
-  readonly chatWriter: VaultChatWriter;
-  readonly dailyRollup: VaultDailyRollup;
-  readonly tidyPass: VaultTidyPass;
-  readonly retention: VaultCaptureRetention;
+  readonly noteWriter: VaultNoteWriter;
+  readonly maintenance: VaultMaintenance;
   readonly idleGate: InteractivityGate;
   readonly residencyGate: ModelResidencyGate;
   readonly resourcePolicy: ResourcePolicy;
@@ -185,35 +178,15 @@ export class AssistantJobRunner {
   private async execute(ownerId: string, job: JobRow, signal: AbortSignal): Promise<void> {
     const request = this.options.jobs.readRequest(job);
     switch (request.jobType) {
-      case 'capture_note': {
-        const outcome = await this.options.captureWriter.run(ownerId, request.payload.attachmentId, signal);
-        if (outcome.kind === 'awaiting_capability' || outcome.kind === 'already_processed') return;
-        this.enqueueFollowUps(ownerId, localDay(outcome.capturedAtUtc), outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
+      case 'vault_write': {
+        // A committed write is followed by maintenance: its rollup day, retention and the review trigger.
+        const outcome = await this.options.noteWriter.run(ownerId, request.payload, signal);
+        if (outcome.kind === 'written') this.options.jobs.enqueue(ownerId, VAULT_MAINTENANCE_REQUEST, this.config.Background.JobPriorities);
         return;
       }
-      case 'chat_note': {
-        const outcome = await this.options.chatWriter.run(ownerId, request.payload, signal);
-        if (outcome.kind === 'suppressed') return;
-        this.enqueueFollowUps(ownerId, localDay(request.payload.capturedAtUtc), outcome.kind === 'processed' ? outcome.touchedNoteIds : []);
-        return;
-      }
-      case 'daily_rollup':
-        this.options.dailyRollup.run(request.payload.day);
-        return;
-      case 'note_tidy':
-        await this.options.tidyPass.run(ownerId, request.payload.noteId, signal);
-        return;
-      case 'capture_retention':
-        this.options.retention.run(ownerId, captureRetentionLimits(this.config));
+      case 'vault_maintenance':
+        this.options.maintenance.run(ownerId, this.config);
         return;
     }
-  }
-
-  /** A written note refreshes its day's rollup and, when enabled, tidies the entity notes it touched. */
-  private enqueueFollowUps(ownerId: string, day: string, touchedNoteIds: readonly string[]): void {
-    const priorities = this.config.Background.JobPriorities;
-    this.options.jobs.enqueue(ownerId, { jobType: 'daily_rollup', payload: { day } }, priorities);
-    if (!this.config.Vault.TidyPassEnabled) return;
-    for (const noteId of touchedNoteIds) this.options.jobs.enqueue(ownerId, { jobType: 'note_tidy', payload: { noteId } }, priorities);
   }
 }

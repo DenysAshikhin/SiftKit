@@ -55,10 +55,10 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
     MaxGpuMinutesPerDay: -1,
     MinimumBatteryPercent: 50,
     AllowOnBattery: false,
-    JobPriorities: { CaptureNote: 400, ChatNote: 800, DailyRollup: 500, NoteTidy: 100, CaptureRetention: 900 },
+    JobPriorities: { ChatWrite: 800, CaptureWrite: 400, Review: 100, Maintenance: 900 },
   },
   PrivateMode: { Active: false, ExpiresAtUtc: null },
-  Vault: { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0 },
+  Vault: { CaptureImageMaxAgeDays: 0 },
   KeyCustody: 'file',
 };
 

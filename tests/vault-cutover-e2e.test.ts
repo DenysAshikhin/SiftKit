@@ -6,10 +6,7 @@ import {
   PendingCapturesResponseSchema, VaultNoteDetailSchema, VaultNoteListResponseSchema, VaultResolveResponseSchema,
 } from '@siftkit/contracts';
 import type { AssistantService } from '../src/assistant/assistant-service.ts';
-import type {
-  AssistantInferenceClient, AssistantInferenceRequest, AssistantInferenceResult,
-} from '../src/assistant/inference/client.ts';
-import type { AssistantInferenceRole } from '../src/assistant/inference/roles.ts';
+import type { AssistantAgentTurnRequest } from '../src/assistant/inference/client.ts';
 import { getConfigPath } from '../src/config/index.ts';
 import { z } from '../src/lib/zod.ts';
 import { writeConfig } from '../src/status-server/config-store.ts';
@@ -22,6 +19,7 @@ import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
 } from './helpers/dashboard-test-repo.ts';
 import { getDefaultServerConfig } from './helpers/mock-config.ts';
+import { ScriptedAgentInference, submitTurn } from './helpers/assistant-inference-fake.ts';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 import { StubImageCapability, vaultCaptureDto } from './helpers/vault-capture-fixture.ts';
 
@@ -30,22 +28,20 @@ process.env.TZ = 'UTC';
 const BootstrapResponseSchema = z.object({ token: z.string().min(1) });
 const SessionResponseSchema = z.object({ session: z.object({ id: z.string() }) });
 
-/** Answers each vault writer by role, so follow-up order cannot desynchronise the fixture. */
-class RoleInference implements AssistantInferenceClient {
-  readonly roles: AssistantInferenceRole[] = [];
+const CAPTURE_EDITS = submitTurn([
+  { op: 'create_note', title: 'Ripgrep', type: 'software', lead: 'Ripgrep is a fast code search tool.' },
+  { op: 'add_facts', note: 'Ripgrep', label: 'Used for', values: ['code search'] },
+  { op: 'learned', note: 'Ripgrep', label: 'Used for', value: 'code search' },
+]);
 
-  async complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult> {
-    this.roles.push(request.role);
-    const text = request.role === 'vault_capture_writer'
-      ? JSON.stringify({ operations: [
-        { op: 'create_note', title: 'Ripgrep', type: 'software', lead: 'Ripgrep is a fast code search tool.' },
-        { op: 'add_facts', note: 'Ripgrep', label: 'Used for', values: ['code search'] },
-        { op: 'learned', note: 'Ripgrep', label: 'Used for', value: 'code search' },
-      ] })
-      : request.role === 'vault_tidy'
-        ? JSON.stringify({ lead: 'Ripgrep is the code search tool the user runs.' })
-        : JSON.stringify({ operations: [] });
-    return { text, backendId: 'fake', modelId: 'fake-model' };
+/** Answers a screenshot with the Ripgrep edits and every text source (chat, review) with none. */
+class RoleInference extends ScriptedAgentInference {
+  readonly roles: Array<'image' | 'text'> = [];
+
+  override async chat(request: AssistantAgentTurnRequest) {
+    const kind = request.images.length > 0 ? 'image' : 'text';
+    this.roles.push(kind);
+    return new ScriptedAgentInference([kind === 'image' ? CAPTURE_EDITS : submitTurn([])]).chat(request);
   }
 }
 
@@ -64,7 +60,7 @@ async function withCutoverServer(body: (harness: CutoverHarness) => Promise<void
     tempRoot, path.join(tempRoot, '.siftkit', 'status', 'inference.txt'), path.join(tempRoot, '.siftkit', 'config.json'),
   );
   writeConfig(getConfigPath(), getDefaultServerConfig());
-  const inference = new RoleInference();
+  const inference = new RoleInference([]);
   const service = buildAssistantService({ inference, imageCapability: new StubImageCapability(true), screenshotsEnabled: true });
   const server = startStatusServer({ disableManagedEngineStartup: true, assistant: service });
   await server.startupPromise;
@@ -123,11 +119,12 @@ test('a posted capture drains into its capture note, the entity it names and the
 
     await drainAll(harness.service);
 
-    assert.deepEqual(harness.inference.roles, ['vault_capture_writer', 'vault_tidy']);
+    assert.equal(harness.inference.roles[0], 'image');
+    assert.ok(harness.inference.roles.slice(1).every((kind) => kind === 'text'), 'later turns are review passes');
     assert.match(await noteBody(harness, captureNoteId), /\[\[Ripgrep\]\]/u, 'the capture note links what it taught');
     const ripgrepId = await resolveId(harness, 'Ripgrep');
     assert.ok(ripgrepId);
-    assert.match(await noteBody(harness, ripgrepId), /^Ripgrep is the code search tool the user runs\.\n\n\*\*Used for\*\* code search/u);
+    assert.match(await noteBody(harness, ripgrepId), /^Ripgrep is a fast code search tool\.\n\n\*\*Used for\*\* code search/u);
     const dailyId = await resolveId(harness, '2026-08-05');
     assert.ok(dailyId);
     assert.match(await noteBody(harness, dailyId), /\[\[Ripgrep\]\]/u);
@@ -137,7 +134,7 @@ test('a posted capture drains into its capture note, the entity it names and the
     assert.deepEqual(queue.captures, []);
 
     const context = await harness.service.retrieveMemoryContext('Which tool do I use for Ripgrep searches?');
-    assert.match(context.renderedBlock, /### Ripgrep\nRipgrep is the code search tool the user runs\./u);
+    assert.match(context.renderedBlock, /### Ripgrep\nRipgrep is a fast code search tool\./u);
     assert.ok(context.noteIds.includes(ripgrepId));
   });
 });

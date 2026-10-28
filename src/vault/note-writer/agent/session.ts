@@ -6,7 +6,7 @@ import type {
   AgentLoopModelResponse, AgentLoopPreparedTurn, AgentLoopPromptAdapter, AgentLoopResponseContext, AgentLoopToolAction, AgentLoopToolAdapter,
   AgentLoopToolExecution, AgentLoopTurnOutcome,
 } from '../../../agent-loop/types.ts';
-import type { AssistantAgentInferenceClient } from '../../../assistant/inference/client.ts';
+import type { AssistantInferenceClient } from '../../../assistant/inference/client.ts';
 import type { InferenceChatMessage, InferenceToolDefinition } from '../../../llm-protocol/types.ts';
 import type { PlannerToolDefinition } from '../../../planner-protocol/json-schema.ts';
 import { NativePlannerToolCallError, parseNativePlannerActions } from '../../../planner-protocol/native-actions.ts';
@@ -27,7 +27,7 @@ export interface VaultWriterSessionInput {
   readonly seedText: string;
   readonly images: readonly ImageDataUrl[];
   readonly tools: VaultWriterTools;
-  readonly inference: AssistantAgentInferenceClient;
+  readonly inference: AssistantInferenceClient;
   readonly abortSignal: AbortSignal;
 }
 
@@ -62,11 +62,10 @@ export class VaultWriterSession implements AgentLoopPromptAdapter, AgentLoopActi
     const result = await new AgentLoop({
       maxTurns: VAULT_WRITER_MAX_TURNS, promptAdapter: this, actionAdapter: this, toolAdapter: this, modelClient: this,
     }).run();
-    if (this.input.abortSignal.aborted) return { kind: 'aborted' };
     const trace = { turns: result.turns.length, toolCalls: [...this.toolCalls] };
-    return this.submitted === null
-      ? { kind: 'invalid_output', rawSample: this.rawSample, trace }
-      : { kind: 'submitted', operations: this.submitted, trace };
+    // A finished submission is kept even when the abort landed after it; the work is already done.
+    if (this.submitted !== null) return { kind: 'submitted', operations: this.submitted, trace };
+    return this.input.abortSignal.aborted ? { kind: 'aborted' } : { kind: 'invalid_output', rawSample: this.rawSample, trace };
   }
 
   private definitions(): readonly PlannerToolDefinition[] {

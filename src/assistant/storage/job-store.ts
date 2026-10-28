@@ -6,7 +6,7 @@ import type { Clock } from '../clock.ts';
 import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.ts';
 import type { IdGenerator } from '../ids.ts';
 import {
-  AssistantJobRequestSchema, MODEL_BACKED_JOB_TYPES, jobIdempotencyKey, jobPriority, type AssistantJobRequest,
+  AssistantJobRequestSchema, MODEL_BACKED_JOB_TYPES, jobIdempotencyKey, jobPriority, type AssistantJobRequest, type AssistantJobType,
 } from '../jobs/job-types.ts';
 import { IdRowSchema, JobRowSchema, type JobRow } from './rows.ts';
 
@@ -45,12 +45,13 @@ export class JobStore {
 
   /** Validates the request and keys it by its payload; `null` when the same work is already live. */
   enqueue(ownerId: string, request: AssistantJobRequest, priorities: AssistantConfig['Background']['JobPriorities']): JobRow | null {
-    const { jobType, payload } = AssistantJobRequestSchema.parse(request);
-    const priority = jobPriority(priorities, jobType);
+    const parsed = AssistantJobRequestSchema.parse(request);
+    const { jobType, payload } = parsed;
+    const priority = jobPriority(priorities, parsed);
     if (!Number.isInteger(priority)) {
       throw new Error(`Assistant job priority must be an integer; received ${priority}.`);
     }
-    const idempotencyKey = jobIdempotencyKey(request);
+    const idempotencyKey = jobIdempotencyKey(parsed);
     if (this.findLiveByIdempotencyKey(ownerId, idempotencyKey) !== null) {
       return null;
     }
@@ -181,11 +182,17 @@ export class JobStore {
     `).all(ownerId, status));
   }
 
-  /** Attachment ids with a capture note job still queued, running, or paused. Payloads are parsed. */
-  listLiveCaptureNoteAttachmentIds(ownerId: string): string[] {
+  /** Attachment ids with a capture write still queued, running, or paused. Payloads are parsed. */
+  listLiveCaptureWriteAttachmentIds(ownerId: string): string[] {
     return LIVE_JOB_STATUSES.flatMap((status) => this.listByStatus(ownerId, status))
       .map((job) => this.readRequest(job))
-      .flatMap((request) => (request.jobType === 'capture_note' ? [request.payload.attachmentId] : []));
+      .flatMap((request) => (request.jobType === 'vault_write' && request.payload.source === 'capture' ? [request.payload.attachmentId] : []));
+  }
+
+  countQueued(ownerId: string, jobType: AssistantJobType): number {
+    return z.object({ count: z.number() }).parse(this.database.prepare(`
+      SELECT COUNT(*) AS count FROM assistant_jobs WHERE owner_id = ? AND job_type = ? AND status = 'queued'
+    `).get(ownerId, jobType)).count;
   }
 
   countByStatus(ownerId: string, status: JobStatus): number {

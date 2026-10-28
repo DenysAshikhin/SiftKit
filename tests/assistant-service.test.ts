@@ -3,11 +3,10 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 import type { EnvironmentStateDto } from '@siftkit/contracts';
-import type {
-  AssistantInferenceClient, AssistantInferenceResult,
-} from '../src/assistant/inference/client.ts';
+import type { AssistantAgentTurnRequest } from '../src/assistant/inference/client.ts';
+import { VAULT_MAINTENANCE_REQUEST } from '../src/assistant/jobs/job-types.ts';
 import type { AssistantService } from '../src/assistant/assistant-service.ts';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { ScriptedAgentInference, submitTurn } from './helpers/assistant-inference-fake.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { buildAssistantService } from './helpers/assistant-fixture.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
@@ -20,23 +19,27 @@ import { StubImageCapability, vaultCaptureDto } from './helpers/vault-capture-fi
 process.env.TZ = 'UTC';
 
 /** Blocks every model call until the test releases it, so a drain can be caught in flight. */
-class GateInference implements AssistantInferenceClient {
+class GateInference extends ScriptedAgentInference {
   calls = 0;
   release: () => void = () => undefined;
   private readonly gate = new Promise<void>((resolve) => { this.release = resolve; });
   private resolveCallStarted: () => void = () => undefined;
-  /** Resolves as the first statement of `complete()`, so a test knows the drain is inside the model call. */
+  /** Resolves as the first statement of `chat()`, so a test knows the drain is inside the model call. */
   readonly callStarted = new Promise<void>((resolve) => { this.resolveCallStarted = resolve; });
 
-  async complete(): Promise<AssistantInferenceResult> {
+  constructor() {
+    super(Array.from({ length: 10 }, () => NO_OPERATIONS));
+  }
+
+  override async chat(request: AssistantAgentTurnRequest) {
     this.calls += 1;
     this.resolveCallStarted();
     await this.gate;
-    return { text: NO_OPERATIONS, backendId: 'fake', modelId: 'fake-model' };
+    return super.chat(request);
   }
 }
 
-const NO_OPERATIONS = JSON.stringify({ operations: [] });
+const NO_OPERATIONS = submitTurn([]);
 const ENABLED: AssistantConfig = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true };
 const named = (DisplayName: string): AssistantConfig => ({ ...ENABLED, Owner: { ...ENABLED.Owner, DisplayName } });
 
@@ -107,8 +110,8 @@ test('renaming the owner renames the owner note and keeps the old title as an al
 });
 
 test('a deleted owner note is recreated by the note-writer under the current name, not the startup one', async () => {
-  const userUsesGit = JSON.stringify({ operations: [{ op: 'add_facts', note: 'the user', label: 'Uses', values: ['Git'] }] });
-  await withService({ ownerDisplayName: 'Denys', inference: new FakeAssistantInference([userUsesGit]) }, async (service) => {
+  const userUsesGit = submitTurn([{ op: 'add_facts', note: 'the user', label: 'Uses', values: ['Git'] }]);
+  await withService({ ownerDisplayName: 'Denys', inference: new ScriptedAgentInference([userUsesGit]) }, async (service) => {
     service.refreshConfig(named('Dennis'));
     const owner = ownerNote(service);
     service.vaultNotes.delete(owner?.id ?? '', owner?.revision ?? 0);
@@ -133,7 +136,7 @@ test('a disabled service is inert until a validated config refresh enables it', 
     assert.deepEqual(queuedTypes(service), []);
     assert.equal((await service.retrieveMemoryContext('tool')).renderedBlock, '');
     assert.deepEqual(service.status(), { available: true, enabled: false, ownerId: service.ownerId });
-    service.graph.jobs.enqueue(service.ownerId, { jobType: 'capture_retention', payload: {} }, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities);
+    service.graph.jobs.enqueue(service.ownerId, VAULT_MAINTENANCE_REQUEST, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities);
     await service.drainJobs();
     assert.equal(service.graph.jobs.listByStatus(service.ownerId, 'queued')[0]?.attempts, 0, 'disabled assistants must not claim deterministic work');
     assert.equal(service.listBackgroundWorkDecisions()[0]?.reason, 'assistant_disabled');
@@ -144,13 +147,13 @@ test('a disabled service is inert until a validated config refresh enables it', 
   });
 });
 
-test('a chat turn enqueues one chat note job without any model call', async () => {
-  const inference = new FakeAssistantInference([]);
+test('a chat turn enqueues one chat write job without any model call', async () => {
+  const inference = new ScriptedAgentInference([]);
   await withService({ inference }, (service) => {
     service.ingestChatTurn(turn(1));
     service.ingestChatTurn(turn(1));
     const jobs = service.graph.jobs.listByStatus(service.ownerId, 'queued');
-    assert.deepEqual(jobs.map((job) => [job.job_type, JSON.parse(job.payload_json).sessionTitle]), [['chat_note', 'Shell']]);
+    assert.deepEqual(jobs.map((job) => [job.job_type, JSON.parse(job.payload_json).turn.sessionTitle]), [['vault_write', 'Shell']]);
     assert.equal(inference.requests.length, 0);
   });
 });
@@ -174,7 +177,7 @@ test('retrieval reads the vault: the owner note alone at first, the matching not
 });
 
 test('a drained chat turn becomes its chat note and the daily note', async () => {
-  const inference = new FakeAssistantInference([NO_OPERATIONS]);
+  const inference = new ScriptedAgentInference([NO_OPERATIONS, NO_OPERATIONS]);
   await withService({ inference }, async (service) => {
     service.ingestChatTurn(turn(1));
     await service.drainJobs();
@@ -184,33 +187,35 @@ test('a drained chat turn becomes its chat note and the daily note', async () =>
 });
 
 test('an unavailable image runtime is not logged when no capture is waiting', async () => {
-  await withService({}, async (service) => {
+  // The owner note is never validated, so the drain's maintenance queues one review of it.
+  await withService({ inference: new ScriptedAgentInference([NO_OPERATIONS]) }, async (service) => {
     await service.drainJobs();
     assert.deepEqual(service.listBackgroundWorkDecisions(), []);
   });
 });
 
-test('a capture accepted while the runtime is capable queues its capture note job', async () => {
+test('a capture accepted while the runtime is capable queues its capture write job', async () => {
   await withService({ imageCapability: new StubImageCapability(true), screenshotsEnabled: true }, (service) => {
     const outcome = service.ingestCapture(vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:30.000Z' }));
     assert.equal(outcome.kind, 'accepted');
-    assert.deepEqual(queuedTypes(service), ['capture_note']);
+    assert.deepEqual(queuedTypes(service), ['vault_write']);
   });
 });
 
-test('a capture that pushes stored bytes over the cap queues a capacity retention run', async () => {
+test('a capture that pushes stored bytes over the cap queues a maintenance run', async () => {
   await withService({ imageCapability: new StubImageCapability(true), screenshotsEnabled: true }, (service) => {
     service.ingestCapture(vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:30.000Z' }));
-    assert.deepEqual(queuedTypes(service), ['capture_note'], 'under the cap nothing is evicted');
+    assert.deepEqual(queuedTypes(service), ['vault_write'], 'under the cap nothing is evicted');
     service.refreshConfig({ ...service.config, Observation: { ...service.config.Observation, RawStorageLimitGb: 1e-12 } });
     service.ingestCapture(vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:40.000Z', pixelSha256: 'b'.repeat(64), foregroundContextKey: 'app:other' }));
-    assert.deepEqual(queuedTypes(service).sort(), ['capture_note', 'capture_note', 'capture_retention']);
+    assert.deepEqual(queuedTypes(service).sort(), ['vault_maintenance', 'vault_write', 'vault_write']);
   });
 });
 
 test('waiting and stranded captures are processed once the runtime is capable', async () => {
   const capability = new StubImageCapability(false);
-  const inference = new FakeAssistantInference([NO_OPERATIONS, NO_OPERATIONS]);
+  // Two capture writes, plus the owner-note review the first drain's maintenance queues.
+  const inference = new ScriptedAgentInference([NO_OPERATIONS, NO_OPERATIONS, NO_OPERATIONS]);
   await withService({ imageCapability: capability, inference, screenshotsEnabled: true }, async (service) => {
     const waiting = service.ingestCapture(vaultCaptureDto({ capturedAtUtc: '2026-08-05T08:59:30.000Z' }));
     const stranded = service.ingestCapture(vaultCaptureDto({
@@ -305,10 +310,10 @@ test('concurrent drain ticks do not start overlapping model calls', async () => 
 });
 
 test('private mode does not block queued background work', async () => {
-  const inference = new FakeAssistantInference([NO_OPERATIONS]);
+  const inference = new ScriptedAgentInference([NO_OPERATIONS]);
   await withService({ inference, privateMode: true }, async (service) => {
     service.ingestChatTurn(turn(1));
     await service.drainJobs();
-    assert.equal(inference.requests.length, 1);
+    assert.equal(service.vaultNotes.resolve('Chat 2026-08-05 · Shell')?.kind, 'chat');
   });
 });

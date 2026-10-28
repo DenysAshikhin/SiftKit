@@ -31,11 +31,10 @@ import { SecretScanner } from './domain/secrets.ts';
 import type { TokenCounter } from './domain/tokens.ts';
 import type { IdGenerator } from './ids.ts';
 import type { AssistantInferenceClient } from './inference/client.ts';
-import { StructuredOutputRunner } from './inference/structured-runner.ts';
 import {
   AssistantJobRunner, type InteractivityGate, type ModelResidencyGate,
 } from './jobs/job-runner.ts';
-import type { AssistantJobRequest } from './jobs/job-types.ts';
+import { VAULT_MAINTENANCE_REQUEST, type AssistantJobRequest } from './jobs/job-types.ts';
 import { AssistantResourcePolicy } from './jobs/resource-policy.ts';
 import {
   UnavailableImageCapabilityProvider, isUsableCapability,
@@ -56,13 +55,13 @@ import { VaultCaptureRetention, captureRetentionLimits } from '../vault/capture-
 import {
   countCapturesInStates, listCaptureIdsInStates, listPendingCaptures, liveCaptureBytes, requeueStrandedCaptures,
 } from '../vault/captures.ts';
-import { VaultCaptureWriter } from '../vault/note-writer/capture-writer.ts';
 import type { VaultChatTurn } from '../vault/note-writer/chat-turn.ts';
-import { VaultChatWriter } from '../vault/note-writer/chat-writer.ts';
 import { VaultDailyRollup } from '../vault/note-writer/daily-rollup.ts';
 import { VaultEditApplier } from '../vault/note-writer/edit-applier.ts';
+import { VaultNoteWriter } from '../vault/note-writer/agent/note-writer.ts';
+import { VaultMaintenance } from '../vault/maintenance.ts';
+import { VaultValidationQueue } from '../vault/validation-queue.ts';
 import { triageUnverified } from '../vault/triage.ts';
-import { VaultTidyPass } from '../vault/note-writer/tidy-pass.ts';
 import { VaultNoteQueries } from '../vault/note-queries.ts';
 import { VaultNoteStore } from '../vault/note-store.ts';
 import { syncOwnerNote } from '../vault/owner-identity.ts';
@@ -212,7 +211,6 @@ export class AssistantService implements AssistantRuntime {
 
     const audit = this.graph.audit;
     const scanner = new SecretScanner();
-    const structuredOutput = new StructuredOutputRunner(options.inference);
     this.vaultNotes = new VaultNoteStore(database, clock, ids);
     this.vaultQueries = new VaultNoteQueries(database);
     this.vaultSearch = new VaultSearch(database);
@@ -236,16 +234,17 @@ export class AssistantService implements AssistantRuntime {
     this.resourcePolicy = new AssistantResourcePolicy({
       database, clock, background: options.config.Background, power: this.environment.power,
     });
+    const queue = new VaultValidationQueue(database);
     this.runner = new AssistantJobRunner({
       jobs: this.graph.jobs,
       decisions: this.graph.backgroundDecisions,
-      captureWriter: new VaultCaptureWriter({
-        database, store, attachments, applier, audit, scanner, clock, runner: structuredOutput, capability: this.imageCapability,
+      noteWriter: new VaultNoteWriter({
+        database, store, attachments, applier, audit, scanner, clock, inference: options.inference, capability: this.imageCapability, queue,
       }),
-      chatWriter: new VaultChatWriter({ database, store, applier, audit, scanner, runner: structuredOutput }),
-      dailyRollup: new VaultDailyRollup({ database, store }),
-      tidyPass: new VaultTidyPass({ database, store, audit, scanner, runner: structuredOutput }),
-      retention: new VaultCaptureRetention({ database, attachments, audit, clock }),
+      maintenance: new VaultMaintenance({
+        database, clock, queue, jobs: this.graph.jobs,
+        retention: new VaultCaptureRetention({ database, attachments, audit, clock }), rollup: new VaultDailyRollup({ database, store }),
+      }),
       idleGate: options.idleGate,
       residencyGate: options.residencyGate,
       resourcePolicy: this.resourcePolicy,
@@ -320,15 +319,13 @@ export class AssistantService implements AssistantRuntime {
 
   /**
    * A screenshot the shell's privacy preflight allowed; the daemon decides whether to keep it.
-   * A queued capture gets its note job, and bytes over the cap get a retention run.
+   * A queued capture gets its write job, and bytes over the cap get a maintenance run.
    */
   ingestCapture(capture: CaptureSubmissionDto): VaultCaptureOutcome {
     const outcome = this.captureIntake.submit(this.ownerId, capture, this.currentConfig);
     if (outcome.kind !== 'accepted') return outcome;
-    if (outcome.state === 'queued') this.enqueue({ jobType: 'capture_note', payload: { attachmentId: outcome.attachmentId } });
-    if (liveCaptureBytes(this.database) > captureRetentionLimits(this.currentConfig).limitBytes) {
-      this.enqueue({ jobType: 'capture_retention', payload: {} });
-    }
+    if (outcome.state === 'queued') this.enqueue({ jobType: 'vault_write', payload: { source: 'capture', attachmentId: outcome.attachmentId } });
+    if (liveCaptureBytes(this.database) > captureRetentionLimits(this.currentConfig).limitBytes) this.enqueue(VAULT_MAINTENANCE_REQUEST);
     return outcome;
   }
 
@@ -380,13 +377,13 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /**
-   * Request-path ingestion: enqueues the turn's chat note job and nothing else. Never throws at
+   * Request-path ingestion: enqueues the turn's chat write job and nothing else. Never throws at
    * the caller — a chat turn completes normally even if ingestion fails (§7.1).
    */
   ingestChatTurn(turn: VaultChatTurn): void {
     if (!this.enabled) return;
     try {
-      this.enqueue({ jobType: 'chat_note', payload: turn });
+      this.enqueue({ jobType: 'vault_write', payload: { source: 'chat', turn } });
     } catch (error) {
       this.graph.audit.recordAuditEvent({
         ownerId: this.ownerId,
@@ -521,10 +518,10 @@ export class AssistantService implements AssistantRuntime {
     ).toISOString();
     this.graph.jobs.pruneTerminal(this.ownerId, cutoffUtc);
     const startedAtMs = Date.now();
-    // Retention runs even when observation is paused: it only ever removes data (spec §7).
-    this.enqueue({ jobType: 'capture_retention', payload: {} });
+    // Maintenance runs even when observation is paused: retention only ever removes data (spec §7).
+    this.enqueue(VAULT_MAINTENANCE_REQUEST);
     // Stranded `processing` captures rejoin the queue before the waiting ones are enqueued.
-    requeueStrandedCaptures(this.database, this.graph.jobs.listLiveCaptureNoteAttachmentIds(this.ownerId));
+    requeueStrandedCaptures(this.database, this.graph.jobs.listLiveCaptureWriteAttachmentIds(this.ownerId));
     this.enqueueWaitingCaptures();
     await this.runner.drain(this.ownerId, this.maxJobsPerDrain);
     const elapsedMs = Date.now() - startedAtMs;
@@ -548,7 +545,7 @@ export class AssistantService implements AssistantRuntime {
       return;
     }
     for (const attachmentId of listCaptureIdsInStates(this.database, PENDING_CAPTURE_STATES, this.maxJobsPerDrain)) {
-      this.enqueue({ jobType: 'capture_note', payload: { attachmentId } });
+      this.enqueue({ jobType: 'vault_write', payload: { source: 'capture', attachmentId } });
     }
   }
 

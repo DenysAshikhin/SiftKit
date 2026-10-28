@@ -2,50 +2,16 @@ import { randomUUID } from 'node:crypto';
 import type { ImageDataUrl } from '@siftkit/contracts';
 
 import {
-  getActiveInferenceBackend, getConfiguredContextTokens, getConfiguredModel,
+  getConfiguredContextTokens, getConfiguredModel,
   type ModelRuntimePreset, type SiftConfig,
 } from '../../config/index.ts';
-import type { JsonObject } from '../../lib/json-types.ts';
 import { buildUserContent } from '../../llm-protocol/image-attachments.ts';
 import { InferenceClient, type InferenceChatOptions } from '../../llm-protocol/inference-client.ts';
 import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.ts';
-import { buildInferenceJsonSchemaResponseFormat } from '../../providers/structured-output-schema.ts';
 import type {
-  InferenceChatMessage, InferenceContentPart, InferenceToolDefinition, NormalizedInferenceChatResponse,
+  InferenceChatMessage, InferenceToolDefinition, NormalizedInferenceChatResponse,
 } from '../../llm-protocol/types.ts';
 import type { AssistantInferenceRole } from './roles.ts';
-
-interface AssistantInferenceRequestBase {
-  readonly role: AssistantInferenceRole;
-  readonly systemPrompt: string;
-  /** Untrusted evidence text. */
-  readonly userText: string;
-  readonly responseSchemaName: string;
-  readonly responseJsonSchema: JsonObject;
-  readonly abortSignal: AbortSignal | null;
-}
-
-/**
- * The text variant carries no image field at all, so a caller cannot smuggle pixels into a text
- * role by accident — the shape itself refuses it.
- */
-export interface AssistantTextInferenceRequest extends AssistantInferenceRequestBase {
-  readonly kind: 'text';
-}
-
-export interface AssistantImageInferenceRequest extends AssistantInferenceRequestBase {
-  readonly kind: 'image';
-  readonly images: readonly ImageDataUrl[];
-}
-
-export type AssistantInferenceRequest =
-  AssistantTextInferenceRequest | AssistantImageInferenceRequest;
-
-export interface AssistantInferenceResult {
-  readonly text: string;
-  readonly backendId: string;
-  readonly modelId: string;
-}
 
 /** One note-writer agent turn: the whole history, the offered tools, and the source's images. */
 export interface AssistantAgentTurnRequest {
@@ -57,12 +23,8 @@ export interface AssistantAgentTurnRequest {
   readonly abortSignal: AbortSignal;
 }
 
-export interface AssistantInferenceClient {
-  complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult>;
-}
-
 /** The note-writer agent's path to the model: tool-calling turns on the running preset. */
-export interface AssistantAgentInferenceClient {
+export interface AssistantInferenceClient {
   chat(request: AssistantAgentTurnRequest): Promise<NormalizedInferenceChatResponse>;
   /** The running preset's context window, which the agent forces its final turn against. */
   contextTokens(): number;
@@ -82,20 +44,16 @@ export interface ActiveModelPresetSource {
   getPreset(): ModelRuntimePreset;
 }
 
-/** Assistant extraction never needs a long answer; JSON candidates are small. */
-const ASSISTANT_MAX_OUTPUT_TOKENS = 2_048;
-
 const ASSISTANT_IDLE_TIMEOUT_SECONDS = 120;
 
 /** One agent turn may submit up to 30 operations. */
 const AGENT_MAX_OUTPUT_TOKENS = 4_096;
 
 /**
- * The assistant's only path to a model. It shares SiftKit's GPU-locked runtime, sends no tools,
- * and always pins a JSON schema on the answer — for text and image roles alike (§20.1). Images
- * pass through the same admission the chat surface uses; nothing here re-implements those limits.
+ * The assistant's only path to a model, on SiftKit's GPU-locked runtime. Images pass through the
+ * same admission the chat surface uses; nothing here re-implements those limits.
  */
-export class DefaultAssistantInferenceClient implements AssistantInferenceClient, AssistantAgentInferenceClient {
+export class DefaultAssistantInferenceClient implements AssistantInferenceClient {
   private readonly config: SiftConfig;
   private readonly presets: ActiveModelPresetSource;
   private readonly backend: AssistantChatBackend;
@@ -108,44 +66,6 @@ export class DefaultAssistantInferenceClient implements AssistantInferenceClient
     this.config = config;
     this.presets = presets;
     this.backend = backend;
-  }
-
-  async complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult> {
-    if (request.abortSignal?.aborted === true) {
-      throw new Error('Assistant inference aborted before the request was issued.');
-    }
-    const operationId = randomUUID();
-    const response = await this.backend.chat({
-      config: this.config,
-      model: getConfiguredModel(this.config),
-      messages: [
-        { role: 'system', content: request.systemPrompt },
-        { role: 'user', content: this.buildUserMessage(request) },
-      ],
-      tools: [],
-      allowedToolNames: [],
-      maxTokens: ASSISTANT_MAX_OUTPUT_TOKENS,
-      responseFormat: buildInferenceJsonSchemaResponseFormat({
-        name: request.responseSchemaName,
-        schema: request.responseJsonSchema,
-      }),
-      idleTimeoutSeconds: ASSISTANT_IDLE_TIMEOUT_SECONDS,
-      reasoningOverride: 'off',
-      throughputAudit: {
-        operationType: 'assistant',
-        operationId,
-        requestId: operationId,
-        stage: `${request.kind}_${request.role}`,
-        model: getConfiguredModel(this.config),
-        presetId: this.presets.getPreset().id,
-      },
-      ...(request.abortSignal === null ? {} : { abortSignal: request.abortSignal }),
-    });
-    return {
-      text: response.text,
-      backendId: getActiveInferenceBackend(this.config),
-      modelId: getConfiguredModel(this.config),
-    };
   }
 
   async chat(request: AssistantAgentTurnRequest): Promise<NormalizedInferenceChatResponse> {
@@ -182,14 +102,4 @@ export class DefaultAssistantInferenceClient implements AssistantInferenceClient
       ? { ...message, content: buildUserContent(message.content, admitted) } : message));
   }
 
-  private buildUserMessage(
-    request: AssistantInferenceRequest,
-  ): string | InferenceContentPart[] {
-    if (request.kind === 'text') return request.userText;
-    if (request.images.length === 0) {
-      throw new Error('An image inference request must carry at least one image.');
-    }
-    const admitted = admitImagesForPreset(this.presets.getPreset(), request.images);
-    return buildUserContent(request.userText, admitted.map((image) => image.dataUrl));
-  }
 }

@@ -245,14 +245,14 @@ test('projection and job row schemas parse the shapes SQLite returns', () => {
         id, owner_id, job_type, priority, payload_json, idempotency_key, status,
         attempts, max_attempts, available_at_utc, lease_owner, lease_expires_at_utc,
         last_error, created_at_utc, updated_at_utc
-      ) VALUES ('job_1', ?, 'chat_note', 800, '{"sessionId":"chat_1"}', 'chat_note:chat_1:u1',
+      ) VALUES ('job_1', ?, 'vault_write', 800, '{"source":"review","noteIds":["n1"]}', 'vault_write:review',
         'queued', 0, 3, '2026-08-05T09:00:00.000Z', NULL, NULL, NULL,
         '2026-08-05T09:00:00.000Z', '2026-08-05T09:00:00.000Z')
     `).run(ownerId);
     const job = JobRowSchema.parse(
       database.prepare('SELECT * FROM assistant_jobs WHERE id = ?').get('job_1'),
     );
-    assert.equal(job.job_type, 'chat_note');
+    assert.equal(job.job_type, 'vault_write');
     assert.equal(job.status, 'queued');
     assert.equal(job.lease_owner, null);
   });

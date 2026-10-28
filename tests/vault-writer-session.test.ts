@@ -102,6 +102,21 @@ test('an abort mid-loop ends the run as aborted', async () => {
   });
 });
 
+test('an abort that lands after submit_edits returned keeps the submission', async () => {
+  await withVaultAsync(async (context) => {
+    const controller = new AbortController();
+    class AbortAfterReply extends ScriptedAgentInference {
+      override async chat(request: Parameters<ScriptedAgentInference['chat']>[0]) {
+        const response = await super.chat(request);
+        controller.abort();
+        return response;
+      }
+    }
+    const outcome = await session(context, new AbortAfterReply([submitTurn([])]), controller.signal).run();
+    assert.equal(outcome.kind, 'submitted');
+  });
+});
+
 test('a model failure that is not an abort propagates', async () => {
   await withVaultAsync(async (context) => {
     await assert.rejects(session(context, new ScriptedAgentInference([])).run(), /ran out of turns/);

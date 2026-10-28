@@ -1,7 +1,7 @@
 import { SecretScanner } from '../../src/assistant/domain/secrets.ts';
 import { SequentialIdGenerator } from '../../src/assistant/ids.ts';
 import type { AssistantImageCapabilityProvider } from '../../src/assistant/images/image-capability.ts';
-import type { AssistantAgentInferenceClient } from '../../src/assistant/inference/client.ts';
+import type { AssistantInferenceClient } from '../../src/assistant/inference/client.ts';
 import { AuditStore } from '../../src/assistant/storage/audit-store.ts';
 import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.ts';
 import { z } from '../../src/lib/zod.ts';
@@ -22,7 +22,7 @@ export const CHAT_TURN: VaultChatTurn = {
 };
 
 /** A `VaultNoteWriter` over the test vault with real applier, audit, attachments and queue, sharing one id generator. */
-export function noteWriterFixture(context: VaultTestContext, inference: AssistantAgentInferenceClient, capability: AssistantImageCapabilityProvider = new StubImageCapability(true)) {
+export function noteWriterFixture(context: VaultTestContext, inference: AssistantInferenceClient, capability: AssistantImageCapabilityProvider = new StubImageCapability(true)) {
   const ids = new SequentialIdGenerator();
   const audit = new AuditStore(context.database, context.clock, ids);
   const attachments = new VaultAttachments(context.database, context.clock, ids, context.runtimeRoot);

@@ -7,6 +7,7 @@ import { FixedClock } from '../src/assistant/clock.ts';
 import { SequentialIdGenerator } from '../src/assistant/ids.ts';
 import { BackgroundWorkDecisionStore } from '../src/assistant/storage/background-work-decision-store.ts';
 import { JobStore } from '../src/assistant/storage/job-store.ts';
+import { VAULT_MAINTENANCE_REQUEST } from '../src/assistant/jobs/job-types.ts';
 import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.ts';
 import {
   closeAllRuntimeDatabases,
@@ -20,7 +21,7 @@ const START = '2026-08-31T12:00:00.000Z';
 afterEach(() => closeAllRuntimeDatabases());
 
 function enqueuePendingJob(jobs: JobStore): void {
-  jobs.enqueue(LOCAL_OWNER_ID, { jobType: 'capture_retention', payload: {} }, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities);
+  jobs.enqueue(LOCAL_OWNER_ID, VAULT_MAINTENANCE_REQUEST, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities);
 }
 
 test('background-work decisions persist across a database reopen', () => {

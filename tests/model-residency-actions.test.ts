@@ -7,9 +7,7 @@ import { AssistantService } from '../src/assistant/assistant-service.ts';
 import { FixedClock } from '../src/assistant/clock.ts';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.ts';
 import { SequentialIdGenerator } from '../src/assistant/ids.ts';
-import type {
-  AssistantInferenceClient, AssistantInferenceRequest, AssistantInferenceResult,
-} from '../src/assistant/inference/client.ts';
+import type { AssistantAgentTurnRequest } from '../src/assistant/inference/client.ts';
 import { DEFAULT_ASSISTANT_CONFIG, getDefaultConfigObject } from '../src/config/defaults.ts';
 import { getActiveModelPreset } from '../src/config/getters.ts';
 import type { ModelRuntimePreset } from '../src/config/types.ts';
@@ -21,6 +19,7 @@ import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-co
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
+import { ScriptedAgentInference, submitTurn } from './helpers/assistant-inference-fake.ts';
 import { ALWAYS_IDLE } from './helpers/assistant-gates.ts';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.ts';
 import { createTestServerContext } from './helpers/server-context-fixture.ts';
@@ -95,7 +94,7 @@ class BlockingRecordingInferenceRuntime extends RecordingInferenceRuntime {
 }
 
 /** Blocks its model call until released, so a drain can be caught inside the inference round-trip. */
-class BlockingAssistantInference implements AssistantInferenceClient {
+class BlockingAssistantInference extends ScriptedAgentInference {
   readonly callStarted = createDeferred();
   readonly callAborted = createDeferred();
   private readonly releaseCallDeferred = createDeferred();
@@ -105,13 +104,17 @@ class BlockingAssistantInference implements AssistantInferenceClient {
     this.releaseCallDeferred.resolve();
   }
 
-  async complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult> {
+  constructor() {
+    super([submitTurn([])]);
+  }
+
+  override async chat(request: AssistantAgentTurnRequest) {
     this.abortSignal = request.abortSignal;
-    request.abortSignal?.addEventListener('abort', () => this.callAborted.resolve(), { once: true });
-    if (request.abortSignal?.aborted === true) this.callAborted.resolve();
+    request.abortSignal.addEventListener('abort', () => this.callAborted.resolve(), { once: true });
+    if (request.abortSignal.aborted) this.callAborted.resolve();
     this.callStarted.resolve();
     await this.releaseCallDeferred.promise;
-    return { text: '{}', backendId: 'fake', modelId: 'fake-model' };
+    return super.chat(request);
   }
 }
 

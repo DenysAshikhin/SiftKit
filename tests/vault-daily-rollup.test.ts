@@ -4,16 +4,17 @@ import assert from 'node:assert/strict';
 import { removeCallouts, replaceSection } from '@siftkit/contracts';
 import { SecretScanner } from '../src/assistant/domain/secrets.ts';
 import { SequentialIdGenerator } from '../src/assistant/ids.ts';
-import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.ts';
 import { AuditStore } from '../src/assistant/storage/audit-store.ts';
 import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.ts';
 import { VaultAttachments } from '../src/vault/attachments.ts';
 import { VaultCaptureIntake } from '../src/vault/capture-intake.ts';
 import { requireVaultNote } from '../src/vault/note-rows.ts';
-import { VaultChatWriter } from '../src/vault/note-writer/chat-writer.ts';
+import { VaultNoteWriter } from '../src/vault/note-writer/agent/note-writer.ts';
 import { VaultDailyRollup } from '../src/vault/note-writer/daily-rollup.ts';
 import { VaultEditApplier } from '../src/vault/note-writer/edit-applier.ts';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import type { JsonObject } from '../src/lib/json-types.ts';
+import { VaultValidationQueue } from '../src/vault/validation-queue.ts';
+import { ScriptedAgentInference, submitTurn } from './helpers/assistant-inference-fake.ts';
 import { DISTINCT_HASH, NEAR_HASH, SCREENSHOTS_ENABLED, StubImageCapability, vaultCaptureDto } from './helpers/vault-capture-fixture.ts';
 import { TEST_META, entityInput, withVaultAsync, type VaultTestContext } from './helpers/vault-fixture.ts';
 
@@ -22,9 +23,9 @@ process.env.TZ = 'UTC';
 function setup(context: VaultTestContext) {
   const ids = new SequentialIdGenerator();
   const audit = new AuditStore(context.database, context.clock, ids);
+  const attachments = new VaultAttachments(context.database, context.clock, ids, context.runtimeRoot);
   const intake = new VaultCaptureIntake({
-    database: context.database, store: context.store, attachments: new VaultAttachments(context.database, context.clock, ids, context.runtimeRoot),
-    audit, clock: context.clock, capability: new StubImageCapability(true),
+    database: context.database, store: context.store, attachments, audit, clock: context.clock, capability: new StubImageCapability(true),
   });
   const capture = (capturedAtUtc: string, seed: string, perceptualHash: string) => {
     const outcome = intake.submit(LOCAL_OWNER_ID, vaultCaptureDto({ capturedAtUtc, pixelSha256: seed.padStart(64, '0'), perceptualHash, foregroundContextKey: seed }), SCREENSHOTS_ENABLED);
@@ -35,14 +36,15 @@ function setup(context: VaultTestContext) {
     const note = requireVaultNote(context.database, noteId);
     context.store.update(noteId, { body: replaceSection(removeCallouts(note.body, 'pending'), 'Learned', lines) }, note.revision, TEST_META);
   };
-  const chat = async (responses: readonly string[]) => {
-    const writer = new VaultChatWriter({
-      database: context.database, store: context.store, audit, scanner: new SecretScanner(), runner: new StructuredOutputRunner(new FakeAssistantInference(responses)),
+  const chat = async (operations: readonly JsonObject[]) => {
+    const writer = new VaultNoteWriter({
+      database: context.database, store: context.store, attachments, audit, scanner: new SecretScanner(), clock: context.clock,
+      capability: new StubImageCapability(true), queue: new VaultValidationQueue(context.database), inference: new ScriptedAgentInference([submitTurn(operations)]),
       applier: new VaultEditApplier({ store: context.store, database: context.database, audit, scanner: new SecretScanner(), ownerDisplayName: 'Denys' }),
     });
-    return writer.run(LOCAL_OWNER_ID, {
+    return writer.run(LOCAL_OWNER_ID, { source: 'chat', turn: {
       sessionId: 'chat_1', sessionTitle: 'Tools', userMessageId: 'msg_1', capturedAtUtc: '2026-10-24T08:45:00.000Z', userText: 'I use Telescope in Neovim.', assistantText: 'Nice.',
-    }, null);
+    } }, new AbortController().signal);
   };
   return { capture, learn, chat, rollup: new VaultDailyRollup({ database: context.database, store: context.store }) };
 }
@@ -56,10 +58,10 @@ test('the daily note gathers the day\'s screenshots, the union of ## Learned and
     const second = capture('2026-10-24T08:30:00.000Z', '2', DISTINCT_HASH);
     capture('2026-10-23T20:00:00.000Z', '3', NEAR_HASH);
     learn(first.noteId, ['- [[Git]]: **Uses** rebase']);
-    await chat([JSON.stringify({ operations: [
+    await chat([
       { op: 'learned', note: 'Git', label: 'Uses', value: 'rebase' },
       { op: 'learned', note: 'Neovim', label: 'Plugin', value: 'Telescope' },
-    ] })]);
+    ]);
 
     const outcome = rollup.run('2026-10-24');
     assert.equal(outcome.kind, 'written');

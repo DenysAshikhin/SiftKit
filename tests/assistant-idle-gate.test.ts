@@ -15,7 +15,7 @@ import { acquireModelRequestWithWait, releaseModelRequest } from '../src/status-
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.ts';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.ts';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.ts';
+import { ScriptedAgentInference } from './helpers/assistant-inference-fake.ts';
 import { createTestServerContext } from './helpers/server-context-fixture.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import { InMemoryDataProtector } from './helpers/in-memory-data-protector.ts';
@@ -175,7 +175,7 @@ test('the status-server gate wires the heartbeat, config threshold, server start
       clock,
       ids: new SequentialIdGenerator(),
       configWriter: new MemoryAssistantConfigWriter(config),
-      inference: new FakeAssistantInference([]),
+      inference: new ScriptedAgentInference([]),
       tokens: new EstimateTokenCounter(4),
       idleGate: ALWAYS_IDLE,
       residencyGate: ALWAYS_RESIDENT,

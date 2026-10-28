@@ -268,7 +268,6 @@ function AssistantConfiguration(props: ObservationSettingsProps) {
         <NumberField label="Max notes" value={assistant.Retrieval.MaxNotes} min={1} onChange={(MaxNotes) => onChange({ ...assistant, Retrieval: { ...assistant.Retrieval, MaxNotes } })} />
       </Group>
       <Group title="Vault">
-        <Toggle label="Tidy pass" value={assistant.Vault.TidyPassEnabled} onChange={(TidyPassEnabled) => onChange({ ...assistant, Vault: { ...assistant.Vault, TidyPassEnabled } })} />
         <NumberField label="Capture image max age days (0 keeps them)" value={assistant.Vault.CaptureImageMaxAgeDays} min={0} onChange={(CaptureImageMaxAgeDays) => onChange({ ...assistant, Vault: { ...assistant.Vault, CaptureImageMaxAgeDays } })} />
       </Group>
       <ObservationSettings
@@ -282,11 +281,10 @@ function AssistantConfiguration(props: ObservationSettingsProps) {
         <NumberField label="Max GPU minutes/day" value={assistant.Background.MaxGpuMinutesPerDay} min={0} onChange={(MaxGpuMinutesPerDay) => onChange({ ...assistant, Background: { ...assistant.Background, MaxGpuMinutesPerDay } })} />
         <NumberField label="Minimum battery percent" value={assistant.Background.MinimumBatteryPercent} min={0} max={100} onChange={(MinimumBatteryPercent) => onChange({ ...assistant, Background: { ...assistant.Background, MinimumBatteryPercent } })} />
         <Toggle label="Allow on battery" value={assistant.Background.AllowOnBattery} onChange={(AllowOnBattery) => onChange({ ...assistant, Background: { ...assistant.Background, AllowOnBattery } })} />
-        <NumberField label="Chat note priority" value={priorities.ChatNote} onChange={(ChatNote) => patchPriorities({ ChatNote })} />
-        <NumberField label="Capture note priority" value={priorities.CaptureNote} onChange={(CaptureNote) => patchPriorities({ CaptureNote })} />
-        <NumberField label="Daily rollup priority" value={priorities.DailyRollup} onChange={(DailyRollup) => patchPriorities({ DailyRollup })} />
-        <NumberField label="Note tidy priority" value={priorities.NoteTidy} onChange={(NoteTidy) => patchPriorities({ NoteTidy })} />
-        <NumberField label="Capture retention priority" value={priorities.CaptureRetention} onChange={(CaptureRetention) => patchPriorities({ CaptureRetention })} />
+        <NumberField label="Chat write priority" value={priorities.ChatWrite} onChange={(ChatWrite) => patchPriorities({ ChatWrite })} />
+        <NumberField label="Capture write priority" value={priorities.CaptureWrite} onChange={(CaptureWrite) => patchPriorities({ CaptureWrite })} />
+        <NumberField label="Review priority" value={priorities.Review} onChange={(Review) => patchPriorities({ Review })} />
+        <NumberField label="Maintenance priority" value={priorities.Maintenance} onChange={(Maintenance) => patchPriorities({ Maintenance })} />
       </Group>
       <Group title="Private mode">
         <Toggle label="Private mode active" value={assistant.PrivateMode.Active} onChange={(Active) => onChange({ ...assistant, PrivateMode: { ...assistant.PrivateMode, Active } })} />

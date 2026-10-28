@@ -151,11 +151,10 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
       MinimumBatteryPercent: integerOrDefault(background.MinimumBatteryPercent, DEFAULT_ASSISTANT_CONFIG.Background.MinimumBatteryPercent, 0, 100),
       AllowOnBattery: booleanOrDefault(background.AllowOnBattery, DEFAULT_ASSISTANT_CONFIG.Background.AllowOnBattery),
       JobPriorities: {
-        CaptureNote: integerOrDefault(priorities.CaptureNote, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CaptureNote, -maximum, maximum),
-        ChatNote: integerOrDefault(priorities.ChatNote, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ChatNote, -maximum, maximum),
-        DailyRollup: integerOrDefault(priorities.DailyRollup, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.DailyRollup, -maximum, maximum),
-        NoteTidy: integerOrDefault(priorities.NoteTidy, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.NoteTidy, -maximum, maximum),
-        CaptureRetention: integerOrDefault(priorities.CaptureRetention, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CaptureRetention, -maximum, maximum),
+        ChatWrite: integerOrDefault(priorities.ChatWrite, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ChatWrite, -maximum, maximum),
+        CaptureWrite: integerOrDefault(priorities.CaptureWrite, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CaptureWrite, -maximum, maximum),
+        Review: integerOrDefault(priorities.Review, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.Review, -maximum, maximum),
+        Maintenance: integerOrDefault(priorities.Maintenance, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.Maintenance, -maximum, maximum),
       },
     },
     PrivateMode: {
@@ -165,7 +164,6 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
         : DEFAULT_ASSISTANT_CONFIG.PrivateMode.ExpiresAtUtc,
     },
     Vault: {
-      TidyPassEnabled: booleanOrDefault(vault.TidyPassEnabled, DEFAULT_ASSISTANT_CONFIG.Vault.TidyPassEnabled),
       CaptureImageMaxAgeDays: integerOrDefault(vault.CaptureImageMaxAgeDays, DEFAULT_ASSISTANT_CONFIG.Vault.CaptureImageMaxAgeDays, 0, maximum),
     },
     KeyCustody: memberOrDefault(input.KeyCustody, KeyCustodySchema.options, DEFAULT_ASSISTANT_CONFIG.KeyCustody),

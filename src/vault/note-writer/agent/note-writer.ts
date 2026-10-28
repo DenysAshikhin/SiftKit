@@ -6,7 +6,7 @@ import {
 import type { Clock } from '../../../assistant/clock.ts';
 import type { SecretScanner } from '../../../assistant/domain/secrets.ts';
 import { isUsableCapability, type AssistantImageCapabilityProvider } from '../../../assistant/images/image-capability.ts';
-import type { AssistantAgentInferenceClient } from '../../../assistant/inference/client.ts';
+import type { AssistantInferenceClient } from '../../../assistant/inference/client.ts';
 import { buildRoleSystemPrompt } from '../../../assistant/inference/roles.ts';
 import type { AuditStore } from '../../../assistant/storage/audit-store.ts';
 import type { RuntimeDatabase } from '../../../state/runtime-db.ts';
@@ -48,7 +48,7 @@ export interface VaultNoteWriterOptions {
   readonly audit: AuditStore;
   readonly scanner: SecretScanner;
   readonly clock: Clock;
-  readonly inference: AssistantAgentInferenceClient;
+  readonly inference: AssistantInferenceClient;
   readonly capability: AssistantImageCapabilityProvider;
   readonly queue: VaultValidationQueue;
 }
@@ -81,7 +81,7 @@ export class VaultNoteWriter {
   private readonly audit: AuditStore;
   private readonly scanner: SecretScanner;
   private readonly clock: Clock;
-  private readonly inference: AssistantAgentInferenceClient;
+  private readonly inference: AssistantInferenceClient;
   private readonly capability: AssistantImageCapabilityProvider;
   private readonly queue: VaultValidationQueue;
 

@@ -62,14 +62,12 @@ test('configuration edits retrieval, vault and job priority settings of the slim
 
   fireEvent.change(screen.getByLabelText(/Max notes/u), { target: { value: '5' } });
   assert.equal(changes.at(-1)?.Retrieval.MaxNotes, 5);
-  const tidy = screen.getByRole('checkbox', { name: /Tidy pass/u });
-  fireEvent.click(tidy);
-  assert.equal(changes.at(-1)?.Vault.TidyPassEnabled, !DEFAULT_ASSISTANT_CONFIG.Vault.TidyPassEnabled);
+  assert.equal(screen.queryByRole('checkbox', { name: /Tidy pass/u }), null, 'the tidy pass is retired');
   fireEvent.change(screen.getByLabelText(/Capture image max age days/u), { target: { value: '30' } });
   assert.equal(changes.at(-1)?.Vault.CaptureImageMaxAgeDays, 30);
-  fireEvent.change(screen.getByLabelText(/Chat note priority/u), { target: { value: '900' } });
-  assert.equal(changes.at(-1)?.Background.JobPriorities.ChatNote, 900);
-  for (const label of [/Capture note priority/u, /Daily rollup priority/u, /Note tidy priority/u, /Capture retention priority/u]) {
+  fireEvent.change(screen.getByLabelText(/Chat write priority/u), { target: { value: '900' } });
+  assert.equal(changes.at(-1)?.Background.JobPriorities.ChatWrite, 900);
+  for (const label of [/Capture write priority/u, /Review priority/u, /Maintenance priority/u]) {
     screen.getByLabelText(label);
   }
   assert.equal(screen.queryByText(/Memory budgets|Questions enabled|Max hops/u), null, 'graph-era settings are gone');

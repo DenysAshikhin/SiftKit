@@ -189,11 +189,10 @@ export const WebSearchConfigSchema = z.object({
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
 
 export const AssistantJobPrioritiesSchema = z.object({
-  CaptureNote: z.number().int(),
-  ChatNote: z.number().int(),
-  DailyRollup: z.number().int(),
-  NoteTidy: z.number().int(),
-  CaptureRetention: z.number().int(),
+  ChatWrite: z.number().int(),
+  CaptureWrite: z.number().int(),
+  Review: z.number().int(),
+  Maintenance: z.number().int(),
 }).strict();
 
 export const CaptureScopeSchema = z.enum(['foreground_window', 'all_monitors']);
@@ -238,7 +237,6 @@ export const AssistantConfigSchema = z.object({
   }).strict(),
   PrivateMode: z.object({ Active: z.boolean(), ExpiresAtUtc: z.string().nullable() }).strict(),
   Vault: z.object({
-    TidyPassEnabled: z.boolean(),
     /** 0 keeps capture images until the storage cap evicts them. */
     CaptureImageMaxAgeDays: z.number().int().min(0),
   }).strict(),

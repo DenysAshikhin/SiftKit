@@ -38,10 +38,10 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
       MaxGpuMinutesPerDay: -1,
       MinimumBatteryPercent: 50,
       AllowOnBattery: false,
-      JobPriorities: { CaptureNote: 400, ChatNote: 800, DailyRollup: 500, NoteTidy: 100, CaptureRetention: 900 },
+      JobPriorities: { ChatWrite: 800, CaptureWrite: 400, Review: 100, Maintenance: 900 },
     },
     PrivateMode: { Active: false, ExpiresAtUtc: null },
-    Vault: { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0 },
+    Vault: { CaptureImageMaxAgeDays: 0 },
     KeyCustody: 'file',
   });
   assert.deepEqual(AssistantConfigSchema.parse(DEFAULT_ASSISTANT_CONFIG), DEFAULT_ASSISTANT_CONFIG);
@@ -155,20 +155,20 @@ test('normalizeAssistantConfig repairs the deny lists and the sign-in startup fl
 });
 
 test('the vault block defaults on with no image age limit and repairs malformed values', () => {
-  assert.deepEqual(normalizeAssistantConfig({}).Vault, { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0 });
-  assert.deepEqual(normalizeAssistantConfig({ Vault: { TidyPassEnabled: 'no', CaptureImageMaxAgeDays: -3 } }).Vault, { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0 });
-  assert.deepEqual(normalizeAssistantConfig({ Vault: { TidyPassEnabled: false, CaptureImageMaxAgeDays: 30 } }).Vault, { TidyPassEnabled: false, CaptureImageMaxAgeDays: 30 });
-  assert.equal(AssistantConfigSchema.safeParse({ ...DEFAULT_ASSISTANT_CONFIG, Vault: { TidyPassEnabled: true, CaptureImageMaxAgeDays: 0, Extra: 1 } }).success, false);
+  assert.deepEqual(normalizeAssistantConfig({}).Vault, { CaptureImageMaxAgeDays: 0 });
+  assert.deepEqual(normalizeAssistantConfig({ Vault: { TidyPassEnabled: false, CaptureImageMaxAgeDays: -3 } }).Vault, { CaptureImageMaxAgeDays: 0 }, 'a retired key is dropped');
+  assert.deepEqual(normalizeAssistantConfig({ Vault: { CaptureImageMaxAgeDays: 30 } }).Vault, { CaptureImageMaxAgeDays: 30 });
+  assert.equal(AssistantConfigSchema.safeParse({ ...DEFAULT_ASSISTANT_CONFIG, Vault: { CaptureImageMaxAgeDays: 0, Extra: 1 } }).success, false);
 });
 
 test('a stored config from before the cutover loads: removed blocks and legacy job priorities are dropped', () => {
   const normalized = normalizeAssistantConfig({
     Memory: { Tier1: { MaxTokens: 5 } }, Questions: { Enabled: false }, Retention: { OcrTextDays: 3 }, Mobile: { Enabled: true },
     Retrieval: { MaxContextTokens: 900, MaxHops: 3 },
-    Background: { JobPriorities: { ConversationIngestion: 1, CaptureRetention: 950 } },
+    Background: { JobPriorities: { ConversationIngestion: 1, Maintenance: 950 } },
   });
   assert.deepEqual(normalized.Retrieval, { MaxContextTokens: 900, MaxNotes: 8 });
-  assert.deepEqual(normalized.Background.JobPriorities, { CaptureNote: 400, ChatNote: 800, DailyRollup: 500, NoteTidy: 100, CaptureRetention: 950 });
+  assert.deepEqual(normalized.Background.JobPriorities, { ChatWrite: 800, CaptureWrite: 400, Review: 100, Maintenance: 950 });
   assert.equal(AssistantConfigSchema.safeParse(normalized).success, true);
   assert.equal(AssistantConfigSchema.safeParse({ ...DEFAULT_ASSISTANT_CONFIG, Mobile: { Enabled: false } }).success, false);
 });

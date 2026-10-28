@@ -36,7 +36,7 @@ import {
   FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContextAsync,
   type AssistantTestContext,
 } from '../helpers/assistant-fixture.ts';
-import { FakeAssistantInference } from '../helpers/assistant-inference-fake.ts';
+import { ScriptedAgentInference } from '../helpers/assistant-inference-fake.ts';
 import { archiveBytes, archiveEntries, archiveUploadPath, readArchiveEntries } from '../helpers/archive-bytes.ts';
 import { createTestChatSession } from '../helpers/chat-sessions.ts';
 import { createTestChatRunRecorder } from '../helpers/chat-run-recorder.ts';
@@ -137,7 +137,7 @@ function buildServiceContext(): { service: AssistantService; context: AssistantT
   const service = AssistantService.create({
     database, runtimeRoot, clock, ids,
     configWriter: new MemoryAssistantConfigWriter(config),
-    inference: new FakeAssistantInference([]),
+    inference: new ScriptedAgentInference([]),
     tokens: new EstimateTokenCounter(4),
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,

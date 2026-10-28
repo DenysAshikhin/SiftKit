@@ -1,9 +1,4 @@
-export const ASSISTANT_INFERENCE_ROLES = [
-  'vault_capture_writer',
-  'vault_chat_writer',
-  'vault_tidy',
-  'vault_writer',
-] as const;
+export const ASSISTANT_INFERENCE_ROLES = ['vault_writer'] as const;
 export type AssistantInferenceRole = (typeof ASSISTANT_INFERENCE_ROLES)[number];
 
 /** §8.1. Prepended to every note-writer prompt. */
@@ -16,9 +11,6 @@ export const UNTRUSTED_CONTENT_PREAMBLE = [
 
 /** Bumped whenever a role's instructions change, and recorded on the observation. */
 export const ROLE_PROMPT_VERSION = {
-  vault_capture_writer: '1',
-  vault_chat_writer: '1',
-  vault_tidy: '1',
   vault_writer: '1',
 } as const satisfies Record<AssistantInferenceRole, string>;
 

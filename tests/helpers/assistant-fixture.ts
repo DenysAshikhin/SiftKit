@@ -8,7 +8,7 @@ import type { AssistantImageCapabilityProvider } from '../../src/assistant/image
 import type { AssistantInferenceClient } from '../../src/assistant/inference/client.ts';
 import { EstimateTokenCounter } from '../../src/assistant/domain/tokens.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
-import { FakeAssistantInference } from './assistant-inference-fake.ts';
+import { ScriptedAgentInference } from './assistant-inference-fake.ts';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './assistant-gates.ts';
 import type { AssistantConfig } from '../../src/config/types.ts';
 import { AssistantGraph } from '../../src/assistant/assistant-graph.ts';
@@ -124,7 +124,7 @@ export function buildAssistantService(
     clock: new FixedClock(FIXTURE_START_INSTANT),
     ids: new SequentialIdGenerator(),
     configWriter: new MemoryAssistantConfigWriter(config),
-    inference: options.inference ?? new FakeAssistantInference([]),
+    inference: options.inference ?? new ScriptedAgentInference([]),
     tokens: new EstimateTokenCounter(4),
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,
