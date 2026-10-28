@@ -121,17 +121,18 @@ Pure functions, used by the server, the migration and the dashboard renderer:
 | `attachments.ts` | Writes and reads PNG files; path containment checks. |
 | `vault-export.ts` | Folder or zip of `.md` files (YAML frontmatter plus body) and attachments. |
 | `owner-identity.ts` | Resolves owner references: owner note aliases, pronoun list, `user <x>` prefix, Levenshtein ≤ 2 (≤ 3 when the name contains `y`) against the owner's first name. Possessives and paths are excluded. Ported from the prototype. |
-| `note-writer/edit-ops.ts` | Zod schema for LLM edit operations. It is flat and scalar-bounded, with **no recursive `$ref`** (the lesson of Defect A): `create_note{title,type,lead}`, `add_facts{note,label,values[]}`, `add_aliases{note,aliases[]}`, `add_task{note,text}`, `learned{note,label,value}`. |
-| `note-writer/edit-applier.ts` | Validates every string with the existing `SecretScanner`, resolves owner and note titles, and applies operations through the store with actor `note-writer · screenshot` or `note-writer · chat` and a `source_ref`. A rejected string is dropped and audited; it never fails the job. |
-| `note-writer/capture-writer.ts` | Screenshot job. The model gets the image, the context line and up to 20 candidate note titles from FTS on app and window title. It returns edit operations. The writer then fills in the capture note's `## Learned` list. |
-| `note-writer/chat-writer.ts` | Chat turn job. Same operation schema. Writes the chat note transcript plus `## Learned`. |
+| `note-writer/edit-ops.ts` | Zod schema for LLM edit operations. It is flat and scalar-bounded, with **no recursive `$ref`** (the lesson of Defect A). The vocabulary is in the note-writer agent spec. |
+| `note-writer/edit-applier.ts` | Validates every string with the existing `SecretScanner`, resolves owner and note titles, and applies operations through the store with the writer's actor and a `source_ref`. A rejected string is dropped and audited; it never fails the job. |
+| `note-writer/agent/` | The note-writer agent: one tool-using model writer for captures, chat turns and review batches. See [the note-writer agent design](2026-10-27-vault-note-writer-agent-design.md). |
 | `note-writer/daily-rollup.ts` | Deterministic, no LLM. Rebuilds the day's daily note from that day's capture and chat notes. |
-| `note-writer/tidy-pass.ts` | LLM rewrite of one entity note's lead paragraph from its fact rows. Replaces only the lead. Actor `note-writer · tidy`. |
-| `capture-intake.ts` | Keeps the current dedupe and admission rules. Writes the PNG attachment, a `pending` capture note (actor `capture-intake`), a `vault_captures` row, and enqueues a `capture_note` job. |
+| `maintenance.ts` | The one deterministic job: capture retention, rebuilds of the days in `vault_rollup_days`, and the review trigger. |
+| `capture-intake.ts` | Keeps the current dedupe and admission rules. Writes the PNG attachment, a `pending` capture note (actor `capture-intake`), a `vault_captures` row, and enqueues a `vault_write` capture job. |
 | `capture-retention.ts` | Enforces `RawStorageLimitGb` (evicts oldest PNGs) and the optional age limit. The note stays; its embed renders "image removed". |
 | `vault-retriever.ts` | Chat context. Takes query terms (existing `QueryIntentExtractor`), runs FTS, and always includes the owner note's lead. Renders `## Relevant personal context` with each note's title, lead and fact rows, fitted by binary search to `MaxContextTokens` (existing technique). |
 
-**Jobs.** The job types become `capture_note`, `chat_note`, `daily_rollup`, `note_tidy` and `capture_retention`. The existing runner, idle and residency gates, resource policy, preemption, leases and background-decision log are kept.
+**Writers.** Four things write the vault: the note-writer agent, maintenance, capture intake and the owner sync (`owner-identity.ts`).
+
+**Jobs.** The job types are `vault_write` (capture, chat or review) and `vault_maintenance`; the note-writer agent spec gives their keys, priorities and triggers. The existing runner, idle and residency gates, resource policy, preemption, leases and background-decision log are kept.
 
 ### 4.3 HTTP: `/assistant/vault/*`
 
@@ -295,3 +296,4 @@ Each phase is shippable and has its own implementation plan in `docs/superpowers
 5. **Cutover:** `AssistantService` composed around the vault. Captures, chat ingestion and retrieval go to the vault. Config is slimmed and the legacy graph write paths, routes and UI are unplugged. The legacy read path and crypto are kept for the migration.
 6. **Migration:** merge-safe preview and run, plus the Settings card. Run it once on the live install while the desktop shell is up.
 7. **Removal:** legacy code, crypto, `KeyCustody` and tables; Rust shell custody and questions. This only happens after the live migration.
+8. **Note-writer agent and validation queue:** the three single-shot writers become one tool-using agent; the deterministic jobs become `vault_maintenance`; per-note and per-fact timestamps feed a validation queue and a review pass. See [the note-writer agent design](2026-10-27-vault-note-writer-agent-design.md).
