@@ -12,6 +12,8 @@ import type {
   PendingCaptureDto,
   KeyCustody,
   SuppressionAuditDto,
+  VaultNote,
+  VaultTriageRequest,
 } from '@siftkit/contracts';
 import { PENDING_CAPTURE_STATES } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.ts';
@@ -57,6 +59,7 @@ import { VaultCaptureWriter } from '../vault/note-writer/capture-writer.ts';
 import { VaultChatWriter, type VaultChatTurn } from '../vault/note-writer/chat-writer.ts';
 import { VaultDailyRollup } from '../vault/note-writer/daily-rollup.ts';
 import { VaultEditApplier } from '../vault/note-writer/edit-applier.ts';
+import { triageUnverified } from '../vault/triage.ts';
 import { VaultTidyPass } from '../vault/note-writer/tidy-pass.ts';
 import { VaultNoteQueries } from '../vault/note-queries.ts';
 import { VaultNoteStore } from '../vault/note-store.ts';
@@ -392,6 +395,11 @@ export class AssistantService implements AssistantRuntime {
         details: { message: error instanceof Error ? error.message : String(error) },
       });
     }
+  }
+
+  /** Keep or Drop one Review item; Keep on a doubt stamps that fact value validated. */
+  triageVaultFact(noteId: string, request: VaultTriageRequest): VaultNote {
+    return triageUnverified(this.vaultNotes, this.database, noteId, request, this.clock.nowUtc());
   }
 
   /** Request-path retrieval from the vault. Deterministic, no model call. */

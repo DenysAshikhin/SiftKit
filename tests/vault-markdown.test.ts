@@ -65,8 +65,8 @@ test('parseNoteBody reads tasks, unverified facts, embeds and tags', () => {
     { text: 'Install #extensions', done: true, line: 7 },
   ]);
   assert.deepEqual(parsed.unverified, [
-    { label: 'Uses', value: '[[GitHub]]', line: 13 },
-    { label: null, value: 'Likes dark themes', line: 14 },
+    { label: 'Uses', value: '[[GitHub]]', flag: null, line: 13 },
+    { label: null, value: 'Likes dark themes', flag: null, line: 14 },
   ]);
   assert.deepEqual(parsed.embeds, ['attachments/captures/ev_1.png']);
   assert.deepEqual(parsed.tags, ['extensions', 'unverified']);
@@ -94,4 +94,20 @@ test('the shared link and tag patterns match the dialect', () => {
   const links = [...'x [[A|b]] ![[c.png]] #t'.matchAll(VAULT_LINK_PATTERN)];
   assert.deepEqual(links.map((match) => [match[1], match[2], match[3]]), [['', 'A', 'b'], ['!', 'c.png', undefined]]);
   assert.deepEqual([...'x #t y#no'.matchAll(VAULT_TAG_PATTERN)].map((match) => match[1]), ['t']);
+});
+
+test('unverified items carry their flag: a conflict names the value it replaces, a doubt its reason', () => {
+  const parsed = parseNoteBody([
+    'Lead.',
+    '',
+    '> [!unverified]- 3 unverified facts',
+    '> - **Editor** Helix #unverified (replaces: Neovim)',
+    '> - **Hobby** flying by flapping hands #unverified (doubt: implausible: humans cannot fly)',
+    '> - **Uses** Git #unverified',
+  ].join('\n'));
+  assert.deepEqual(parsed.unverified.map(({ label, value, flag }) => ({ label, value, flag })), [
+    { label: 'Editor', value: 'Helix', flag: { kind: 'replaces', value: 'Neovim' } },
+    { label: 'Hobby', value: 'flying by flapping hands', flag: { kind: 'doubt', reason: 'implausible: humans cannot fly' } },
+    { label: 'Uses', value: 'Git', flag: null },
+  ]);
 });

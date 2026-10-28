@@ -161,16 +161,22 @@ test('DiffView counts changes, collapses context and offers restore only for old
   assert.match(current, /<span class="v-chip">current<\/span>/);
 });
 
-test('ReviewView shows totals and one triage row per unverified fact', () => {
+test('ReviewView shows totals and one triage row per unverified fact, with what a flag replaces or doubts', () => {
   const note = summaryOf(vaultNote());
   const html = renderToStaticMarkup(
     <ReviewView
-      review={{ total: 1, items: [{ note, line: 6, label: 'Uses', value: '[[GitHub]]' }] }}
+      review={{ total: 3, items: [
+        { note, line: 6, label: 'Uses', value: '[[GitHub]]', flag: null },
+        { note, line: 7, label: 'Editor', value: 'Helix', flag: { kind: 'replaces', value: 'Neovim' } },
+        { note, line: 8, label: 'Hobby', value: 'juggling', flag: { kind: 'doubt', reason: 'implausible' } },
+      ] }}
       stats={{ notes: 1, links: 0, tags: 0, stubs: 0, notesWithUnverified: 1, byKind: { entity: 1, capture: 0, daily: 0, chat: 0, note: 0 } }}
       actions={NOOP_ACTIONS}
     />,
   );
-  assert.match(html, /<b>1<\/b><small>unverified facts<\/small>/);
+  assert.match(html, /<b>3<\/b><small>unverified facts<\/small>/);
+  assert.match(html, /Helix<small class="v-flag"> replaces Neovim<\/small>/);
+  assert.match(html, /juggling<small class="v-flag"> doubt: implausible<\/small>/);
   assert.match(html, /<a class="v-wl">Visual Studio Code<\/a> · <span class="v-mini-label">Uses<\/span><a class="v-wl" data-link="GitHub">GitHub<\/a>/);
   assert.match(html, /<span class="v-actions v-always"><button type="button">✓<\/button><button type="button">✕<\/button><\/span>/);
 });

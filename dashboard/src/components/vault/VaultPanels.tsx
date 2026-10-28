@@ -181,7 +181,7 @@ export function ReviewView(props: { readonly review: VaultReview | null; readonl
     <article className="v-note">
       <div className="v-crumbs"><span>vault</span><span className="v-sep">/</span><span>review</span></div>
       <div className="v-note-head"><h1>Review</h1></div>
-      <p className="v-hint">Facts tagged <span className="v-tag v-t-unverified">#unverified</span> wait for you. Keep moves the fact into its row and removes the tag. Drop deletes the line. Both create a revision.</p>
+      <p className="v-hint">Facts tagged <span className="v-tag v-t-unverified">#unverified</span> wait for you. Keep moves the fact into its row, swaps it in for the value a conflict replaces, or confirms a doubted value. Drop removes the flag, and for a doubt the value too. Both create a revision.</p>
       <div className="v-stat-grid" style={{ margin: '12px 0 18px' }}>
         <div className="v-stat"><b>{num(review.total)}</b><small>unverified facts</small></div>
         <div className="v-stat"><b>{num(stats?.notesWithUnverified ?? 0)}</b><small>notes with unverified facts</small></div>
@@ -193,6 +193,7 @@ export function ReviewView(props: { readonly review: VaultReview | null; readonl
               <a className="v-wl" onClick={() => actions.openNote(item.note.id, false)}>{item.note.title}</a>{' · '}
               {item.label !== null && <span className="v-mini-label">{item.label}</span>}
               <Inline text={item.value} ctx={ctx} />
+              {item.flag !== null && <small className="v-flag">{item.flag.kind === 'replaces' ? ` replaces ${item.flag.value}` : ` doubt: ${item.flag.reason}`}</small>}
               <span className="v-actions v-always">
                 <button type="button" onClick={() => actions.triage(item.note.id, item.line, 'confirm')}>✓</button>
                 <button type="button" onClick={() => actions.triage(item.note.id, item.line, 'drop')}>✕</button>

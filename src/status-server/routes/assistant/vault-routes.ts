@@ -1,7 +1,8 @@
 import {
   VaultCreateNoteRequestSchema, VaultDeleteRequestSchema, VaultGraphQuerySchema, VaultLocalGraphQuerySchema,
   VaultNoteListQuerySchema, VaultRenameRequestSchema, VaultResolveQuerySchema, VaultRestoreRequestSchema,
-  VaultReviewQuerySchema, VaultRevisionNumberSchema, VAULT_LOCAL_GRAPH_CAP, VaultSearchQuerySchema, VaultTreeQuerySchema, VaultUpdateNoteRequestSchema,
+  VaultReviewQuerySchema, VaultRevisionNumberSchema, VAULT_LOCAL_GRAPH_CAP, VaultSearchQuerySchema, VaultTreeQuerySchema, VaultTriageRequestSchema,
+  VaultUpdateNoteRequestSchema,
   type VaultDeleteResponse, type VaultNoteListResponse, type VaultResolveResponse, type VaultRevisionListResponse,
   type VaultTreeResponse, type VaultWriteMeta, type VaultWriteSource,
 } from '@siftkit/contracts';
@@ -70,6 +71,10 @@ export const vaultRevisionEndpoint = assistantRoute(({ service, res, match }) =>
 export const vaultRestoreEndpoint = assistantRoute(async ({ service, req, res, match }) => {
   const request = await body(req, VaultRestoreRequestSchema);
   sendJson(res, 200, service.vaultNotes.restore(id(match), request.revision, request.expectedRevision, YOU));
+});
+
+export const vaultTriageEndpoint = assistantRoute(async ({ service, req, res, match }) => {
+  sendJson(res, 200, service.triageVaultFact(id(match), await body(req, VaultTriageRequestSchema)));
 });
 
 export const vaultSearchEndpoint = assistantRoute(({ service, res, url }) => {

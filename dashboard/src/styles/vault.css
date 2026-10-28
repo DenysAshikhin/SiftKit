@@ -102,6 +102,7 @@
 .v-pill.v-unresolved { color: var(--dim); border-style: dashed; }
 .v-pill.v-txt { background: none; border-color: #1c2a38; color: var(--code); cursor: default; white-space: normal; }
 .v-mini-label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: 4px; }
+.v-flag { color: var(--dim); font-style: italic; margin-left: 4px; }
 .v-callout { margin: 10px 0; border: 1px solid var(--line); border-radius: 10px; background: #0f1720; overflow: hidden; }
 .v-callout .v-co-head { padding: 7px 12px; cursor: pointer; color: var(--code); font-size: 13px; list-style: none; display: flex; gap: 8px; align-items: center; }
 .v-callout .v-co-head::-webkit-details-marker { display: none; }

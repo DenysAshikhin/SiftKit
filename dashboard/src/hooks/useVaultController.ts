@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
-  confirmUnverified, dropLine, VAULT_OWNER_TAG, vaultKey,
+  VAULT_OWNER_TAG, vaultKey,
   type VaultFolder, type VaultGraph, type VaultLocalGraphDepth, type VaultNote, type VaultNoteDetail, type VaultNoteSummary,
   type VaultReview, type VaultRevision, type VaultRevisionSummary, type VaultSearchResult, type VaultStats,
 } from '@siftkit/contracts';
@@ -9,13 +9,13 @@ import { bootstrapAssistantToken } from '../api.ts';
 import {
   createVaultNote, exportVaultArchive, fetchVaultAttachment, getVaultGraph, getVaultLocalGraph, getVaultNote, getVaultReview, getVaultRevision,
   getVaultStats, getVaultTree, listVaultNotes, listVaultRevisions, renameVaultNote, resolveVaultTitle, restoreVaultRevision,
-  searchVault, updateVaultNote, VaultRequestError,
+  searchVault, triageVaultFact, updateVaultNote, VaultRequestError,
 } from '../vault-api.ts';
 import type { StarredNote } from '../components/vault/FileTree.tsx';
 import { FOLDER_LIMIT } from '../components/vault/FileTree.tsx';
 import type { VaultHover } from '../components/vault/VaultChrome.tsx';
 import type {
-  VaultActions, VaultAnchorRect, VaultGraphOptions, VaultRightTab, VaultSide, VaultTriage,
+  VaultActions, VaultAnchorRect, VaultGraphOptions, VaultRightTab, VaultSide,
 } from '../components/vault/vault-actions.ts';
 import { linkFirstMention, toggleTask } from '../lib/vault-edits.ts';
 import { folderColors, type Point } from '../lib/vault-force.ts';
@@ -167,14 +167,18 @@ export function useVaultController(visible: boolean): VaultTabProps {
     await refreshVault(auth, showStubs);
   }
 
+  async function recoverConflict(auth: string, noteId: string): Promise<void> {
+    await loadDetail(auth, noteId);
+    notify('This note changed elsewhere; the latest revision is loaded.', true);
+  }
+
   async function writeBody(auth: string, note: VaultNote, body: string, message: string): Promise<void> {
     try {
       await afterWrite(auth, await updateVaultNote(auth, note.id, { body }, note.revision));
       notify(message);
     } catch (caught) {
       if (!(caught instanceof VaultRequestError && caught.code === 'conflict')) throw caught;
-      await loadDetail(auth, note.id);
-      notify('This note changed elsewhere; the latest revision is loaded.', true);
+      await recoverConflict(auth, note.id);
     }
   }
 
@@ -288,9 +292,15 @@ export function useVaultController(visible: boolean): VaultTabProps {
       const { note } = await loadDetail(auth, noteId);
       await writeBody(auth, note, toggleTask(note.body, line), 'Task updated.');
     }),
-    triage: (noteId, line, action: VaultTriage) => authed(async (auth) => {
+    triage: (noteId, line, action) => authed(async (auth) => {
       const { note } = await loadDetail(auth, noteId);
-      await writeBody(auth, note, action === 'confirm' ? confirmUnverified(note.body, line) : dropLine(note.body, line), action === 'confirm' ? 'Kept.' : 'Dropped.');
+      try {
+        await afterWrite(auth, await triageVaultFact(auth, note.id, { line, action, expectedRevision: note.revision }));
+        notify(action === 'confirm' ? 'Kept.' : 'Dropped.');
+      } catch (caught) {
+        if (!(caught instanceof VaultRequestError && caught.code === 'conflict')) throw caught;
+        await recoverConflict(auth, note.id);
+      }
       if (activeTab?.kind === 'review') setReview(await getVaultReview(auth, REVIEW_LIMIT));
     }),
     showFull: () => setTabs((current) => setActiveNoteTab(current, { full: true })),

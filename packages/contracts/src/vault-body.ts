@@ -1,5 +1,6 @@
+import type { VaultTriageAction, VaultUnverifiedFlag } from './vault.ts';
 import {
-  UNVERIFIED_TAG, VAULT_ROW_LIMIT, VAULT_VALUE_SEPARATOR, parseNoteBody, splitValues,
+  UNVERIFIED_TAG, VAULT_ROW_LIMIT, VAULT_VALUE_SEPARATOR, parseNoteBody, splitValues, type VaultFactRow,
 } from './vault-markdown.ts';
 
 export interface VaultRowDraft {
@@ -15,6 +16,7 @@ export interface VaultTaskSectionDraft {
 export interface VaultUnverifiedDraft {
   readonly label: string;
   readonly value: string;
+  readonly flag: VaultUnverifiedFlag | null;
 }
 
 export interface VaultEntityDraft {
@@ -29,6 +31,11 @@ const UNVERIFIED_HEADER_PATTERN = /^> \[!unverified\]-\s+\d+ unverified facts?$/
 
 const sameVaultValue = (left: string, right: string): boolean =>
   left.trim().toLowerCase() === right.trim().toLowerCase();
+
+const LONE_LINK = /^\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/;
+/** A value compared by its plain name, so `[[Neovim]]` and `neovim` are the same fact. */
+const sameFactValue = (left: string, right: string): boolean =>
+  sameVaultValue(left.trim().match(LONE_LINK)?.[1] ?? left, right.trim().match(LONE_LINK)?.[1] ?? right);
 
 function dedupeVaultValues(values: readonly string[]): string[] {
   const kept: string[] = [];
@@ -46,7 +53,9 @@ function normalizeVaultLines(lines: readonly string[]): string {
 const rowLine = (label: string, values: readonly string[]) => `**${label}** ${values.join(VAULT_VALUE_SEPARATOR)}`;
 const moreHeader = (count: number, label: string) => `> [!more]- ${count} more · ${label.toLowerCase()}`;
 const unverifiedHeader = (count: number) => `> [!unverified]- ${count} unverified fact${count === 1 ? '' : 's'}`;
-const unverifiedLine = (label: string, value: string) => `> - **${label}** ${value} ${UNVERIFIED_TAG}`;
+const flagSuffix = (flag: VaultUnverifiedFlag | null) =>
+  (flag === null ? '' : flag.kind === 'replaces' ? ` (replaces: ${flag.value})` : ` (doubt: ${flag.reason})`);
+const unverifiedLine = (fact: VaultUnverifiedDraft) => `> - **${fact.label}** ${fact.value} ${UNVERIFIED_TAG}${flagSuffix(fact.flag)}`;
 
 export function buildEntityBody(draft: VaultEntityDraft): string {
   const lines: string[] = [draft.lead, ''];
@@ -64,7 +73,7 @@ export function buildEntityBody(draft: VaultEntityDraft): string {
   }
   for (const row of overflow) lines.push(moreHeader(row.values.length, row.label), `> ${row.values.join(VAULT_VALUE_SEPARATOR)}`, '');
   if (draft.unverified.length > 0) {
-    lines.push(unverifiedHeader(draft.unverified.length), ...draft.unverified.map((fact) => unverifiedLine(fact.label, fact.value)));
+    lines.push(unverifiedHeader(draft.unverified.length), ...draft.unverified.map(unverifiedLine));
   }
   return normalizeVaultLines(lines);
 }
@@ -141,19 +150,58 @@ function removeUnverifiedLine(body: string, line: number): string {
   return normalizeVaultLines(lines);
 }
 
-/** Keeps an unverified fact: it leaves the callout and joins its fact row. */
-export function confirmUnverified(body: string, line: number): string {
-  const fact = parseNoteBody(body).unverified.find((candidate) => candidate.line === line);
-  if (!fact) throw new Error(`Line ${line} is not an unverified fact.`);
-  return addRowValues(removeUnverifiedLine(body, line), fact.label ?? 'Facts', [fact.value]);
+const findRow = (body: string, label: string): VaultFactRow | undefined =>
+  parseNoteBody(body).factRows.find((row) => sameVaultValue(row.label, label));
+
+/** Rewrites one fact row; a row left empty is removed. */
+function writeRowValues(body: string, row: VaultFactRow, values: readonly string[]): string {
+  const lines = body.split('\n');
+  if (values.length === 0) lines.splice(row.line, 1);
+  else lines[row.line] = rowLine(row.label, dedupeVaultValues(values));
+  return normalizeVaultLines(lines);
 }
 
-export function dropLine(body: string, line: number): string {
-  const lines = body.split('\n');
-  if (line < 0 || line >= lines.length) throw new Error(`Line ${line} is outside the note.`);
-  if (parseNoteBody(body).unverified.some((fact) => fact.line === line)) return removeUnverifiedLine(body, line);
-  lines.splice(line, 1);
-  return normalizeVaultLines(lines);
+/** The row's label and value as stored, when the row holds `value`; a link matches its plain name. */
+export function findRowValue(body: string, label: string, value: string): { label: string; value: string } | null {
+  const row = findRow(body, label);
+  const stored = row?.values.find((candidate) => sameFactValue(candidate, value));
+  return row === undefined || stored === undefined ? null : { label: row.label, value: stored };
+}
+
+export function removeRowValue(body: string, label: string, value: string): string {
+  const row = findRow(body, label);
+  return row === undefined ? body : writeRowValues(body, row, row.values.filter((candidate) => !sameFactValue(candidate, value)));
+}
+
+/** Swaps `oldValue` for `newValue` in the row; with no old value to swap, the new one is added. */
+export function replaceRowValue(body: string, label: string, oldValue: string, newValue: string): string {
+  const row = findRow(body, label);
+  if (row === undefined || !row.values.some((candidate) => sameFactValue(candidate, oldValue))) return addRowValues(body, label, [newValue]);
+  return writeRowValues(body, row, row.values.map((candidate) => (sameFactValue(candidate, oldValue) ? newValue : candidate)));
+}
+
+export interface VaultTriageResult {
+  readonly body: string;
+  /** The fact value Keep on a doubt confirmed; it is stamped validated. */
+  readonly validated: { readonly label: string; readonly value: string } | null;
+}
+
+/** Keep or Drop one Review item: a conflict's Keep swaps the value, a doubt's Drop removes it. */
+export function resolveUnverified(body: string, line: number, action: VaultTriageAction): VaultTriageResult {
+  const fact = parseNoteBody(body).unverified.find((candidate) => candidate.line === line);
+  if (!fact) throw new Error(`Line ${line} is not an unverified fact.`);
+  const label = fact.label ?? 'Facts';
+  const rest = removeUnverifiedLine(body, line);
+  if (fact.flag?.kind === 'doubt') {
+    return action === 'confirm'
+      ? { body: rest, validated: { label, value: fact.value } }
+      : { body: removeRowValue(rest, label, fact.value), validated: null };
+  }
+  if (action === 'drop') return { body: rest, validated: null };
+  return {
+    body: fact.flag?.kind === 'replaces' ? replaceRowValue(rest, label, fact.flag.value, fact.value) : addRowValues(rest, label, [fact.value]),
+    validated: null,
+  };
 }
 
 const firstCalloutIndex = (lines: readonly string[]) => {
@@ -182,10 +230,10 @@ export function addUnverified(body: string, facts: readonly VaultUnverifiedDraft
   const parsed = parseNoteBody(body);
   const fresh = facts.filter((fact) =>
     !parsed.unverified.some((existing) => sameVaultValue(existing.value, fact.value) && sameVaultValue(existing.label ?? '', fact.label))
-    && !parsed.factRows.some((row) => sameVaultValue(row.label, fact.label) && row.values.some((value) => sameVaultValue(value, fact.value))));
+    && !(fact.flag === null && parsed.factRows.some((row) => sameVaultValue(row.label, fact.label) && row.values.some((value) => sameVaultValue(value, fact.value)))));
   if (fresh.length === 0) return body;
   const lines = body.split('\n');
-  const newLines = fresh.map((fact) => unverifiedLine(fact.label, fact.value));
+  const newLines = fresh.map(unverifiedLine);
   const header = lines.findIndex((line) => UNVERIFIED_HEADER_PATTERN.test(line));
   if (header >= 0) {
     let end = header + 1;

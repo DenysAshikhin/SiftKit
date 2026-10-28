@@ -45,6 +45,7 @@ import {
   vaultSearchEndpoint,
   vaultStatsEndpoint,
   vaultTreeEndpoint,
+  vaultTriageEndpoint,
   vaultUpdateNoteEndpoint,
 } from './assistant/vault-routes.ts';
 import { assistantErrorResponse, header, sendError } from './assistant/helpers.ts';
@@ -84,6 +85,7 @@ const routes = new RouteTable([
     endpoint: vaultRevisionEndpoint,
   },
   { method: 'POST', path: /^\/assistant\/vault\/notes\/([^/]+)\/restore$/u, endpoint: vaultRestoreEndpoint },
+  { method: 'POST', path: /^\/assistant\/vault\/notes\/([^/]+)\/triage$/u, endpoint: vaultTriageEndpoint },
   { method: 'GET', path: '/assistant/vault/resolve', endpoint: vaultResolveEndpoint },
   { method: 'GET', path: /^\/assistant\/vault\/attachments\/(.+)$/u, endpoint: vaultAttachmentEndpoint },
   { method: 'GET', path: '/assistant/vault/search', endpoint: vaultSearchEndpoint },

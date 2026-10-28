@@ -1,9 +1,8 @@
-import type { VaultLocalGraphDepth } from '@siftkit/contracts';
+import type { VaultLocalGraphDepth, VaultTriageAction } from '@siftkit/contracts';
 import type { VaultNoteMode } from '../../lib/vault-tabs.ts';
 
 export type VaultSide = 'files' | 'search';
 export type VaultRightTab = 'links' | 'outline' | 'graph' | 'history' | 'vault';
-export type VaultTriage = 'confirm' | 'drop';
 
 export interface VaultGraphOptions {
   readonly filterText: string;
@@ -24,7 +23,7 @@ export interface VaultActions {
   followLink(target: string, newTab: boolean): void;
   searchTag(tag: string): void;
   toggleTask(noteId: string, line: number): void;
-  triage(noteId: string, line: number, action: VaultTriage): void;
+  triage(noteId: string, line: number, action: VaultTriageAction): void;
   showFull(): void;
   jumpTo(line: number): void;
   setMode(mode: VaultNoteMode): void;

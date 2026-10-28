@@ -101,6 +101,22 @@ test('vault routes update, rename, restore and delete under revision checks', as
   });
 });
 
+test('vault triage route keeps or drops a Review item under revision checks', async () => {
+  await withAssistantServer('siftkit-vault-routes-triage-', ENABLED, async (harness) => {
+    const vault = vaultClient(harness);
+    const note = await vault.ok('POST', '/notes', VaultNoteSchema, {
+      title: 'Pet Safety', body: 'A project.\n\n**Uses** [[Neovim]] · TypeScript\n\n> [!unverified]- 1 unverified fact\n> - **Uses** Neovim #unverified (doubt: bad link)',
+    });
+    const line = note.body.split('\n').findIndex((candidate) => candidate.includes('#unverified'));
+    const stale = await vault.error('POST', `/notes/${note.id}/triage`, 409, { line, action: 'drop', expectedRevision: 2 });
+    assert.equal(stale.code, 'conflict');
+    assert.equal((await vault.error('POST', `/notes/${note.id}/triage`, 400, { line: 0, action: 'drop', expectedRevision: 1 })).code, 'invalid_request');
+    const dropped = await vault.ok('POST', `/notes/${note.id}/triage`, VaultNoteSchema, { line, action: 'drop', expectedRevision: 1 });
+    assert.equal(dropped.body, 'A project.\n\n**Uses** TypeScript');
+    assert.equal(dropped.revision, 2);
+  });
+});
+
 test('vault routes reject bad requests with typed errors', async () => {
   await withAssistantServer('siftkit-vault-routes-errors-', ENABLED, async (harness) => {
     const vault = vaultClient(harness);

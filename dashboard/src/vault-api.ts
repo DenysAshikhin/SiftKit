@@ -23,6 +23,7 @@ import {
   type VaultReview,
   type VaultRevision,
   type VaultRevisionSummary,
+  type VaultTriageRequest,
   type VaultSearchResult,
   type VaultStats,
   type VaultFolder,
@@ -103,6 +104,11 @@ export function getVaultRevision(token: string, id: string, revision: number): P
 
 export function restoreVaultRevision(token: string, id: string, revision: number, expectedRevision: number): Promise<VaultNote> {
   return request(`${noteId(id)}/restore`, token, VaultNoteSchema, json('POST', { revision, expectedRevision }));
+}
+
+/** Keep or Drop one Review item; the server applies it so Keep on a doubt can stamp the value validated. */
+export function triageVaultFact(token: string, id: string, triage: VaultTriageRequest): Promise<VaultNote> {
+  return request(`${noteId(id)}/triage`, token, VaultNoteSchema, json('POST', triage));
 }
 
 export function searchVault(token: string, q: string, limit: number): Promise<VaultSearchResult> {

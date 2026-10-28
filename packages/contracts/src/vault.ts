@@ -96,11 +96,21 @@ export const VaultOutgoingSchema = z.object({
 }).strict();
 export type VaultOutgoing = z.infer<typeof VaultOutgoingSchema>;
 
+export const VaultUnverifiedFlagSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('replaces'), value: z.string() }).strict(),
+  z.object({ kind: z.literal('doubt'), reason: z.string() }).strict(),
+]);
+export type VaultUnverifiedFlag = z.infer<typeof VaultUnverifiedFlagSchema>;
+
+export const VaultTriageActionSchema = z.enum(['confirm', 'drop']);
+export type VaultTriageAction = z.infer<typeof VaultTriageActionSchema>;
+
 export const VaultReviewItemSchema = z.object({
   note: VaultNoteSummarySchema,
   line: z.number().int().min(0),
   label: z.string().nullable(),
   value: z.string(),
+  flag: VaultUnverifiedFlagSchema.nullable(),
 }).strict();
 export type VaultReviewItem = z.infer<typeof VaultReviewItemSchema>;
 
@@ -182,6 +192,13 @@ export const VaultUpdateNoteRequestSchema = VaultNotePatchSchema.extend({ expect
 export const VaultRenameRequestSchema = z.object({ title: VaultNoteSchema.shape.title, expectedRevision: VaultRevisionNumberSchema }).strict();
 export const VaultDeleteRequestSchema = z.object({ expectedRevision: VaultRevisionNumberSchema }).strict();
 export const VaultRestoreRequestSchema = z.object({ revision: VaultRevisionNumberSchema, expectedRevision: VaultRevisionNumberSchema }).strict();
+
+export const VaultTriageRequestSchema = z.object({
+  line: z.number().int().min(0),
+  action: VaultTriageActionSchema,
+  expectedRevision: VaultRevisionNumberSchema,
+}).strict();
+export type VaultTriageRequest = z.infer<typeof VaultTriageRequestSchema>;
 
 export const VaultDeleteResponseSchema = z.object({ ok: z.literal(true) }).strict();
 export type VaultDeleteResponse = z.infer<typeof VaultDeleteResponseSchema>;

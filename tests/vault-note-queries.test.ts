@@ -58,7 +58,7 @@ test('backlinks group by source note with row labels; outgoing splits resolved a
 test('review lists unverified facts; stats counts notes, links, tags and stubs', () => withVault(({ store, database }) => {
   const { me } = seed(store);
   const queries = new VaultNoteQueries(database);
-  assert.deepEqual(queries.review(100), { total: 1, items: [{ note: { id: me.id, title: 'Denys', folder: '', kind: 'entity', isStub: false, updatedAtUtc: me.updatedAtUtc }, line: 5, label: 'Owns', value: '[[PC]]' }] });
+  assert.deepEqual(queries.review(100), { total: 1, items: [{ note: { id: me.id, title: 'Denys', folder: '', kind: 'entity', isStub: false, updatedAtUtc: me.updatedAtUtc }, line: 5, label: 'Owns', value: '[[PC]]', flag: null }] });
   assert.deepEqual(queries.stats(), { notes: 5, links: 6, tags: 2, stubs: 1, notesWithUnverified: 1, byKind: { entity: 3, capture: 1, daily: 1, chat: 0, note: 0 } });
 }));
 

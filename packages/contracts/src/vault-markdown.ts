@@ -1,4 +1,6 @@
 /** The vault note dialect (design §2). Pure functions shared by the server, the migration and the dashboard. */
+import type { VaultUnverifiedFlag } from './vault.ts';
+
 export const VAULT_VALUE_SEPARATOR = ' · ';
 export const VAULT_ROW_LIMIT = 8;
 export const UNVERIFIED_TAG_NAME = 'unverified';
@@ -8,7 +10,7 @@ const FACT_ROW_PATTERN = /^\*\*([^*]+)\*\*\s+(.+)$/;
 export const VAULT_LINK_PATTERN = /(!?)\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
 export const VAULT_TAG_PATTERN = /(?<!\S)#([A-Za-z][\w/-]*)/g;
 const TASK_PATTERN = /^\s*[-*]\s+\[( |x|X)\]\s+(.*)$/;
-const UNVERIFIED_PATTERN = new RegExp(String.raw`^>\s*[-*]\s+(.*?)\s*${UNVERIFIED_TAG}\b`);
+const UNVERIFIED_PATTERN = new RegExp(String.raw`^>\s*[-*]\s+(.*?)\s*${UNVERIFIED_TAG}\b(?:\s*\((replaces|doubt):\s*(.+)\))?`);
 const CODE_SPAN_PATTERN = /`[^`]*`/g;
 
 export interface VaultLink {
@@ -34,6 +36,8 @@ export interface VaultTask {
 export interface VaultUnverifiedFact {
   readonly label: string | null;
   readonly value: string;
+  /** Set by the note-writer: the value a conflict replaces, or why a held value is doubted. */
+  readonly flag: VaultUnverifiedFlag | null;
   readonly line: number;
 }
 
@@ -101,12 +105,16 @@ export function parseNoteBody(body: string): ParsedNoteBody {
     if (row) factRows.push({ label: row.label, values: splitValues(row.rest), line: index });
     const task = line.match(TASK_PATTERN);
     if (task) tasks.push({ text: task[2] ?? '', done: task[1] !== ' ', line: index });
-    const fact = line.match(UNVERIFIED_PATTERN)?.[1];
+    const unverifiedMatch = line.match(UNVERIFIED_PATTERN);
+    const fact = unverifiedMatch?.[1];
     if (fact !== undefined) {
+      const flagText = unverifiedMatch?.[3]?.trim();
+      const flag: VaultUnverifiedFlag | null = flagText === undefined ? null
+        : unverifiedMatch?.[2] === 'replaces' ? { kind: 'replaces', value: flagText } : { kind: 'doubt', reason: flagText };
       const factRow = parseFactRow(fact);
       unverified.push(factRow
-        ? { label: factRow.label, value: factRow.rest, line: index }
-        : { label: null, value: fact.trim(), line: index });
+        ? { label: factRow.label, value: factRow.rest, flag, line: index }
+        : { label: null, value: fact.trim(), flag, line: index });
     }
     if (lead === null && isPlainParagraph(line)) lead = { text: line.trim(), line: index };
   }

@@ -77,7 +77,7 @@ export class VaultNoteQueries {
       this.database, 'SELECT n.* FROM vault_notes n JOIN vault_tags t ON t.note_id = n.id AND t.tag = ? ORDER BY n.title_key', UNVERIFIED_TAG_NAME,
     );
     const items = rows.flatMap((note) => parseNoteBody(note.body).unverified.map((fact) => ({
-      note: toVaultNoteSummary(note), line: fact.line, label: fact.label, value: fact.value,
+      note: toVaultNoteSummary(note), line: fact.line, label: fact.label, value: fact.value, flag: fact.flag,
     })));
     return { total: items.length, items: items.slice(0, limit) };
   }

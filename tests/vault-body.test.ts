@@ -10,7 +10,7 @@ test('buildEntityBody writes lead, capped rows, tasks, overflow and unverified s
     lead: 'SiftKit is a project you work on.',
     rows: [{ label: 'Uses', values: values(10, 'T') }, { label: 'Runs on', values: ['[[Windows]]', '[[windows]]'] }, { label: 'Empty', values: [] }],
     taskSections: [{ heading: 'Plans', items: ['Ship the vault'] }],
-    unverified: [{ label: 'Uses', value: '[[GitHub]]' }],
+    unverified: [{ label: 'Uses', value: '[[GitHub]]', flag: null }],
   });
   assert.equal(body, [
     'SiftKit is a project you work on.',
