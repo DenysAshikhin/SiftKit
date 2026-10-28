@@ -1,6 +1,6 @@
 import type { JsonObject, JsonValue, InferenceChatMessage, InferenceToolDefinition, NormalizedInferenceChatResponse } from '../llm-protocol/types.ts';
 
-export type AgentLoopKind = 'repo-search' | 'chat' | 'summary-planner';
+export type AgentLoopKind = 'repo-search' | 'chat' | 'summary-planner' | 'vault-writer';
 
 export type AgentLoopFinishAction = {
   kind: 'finish';
