@@ -91,7 +91,7 @@ export class VaultCaptureWriter {
     if (!outcome.ok) {
       this.audit.recordAuditEvent({
         ownerId, eventType: 'vault_writer_rejected', targetType: 'vault_capture', targetId: attachmentId,
-        summary: 'Screenshot note-writer produced no usable structured output.', details: outputRejectionDetails(this.scanner, outcome),
+        summary: 'Screenshot note-writer produced no usable structured output.', details: outputRejectionDetails(this.scanner, outcome.rawSample, { code: outcome.code, attempts: outcome.attempts }),
       });
       this.finish(capture, [], 'processed');
       return { kind: 'rejected', reason: 'invalid_output', capturedAtUtc: capture.captured_at_utc };

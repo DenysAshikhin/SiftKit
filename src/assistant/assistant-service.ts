@@ -57,7 +57,8 @@ import {
   countCapturesInStates, listCaptureIdsInStates, listPendingCaptures, liveCaptureBytes, requeueStrandedCaptures,
 } from '../vault/captures.ts';
 import { VaultCaptureWriter } from '../vault/note-writer/capture-writer.ts';
-import { VaultChatWriter, type VaultChatTurn } from '../vault/note-writer/chat-writer.ts';
+import type { VaultChatTurn } from '../vault/note-writer/chat-turn.ts';
+import { VaultChatWriter } from '../vault/note-writer/chat-writer.ts';
 import { VaultDailyRollup } from '../vault/note-writer/daily-rollup.ts';
 import { VaultEditApplier } from '../vault/note-writer/edit-applier.ts';
 import { triageUnverified } from '../vault/triage.ts';

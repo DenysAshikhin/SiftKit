@@ -1,6 +1,6 @@
 import type { AssistantConfig } from '../../config/types.ts';
 import { z } from '../../lib/zod.ts';
-import { VaultChatTurnSchema } from '../../vault/note-writer/chat-writer.ts';
+import { VaultChatTurnSchema } from '../../vault/note-writer/chat-turn.ts';
 
 export const ASSISTANT_JOB_TYPES = ['capture_note', 'chat_note', 'daily_rollup', 'note_tidy', 'capture_retention'] as const;
 export const AssistantJobTypeSchema = z.enum(ASSISTANT_JOB_TYPES);

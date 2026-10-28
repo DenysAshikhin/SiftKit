@@ -60,7 +60,7 @@ export class VaultTidyPass {
     const outcome = await this.runner.run({
       role: 'vault_tidy', instructions: INSTRUCTIONS, userText: tidyUserText(note), schemaName: 'vault_tidy_lead', schema: TidyResponseSchema, abortSignal,
     });
-    if (!outcome.ok) return this.reject(ownerId, noteId, 'invalid_output', outputRejectionDetails(this.scanner, outcome));
+    if (!outcome.ok) return this.reject(ownerId, noteId, 'invalid_output', outputRejectionDetails(this.scanner, outcome.rawSample, { code: outcome.code, attempts: outcome.attempts }));
     const lead = outcome.value.lead.replace(/\s+/g, ' ');
     const scan = this.scanner.scan(lead);
     if (scan.containsSecret) return this.reject(ownerId, noteId, 'secret', { ruleIds: [...scan.matchedRuleIds] });

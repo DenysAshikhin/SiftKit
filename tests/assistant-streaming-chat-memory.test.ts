@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import type { VaultChatTurn } from '../src/vault/note-writer/chat-writer.ts';
+import type { VaultChatTurn } from '../src/vault/note-writer/chat-turn.ts';
 import type { VaultRetrieveResult } from '../src/vault/vault-retriever.ts';
 import { getConfigPath } from '../src/config/index.ts';
 import { writeConfig } from '../src/status-server/config-store.ts';

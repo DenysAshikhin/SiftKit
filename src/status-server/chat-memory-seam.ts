@@ -1,6 +1,6 @@
 import type { AssistantRuntime } from '../assistant/assistant-service.ts';
 import type { SiftPreset } from '@siftkit/contracts';
-import type { VaultChatTurn } from '../vault/note-writer/chat-writer.ts';
+import type { VaultChatTurn } from '../vault/note-writer/chat-turn.ts';
 
 type AssistantMemoryService = Pick<AssistantRuntime, 'enabled' | 'retrieveMemoryContext' | 'ingestChatTurn'>;
 

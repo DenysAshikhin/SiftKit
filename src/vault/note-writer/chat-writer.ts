@@ -4,13 +4,13 @@ import type { SecretScanner } from '../../assistant/domain/secrets.ts';
 import type { StructuredOutputRunner } from '../../assistant/inference/structured-runner.ts';
 import { QueryIntentExtractor } from '../../assistant/retrieval/query-intent.ts';
 import type { AuditStore } from '../../assistant/storage/audit-store.ts';
-import { z } from '../../lib/zod.ts';
 import type { RuntimeDatabase } from '../../state/runtime-db.ts';
 import { NoteIdRowSchema, requireVaultNote } from '../note-rows.ts';
 import { sanitizeVaultTitle, type VaultNoteStore } from '../note-store.ts';
 import { CHATS_FOLDER, LEARNED_HEADING } from '../vault-layout.ts';
 import { localDay } from '../vault-time.ts';
 import { knownNotesText } from './candidates.ts';
+import type { VaultChatTurn } from './chat-turn.ts';
 import { SUPPRESSION_PATTERN, stripUntrustedSpans } from './chat-text.ts';
 import type { VaultEditApplier } from './edit-applier.ts';
 import { VAULT_EDIT_INSTRUCTIONS, VaultEditResponseSchema } from './edit-ops.ts';
@@ -27,17 +27,6 @@ const INSTRUCTIONS = [
   "Skip questions, hypotheticals, quotations and requests. The assistant's reply is context only.",
   VAULT_EDIT_INSTRUCTIONS,
 ].join('\n');
-
-export const VaultChatTurnSchema = z.object({
-  sessionId: z.string(),
-  sessionTitle: z.string(),
-  userMessageId: z.string(),
-  capturedAtUtc: z.string().datetime(),
-  userText: z.string(),
-  /** The final answer only; hidden reasoning is never passed in. */
-  assistantText: z.string(),
-}).strict();
-export type VaultChatTurn = z.infer<typeof VaultChatTurnSchema>;
 
 export type VaultChatWriteOutcome =
   | { readonly kind: 'processed'; readonly noteId: string; readonly learned: readonly string[]; readonly touchedNoteIds: readonly string[] }
@@ -118,7 +107,7 @@ export class VaultChatWriter {
       if (outcome?.ok === false) {
         this.audit.recordAuditEvent({
           ownerId, eventType: 'vault_writer_rejected', targetType: 'chat_session', targetId: turn.sessionId,
-          summary: 'Chat note-writer produced no usable structured output.', details: outputRejectionDetails(this.scanner, outcome),
+          summary: 'Chat note-writer produced no usable structured output.', details: outputRejectionDetails(this.scanner, outcome.rawSample, { code: outcome.code, attempts: outcome.attempts }),
         });
       }
       const meta: VaultWriteMeta = { actor: 'note-writer · chat', summary: `Chat turn in ${turn.sessionTitle}`, sourceRef };

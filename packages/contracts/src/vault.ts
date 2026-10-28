@@ -7,7 +7,7 @@ export type VaultNoteKind = z.infer<typeof VaultNoteKindSchema>;
 export const VaultRevisionNumberSchema = z.number().int().min(1);
 
 /** Who wrote a revision (design §4.2). Closed, so history can render each writer distinctly. */
-export const VAULT_ACTORS = ['you', 'capture-intake', 'migration', 'note-writer · screenshot', 'note-writer · chat', 'note-writer · daily', 'note-writer · tidy'] as const;
+export const VAULT_ACTORS = ['you', 'capture-intake', 'migration', 'note-writer · screenshot', 'note-writer · chat', 'note-writer · daily', 'note-writer · tidy', 'note-writer · review'] as const;
 export const VaultActorSchema = z.enum(VAULT_ACTORS);
 export type VaultActor = z.infer<typeof VaultActorSchema>;
 

@@ -12,7 +12,7 @@ import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runti
 import { buildAssistantService } from './helpers/assistant-fixture.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.ts';
 import type { AssistantConfig } from '../src/config/types.ts';
-import type { VaultChatTurn } from '../src/vault/note-writer/chat-writer.ts';
+import type { VaultChatTurn } from '../src/vault/note-writer/chat-turn.ts';
 import { requireCapture, setCaptureState } from '../src/vault/captures.ts';
 import { findOwnerNote } from '../src/vault/owner-identity.ts';
 import { StubImageCapability, vaultCaptureDto } from './helpers/vault-capture-fixture.ts';

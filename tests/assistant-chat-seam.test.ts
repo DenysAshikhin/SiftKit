@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { buildChatSystemContent } from '../src/status-server/chat.ts';
 import { ChatMemorySeam } from '../src/status-server/chat-memory-seam.ts';
 import { PresetCatalog } from '../src/preset-catalog.ts';
-import type { VaultChatTurn } from '../src/vault/note-writer/chat-writer.ts';
+import type { VaultChatTurn } from '../src/vault/note-writer/chat-turn.ts';
 import type { VaultRetrieveResult } from '../src/vault/vault-retriever.ts';
 import type { ChatSession } from '../src/state/chat-sessions.ts';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
