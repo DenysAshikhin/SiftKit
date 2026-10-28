@@ -1,8 +1,12 @@
 import { startStatusServer } from './index.ts';
 import { getErrorMessage } from '../lib/errors.ts';
+import { waitForChatOwnerLease } from '../state/chat-runtime-owner.ts';
+import { getRuntimeDatabase } from '../state/runtime-db.ts';
 import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from './shutdown-budget.ts';
 import { ShutdownMessageSchema } from './shutdown-message.ts';
 
+// A server that died without releasing the chat lease holds it for up to one term.
+await waitForChatOwnerLease(getRuntimeDatabase());
 const server = startStatusServer({
   disableManagedEngineStartup: process.argv.includes('--disable-managed-engine-startup'),
 });

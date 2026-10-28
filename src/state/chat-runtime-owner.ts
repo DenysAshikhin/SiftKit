@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import { z } from '../lib/zod.ts';
 import type { RuntimeDatabase } from './database-handle.ts';
 
@@ -8,6 +10,26 @@ export const CHAT_OWNER_HEARTBEAT_LATE_MS = CHAT_OWNER_LEASE_MS / 3;
 export const ChatRuntimeOwnerSchema = z.object({
   owner_id: z.string(), epoch: z.number().int().positive(), heartbeat_at_utc: z.string().datetime(), lease_expires_at_utc: z.string().datetime(),
 });
+
+/** A dead owner's lease lapses within one term; one still live after a term plus a beat is being renewed. */
+export const CHAT_OWNER_LEASE_WAIT = { maxWaitMs: CHAT_OWNER_LEASE_MS + CHAT_OWNER_HEARTBEAT_MS, pollMs: 250 };
+
+/** Waits out a lease left by a server that exited without releasing it, so a restart does not crash on it. */
+export async function waitForChatOwnerLease(database: RuntimeDatabase, budget = CHAT_OWNER_LEASE_WAIT): Promise<void> {
+  const deadlineMs = Date.now() + budget.maxWaitMs;
+  let announced = false;
+  for (;;) {
+    const raw = database.prepare('SELECT * FROM chat_runtime_owner WHERE id = 1').get();
+    const expiresAtMs = raw === undefined ? null : Date.parse(ChatRuntimeOwnerSchema.parse(raw).lease_expires_at_utc);
+    if (expiresAtMs === null || expiresAtMs <= Date.now()) return;
+    if (Date.now() >= deadlineMs) throw new Error('A live chat runtime owner is still renewing its lease: another status server is running on this database.');
+    if (!announced) {
+      process.stderr.write(`[siftKitStatus] Waiting up to ${Math.ceil((expiresAtMs - Date.now()) / 1000)} s for the previous server's chat lease to expire.\n`);
+      announced = true;
+    }
+    await sleep(budget.pollMs);
+  }
+}
 
 /** The SQLite lease still fences separate processes; the handle is this process's stable connection. */
 export class ChatRuntimeOwner {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ChatRuntimeOwner, CHAT_OWNER_LEASE_MS } from '../src/state/chat-runtime-owner.ts';
+import { ChatRuntimeOwner, CHAT_OWNER_LEASE_MS, waitForChatOwnerLease } from '../src/state/chat-runtime-owner.ts';
 import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import { heartbeatChatRuntimeOwner } from '../src/status-server/chat-run-recovery.ts';
@@ -76,4 +76,26 @@ test('a heartbeat fenced out by another live owner aborts admitted work and does
   assert.equal(ctx.chatRunOwnerEpoch, owner.ownerEpoch);
   intruder.assertOwned();
   assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, null);
+});
+
+test('startup waits out a lease its owner stopped renewing, then takes the next epoch', async () => {
+  const database = getRuntimeDatabase(join(createManagedTempDir('chat-owner-wait-stale-'), 'runtime.sqlite'));
+  const crashed = ChatRuntimeOwner.acquire(database, 'crashed', Date.now() - CHAT_OWNER_LEASE_MS + 300);
+  const startedAtMs = Date.now();
+  await waitForChatOwnerLease(database, { maxWaitMs: 5_000, pollMs: 20 });
+  assert.ok(Date.now() - startedAtMs >= 250, 'the wait lasts until the stale lease expires');
+  assert.equal(ChatRuntimeOwner.acquire(database, 'next').epoch, crashed.epoch + 1);
+});
+
+test('startup does not wait when no live lease exists', async () => {
+  const database = getRuntimeDatabase(join(createManagedTempDir('chat-owner-wait-free-'), 'runtime.sqlite'));
+  await waitForChatOwnerLease(database, { maxWaitMs: 0, pollMs: 20 });
+  ChatRuntimeOwner.acquire(database, 'released').release();
+  await waitForChatOwnerLease(database, { maxWaitMs: 0, pollMs: 20 });
+});
+
+test('a lease still live past the wait budget belongs to a running server and fails loudly', async () => {
+  const database = getRuntimeDatabase(join(createManagedTempDir('chat-owner-wait-live-'), 'runtime.sqlite'));
+  ChatRuntimeOwner.acquire(database, 'live');
+  await assert.rejects(waitForChatOwnerLease(database, { maxWaitMs: 100, pollMs: 20 }), /another status server/u);
 });
