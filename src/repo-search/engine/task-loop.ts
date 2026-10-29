@@ -777,7 +777,7 @@ export class TaskLoop {
     if (error instanceof NativePlannerToolCallError) {
       // A rejected native call is journalled like any other rejection, so the next turn can correct it.
       const outcome = this.toolActions.recordInvalidResponse(turn, {
-        callId: error.callId, toolName: error.toolName, args: error.args, message: error.message,
+        callId: error.callId, toolName: error.toolName, args: error.args, rawArguments: error.rawArguments, message: error.message,
         thinkingText: String(response.thinkingText || '').trim(),
       });
       return outcome === 'stop_batch' ? 'stop' : 'continue';

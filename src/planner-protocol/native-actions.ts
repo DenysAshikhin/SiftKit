@@ -18,17 +18,15 @@ export class NativePlannerToolCallError extends Error {
   readonly callId: string;
   readonly toolName: string;
   readonly args: JsonObject;
+  /** The argument text exactly as the provider sent it, so a lost field can be traced to the model or to parsing. */
+  readonly rawArguments: string;
 
-  constructor(
-    message: string,
-    callId: string,
-    toolName: string,
-    args: JsonObject,
-  ) {
+  constructor(message: string, toolCall: InferenceToolCall, args: JsonObject) {
     super(message);
-    this.callId = callId;
-    this.toolName = toolName;
+    this.callId = toolCall.id;
+    this.toolName = toolCall.function.name.trim();
     this.args = args;
+    this.rawArguments = toolCall.function.arguments;
     this.name = 'NativePlannerToolCallError';
   }
 }
@@ -51,12 +49,7 @@ function parseArguments(toolCall: InferenceToolCall): JsonObject {
   if (parsed) {
     return parsed;
   }
-  throw new NativePlannerToolCallError(
-    `Tool "${toolCall.function.name}" returned invalid JSON arguments.`,
-    toolCall.id,
-    toolCall.function.name,
-    {},
-  );
+  throw new NativePlannerToolCallError(`Tool "${toolCall.function.name}" returned invalid JSON arguments.`, toolCall, {});
 }
 
 function formatIssuePath(path: PropertyKey[]): string {
@@ -255,8 +248,7 @@ function parseDefinitionArguments<T>(
   throw new NativePlannerToolCallError(
     `Tool "${toolCall.function.name.trim()}" has invalid "${formatIssuePath(issue?.path ?? [])}": ${detail}`
       + `${describeUnparsedJson(candidate, issue)}${describeExpectedShape(parameters, issue)}`,
-    toolCall.id,
-    toolCall.function.name.trim(),
+    toolCall,
     args,
   );
 }
@@ -270,12 +262,7 @@ function parseToolAction(
   const definition = options.toolDefinitions.find((candidate) => candidate.function.name === toolName);
   if (!definition) {
     const allowed = options.toolDefinitions.map((candidate) => candidate.function.name).join(', ');
-    throw new NativePlannerToolCallError(
-      `Unknown or disallowed tool "${toolName}". Allowed tools: ${allowed}.`,
-      toolCall.id,
-      toolName,
-      args,
-    );
+    throw new NativePlannerToolCallError(`Unknown or disallowed tool "${toolName}". Allowed tools: ${allowed}.`, toolCall, args);
   }
 
   if (definition.kind === 'finish') {

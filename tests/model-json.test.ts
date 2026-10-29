@@ -51,6 +51,21 @@ test('ModelJson repairs escaped JSON strings before validating tool arguments', 
   assert.deepEqual(args, { command: 'rg -n plan src' });
 });
 
+// A live orchestrator wrote `.\src/...` unescaped; repair dropped the backslash and every plan check ran `.src/...`.
+test('ModelJson keeps raw Windows backslashes in a string that has an invalid escape', () => {
+  assert.deepEqual(ModelJson.parseToolArguments(String.raw`{"command":"node .\src/test-runner/run-tests.ts orchestrator"}`),
+    { command: String.raw`node .\src/test-runner/run-tests.ts orchestrator` });
+  assert.deepEqual(ModelJson.parseToolArguments(String.raw`{"command":"node .\src\test-runner\run-tests.ts","cwd":"."}`),
+    { command: String.raw`node .\src\test-runner\run-tests.ts`, cwd: '.' }, 'escape-like \\t and \\r stay literal, not a tab and a CR');
+  assert.deepEqual(ModelJson.parseToolArguments(String.raw`{"path":"C:\Users\denys\x.ts","note":"say \"hi\""}`),
+    { path: String.raw`C:\Users\denys\x.ts`, note: 'say "hi"' }, 'an invalid \\U escape marks the string as raw');
+});
+
+test('ModelJson leaves valid escapes alone in strings without an invalid one', () => {
+  assert.deepEqual(ModelJson.parseToolArguments(String.raw`{"command":"node .\src/run.ts","instruction":"line one\nline two\t\"x\""}`),
+    { command: String.raw`node .\src/run.ts`, instruction: 'line one\nline two\t"x"' });
+});
+
 test('ModelJson rejects tool arguments when repair synthesizes a missing value', () => {
   assert.equal(ModelJson.parseToolArguments('{"command":}'), null);
 });

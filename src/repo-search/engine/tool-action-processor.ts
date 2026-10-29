@@ -625,7 +625,8 @@ export class ToolActionProcessor {
     });
   }
 
-  private logInvalidAction(turn: number, toolAction: AgentLoopToolAction, message: string): ToolActionOutcome {
+  /** `rawArguments` is the provider's argument text when the call failed to parse; null when it parsed and failed later. */
+  private logInvalidAction(turn: number, toolAction: AgentLoopToolAction, message: string, rawArguments: string | null): ToolActionOutcome {
     const { counters } = this.deps;
     this.deps.logger?.write({
       kind: 'turn_action_invalid',
@@ -634,6 +635,7 @@ export class ToolActionProcessor {
       invalidResponses: counters.invalidResponses,
       error: message,
       toolAction,
+      rawArguments,
       toolResultText: message,
     });
     if (counters.invalidResponses >= this.deps.maxInvalidResponses) {
@@ -658,14 +660,16 @@ export class ToolActionProcessor {
   ): ToolActionOutcome {
     const outcome = this.rejectInvalidCall(turn, this.callIdentity(turn, state, progressToolCallId), displayToolName, toolAction.args, message);
     state.batchOutcomes.push(outcome);
-    return this.logInvalidAction(turn, toolAction, message);
+    return this.logInvalidAction(turn, toolAction, message, null);
   }
 
   /**
    * A response the parser rejected: no sibling ran, and the model needs the same durable
    * rejection a processor-level invalid call gets so the next turn can correct it.
    */
-  recordInvalidResponse(turn: number, input: { callId: string; toolName: string; args: JsonObject; message: string; thinkingText: string }): ToolActionOutcome {
+  recordInvalidResponse(turn: number, input: {
+    callId: string; toolName: string; args: JsonObject; rawArguments: string; message: string; thinkingText: string;
+  }): ToolActionOutcome {
     const { transcript } = this.deps;
     const displayToolName = input.toolName.trim() || 'invalid_tool_call';
     const call: ChatToolCallIdentity = {
@@ -674,7 +678,8 @@ export class ToolActionProcessor {
     const outcome = this.rejectInvalidCall(turn, call, displayToolName, input.args, input.message);
     transcript.appendBatchExchange([outcome], input.thinkingText);
     transcript.pruneThinking(this.deps.maintainPerStepThinking);
-    return this.logInvalidAction(turn, { kind: 'tool', callId: input.callId, toolName: displayToolName, args: input.args }, input.message);
+    return this.logInvalidAction(turn, { kind: 'tool', callId: input.callId, toolName: displayToolName, args: input.args }, input.message,
+      input.rawArguments);
   }
 
   /** Proposal, then rejected result, then command/log bookkeeping; the exchange is appended by the caller. */

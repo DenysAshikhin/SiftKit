@@ -478,6 +478,15 @@ test('an unknown key names where that key belongs and the shape around it, down 
       + 'expected shape: {"taskId": "…", "set": {"title": "…"}}');
 });
 
+test('a command sent with raw Windows backslashes reaches the tool with them intact', () => {
+  const CommandSchema = z.strictObject({ command: z.string() }).transform((value) => JsonObjectSchema.parse(value));
+  const raw: InferenceToolCall = { id: 'raw-1', type: 'function',
+    function: { name: 'check', arguments: String.raw`{"command":"node .\src\test-runner\run-tests.ts orchestrator"}` } };
+  const [action] = parseNativePlannerActions({ text: '', toolCalls: [raw] },
+    { toolDefinitions: [definition('check', CommandSchema, { command: 'npm test' })], contentWithoutTools: 'finish' });
+  assert.equal(action?.kind === 'tool' ? action.args.command : null, String.raw`node .\src\test-runner\run-tests.ts orchestrator`);
+});
+
 test('an error inside an array item names the shape of the item around it', () => {
   assert.equal(nestedError(UpdateSchema, { update: [] }, { update: [{ set: { title: 'x' } }] }),
     'Tool "nested" has invalid "update.0.taskId": Invalid input: expected string, received undefined; '

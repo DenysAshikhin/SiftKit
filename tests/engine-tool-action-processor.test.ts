@@ -905,7 +905,7 @@ for (const [label, actions] of [
 test('a parser-rejected native call is durably rejected with its validated identity and arguments', async () => {
   const root = createManagedTempDir('siftkit-invalid-response-');
   const { processor, recorder, store, counters, transcript, commands } = recordedProcessor(root);
-  const outcome = processor.recordInvalidResponse(1, { callId: 'call_bad', toolName: 'read', args: { raw: '{not json' },
+  const outcome = processor.recordInvalidResponse(1, { callId: 'call_bad', toolName: 'read', args: { raw: '{not json' }, rawArguments: '{not json',
     message: 'Tool "read" returned invalid JSON arguments.', thinkingText: 'thinking' });
   assert.equal(outcome, 'next');
   assert.equal(counters.invalidResponses, 1);
@@ -929,7 +929,8 @@ test('repeated parser-rejected responses still hit the invalid-response ceiling'
   const { processor, counters } = recordedProcessor(root);
   const outcomes: string[] = [];
   for (let turn = 1; turn <= 3; turn += 1) {
-    outcomes.push(processor.recordInvalidResponse(turn, { callId: `c${String(turn)}`, toolName: 'read', args: {}, message: 'bad', thinkingText: '' }));
+    outcomes.push(processor.recordInvalidResponse(turn, { callId: `c${String(turn)}`, toolName: 'read', args: {}, rawArguments: '{}', message: 'bad',
+      thinkingText: '' }));
   }
   assert.equal(outcomes.includes('stop_batch'), true);
   assert.equal(counters.reason, 'invalid_response_limit');

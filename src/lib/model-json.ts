@@ -129,7 +129,7 @@ export class ModelJson {
       };
     } catch (strictError) {
       try {
-        const value = JsonValueSchema.parse(JSON.parse(jsonrepair(normalized)));
+        const value = JsonValueSchema.parse(JSON.parse(jsonrepair(this.keepRawBackslashes(normalized))));
         return {
           value,
           repaired: true,
@@ -140,6 +140,18 @@ export class ModelJson {
         throw new Error(`Provider returned an invalid ${payloadName} payload: ${message}`);
       }
     }
+  }
+
+  /**
+   * Models write Windows paths with raw backslashes. A string holding an escape JSON lacks (`\s`, `\U`) was written
+   * raw, so every backslash in it is kept literally except before a quote or another backslash; repair would drop them.
+   */
+  private static keepRawBackslashes(text: string): string {
+    return text.replace(/"(?:[^"\\]|\\.)*"/gsu, (literal) => {
+      const raw = [...literal.matchAll(/\\(u[0-9a-fA-F]{4}|.)/gsu)].some(([, escape]) => escape !== undefined
+        && escape.length === 1 && !'"\\/bfnrt'.includes(escape));
+      return raw ? literal.replace(/\\(.)/gsu, (escape, next: string) => (next === '"' || next === '\\' ? escape : `\\\\${next}`)) : literal;
+    });
   }
 
   private static countNullValues(value: JsonValue): number {

@@ -144,6 +144,18 @@ test('a truncated reply that also fails to parse is replayed with the notice and
   assert.match(userMessage ?? '', /^Previous response was invalid: Planner returned neither content nor tool calls\./u);
 });
 
+// Live writers saw `path` vanish from write and edit calls; the raw text shows whether the provider ever sent it.
+test('a rejected native tool call logs the raw argument text the provider sent', async () => {
+  const { events } = await runScenario({
+    id: 'agent-invalid-raw-arguments',
+    mockResponses: [{ toolCalls: [{ name: 'read', arguments: { offset: 1, limit: 20 } }] }, { content: 'complete answer' }, VERDICT],
+  });
+
+  const invalid = events.find((event) => event.kind === 'turn_action_invalid');
+  assert.match(String(invalid?.error ?? ''), /Tool "read" has invalid "path"/u);
+  assert.equal(invalid?.rawArguments, JSON.stringify({ offset: 1, limit: 20 }));
+});
+
 test('a second truncated finish is accepted: the retry is bounded to one', async () => {
   const { result, truncated } = await runScenario({
     id: 'agent-truncated-twice',
