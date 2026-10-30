@@ -1,5 +1,7 @@
 # EXL3 Draft Loop Phase A (MTP experts on GPU) Implementation Plan
 
+> **Status (2026-10-29):** Tasks 1-5 executed. Phase A failed its gate (+1% at fixed NcpuMoe 409, net slower than today) and the code was reverted; Task 6 skipped. Results: `docs/analysis/2026-10-29-exl3-vs-strata-decode-gap.md`, "Phase A (MTP experts on GPU) result".
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Keep the MTP draft head's routed experts on the GPU, so the ~3.4 draft passes per decode step stop waiting on the CPU MoE worker. Pay for the VRAM by moving 10 more main-layer experts to the CPU. Then measure the result against today's preset.

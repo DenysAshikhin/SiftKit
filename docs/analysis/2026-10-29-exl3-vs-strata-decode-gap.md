@@ -277,6 +277,383 @@ layer is CPU-split like the others (`mtp.layers.0.mlp [113..512)`).
 Consequence: a graph-captured verify pass could save at most ~1.2 ms per step. The draft loop (~22 ms) takes as long
 as Strata's whole step, and is the target instead.
 
+## Phase A (MTP experts on GPU) result: no gain, reverted
+
+Spec `docs/superpowers/specs/2026-10-29-exl3-draft-loop-design.md`, plan `…/plans/2026-10-29-exl3-draft-loop-phase-a.md`.
+`InferParams.draft_moe_cpu_split` (0 keeps the MTP layer's experts on the GPU) plus TabbyAPI
+`cpu_moe_split_mtp_experts` worked as intended: one CPU worker instead of two. The 942 MiB it needs came from
+`NcpuMoe` 399 → 409. Groxaxo 3.50 HQ, 200k, dev source via `PYTHONPATH`, profiles restored before every arm, decode
+tok/s as the mean of two runs:
+
+| Probe | 399, MTP split (today) | 409, MTP split | 409, MTP on GPU |
+|---|---|---|---|
+| short (first, cold) | 46.69 | 44.67 | 45.68 |
+| short | 56.88 | 56.24 | 55.95 |
+| 24k | 56.85 | 49.16 | 51.27 |
+| 64k | 55.40 | 54.20 | 53.84 |
+
+ABBA order was base, gpu:409, gpu:409, base. Steady row hit fell from 70-71% to 61-62% at 409. Peak VRAM was
+23,744 MiB, against 23,764 MiB today. At the same 409, moving the MTP layer to the GPU is worth about +1%, which is
+within noise. Losing 10 GPU slots per main layer costs more than that. Verdict: fails the +3% gate; code reverted.
+
+The predicted ~3.5 ms per step (the 1,055 us draft-pass waits) did not show up. Diagnosis:
+- **nsys (MTP on GPU).** The draft-pass waits are gone. Instead, 139 waits over 3 ms (mean 7.2 ms) sit on the first
+  CPU layer of main passes, against 29 in today's trace.
+  - The host queued `coop_b`, `cuStreamWaitValue32` (wait for the worker's `done` flag) and `collect_add` on time,
+    and the GPU then idled 12-15 ms in the wait.
+- **Worker pickup instrumentation** (temporary `EXL3_MOE_HANDOFF_PROF` patch to `moe_handoff.cu`, in-place build,
+  untraced runs). The worker is not late.
+  - It naps after ~1 ms idle, and a nap costs ~2 ms (`timeBeginPeriod(1)` is honoured: `Sleep(1)` = 1.95 ms).
+  - In the whole Phase A run only 4 pickups followed a nap, all at most 2.4 ms late; today's setup had 14 (p50
+    2.6 ms, max 14.8 ms).
+  - Decode compute is 0.347 ms per job against 0.310 ms today, with 3.01 against 2.85 CPU experts per row.
+- So the long stalls appear under nsys tracing but not in untraced runs. The nsys-derived per-step wait accounting
+  (the 8.1 ms draft-loop blocked time above) overstates what removing those waits buys.
+
+Consequence for Phases B and C: their expected gains came from the same nsys accounting. Check the real cost of the
+draft-loop syncs untraced before planning B.
+
+## Untraced step split: the verify pass is ~89% of the step
+
+The scratch timer `C:\tmp\exl3-match\steptime\sitecustomize.py` brackets the generator's MTP draft loop, hybrid draft
+and `iterate_gen` (verify + accept) with `torch.cuda.synchronize`. Setup: production wheel, today's preset, no nsys.
+The boundary syncs cost ~20% decode (43-45 tok/s).
+
+| Window (100 decode steps) | Draft loop | Hybrid | Verify + accept | Step |
+|---|---|---|---|---|
+| 201-300 | 5.09 ms | 0.03 | 40.42 ms | 45.59 ms |
+| 401-500 | 4.34 ms | 0.03 | 37.15 ms | 41.58 ms |
+| 701-800 | 5.43 ms | 0.04 | 44.96 ms | 50.49 ms |
+
+Windows that contain prefill steps are left out. The nsys split above (draft loop ~22.4 ms, verify ~25.5 ms) was
+wrong: `regions.py` bounds the verify pass by its first and last CPU wait, so everything before layer 0's wait (and the
+tracing overhead) was counted as draft loop.
+
+Consequences:
+- The draft loop has at most ~5 ms per step to give, so B2, B3 and C (draft-loop syncs, draft-pass graph) are capped
+  near ~10%.
+- The verify pass (~40 ms against Strata's ~22 ms whole step) is where the gap is. Inside it:
+  - ~48 CPU-expert jobs per step at ~0.31 ms compute each, ~15 ms of serialized CPU work;
+  - the promote-step hook (3.8 ms per step, `EXL3_MOE_CPU_SWAP_DEBUG`), which is B1.
+
+## Phases B1, B2, B3: no gain (local branches kept, not merged)
+
+Each phase sits on its own local branch so it can be swapped in later (`C:\tmp\exl3-match\phase-abba.sh`):
+
+| Phase | Branch | Change |
+|---|---|---|
+| B1 | exllamav3 `exp/b1-promote-batched` (bb5c0986) | promote-on-miss map writes as one pinned non-blocking copy per device (~22 syncs per step removed) |
+| B2 | TabbyAPI `exp/sparse-draft-head` (aa9e22f) | passes `sparse_draft_head` (4096): sparse draft head, embedding row stays on the GPU |
+| B3 | exllamav3 `exp/b3-lagged-draft-stop` (69757cc3) | dynamic-draft stop decided one step late on a non-blocking readback |
+| B1 + B3 | exllamav3 `exp/draft-loop-all` | `all` arm = this plus B2 |
+
+A B B A each, production preset at 200k, decode tok/s as the mean of two runs. The "cold" column is the first short
+request:
+
+| Set | Arm | cold | short | 24k | 64k |
+|---|---|---|---|---|---|
+| B1 | base | 46.5 | 57.5 | 54.9 | 54.3 |
+| | B1 | 47.1 | 55.4 | 57.0 | 54.6 |
+| B2 | base | 46.1 | 53.7 | 54.5 | 53.9 |
+| | B2 | 43.4 | 50.8 | 52.7 | 55.6 |
+| B3 | base | 46.2 | 58.7 | 55.0 | 56.8 |
+| | B3 | 45.8 | 55.0 | 52.1 | 51.3 |
+| all | base | 48.0 | 58.2 | 52.2 | 53.3 |
+| | B1 + B2 + B3 | 44.9 | 57.6 | 55.9 | 53.6 |
+
+- B1: within noise, and the promote hook stays at 3.2-3.8 ms per step, so those syncs were not its cost.
+- B2: within noise (load log confirms the sparse head).
+- B3: consistently slower (-5 to -10% after warm-up): the extra draft forward on stopping rounds costs more than the
+  readback it removes.
+- Prefill stayed at 1.87-2.12k in every arm.
+
+Together with the untraced step split, draft-loop syncs are not where the time goes.
+
+## Where EXL3 loses per step: CPU expert bytes
+
+`C:\tmp\exl3-match\split\split_model.py` predicts the CPU work per verify step from the saved routing profile.
+- Distinct CPU experts per layer = sum over non-resident experts of 1 - (1 - q)^S, with S = 3.4 rows x 10.
+- Bytes per expert are read from the safetensors headers: 2.362 MiB in 24 layers (K=4), 1.776 MiB in 25 (K=3).
+- Assumes 44 GB/s.
+
+At today's 117 slots per layer it gives 7.1 distinct CPU experts per layer, a 21.4% CPU row share and ~17 ms of CPU
+job per step. That matches the worker's measured 0.31 ms per job. With the GPU hiding only ~0.12 ms per layer (its
+resident routed work), it predicts ~11 ms of stall per step, which matches the measured 0.16-0.27 ms median per layer.
+
+- EXL3 moves ~700 MB of cold-expert bytes per step, against ~320 MB for Strata (2.4 rows, ~16% CPU share). That is
+  ~1.9x per token, the size of the decode gap.
+- Re-allocating the same expert VRAM non-uniformly across layers (more slots in K=4 layers) saves only ~0.4-0.6 ms.
+- More GPU slots per layer is the lever the model favours: 130 / 140 / 150 / 160 slots predict 8.9 / 7.3 / 5.8 /
+  4.5 ms of stall. That would need up to ~4 GB more VRAM. The earlier NcpuMoe 399 -> 418 "no visible change" result
+  disagrees, so this is being measured directly (fixed NumCtx 65536, NcpuMoe 399 vs 370) before anything is built.
+- The KV cache (12 full-attention layers, 24 KB per token in fp16) reserves 4.6 GiB at 200k, most of it unused at
+  24k-64k contexts. KV stays fp16 at full capacity (user requirement).
+
+## More GPU slots: measured, +7.6% for 2.9 GiB
+
+`slot-abba.sh`, NumCtx 65536 for the test only (frees KV VRAM), A B B A, decode tok/s (second short, 24k):
+
+| `NcpuMoe` (GPU slots per layer) | Runs | Mean | Idle VRAM |
+|---|---|---|---|
+| 399 (117) | 56.5, 55.6 / 55.3, 53.6 | 55.2 | 19.4 GB |
+| 370 (146) | 60.9, 56.9 / 58.1, 61.8 | 59.4 | 22.3 GB |
+
+About +2.6% per GiB of expert VRAM, in line with the split model. Prefill unchanged (1.86-1.93k).
+
+## VRAM audit at 200k (`C:\tmp\exl3-match\vramaudit`)
+
+22.2 GiB allocated by torch, 0.03 GiB free:
+- KV (`CacheLayer_qsa.k/v`, fp16, 782 pages x 256): 4.96 GiB, plus the QSA indexer planes (`raw_k`, `pooled`, fp16): 0.78 GiB.
+- Routed experts (`LinearEXL3.trellis`): ~10.75 GiB. lm_head 0.44 GiB.
+- Hyper-connection tables (`GatedResidual.proj_h/upx_h`, fp16, 100 sites): 1.34 GiB. Model weights; quantizing them changes output.
+- 0.94 GiB in storages under 4 MiB; ~1.6 GiB outside torch (context, cuBLAS, display).
+
+Nothing large can be reclaimed without changing output or the KV. More slots would have to borrow unused KV pages
+(an elastic tier, ~3 GiB free at <=64k contexts).
+
+## DRAM bandwidth (`C:\tmp\exl3-match\bw\bw.py`)
+
+2 x 64 GB DDR5-5600 (89.6 GB/s theoretical). A multi-threaded torch sum reads 58-65 GB/s at 2-24 threads. The CPU
+expert kernel reaches 44-52 GB/s, so at most ~25% is left there. The 11 workers are already pinned across both CCDs
+(physical cores 0-10, host on core 11).
+
+## Untraced GPU timeline of the verify pass (`C:\tmp\exl3-match\gputl`)
+
+CUDA events and host timestamps around every top-level module, its `attn`/`mlp`, and the MoE's routing, submit and
+combine (no syncs added; the overlay costs ~15% decode). Steady window, per verify pass (2-8 rows):
+
+| | GPU stream | Host issue time |
+|---|---|---|
+| Whole pass | 34.2 ms | 31.1 ms |
+| attn | 4.8 ms | 3.3 ms |
+| MoE routing | 1.4 ms | 2.9 ms |
+| MoE `cpu_split_submit` | 5.9 ms | 5.9 ms |
+| MoE resident + shared experts (rest of mlp) | ~6.1 ms | |
+| MoE `cpu_split_combine` (CPU wait + add) | 11.1 ms | 2.1 ms |
+| norms, hyper-connections, glue | ~4.4 ms | ~10 ms |
+
+Critical path (`C:\tmp\exl3-match\perturb`, A B C A C B): +200 us before each of the 53 modules of a verify pass
+(+10.6 ms per pass) on the GPU stream cut steady decode from 56.5 to 46.2 tok/s (~8.7 ms per step showed up); the
+same on the host cut it to 53.7 (~2.0 ms). The GPU stream (its work plus CPU waits) is the critical path, with
+~8 ms of host slack per pass. A graph-captured pass only pays once the stream itself shrinks by more than that.
+
+Submit's GPU time equals its host time because layer 0's submit runs the promote-on-miss step (3.7 ms of host work
+per step) while the GPU has almost nothing queued (the host has just synced for sampling).
+
+## Promote hook moved to the end of the pass: no gain
+
+Overlay `C:\tmp\exl3-match\hookmove` defers layer 0's promote-on-miss step to the end of the verify pass's issue loop
+(same decisions, same snapshot). A B B A, mean of six steady requests: 57.9 tok/s base vs 58.1 moved. The hook at the
+start of the pass is not on the critical path either.
+
+## Between passes (`gputl`, pass-boundary events)
+
+Per decode step: GPU idle 0.95 ms between draft passes (1.3 per step), 0.97 ms from the last draft pass to verify,
+2.3 ms from verify to the next step's first draft pass (accept, sampling, GDN rewind, draft setup). ~4.2 ms per step
+in total. The generator's single `torch.cuda.synchronize` per step waits ~12 ms (cProfile, `hostprof`), so the host
+has that much slack during the verify pass and none after it.
+
+## CPU kernel: DRAM-bound cold, ~2x faster with the weights cached (`l3bench\bench.py`, real K=4 shapes, 11 threads)
+
+| Experts per job | Cold | Cached |
+|---|---|---|
+| 5 | 0.203 ms (60 GB/s) | 0.115 ms |
+| 7 | 0.280 ms (61.5 GB/s) | 0.155 ms |
+| 10 | 0.389 ms (63 GB/s) | 0.215 ms |
+
+Threads: 6 / 8 / 11 / 16 / 22 give 0.307 / 0.289 / 0.280 / 0.289 / 0.292 ms cold for 7 experts; 11 (today) is best.
+Partially cached (`bench2.py`): 4 of 7 experts in cache plus 4 wrong ones prefetched gives 0.170 ms, 5 of 7 0.156 ms.
+The worker spins ~0.24 ms per job waiting for the next job's data (`EXL3_MOE_HANDOFF_PROF`), ~14.6 MB of DRAM time.
+
+## Next-layer prediction (`predacc`, steady window, 7.1 actual CPU experts per layer)
+
+| Predictor of layer L+1's CPU experts | Recall | Predicted CPU experts |
+|---|---|---|
+| layer L's router input through layer L+1's gate, top-10 per row | 58% | 8.2 |
+| same, top-16 | 73% | 15.1 |
+| same, top-24 | 81% | 25.4 |
+| layer L+1's attention input through its own gate, top-10 | 58% | 9.3 |
+| layer L+1's CPU experts in the previous step | 27% | 6.9 |
+
+## Next-layer expert prefetch (exllamav3 `exp/expert-prefetch`, plan `docs/superpowers/plans/2026-10-29-exl3-expert-prefetch.md`)
+
+The worker prefetches the hinted experts while it waits for the next job; output is unchanged (worker tests compare
+bitwise). First version, hint built from ~10 torch ops per layer: the worker prefetched ~3.5 experts per job and its
+compute fell from 0.286 to 0.243 ms per job, but decode fell 15% (A B B A: 57.8 -> 49.1 tok/s). The hint alone
+(worker prefetch off) cost ~11%: `cpu_split_hint` took 12 ms of host time per verify pass and made the pass
+host-bound. Task 2b replaced it with one routing kernel call plus one fused translate-and-write call: still a loss,
+A B B A 55.4 -> 50.3 tok/s with prefetch on, 55.6 -> 52.4 with the hint alone. The extra kernels sit on the GPU
+stream, which is the critical path, and cost more than the ~0.04 ms per job the worker saves. Parked on its branch.
+
+## Draft lengths (`draft-ab.sh`, arms `SpeculativeDraftMax:HybridDraftTokens`, mean of the warm requests)
+
+3:5 (production) 57.2 and 55.7, 2:5 55.9, 2:0 55.4, 1:5 55.0, 1:0 52.2 tok/s. Flat; production stays. At 1:0 the
+same perturbation as above shows 92% of a GPU-stream delay and 32% of a host delay, so even single-token verify is
+stream-bound.
+
+## Handoff flags: stream memops are slower than the fallback kernels
+
+GPU -> CPU -> GPU flag round trip (`memops\roundtrip.py`, a CPU process echoes flag A into flag B): ~53 us of
+stream time with `cuStreamWriteValue32`/`cuStreamWaitValue32`, 20-30 us with the spin kernels (`EXL3_MOE_MEMOPS=0`).
+On WDDM the memops are the slow path. Production install, A B B A, no code change (`env-ab.sh`):
+
+| | base | `EXL3_MOE_MEMOPS=0` |
+|---|---|---|
+| warm short decode | 58.6 / 56.1 | 62.3 / 61.4 |
+| 24k decode | 57.3 / 58.5 | 60.0 / 63.9 |
+| 64k decode | 61.4 / 51.4 | 59.0 / 58.9 |
+| prefill 24k / 64k | 1.91-1.94k / 2.09-2.11k | 1.85-1.96k / 2.13-2.14k |
+
+Steady mean 57.2 -> 60.9 tok/s (+6.4%), cold first request 47.6 -> 51.7; outputs exact (same kernels' semantics).
+Repeat A B B A (`memops-ab2.log`): 56.1 -> 61.1 steady (+9%), cold 48.0 -> 51.4, prefill unchanged. With
+`MEMOPS=0` the 2:5 draft gave 62.8 steady, within noise of 3:5.
+Folding the flag wait and publish into the issue and collect kernels themselves (exllamav3
+`exp/handoff-fused-flags` 0930a435, plan `docs/superpowers/plans/2026-10-30-exl3-handoff-fused-flags.md`) removes
+four of the six stream ops per split layer, but measures within noise of `MEMOPS=0` (`fused-ab.log`, A B B A:
+62.2 -> 63.0 steady, prefill unchanged). The remaining round trip is the worker's own latency, not launches.
+Parked on its branch; `EXL3_MOE_MEMOPS=0` alone takes the gain.
+
+## GPU reads of host memory add DRAM bandwidth (`C:\tmp\exl3-match\pcie`)
+
+- `bench.py`: the GPU reading pinned host memory reaches 26.8 GB/s while the CPU reads 54 GB/s at the same time,
+  ~81 GB/s in total, against 61 for the CPU alone. This holds for both a zero-copy kernel and DMA.
+- `mgemm_zc.py`: the EXL3 expert GEMM (`exl3_mgemm`, 2560 -> 640, K=4, mul1) reads its trellis from host memory at
+  20-26 GB/s, and the output is bitwise equal to the VRAM run.
+- `swz_zc.py`: the arena's packed layout (band-8 swizzle, not planar, for K=3 and K=4) runs as 128-column slices at
+  20-22 GB/s. Relative RMS against the native layout is 5e-4 (accumulation order).
+- `portable.py`: the arena's `PORTABLE`-only registration is readable through `cuda_host_get_device_pointer`.
+- `overlap.py`: cooperative kernels (`exl3_mgemm`, the resident MoE kernels) do not run alongside other kernels. A
+  zero-copy expert therefore cannot hide under the resident experts. It can only fill the GPU's wait for the
+  worker after them.
+
+Strata reads 3-4% of rows over PCIe (`fetch_blobs_kernel`, above). Plan
+`docs/superpowers/plans/2026-10-30-exl3-moe-zero-copy-experts.md` takes 1-3 of each job's CPU experts onto the GPU
+in that window. Estimate: ~0.04-0.09 ms per layer with 7+ CPU experts, ~+5% decode.
+
+Result: no gain. Implementation: exllamav3 `exp/moe-zero-copy` (f606461c, a11578b4), `EXL3_MOE_ZC`; tests pass.
+- Decode A B B A (`zc-ab.log`, `MEMOPS=0` in both arms): 61.2 tok/s off, 61.9 with `ZC=2`, within noise.
+- The first request after load drops to 30 tok/s while mgemm autotunes the new shapes.
+- Timeline (`zc-tl2.log`, gputl overlay, per verify pass):
+  - host time in `cpu_split_combine` goes from 1.9 to 3.9 ms (four extra launches per layer);
+  - its GPU time goes from 9.0-9.3 to 10.0-10.6 ms;
+  - the pass span grows from 32.5-32.9 to 34-35.6 ms.
+- The GPU's PCIe experts take longer than the worker time they save. Parked on its branch.
+
+## Production: `EXL3_MOE_MEMOPS=0` applied; a minimized stack window costs ~40%
+
+- `EXL3_MOE_MEMOPS=0` is in the EXL3 engine environment (`PUT /config`, 2026-10-30). The running Tabby process
+  carries it. Saving first needed three 2026-10-21 chats cleared of a deleted preset
+  (`exl3-3-8-next-3-5bpw-q8`); while they still selected it, every config save was rejected.
+- Started from a minimized window (`Start-Process -WindowStyle Minimized`), the stack decodes the harness's short
+  probe at 40-47 tok/s, with short prefill at ~140 tok/s. In a normal window the same probe gives 57-70 tok/s and
+  ~225 tok/s prefill. The engine's host thread runs at ~1 full core, so it is host-bound and slowed. Windows power
+  throttling (EcoQoS) of a background window is the likely cause.
+- Fix (2026-10-30): `powercfg /powerthrottling disable /path` on the base interpreter that the engine and its CPU
+  workers run (`C:\AI\exl3\python\cpython-3.14.7-windows-x86_64-none\python.exe`) and on the venv's launcher shim.
+  With the window minimized: 67.5-69 tok/s warm, 220-230 tok/s prefill. Undo: `powercfg /powerthrottling reset
+  /path <exe>`, elevated.
+- Harness A/Bs were not throttled. Their warm short prefill has a median of 224 tok/s over 114 runs, and their
+  arms were interleaved under the same conditions.
+- Swift1.5 and the base 3.50 HQ quant decode at the same speed in the harness (`preset-ab.log`, 58-61 tok/s); the
+  model is not the difference.
+
+## Re-audit (2026-10-30): the gap is two interleaved bounds, and the doc dropped the larger one
+
+Re-derived from the raw nsys captures (`analyze.py`, `gaps.py`, and the CUDA API counts below), not from the
+summaries above.
+
+| Per decode step | EXL3 (180 steps) | Strata (213 steps) |
+|---|---|---|
+| Wall | 47.9 ms | 23.0 ms |
+| GPU busy | 17.7 ms (37%) | 20.0 ms (87%) |
+| GPU idle, already launched (CPU-expert waits) | 19.6 ms | 0.2 ms |
+| GPU idle, not yet launched (host) | 9.8 ms | 2.8 ms (between passes) |
+| GPU activities | 1,335 | 2,341 |
+| `cudaLaunchKernel` | 1,085 (12.6 ms of host time) | 24 |
+| `cudaMemcpyAsync` | 181 (5.3 ms host; 50 D2H to pageable memory) | 36 |
+| `cuStreamWrite/WaitValue32` | 206 | 0 |
+| `cudaGraphLaunch` | 51 (per-module BC graphs) | 3.8 (one graph per forward pass) |
+| `cudaStreamSynchronize` | 31 | 4 |
+
+Strata runs each forward pass as one CUDA graph (3.8 launches per step: the verify pass and the draft passes).
+Its CPU-expert waits are spin kernels inside the graph (`wait_flag_ge_kernel`, 146 per step, 23 us each), and its
+PCIe expert fetch (`fetch_blobs_kernel`, one per layer) is a graph node too. EXL3 issues ~1,550 CUDA API calls per
+step from Python, ~22 ms of host time inside the CUDA runtime alone.
+
+Two corrections to the sections above:
+
+1. "A graph-captured verify pass could save at most ~1.2 ms per step" came from `regions.py`, whose pass
+   boundaries the untraced step split later showed to be wrong. The host-bound idle from `gaps.py`, 9.8 ms per
+   step, was never re-attributed. The draft loop is only ~5 ms per step in total, so most of those 9.8 ms are in
+   the verify pass. Lever 2 was dropped on discredited evidence.
+2. The perturbation result (GPU delay shows at 82%, host delay at 19%) was read as "the host has 8 ms of slack, so
+   launch cost does not matter". It means something else. At most module boundaries the GPU is sitting in a
+   CPU-flag wait, so a host delay there is absorbed; inside a module the host issues one kernel every ~12 us
+   (`cudaLaunchKernel` on WDDM) while the kernels take 2-13 us, so the GPU starves at launch granularity (5.5 ms
+   per step in gaps under 50 us, ~5 us each, ~1,000 per step). The CPU waits and the launch rate alternate on the
+   critical path. Removing one exposes the other, which is why every single-sided lever (fused flags, zero-copy
+   experts, hook move, draft lengths, B1-B3) measured within noise: each moved time from one bound to the other.
+   `EXL3_MOE_MEMOPS=0` gained because it shortened the flag round trip on both sides at once.
+
+Untraced budget per verify pass (gputl, `MEMOPS=0`): span 33 ms = ~11 ms of kernels + ~10 ms of CPU-expert waits
++ 3.6 ms promote-hook stall at layer 0 + ~8 ms of launch gaps and small synchronous copies. Per step add ~4 ms
+between passes and ~5 ms of draft loop. A pass that is one graph with the handoff driven from the kernels would
+leave ~11 + 10 ms, and the step would be ~27-30 ms: 80-90 tok/s at today's 2.4 tokens per step, before touching
+the CPU wait itself.
+
+What the graph needs (all of it is on the GPU side of the handoff, none of it changes output):
+- `EXL3_MOE_MEMOPS=0` makes the flag ops capturable kernels; `exp/handoff-fused-flags` already puts the wait and
+  publish inside the issue and collect kernels.
+- The job descriptor and ring tail are written by the host in `exl3_moe_split_issue_fused`; the issue kernel must
+  write them (device-side seq and slot counters, zero-copy stores, as it already does for the payload).
+- Per-step scalars (cache positions, sequence lengths, GDN state offsets, row count) must be read from device
+  memory by the kernels, not baked into launch arguments; the BC graphs patch them today
+  (`cudaGraphExecKernelNodeSetParams`, 42 per step), and a captured pass cannot.
+- No synchronous work inside the pass: the 50 pageable D2H copies and the 23 tiny pageable H2D copies per step
+  have to go to pinned staging or leave the pass; the promote-on-miss hook (3.6 ms host, reads the hit histogram)
+  runs between steps.
+- One captured graph per verify row count (2-8), plus one for the single-row draft pass.
+
+### Pilot: one verify pass as a CUDA graph (`C:\tmp\exl3-match\graphpilot`, `graphpilot.sh`)
+
+Production install, static placement (`EXL3_MOE_CPU_SWAP=0`), `MEMOPS=0`, `EXL3_GRAPHS=0` (BC sites launch their raw
+kernels), NumCtx 65536 for the graph's private pool. At the 60th verify pass of a short request the overlay times the
+same pass repeatedly: whole pass eager; the 51 modules after the embedding stage eager; the same with every slot's
+`done`/`consumed` flag pre-satisfied (no CPU waits); then that tail captured with `torch.cuda.graph` and replayed.
+
+| rows | eager, live handoff | eager tail | eager tail, no CPU waits | graph replay of the tail |
+|---|---|---|---|---|
+| 2 (p5) | 33.4 ms | 31.0 ms | 29.6 ms | 12.5 ms (x10), 10.8 ms (x50) |
+| 3 (p4) | 34.8 ms | 33.3 ms | 33.0 ms | capture blocked by the PLE lookup |
+| 3 (p2) | 29.9 ms | | 30.4 ms | capture blocked by a BC graph launch |
+| 2 (p3) | 26.1 ms | | 26.1 ms | capture blocked by the PLE lookup |
+
+Removing every CPU wait changes nothing (the host is the bound); the graph removes ~19 ms of the ~30 ms pass,
+leaving the ~11 ms of GPU work. With the CPU waits back inside the graph (per-layer spin kernels, as Strata) the
+pass should be ~19-21 ms, and the step ~26-29 ms: 83-92 tok/s at 2.4 tokens per step.
+
+What the pilot had to bypass is the requirements list for the real thing:
+- an instantiated BC graph cannot be launched into a capturing stream (`graph.cu:252`): under an outer capture the
+  BC sites must run their launch sequences (`EXL3_GRAPHS=0` does this everywhere) or be composed as child graphs;
+- the PLE / n-gram row lookup (`row_table.lookup`, one per pass) stages host rows with an event sync: it runs
+  before the graph into a static buffer, since it depends only on the token ids;
+- the job descriptors (host-written in `exl3_moe_split_issue_fused`) must be written by the issue kernel;
+- the promote-on-miss hook (D2H of the histogram, 3.6 ms host) runs between passes;
+- no pageable copies surfaced in the captured tail, so the 50 pageable D2H per step are in the generator, not the
+  pass.
+
+After that the CPU wait is the only bound left (~10 ms per pass), and the levers that failed here start to pay:
+a non-cooperative zero-copy expert kernel on a parallel graph branch (Strata's `fetch_blobs`; `exl3_mgemm` is a
+cooperative launch and cannot overlap anything), and a worker-side next-layer prefetch (the worker already has
+the router input; the GPU-side hint cost is what sank `exp/expert-prefetch`).
+
+## Unused KV pages are the prompt cache
+
+More expert slots are worth +2.6% decode per GiB. At 24k-64k contexts about 3 GiB of the 200k fp16 KV holds no live
+sequence, but unreferenced pages keep cached prefixes for later prompt-cache hits (`generator/pagetable.py`).
+Borrowing ~400 pages (~3 GiB, +~8% decode) would cut the VRAM prompt cache from ~200k to ~100k tokens until a long
+request forces them back. That is a trade-off for the user, not pursued without a decision.
+
 ## Evidence
 
 Scratch: `C:\tmp\exl3-match\` (`ab.sh`, `chunk-sweep.sh`, `big-chunk-200k.sh`, `prof.sh`, `strata-profile.mjs`,
