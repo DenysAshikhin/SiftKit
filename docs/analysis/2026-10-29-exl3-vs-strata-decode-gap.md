@@ -647,6 +647,148 @@ a non-cooperative zero-copy expert kernel on a parallel graph branch (Strata's `
 cooperative launch and cannot overlap anything), and a worker-side next-layer prefetch (the worker already has
 the router input; the GPU-side hint cost is what sank `exp/expert-prefetch`).
 
+## Graph passes (exllamav3 `exp/graph-pass`, spec `docs/superpowers/specs/2026-10-30-exl3-graph-pass-design.md`)
+
+The verify pass, the draft steps and the MTP update now replay as CUDA graphs (device-driven CPU-expert handoff:
+the issue kernel writes the ring descriptor and derives the sequence number from `pass_base`; per-row fused sampler,
+`spec_accept` and device-keyed rewinds inside the pass). Steady state at the production draft settings (3:5:1,
+capture steps excluded, `e2e_prof2.py`): 39.8 ms per step at 2.42 tokens per step (e2e 48-51 tok/s with the
+captures, 56 at 1:0:0 against 53 eager). The replay itself is a serial chain per layer: the GPU prefix, then the
+collect kernel blocking on the CPU job (0.3-0.6 ms), 48 times; the worker is idle while the GPU runs and the GPU
+is idle while the worker runs. Zero-copy GPU experts inside the graph: no gain at 2, a loss at 4-6 (`zc-run.log`).
+
+## Pipelined verify pass (`exp/graph-pass` 54998bc5..34029a33, spec `2026-10-30-exl3-pipelined-verify-pass-design.md`)
+
+The pass's rows are split into contiguous groups interleaved layer by layer (`Model.forward_pipelined`,
+`EXL3_GRAPH_GROUPS` = `1`, `2` or `rows`): every block's forward is an issue half (up to the CPU-job submit) and a
+combine half (the wait and the tail), and the driver issues the next group before combining the current one, so
+the worker always has a job queued. Later groups continue the GDN scratch state in place with the conv ring in
+incremental mode, read the PLE conv columns the earlier group wrote, and address the KV cache at their row offset;
+the groups are concatenated before the final mixer.
+
+Exactness (`e2e_logits.py`: on every verify step the eager forward twice and the pipelined forward once, all on
+the same state): the eager forward is bit-identical run to run, so any difference is the pass itself. Against the
+eager pass, two groups give KL(eager||pipelined) mean 0.0012 / max 0.017 nats over 62 steps and one row per group
+0.0012 / 0.041 over 63; swapping the GDN kernel path (fused vs torch, the same math) gives 0.0003-0.0008 / 0.007-0.018.
+So the pass is at the kernel-shape accumulation level (shorter GDN scan segments, 2-row attention) and not
+bit-equal; top-1 flips happen only at near-ties (margins <= 0.17 logits). Before the fix below the mean was 0.004-0.005
+with 0.4-nat outliers: the continuation group's PLE n-gram context was read from the live id columns after the
+first group's history write had shifted them (eager path only; the captured pass takes host-gathered rows).
+Token-level: `e2e_check.py` 0 mismatches over 69 + 46 steps at two groups and 50 at one row per group, and
+`tests/generator/test_pipelined_pass.py` (every replayed pass against the eager forward, flips allowed only below a
+0.05 margin) passes for 1, 2 and rows.
+
+300 tokens at 32k, `e2e.py`, tok/s (draft:hybrid:dyn):
+
+| groups | 3:5:1 | 2:0:1 | 1:0:0 |
+|---|---|---|---|
+| 1 | 47.2 | 55.1 | 55.4 |
+| 2 | 50.7 | 60.3 | 56.8 |
+| rows | 44.6 | 53.0 | 56.2 |
+
+Step profile at 3:5:1 (`e2e_prof2.py`, capture-free steps): verify stream time 26.3 ms at one group, 22.4 / 21.4 ms
+at two (two runs), 28.1 at one row per group; step 40.5 -> 37.2 / 36.0 -> 43.3 ms; the draft loop stays 6.5-6.7 ms
+and the placement tick 4.0-4.8 ms of host time under the replay. Worker phases (`EXL3_MOE_CPU_PROF=1`): one group
+365 + 195 us per job at 48 GB/s over 48 jobs (1.29 GB per pass); two groups 199 + 99 us per job at 51.5 GB/s over 96
+jobs (1.48 GB per pass, the experts both groups route to are read twice). So the two-group pass is CPU-bound with
+the worker at ~52 GB/s and no idle gap (`EXL3_MOE_HANDOFF_PROF`: gap 0.007 ms per job), and the 15% extra bytes eat
+most of the removed GPU wait. One row per group doubles the GPU launch count and the duplicate bytes again and
+loses. Two groups is the configuration to keep; `2:0:1` with two groups is the best measured decode (60.3).
+
+Three hazards the design missed, all fixed (the PLE context above, and): the pending record of a block held views of per-device statics (the
+routed-sum buffer, the hyper-connection post weights, the folded normed input, the successor's weighted stream copy)
+that the next group's issue overwrote (now cloned or keyed per group), and the GDN continuation slots were keyed by
+(bsz, seqlen) only, so groups at different offsets reconfigured one slot between passes and earlier captured graphs
+hit freed slot memory (illegal memory access in 3 of 3 runs; keyed by offset now, 0 of 10 since).
+
+Variant B (one CUDA stream per group, ring entries claimed atomically and tagged) runs but is wrong: 26-31 tok/s with
+mostly empty CPU jobs, because the host's single monotonic `data_ready` flag lets the worker start job k when job k+1
+published first. It cannot beat variant A in a CPU-bound pass, so it is parked on `exp/graph-pass-streams` (the ring
+tags stayed on `exp/graph-pass`); a per-slot `data_ready` would be needed to revive it.
+
+What is left is bytes: ~1.3-1.5 GB of expert weights per verify pass at ~50 GB/s is a 26-29 ms floor against the
+~6.5 ms draft loop and ~4 ms of host work. The levers from here are fewer or smaller CPU bytes per pass (dedupe the
+two groups' shared experts in the worker: merge the in-flight jobs' expert lists, read each expert once for both;
+cheaper draft settings now that the verify pass is shorter, see `2:0:1`), not more overlap.
+
+### In the preset harness (TabbyAPI, `exl3-3-8-next-3-5bpw-f16`, 400-token probes)
+
+The first harness runs (sampled, one request per size) put the branch under the deployed wheel: decode short/24k/64k
+50.6/57.1/59.2 deployed, 51.2/56.9/61.9 branch eager, 43.4/53.7/58.1 one group, 46.1/54.1/46.2 two groups. Three
+things made those numbers wrong, in order of size:
+
+- The "short" probe is the first request of a fresh server, and the CPU worker is still loading expert layers when
+  it arrives (`-- worker: layer 31..47: loaded in ~300 ms` after "Model loaded"): the first verify pass waits ~5 s for
+  them, inside `time_generate`. The eager arm's load happened to finish later (29 s vs 17 s) and absorbed the wait
+  before serving. So a cold short probe measures the load race, for every arm.
+- Captured passes were keyed on the block table's shape and staging pointers, and the table's width followed the
+  batch's longest sequence (16-page steps), so every context size and every 4,096-token crossing re-captured all row
+  shapes. `e2e_cap.py`: 12 captures, 0.8-0.9 s, per fresh context (0.10-0.18 s per verify capture, 2 warm-ups + the
+  capture). Fixed in `exp/graph-pass` 8dc9c448: under the graph pass the table is staged at the page table's full
+  width (784 pages at 200k; 3 KB per row per step), so keys are constant across contexts and captures happen once per
+  server for each (rows, parity) pair. Sequential requests reuse slot 0 (`Cache.get_new_state` pops the slot the last
+  job released), so nothing else in the key moves. Exactness is unchanged by the wider table (`e2e_logits.py`, two
+  groups vs eager on the same state: KL mean 0.0010 / max 0.013 nats over 58 steps; top-1 flips at fp16-quantized
+  margins 0.03-0.08 logits), so `test_pipelined_pass` now allows flips below a 0.2 margin instead of 0.05, and the
+  whole-stream `test_graph_pass_matches_eager` (two processes diverge after ~100 tokens through the worker's
+  run-to-run reductions, and it also asserted a 1.25x speed-up) is replaced by the width invariant.
+- Sampled acceptance swings 47-69% between 400-token requests (temperature 1, top-k 20, top-p 0.95), which is +-10
+  tok/s on its own; the arms cannot be ranked from one sampled request each.
+
+Greedy harness, warm repeats (`ctx-trial-greedy.sh`, sizes `short 24k 24k 64k 64k`, decode tok/s of the warm
+requests): eager 69.5 / 66.4 / 67.6 / 65.6 / 66.5; one group 65.5 / 65.2 / 65.3 / 69.0 / 61.2; two groups
+69.1 / 65.9 / 62.5 / 62.7 / 66.0. Prefill 1.9-2.2k T/s in every arm (the earlier 510 T/s at 64k did not recur).
+`EXL3_GRAPH_DEBUG=1` confirms the pass runs inside TabbyAPI (8 verify captures over four requests, none after). So
+in production the pipelined pass is at parity with eager, not ahead, while the scratch driver showed +11-18%.
+
+Per-step profile (`EXL3_STEP_PROF=1`: wall time of each decode step split into the draft loop and the verify pass,
+bucketed by verify rows, printed per job; same numbers in TabbyAPI and `e2e_cap.py`):
+
+| arm, prompt | rows=3 draft + verify | rows=4 draft + verify | step |
+|---|---|---|---|
+| eager, essay (TabbyAPI 24k) | 3.6 + 29.0 | 5.6 + 35.1 | 37.6 |
+| two groups, essay (TabbyAPI 24k) | 6.6 + 29.4 | 7.6 + 32.9 | 38.6 |
+| eager, essay (scratch) | 3.4 + 32.9 | 5.3 + 37.5 | 40.8 |
+| two groups, essay (scratch) | 5.8 + 28.3 | 7.1 + 32.1 | 38.8 |
+| eager, story (scratch, `e2e_prof2.py`) | | | 46.0 |
+| two groups, story (scratch, `e2e_prof2.py`) | | | 37.5 |
+
+The pipelined verify is 2-5 ms faster per step at 3-4 rows, but the draft loop is 2-3 ms slower under the graph pass:
+`e2e_prof2.py` puts 5.9-6.3 of its 6.6-7.0 ms in the per-token confidence readback (`.cpu()`), so the cost is GPU
+side: ~2.4 ms per drafted token through the captured draft step against ~1.7 ms eager (eager's `.cpu()` waits 0.04 ms;
+the draft forward's own host time covers the GPU work), plus the captured MTP cache update, which the eager path
+books inside the verify step. `EXL3_GRAPH_DRAFT=0` (eager drafting and MTP update under the captured verify) is
+equal or slightly better: essay 74.1 vs 70.7 tok/s (step 38.1 vs 38.3 ms), CUDA-question prompt 59.2 vs 57.8
+(47.0 vs 48.8). The gain itself is prompt-dependent because the verify pass is: at 4 rows it costs 32-33 ms on the
+essay, ~29 on the story, ~41 on the CUDA question (different numbers of cold CPU experts per layer), and the
+pipelining only hides GPU time behind a CPU-bound worker, so it pays most where the eager pass left the most GPU
+time exposed. The bytes floor stands: the levers above (fewer or smaller CPU bytes per pass) are still the ones
+that move production decode.
+
+### Draft width in the production flow (`draft2.sh`: preset, sampled probes, two groups, one fresh server per arm)
+
+Warm mean of 5 sampled requests (2 short + 3 at 24k; the cold first request discarded), decode tok/s, with tokens
+per step and ms per step from `EXL3_STEP_PROF`. Arms are `SpeculativeDraftMax:HybridDraftTokens`; `g0` = draft-side
+graphs off.
+
+| arm | warm mean (min-max) | acceptance | tok/step | ms/step |
+|---|---|---|---|---|
+| 3:5 (production) | 60.8 (55.9-64.4) | 50-58% | 2.18 | 35.7 |
+| 3:0 | 60.2 (56.9-64.7) | 50-55% | 2.12 | 35.1 |
+| 3:0 g0 | 59.0 (55.3-68.2) | 50-64% | | |
+| 1:5 | 58.7 (53.1-64.1) | 56-72% | 1.79 | 30.5 |
+| 2:0 | 58.1 (52.7-64.0) | 48-61% | 1.97 | 34.0 |
+| 3:5 g0 | 57.9 (53.0-62.9) | 49-59% | 2.11 | 36.6 |
+| 2:5 | 56.8 (52.5-62.5) | 49-54% | 1.96 | 34.5 |
+| 2:0 g0 | 56.7 (52.6-62.0) | 51-61% | 1.99 | 35.1 |
+| 4:5 | 55.3 (47.4-64.3) | 45-59% | 2.16 | 39.5 |
+
+Flat: the means span 5 tok/s and every arm's own requests span 9-17. Production stays at 3:5. The step-time column
+shows the trade directly: from 1:5 to 3:5 the step costs 17% more and yields 22% more tokens, so at today's bytes per
+step the extra rows roughly pay for themselves; 4:5 costs 11% more per step for no more tokens. Draft-side graphs off
+is not better in the sampled flow (the greedy scratch result does not carry over), so the default stays on. Sampled
+decode sits ~6 tok/s under greedy because acceptance is 50-58% against 60-65%.
+
 ## Unused KV pages are the prompt cache
 
 More expert slots are worth +2.6% decode per GiB. At 24k-64k contexts about 3 GiB of the 200k fp16 KV holds no live
