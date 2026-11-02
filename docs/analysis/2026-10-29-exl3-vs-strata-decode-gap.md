@@ -789,6 +789,434 @@ step the extra rows roughly pay for themselves; 4:5 costs 11% more per step for 
 is not better in the sampled flow (the greedy scratch result does not carry over), so the default stays on. Sampled
 decode sits ~6 tok/s under greedy because acceptance is 50-58% against 60-65%.
 
+### Zero-copy experts in the production flow (`exp/zc-graph`, `EXL3_MOE_ZC`, `zc-sweep.sh`)
+
+Lever 1 of the three-lever plan (spec `2026-10-30-exl3-zero-copy-graph-design.md`): the issue kernel hands the
+first `EXL3_MOE_ZC` worker experts of each decode job to the GPU, which reads them from the pinned arena over PCIe
+inside the captured pass. Correctness after the per-slot activation fix (98597d65): `e2e_logits` at ZC=2 gives
+KL(eager||pipelined) mean 0.0012, max 0.016, four top-1 flips at margins <= 0.125, the same band as ZC off.
+
+Same harness as the draft-width table (two groups, sampled, fresh server per arm, warm mean of 5):
+
+| ZC | warm mean (min-max) | 24k verify ms/step (3 rows) | worker GB/s | 24k prefill T/s |
+|---|---|---|---|---|
+| 0 | 59.5 (53.1-67.4) | 26-30 | 42.5 | 1870-1980 |
+| 1 | 53.5 (48.1-59.9) | 35 | 38.7 | 940 |
+| 2 | 53.4 (46.3-62.4) | 36 | 38.2 | 880-940 |
+| 3 | 52.9 (44.0-62.9) | 36 | 38.1 | 960-1010 |
+| 4 | 46.5 (29.0-59.2) | 36 | 39.9 | 970-1040 |
+
+Every arm loses, by 10% at ZC=1 already: the GPU's PCIe reads cost the worker 10% of its DRAM bandwidth (the
+`pcie` experiment above measured the same contention) and the verify step at 24k grows 6 ms, more than the one
+expert per job the GPU took off the worker. The balance model's "pay while the GPU idles" window does not exist
+in practice because the worker, not the GPU, is the critical path at every row count. The 24k prefill rate also
+halves with ZC on (not investigated: the lever is rejected on decode alone). `EXL3_MOE_ZC` stays 0 by default;
+no A B B A was run since no arm came within 3% of off.
+
+### Worker job merge in the production flow (`exp/zc-graph`, `EXL3_MOE_MERGE_JOBS`, `jm-sweep.sh`)
+
+Lever 2: when the worker takes a layer's job for one row group and the other group's job for the same layer is
+already published with its inputs landed, both run as one CPU forward so an expert both groups route to streams
+once. The multi-block forward is bitwise equal to the two separate forwards (worker protocol tests, CUDA hidden).
+
+A B B A, same harness (two groups, sampled, fresh server per arm, warm mean of 5), handoff profiler on:
+
+| arm | warm mean (min-max) | merged pairs / 64 jobs | worker GB/s |
+|---|---|---|---|
+| off | 60.5 (54.2-63.0) | 0 | 43.2 |
+| on | 58.8 (55.0-62.8) | 0-1 | 43.4 |
+| on | 57.4 (54.6-60.2) | 0-1 | 42.1 |
+| off | 60.6 (55.8-63.1) | 0 | 42.4 |
+
+The premise does not hold in the pipelined pass: the two groups' jobs for a layer are interleaved with other
+layers' jobs in the ring and the second group's inputs land only after the GPU has finished that group's attention
+and routing, by which time the worker (0.07-0.33 ms of compute per job against 0.1-0.4 ms gaps) has long taken
+and finished the first. Pairs form in about 1 of 64 jobs, so nothing is deduplicated; the arms differ by noise.
+Waiting for the second job would re-serialize the groups, which is the single-group pass that already measured
+no better. Default off (`EXL3_MOE_MERGE_JOBS=1` enables it).
+
+### Adaptive placement, phase A, in the production flow (`exp/zc-graph`, `EXL3_TIER`, `tier-sweep.sh`)
+
+Lever 3, phase A (spec `2026-10-30-exl3-adaptive-placement-design.md`): the worker is registered with every expert
+(the pinned arena grows from 41.9 to 53.7 GB, fully page-locked), so a demotion is a map flip instead of a copy-out,
+promotions are selected without the one-per-layer cap, and the budget and decay are knobs. Step-exact against eager
+on every replayed step with the tier on (the pipelined test, three group settings). Arms are
+`EXL3_MOE_CPU_SWAP_MAX:EXL3_MOE_CPU_PROMOTE_DECAY`; same harness (two groups, sampled, fresh server per arm):
+
+| arm | warm mean (min-max) | short decode | 24k decode | steady hit | tick ms | 24k prefill T/s | worker GB/s (run avg) |
+|---|---|---|---|---|---|---|---|
+| off (6:0.98, copy-out demotion) | 59.3 (56.0-65.2) | 59-65 | 56-59 | 64-71% | 4.0-4.9 | 1920-1960 | 41.8 |
+| tier 6:0.98 | 57.5 (47.6-70.5) | 67-70 | 48-52 | 63-71% | 2.0-2.5 | 590-640 | 36.7 |
+| tier 24:0.98 | 52.0 (41.4-67.5) | 63-67 | 41-46 | 66-72% | 6-9 | 460-520 | 34.5 |
+| tier 48:0.98 | 49.4 (40.3-61.1) | 59-61 | 40-44 | 68-71% | 5-16 | 500-590 | 34.4 |
+| tier 24:0.85 | 51.6 (42.6-62.7) | 62-63 | 43-48 | 71-79% | 6-13 | 480-500 | 36.2 |
+| tier 48:0.85 | 47.6 (40.2-58.8) | 55-59 | 40-43 | 72-76% | 9-16 | 490-500 | 36.3 |
+
+Three results. (1) Bigger budgets buy little: 8x the promotions raise the steady hit rate by 5-8 points and cost
+6-16 ms of host tick per step plus 15% of the worker's bandwidth to the promotion DMAs, a net loss at every setting.
+(2) The tier at the production budget is a split decision: short-context decode gains 10% (draft 7.6 -> 4.4 ms and
+tick 4.7 -> 2.2 ms per step, consistent with the removed copy-out demotions no longer competing with the draft's
+small kernels on the GPU), but 24k decode loses 12% and 24k prefill drops to a third, because the prefill stager
+streams every registered expert, now all 512 per layer instead of the worker's 399. The production workload is long
+context, so the tier stays off (`EXL3_TIER=1` enables it). The short-context gain points at the copy-out demotion
+traffic as a cost worth removing on its own. (3) The worker's bandwidth falls during the 24k requests in both arms
+(off: 49 -> 42 GB/s; tier: 47 -> 37), with peak VRAM at 24.0 of 24.5 GB under the 200k-token fp16 cache. Not VRAM
+pressure: `ctx-probe.sh` with `NumCtx=65536` (peak 20.1 GB) shows the same curve (52 -> 46 GB/s) and the same 24k
+decode (57-61 vs 50-61 tok/s), and the per-step profile at 24k (verify 24.6-32.5 ms) matches the short requests
+(24.2-31.2). The run-average profile absorbs the 24k prefills' compute-bound CPU jobs; decode itself is not slower
+at 24k beyond the attention cost already accounted for.
+
+The short-context gain isolated (`demo-probe.sh`, `e2e_cap` on the harness prompt, two groups, second job of each
+run; `b0` = `EXL3_MOE_CPU_SWAP_MAX=0`, no placement traffic at all):
+
+| arm | tok/s | ms/step | draft ms (4 rows) | tick ms | steady hit |
+|---|---|---|---|---|---|
+| off (promotions + copy-out demotions) | 69.6 / 71.0 | 40.3 / 36.2 | 7.3 | 4.6-5.0 | 61% |
+| b0 (nothing moves) | 54.7 | 49.4 | 4.8 | 0.5 | 38% |
+| tier (promotions, flip demotions) | 87.2 | 34.9 | 4.1 | 2.1 | 61% |
+
+Promotions cost nothing visible (tier draft 4.1 ms against 4.8 with nothing moving); the six copy-out demotions
+per step cost ~3 ms of the draft phase and ~2.5 ms of tick, consistent with the device-to-host copies into the
+registered arena queueing ahead of the draft's own small copies. Without placement at all the hit rate falls to
+38% and the verify pays for it. Next: keep the copy-out savings without the full arena by retaining a promoted
+expert's copy in the worker slot it left (`EXL3_MOE_CPU_RETAIN`), so its later demotion is a map flip and only
+experts that never had a copy are copied out.
+
+Retained copies without slack (`EXL3_MOE_CPU_RETAIN=1`, `rt-sweep.sh` A B B A: off 58.6 / 60.8, on 60.8 / 61.3,
+noise) flipped nothing: `0 flips` in every run. A layer has only its four spare worker slots free, each demotion
+copies out into the slot a promotion vacated in the same step, and the copy it overwrites is the just-promoted
+expert's, so no expert ever has a copy when its turn to be demoted comes. The step-exact test passes with it on and
+`EXL3_MOE_CPU_PROMOTE_VERIFY=1` found every landed transfer equal to the checkpoint. Slack is added next:
+`EXL3_MOE_CPU_COPIES=K` registers the K coldest residents with the worker as well (K extra arena slots per layer,
+about 2 GB at K=32), so copies can survive and the demotions of churning experts become flips.
+
+With K=32 (`copies-probe.sh`, verify on: every landed flip and copy-out equal to the checkpoint): the flip share
+rises over the run, 35% of demotions in the first 128 steps, 44% by step 768. In the production flow
+("short 24k 24k") against K=0: steps 32.4 / 33.1 / 34.3 ms against 37.9 / 38.0 / 35.9, draft at 4 rows 5.6-6.2 ms
+against 7.0-7.5, tick 2.6-3.9 against 4.3-5.2, prefill unchanged (1940-2020 T/s). The gain tracks the flip share,
+so the slot count is swept next (`cps-sweep.sh`, K = 0 / 32 / 64 / 128).
+
+| K (slack slots / layer) | registered experts | warm mean (min-max) | flips of demotions | tick ms | draft ms (4 rows) | 24k prefill T/s |
+|---|---|---|---|---|---|---|
+| 0 | 403 | 59.6 (54.0-66.6) | 0% | 3.9-5.0 | 7.0-7.4 | 1950-2000 |
+| 32 | 435 | 61.1 (56.7-63.9) | 48% | 2.7-4.0 | 5.5-7.0 | 1910-1990 |
+| 64 | 467 | 63.5 (56.9-68.2) | 75% | 2.2-3.3 | 4.6-5.9 | 1890-1970 |
+| 128 (clamped: all 512) | 512 | 54.5 (42.8-69.6) | 99% | 2.0-2.5 | 4.4-6.3 | 540-590 |
+
+The flip share and the saving both grow with the slack; at K=128 the clamp registers every expert, which is the
+tier's configuration again (prefill at a third, 24k decode 43-50): the collapse is specific to a worker that holds
+every expert, not to the count of registered experts as such (467 registered is unaffected). K=64 goes to the
+A B B A (`cps-sweep.sh "0 64 64 0"`).
+
+| arm | warm mean (min-max) | ms/step (24k) | draft ms (4 rows) | tick ms | 24k prefill T/s |
+|---|---|---|---|---|---|
+| K=0 | 61.9 (57.3-66.8) | 34.0-35.5 | 7.1-7.4 | 3.8-4.2 | 1925-1992 |
+| K=64 | 62.3 (59.9-65.6) | 33.3-34.6 | 4.7-5.3 | 2.2-2.6 | 1884-2015 |
+| K=64 | 65.6 (60.1-69.2) | 32.8-34.4 | 4.7-5.0 | 2.3-2.6 | 1924-2017 |
+| K=0 | 59.8 (55.5-64.7) | 34.2-36.1 | 7.3-7.6 | 4.1-4.6 | 1877-2023 |
+
+Means 60.9 off, 64.0 on: +5.1%, prefill unchanged, 75% of demotions flip (4764 of 6420 by step 1152), and the
+checkpoint verify found every landed flip and copy-out exact. Accepted: `EXL3_MOE_CPU_RETAIN=1` and
+`EXL3_MOE_CPU_COPIES=64` are the branch defaults (arena +4 GB of pinned RAM). This is the surviving piece of lever 3:
+the copy-out demotion traffic was the cost, not the placement itself.
+
+Phase B (cross-layer slot pool) is not built past its bookkeeping class: from the saved expert profile of this
+model, per-layer top-113 placement covers 77.5% of the routed mass and the best global allocation of the same
+48 x 113 slots covers 78.1% (per-layer counts would range 74-152), a 0.6-point ceiling that no migration policy can
+beat. The usage is flat across layers (top-113 share 0.54-0.93, median 0.78); only more slots help: 160 per layer
+would cover 87.5%, 226 would cover 95.2%.
+
+## KLD: EXL3 3.50bpw against Strata IQ3_S (`C:	mp\exl3-match\kld`, 2026-10-31)
+
+No unquantized checkpoint of Qwen3.8-Flash-Next is on disk, so each 3-bit quant is scored against both
+higher-precision quants available, one per family: EXL3 4.00bpw (`Swift1.5-...-4.00bpw-hq2`) and Strata's
+UD-IQ4_XS. Text: wikitext-2 test, 24 rows x 2048 tokens (EXL3 tokenizer; the pack's tokenizer is the same Qwen
+vocabulary), 64 positions per row (every 32nd token, 1536 positions). EXL3 logits come from a plain forward
+(`exl3_logits.py`, fp16, full vocabulary of 248,077). Strata's `--dump-logits` writes an empty file in every
+configuration tried, so its distributions come from the engine's stdin protocol with `logprobs=16384`
+(`engine.py`, `strata_lp.py`: one `GEN 1` per position with the prefix cached; the HTTP layer caps at 20): the
+main model's next-token distribution, top-16k, with 99.93% of the mass; the missing tail is assigned in
+proportion to the reference, a lower bound on that term. IQ3_S was measured as served (the launch config's
+route tail skip, which drops missed routed experts) and with `STRATA_ROUTE_TAIL_SKIP=0`.
+
+KL(reference || model) in nats, mean / median / p99 over the positions, and top-1 agreement:
+
+| model | vs EXL3 4.00bpw | top-1 | vs Strata UD-IQ4_XS | top-1 |
+|---|---|---|---|---|
+| EXL3 3.50bpw | 0.092 / 0.017 / 1.09 | 90.1% | 0.144 / 0.033 / 1.49 | 88.3% |
+| Strata IQ3_S, tail skip off | 0.144 / 0.034 / 1.46 | 87.1% | 0.174 / 0.036 / 1.84 | 85.9% |
+| Strata IQ3_S, as served | 0.158 / 0.036 / 1.73 | 86.9% | 0.184 / 0.042 / 2.14 | 85.6% |
+| (the two references against each other) | 0.122 / 0.028 / 1.32 | 88.2% | 0.140 / 0.034 / 1.79 | 88.2% |
+
+EXL3 3.50bpw is the closer quant under both references, including Strata's own IQ4_XS: against it, EXL3 3.50 is
+0.144 mean / 0.033 median and IQ3_S 0.174-0.184 / 0.036-0.042, with top-1 agreement 88.3% against 85.6-85.9%.
+Against the EXL3 4.00 reference the gap is wider (0.092 against 0.144-0.158), part of which is family bias
+(same quantizer, same embedding and head treatment). The route tail skip costs on its own: served against
+skip-off, IQ3_S differs from itself by 0.033 nats mean and changes the argmax at 6% of positions, a bigger
+perturbation than the pipelined pass's 0.001. Caveats: every number includes the reference's own error (the two
+references disagree by 0.12-0.14 between themselves), the means are tail-dominated (p99 1-2 nats, medians
+0.02-0.04), and the Strata side is top-16k.
+## Retained copies ported onto upstream dev (`feat/moe-cpu-retained-copies`, 2026-10-31)
+
+The accepted lever was re-implemented as one commit on upstream `dev` (bd1f5191, v1.6.6), without the graph pass,
+the tier or the merge code: `exllamav3/modules/block_sparse_mlp_cpu.py` +74/-24 plus `tests/moe_cpu/test_retain_copies.py`.
+No `EXL3_MOE_CPU_RETAIN` flag; `EXL3_MOE_CPU_COPIES=0` reproduces the upstream behaviour (one worker slot per spare,
+every demotion a copy-out). Upstream dev alone cannot load the production preset here (`Insufficient VRAM in split`:
+the WDDM headroom loader patch, PR #389, is still open), so the benchmark ran on a throwaway `bench/retained-copies`
+with that patch cherry-picked. Same harness as above, A B B A, fresh server per arm, 2 short + 3 x 24k sampled:
+
+| arm | warm mean (min-max) | flips of demotions | hook ms/step | 24k prefill T/s |
+|---|---|---|---|---|
+| COPIES=0 (upstream behaviour) | 61.6 (55.9-66.6), 61.9 (58.9-67.1) | 0% | 3.05-3.70 | 1940-2020 |
+| COPIES=64 | 62.9 (59.8-66.2), 61.9 (58.8-64.4) | 72-75% | 1.82-2.22 | 1930-2030 |
+
++1.1% mean, inside the spread. The mechanism works as on the graph branch (72% of demotions flip, the hook halves,
+`EXL3_MOE_CPU_PROMOTE_VERIFY=1` exact over 6432 transfers), but the +5.1% measured on `exp/zc-graph` does not
+carry: there the copy-outs were issued after the verify replay and collided with the draft phase's small copies
+(the demotion probe's ~3 ms of draft per step); on eager dev the tick runs at the first MoE layer's submit and the
+copy-outs drain under the verify forward itself, so removing them only saves the hook time.
+
+The one small piece of the graph stack that could plausibly matter on dev, the tick driven by the generator after
+the verify forward is queued (185a7a90 + bff15708's pinned-staging map update, ~50 lines, `EXL3_MOE_CPU_TICK_ASYNC`),
+was tried on the bench branch, A B B A against the inline tick, both with COPIES=64:
+
+| arm | warm mean (min-max) | steady hit | hook ms/step |
+|---|---|---|---|
+| inline tick | 63.9 (59.1-67.2), 59.7 (49.7-67.0) | 68-69% | 1.8-2.1 |
+| generator-driven tick | 59.8 (51.0-63.9), 59.4 (50.8-66.8) | 59-61% | 2.6-2.9 |
+
+A loss: the route snapshot now lands a step later, the hit rate drops ~8 points, and the hook is not cheaper. Not
+carried into the PR. Net: on upstream dev, retained copies is worth its halved hook and the removed D2H traffic,
+about 1% of decode; the graph branch's extra 4 points were recovering a cost the graph branch itself introduced,
+and `dev + retained copies` (61.6-63.9 warm) sits where `exp/zc-graph + retained copies` did (62.3-65.6).
+
+## Graph pass with a shorter CPU chain (`gp-slots.sh`, 2026-10-31)
+
+Test of "fix both at once": if the graph pass is at parity only because the serial CPU chain sets the pace, it
+should pull ahead once the chain is shorter. Stand-in for a better cache policy: 146 GPU slots per layer
+(`NcpuMoe` 370, `NumCtx` 65536 for the test), `exp/zc-graph` tree with retained copies on, A B B A, fresh server per
+arm, 2 short + 3 x 24k sampled, `EXL3_STEP_PROF=1`:
+
+| arm (146 slots) | warm mean (min-max) | ms/step | verify ms at rows 2 / 3 / 4 | steady hit | peak VRAM |
+|---|---|---|---|---|---|
+| eager | 69.9 (67.7-72.1), 71.5 (67.6-75.9) | 27.8-30.0 | 21.0-21.9 / 24.2-25.1 / 28.4-30.5 | 78-81% | 22.8 GB |
+| graph, two groups | 68.2 (63.3-73.1), 68.7 (66.8-71.0) | 31.3-32.2 | 24.1-24.7 / 27.1-27.6 / 29.9-31.0 | 73-75% | 23.0 GB |
+
+The hypothesis fails: with the chain shortened the pipelined graph pass is 3% slower, not faster. Its verify pass is
+~3 ms slower at 2-3 rows and the hit rate is 5 points lower (1,090 routed rows per step against 915-963: the two
+row groups stream an expert twice when both route to it, which the job merge was meant to remove and could not,
+since the pairs never form), plus the 2-2.5 ms tick now shows in the step. Eager at 146 slots is 70-71.5 warm
+against 62-64 at 113 slots: the slots alone, +2.9 GiB, are worth +12-13%, 28-30 ms per step at 2.2 tokens per
+step, within 1.3x of Strata's no-skip 93-102. Follow-up at the same slots, one captured group (`NGROUPS=1`; a first attempt passed the count through the shell
+variable `GROUPS`, which bash reserves, so the engine got 197121 groups, clamped to one per row: 55.6-58.0 warm,
+verify 33.5 ms at 3 rows, each extra group costing ~9 ms of duplicated expert streaming), arms graph / eager / graph:
+
+| arm (146 slots) | warm mean (min-max) | ms/step | verify ms at rows 2 / 3 / 4 | steady hit |
+|---|---|---|---|---|
+| graph, one group | 76.0 (73.1-79.5), 78.8 (75.3-86.2) | 26.4-28.1 | 18.1-19.4 / 21.9-22.6 / 26.4-28.7 | 81.7-82.1% |
+| eager | 67.9 (66.0-73.2) | 29.5-33.2 | 21.3-23.5 / 25.1-26.7 / 30.2-32.1 | 75.8% |
+
+So the hypothesis holds for the capture and fails for the pipelining: with the chain shortened, the single-group
+captured pass is +11% over eager (77.4 against 67.9-71.5 across all four eager runs at 146 slots), the verify pass
+3-4 ms shorter at every row count, and the hit rate 4-6 points higher (one job per layer, nothing streamed twice).
+The two-group pipelining costs ~3 ms of duplicated expert bytes per pass and loses that gain. Against production
+(113 slots, eager, 62-64 warm) the two levers together are +25%: 28 -> 26-27 ms per step, within ~1.25x of
+Strata's no-skip 93-102. The 146 slots cost 2.9 GiB, which at 200k is the fp16 KV's; the capture does not pay at
+113 slots (greedy harness, earlier: one group 61-69 against eager 66-70), so the slots come first.
+
+## Worker-side next-layer prefetch (`bench/prefetch`, `pf-ab.sh`, 2026-10-31)
+
+The earlier prefetch lost because the hint was computed by extra kernels on the GPU stream. Rebuilt with the hint
+in the worker: after a decode job of layer L it projects the job's rows (already in its slot) through layer L+1's
+router gate (sent once at load, `exl3_moe_cpu_set_hint`), takes the top-k per row, merges rank-major, maps to
+worker-local ids and prefetches them with the pool until the next job's data is ready. GPU-side hint removed.
+Output bitwise unchanged (worker protocol tests). Production A B B A, `EXL3_MOE_PREFETCH=6`, `_K=10`:
+
+| arm | warm mean (min-max) | handoff gap / spin / compute ms per job | prefetch per 64 jobs |
+|---|---|---|---|
+| off | 63.9 (60.3-71.1), 63.8 (60.3-70.3) | 0.11-0.35 / 0.16-0.20 / 0.19-0.52 | 0 |
+| on, first window (stop on descriptor arrival) | 63.9, 65.1 | unchanged | 6-36 ids, 1-6 hints |
+| on, stop on data_ready | 50.5 (48.3-54.2), 50.5 (49.2-53.1) | 0.45-0.79 / 0.00 / 0.16-0.54 | 370-378 ids, 62-63 hints |
+
+The first window never opened: when the worker finishes job L, job L+1's descriptor is already in the ring and the
+0.19 ms spin is on its data_ready, so "no descriptor queued" held for 2 of 64 jobs. With the window fixed the
+prefetch fires on every job and decode drops 21%: the single-threaded hint (2.6 MB gate from DRAM plus rows x 512
+dot products, ~0.25 ms) outlasts the window, the prefetch stops at once, nothing lands, and the pickup is 0.3 ms
+late. Compute per job did not fall. Third round, the hint over the pool (0.054-0.073 ms per job) and abandoned on data_ready (1-3 aborts per 64):
+
+| arm | warm mean (min-max) | gap / spin / compute / hint ms per job |
+|---|---|---|
+| off | 63.2 (59.6-67.5), 65.7 (63.5-68.4) | 0.11-0.30 / 0.19-0.20 / 0.14-0.32 / 0 |
+| on (6 experts, top-10) | 62.9 (59.1-66.1), 62.3 (59.9-64.5) | 0.29-0.51 / 0.05-0.08 / 0.16-0.78 / 0.05-0.07 |
+
+Neutral to -3%. The prefetch now fills the window (spin 0.20 -> 0.05 ms) but compute per job does not fall: six
+experts are 14 MB per job, as much traffic as the job itself, and with retained copies the registered residents
+(router ids 49-112 plus the spares) take prefetch slots while on the GPU. Fourth round adds per-layer residency bitmaps in the control region (the host sets a bit while a router expert
+is mapped to the worker, updated on every landed transfer; the worker filters the prediction on them), six arms:
+
+| prefetch per job | warm mean (min-max) | spin / compute / hint ms per job | prefetched ids per 64 jobs |
+|---|---|---|---|
+| off | 62.7 (56.4-65.8), 64.0 (59.6-68.9) | 0.13-0.20 / 0.09-0.26 / 0 | 0 |
+| 6 | 63.7 (57.8-68.1), 60.5 (56.5-63.2) | 0.06-0.07 / 0.22-0.51 / 0.05-0.06 | 293-368 |
+| 3 | 60.4 (49.4-67.5), 62.0 (59.6-64.5) | 0.09-0.11 / 0.26-0.39 / 0.06-0.09 | 166-185 |
+
+No gain at either count. The mechanism does what it should (hint 0.055 ms over the pool, residents filtered, the
+window used, aborts rare) but compute per job never falls: the prediction lands one or two of a job's ~7 cold
+experts within a 3-6 slot budget, and on the 7900X's two CCDs a line pulled by a worker on one CCD is not in the
+other's L3, while the compute split is dynamic work-stealing that cannot be aligned with the prefetch in advance.
+The standalone bench's 2x "cached" case had the same threads touching the same bytes twice, which the pipeline
+cannot reproduce. Closed after four rounds: best case neutral. `bench/prefetch` keeps the implementation (five
+commits, `EXL3_MOE_PREFETCH` off by default, worker tests bitwise).
+
+## Live worker bandwidth against the 62 GB/s bench (`C:\tmp\exl3-match\membw`, 2026-11-01)
+
+Why the live worker reports ~50 GB/s when the kernel benches at ~62. Branch `bench/joblog` (off `bench/prefetch`,
+uncommitted) adds `EXL3_MOE_CPU_JOBLOG=<prefix>`: one CSV row per job with shape, split-K parts, per-phase time and
+trellis bytes. Live: production preset, 2 short + 3 x 24k sampled (`live.sh`, warm 62.2 tok/s, so the log costs
+nothing visible). Bench: `bench3.py` replays the live job shapes (rows, rows per expert) or a synthetic 7-expert,
+one-row-per-expert job, on four weight placements (torch tensors, 1 GiB named sections as the pinned arena's worker
+side, the same page-locked, MEM_LARGE_PAGES), forward and reverse order, idle machine (`bench-all.sh`).
+
+Median GB/s per job, gate/up phase (down within 1-2 GB/s):
+
+| | K=4 layers | K=3 layers |
+|---|---|---|
+| live, jobs not after a pause | 57.5 | 45.6 |
+| bench, live shapes replayed, any placement | 58-60 | 46-47 |
+| bench, synthetic 7 experts, one row each | 62-64 | 49-52 |
+
+1. Placement: no effect. Sections, page-locked sections, large pages and plain tensors are within run-to-run noise
+   for both rates.
+2. Contention: live runs within ~2-3% of the idle bench on the same shapes. (The bench was not run during live
+   decode: both pools pin the same 11 cores, so that would measure core sharing, not memory contention.)
+3. Tail: small, with one exception. Excluding jobs that start after a pause, the time above each shape's median is
+   ~2% of job time. Jobs after a >0.8 ms gap are 3.6% of K=4 jobs, almost all at layers 0 and 1 (gap p50 8 ms:
+   the step boundary), and cost ~0.45 ms each over their median (p99 9 ms), ~6% of all CPU job time. Pool wake-up
+   is not the cause (next subsection). The MTP layer's worker, one-row jobs ~22 ms apart, runs at 27 GB/s aggregate
+   against 53 median.
+4. The kernel is compute-bound, not DRAM-bound: in weights per second the two rates agree (K=4 115-126, K=3 122-135
+   Gweights/s across live, replay and synthetic). K=4 at ~60 GB/s sits at both walls; K=3 never reaches DRAM. Per
+   expert, K=3 takes 0.84x the time of K=4 for 0.75x the bytes.
+
+Against 62 GB/s the live decode jobs lose ~24% of their time: K=3 layers ~13%, the first job of each pass ~6%, K=4
+shapes (shared experts disable split-K, small jobs) ~5%. Consequence: a lower-bit requant of cold experts saves time
+in proportion to weights decoded, not bytes, unless the kernel's per-weight cost falls with it.
+
+### Keeping the pool awake into layer 0: a loss, and not the cause (`hold-ab.sh`, 2026-11-01)
+
+Two opt-in worker changes on `bench/joblog`: `EXL3_MOE_POOL_HOLD_US` re-primes the pool every ~0.1 ms from the pass
+wake until the pass's first job (cap 6 ms); `EXL3_MOE_POOL_PRIME_PICKUP=1` primes on picking up a job after a dry
+spell. The job log gained time since the last prime and pickup-to-start wait. Worker tests pass with both on.
+Production preset, fresh server per arm, 2 short + 3 x 24k sampled:
+
+| arm | warm mean (two runs) | first job of pass, us p50 / p90 | last prime before it, us p50 |
+|---|---|---|---|
+| base | 64.3, 65.6 | 413-463 / 1018-1052 | 2654-2766 |
+| hold 6 ms | 56.3, 59.9 | 405-453 / 1070-1147 | 17-20 |
+| hold + prime on pickup | 59.0, 58.4 | 401-424 / 1037-1098 | 13 |
+
+The premise held (the pass-start prime fires ~2.7 ms before layer 0's job, after the promote hook), and the hold
+removes it (last prime ~15 us before the job), but the first job is no faster: its slowness is not pool wake-up.
+Decode loses ~10%, likely 11 cores spinning a few more ms per step taking the CPU's boost budget from the host thread
+(not verified). The MTP worker was never parked either (prime ~0.55 ms before its jobs in base, inside the pool's
+~0.8 ms spin); its slow jobs have the same unknown cause. Both flags stay off. The first job's ~6% remains
+unexplained; promotion and demotion DMA from the arena, issued by the hook just before layer 0's job, is the next
+suspect.
+
+### The first-job stall: two workers' pools on the same LPs (`stall-an.py`, `etw-parse.py`, `pin-ab-run.log`, 2026-11-01)
+
+Per-position analysis: only the first job of each pass is slow, its median is normal (1.05x), and ~6% of first jobs
+take >5x (p99 ~40x), 80-90% of the excess, mostly in the gate/up dispatch. Per-worker tracing in the job log (start
+after dispatch, run time, thread cycles, page faults) shows the cause: one worker starts its share 0.6-8 ms late,
+then runs at full clock (4.7 GHz) with no page faults. A scheduler-only ETW trace (`sched.wprp`, elevated, 18 s of
+decode, pool thread ids from the job log) attributes the main worker's ~3.3 s of ready-but-not-running time to:
+the draft (MTP) worker's job-loop thread on LP 0 (~2.2 s), and other programs (~1 s: System, vgc.exe, VS Code, the
+League client, Task Manager, Chrome). The draft worker loses ~9.5 s the same way on LP 0. Every worker process pins
+its pool in the same core order, so both job-loop threads (worker 0, which polls constantly) sit on LP 0 and take
+turns by scheduler quantum. Not machine-specific: the pinning code is shared with Linux; any model with a second
+CPU-offloaded component (MTP head, draft model) runs two pools on the same LPs.
+
+Fixes, A B C D E E D C B A, production preset, fresh server per arm (main worker CPU job time per run, same work):
+
+| arm | warm mean (two runs) | main CPU job time | first-job stall share | median K=4 GB/s | draft worker GB/s |
+|---|---|---|---|---|---|
+| base | 58.7, 57.0 | 19.5-19.7 s | 5.9-8.8% | 53-54 | 13 |
+| pinning off (`EXL3_MOE_CPU_PIN=0`) | 58.9, 58.7 | 18.5-19.2 s | ~0% | 49-50 | 32-34 |
+| draft pool on the SMT siblings (`EXL3_MOE_DRAFT_PIN=siblings`) | 49.4, 52.0 | 20.1-22.0 s | 12-13% | 52-54 | 3.7 |
+| siblings + highest priority | 55.4, 59.0 | 17.8-18.3 s | 2.6-6.1% | 52-53 | 6-7 |
+| highest priority (`EXL3_MOE_POOL_PRIO=2`) | 61.7, 61.7 | 17.3-18.3 s | 1.5-4.4% | 53-54 | 40-41 |
+
+Pool threads at THREAD_PRIORITY_HIGHEST win: +6.6% decode, the stalls mostly gone, the pinned kernel rate kept, and
+the draft worker 3x faster. Pinning off removes the stalls but costs ~10% kernel rate (threads share cores and
+migrate), net +1.5%. The sibling placement is a loss: the draft worker drops to 3.7 GB/s and the main worker's
+first-job stalls grow (mechanism not traced). The earlier priority A/B agreed (+8%, 57.4 -> 62.2). Caveats: this
+machine had the League client and other desktop apps running, which raises the base stall share; desktop
+responsiveness with 11 highest-priority pool threads was not assessed. The flags lived on `bench/joblog` (uncommitted,
+stashed); the branch and the stash were deleted on 2026-11-02 (next section).
+
+### Scheduler fixes as production code: no gain on current upstream, deleted (2026-11-01 to 11-02)
+
+Branch `feat/moe-cpu-pool-priority`, uncommitted, TDD (tests in `tests/moe_cpu/`, failing before each change):
+
+- **Pool priority:** `EXL3_MOE_CPU_PRIORITY` (`normal` / `above_normal` / `highest`, default `highest`) passed to the
+  worker. Each pool thread applies the level on its next dispatch (`Pool::apply_priority`; Windows only, Linux keeps
+  its priorities).
+- **Own-component pass wake ("option A"):** `prefill_ls` / `forward_ls` bumped `pass_wake` on every host in
+  `config.moe_cpu_hosts`, so a main-model pass also woke the idle MTP worker into spinning its pool on the same LPs.
+  Only the running component's host is woken now.
+- **No worker for the vision tower:** TabbyAPI builds the vision model from the main config
+  (`backends/exllamav3/model.py:388`), which has `moe_cpu_split` set, so its load spawned a third, empty worker
+  process. A component now spawns a worker only if it has `BlockSparseMLP_CPU` modules. A thread snapshot after
+  warm-up showed 2 worker processes instead of 3. RAM saved was not measured.
+
+A/B on `bd1f5191` (1.6.6 bump) + the headroom patch, fresh server per arm, 3 servers x 5 warm samples per arm:
+
+| arm | warm decode, tok/s (SE) |
+|---|---|
+| neither | 59.9 (1.1) |
+| priority only | 60.6 (0.9) |
+| own-component wake only | 59.3 (0.8) |
+| both | 62.2 (0.9) |
+
+Scheduler trace of "both" against the base trace (WPR `sched.wprp`, 20 s, two short decodes, stall = a pool
+thread ready but not running for > 0.2 ms): stalls 2,491 / 13.5 s → 1,314 / 9.9 s, "preempted while running"
+414 → 22, desktop programs on pool LPs ~1.5 s → < 0.2 s (the League client ran during the base trace only). The
+main worker's job loop (worker 0, LP 0) still lost 1.48 s to the MTP worker's job loop (2.17 s in base), ~94% of its
+remaining stall. A per-stall breakdown (`blk-an.py`) put 97% of it inside real MTP passes (MTP helpers busy), and
+the MTP loop kept LP 0 for a median 1.26 ms after its last job by spinning (65,536 pauses) at highest priority:
+423 ms in the 20 s trace.
+
+**Park + nap priority: no gain, reverted.** A `pass_park` word (ctrl block offset 68) let a pass park the other
+hosts: a parked job loop naps as soon as its ring is dry instead of spinning, until its own next pass. A napping
+loop also drops to normal priority and takes the pool priority back on wake or on a job (the nap-only priority drop
+alone could not touch the stall: the MTP loop was spinning, not napping). Worker tests showed the parked loop spending
+< 1/4 the cycles of an unparked one after a job, and normal priority while napping. A/B against the "both" build,
+8 servers alternating, 20 warm samples each: 62.75 (SE 0.60) without, 62.12 (SE 0.63) with. Likely reason (not
+traced, the capture was not started): the main pass's first CPU job arrives only after its GPU work, so the MTP
+tail is off the critical path, and the main helpers starting ~8 us after the loop got LP 0 was the pass-start pool
+prime, not a job.
+
+**On latest upstream `89c35cea` + PR #389:** stock (the production wheel) against the same dev + priority + own
+wake + vision gate (in-place build), 8 fresh servers alternating, 20 warm samples each: 61.55 (SD 2.9) vs
+62.01 (SD 3.2) tok/s, +0.75%, half the run-to-run noise; 24k prefill 1973 vs 1991 tok/s. The +2.3 tok/s of the
+first A/B did not reproduce. Stock on the new base ran faster than the old base's "neither" arm (59.9) on an earlier
+day; the 6 commits between them are prefill and generator changes, and the difference is not attributed. Decode
+is not limited by thread scheduling any more. All code was deleted (branch, stashes, in-place build, and the
+`C:\tmp\exl3-match\membw` scratch with its scripts and traces); this section is the record.
+
+**Greedy runs differ, and not because of these changes.** Fixed 24k prompt at temperature 0, 400 tokens: stock
+differs from itself across servers and across requests on one server. The cause is the streamed CPU-offload
+prefill tier (`moe_cpu_host.py`, ~line 2244): it calls `ext.exl3_moe(..., None, None, ...)` without the output
+scratch, so the fused kernel accumulates expert outputs with float atomics in arrival order. The rest of the GPU
+prefill is deterministic (`EXL3_MOE_FUSED_DET=1`, default), and every request re-prefills at least ~39 tokens,
+above `stream_min_rows` (32). With `EXL3_MOE_STREAM_MIN_ROWS=100000000`: six drafting-off runs over two servers
+are identical, and the scheduler build gives the same hash; drafting on is reproducible per request index across
+servers (the drafter's saved token statistics change between requests) and matches the scheduler build exactly.
+Passing the slot scratch on that call would make greedy output reproducible. Not done.
+
+Test infrastructure note: `testlib.env.cpu_flags()` reads `/proc/cpuinfo`, so every `cpu_flags("avx2")` test,
+including all of `tests/kernels/moe_cpu_host/test_moe_worker.py`, is skipped on Windows.
+
 ## Unused KV pages are the prompt cache
 
 More expert slots are worth +2.6% decode per GiB. At 24k-64k contexts about 3 GiB of the 200k fp16 KV holds no live
@@ -801,4 +1229,5 @@ request forces them back. That is a trade-off for the user, not pursued without 
 Scratch: `C:\tmp\exl3-match\` (`ab.sh`, `chunk-sweep.sh`, `big-chunk-200k.sh`, `prof.sh`, `strata-profile.mjs`,
 logs, `stack-trace.json`); probe logs in `C:\tmp\siftkit-single-orchestrator\trial-*.log`; Strata engine log
 `%LOCALAPPDATA%\Strata\launch\ud-iq4_xs-200k.engine.log`. The saved expert profiles were backed up to
-`C:\tmp\exl3-match\expert_stats.bak` and restored after every run.
+`C:\tmp\exl3-match\expert_stats.bak` and restored after every run. The `membw` scratch (job logs, ETW traces,
+`etw-parse.py`, the A/B scripts) was deleted on 2026-11-02.
