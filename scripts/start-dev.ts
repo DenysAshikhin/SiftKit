@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { httpClient } from '../src/lib/http-client.ts';
+import { raiseOwnPriority } from '../src/lib/process-priority.ts';
 import {
   AssistantShellConfigSchema,
   decideAssistantShellAction,
@@ -11,8 +12,10 @@ import {
 } from './start-dev-assistant-shell.ts';
 import { resolveDashboardLaunch } from './start-dev-dashboard.ts';
 import { isBackendReadyStatusCode } from './start-dev-health.ts';
-import { buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse } from './start-dev-ports.ts';
-import { stopChildProcessTree, stopStatusChild } from './start-dev-process.ts';
+import {
+  buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse, waitForPortListening,
+} from './start-dev-ports.ts';
+import { raiseChildTreePriority, stopChildProcessTree, stopStatusChild } from './start-dev-process.ts';
 
 type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv; ipc?: boolean };
 
@@ -41,6 +44,7 @@ const statusEntry = useStableStatus
   ? path.join(import.meta.dirname, '..', 'src', 'status-server', 'main.ts')
   : path.join(import.meta.dirname, 'start-dev-status.ts');
 const ASSISTANT_SHELL_WATCH_INTERVAL_MS = 5000;
+const DASHBOARD_LISTEN_TIMEOUT_MS = 60_000;
 let statusProcess: ChildProcess | null = null;
 let dashboardProcess: ChildProcess | null = null;
 let assistantShellProcess: ChildProcess | null = null;
@@ -145,6 +149,7 @@ async function syncAssistantShell(): Promise<void> {
     }
     process.stdout.write('[start-dev] Assistant enabled; starting the desktop shell.\n');
     assistantShellProcess = startProcess(runPath, []);
+    raiseChildTreePriority(assistantShellProcess, 'desktop shell');
   } else if (action === 'stop') {
     process.stdout.write('[start-dev] Assistant disabled; stopping the desktop shell.\n');
     stopChildProcessTree(assistantShellProcess);
@@ -152,6 +157,7 @@ async function syncAssistantShell(): Promise<void> {
   }
 }
 
+raiseOwnPriority();
 void (async () => {
   const dashboardLaunch = resolveDashboardLaunch(useStableStatus, process.cwd());
   if (dashboardLaunch.kind === 'missing_build') {
@@ -160,7 +166,8 @@ void (async () => {
     process.exit(1);
     return;
   }
-  for (const portCheck of buildStartupPortChecks(process.env)) {
+  const portChecks = buildStartupPortChecks(process.env);
+  for (const portCheck of [portChecks.status, portChecks.dashboard]) {
     if (await isPortInUse(portCheck.host, portCheck.port)) {
       if (portCheck.fatalIfInUse) {
         process.stderr.write(
@@ -170,7 +177,7 @@ void (async () => {
         process.exit(1);
         return;
       }
-      if (portCheck.service === 'dashboard') {
+      if (portCheck === portChecks.dashboard) {
         reuseExistingDashboard = true;
         process.stderr.write(
           `[start-dev] Dashboard port ${portCheck.host}:${portCheck.port} is already in use; reusing the existing dashboard.\n`
@@ -179,6 +186,7 @@ void (async () => {
     }
   }
 
+  // Each status entry point raises its own priority
   statusProcess = startProcess(process.execPath, [statusEntry], { ipc: true });
   statusProcess.on('exit', (code) => {
     if (!shuttingDown) {
@@ -203,7 +211,14 @@ void (async () => {
   if (reuseExistingDashboard) {
     return;
   }
-  dashboardProcess = startProcess(npmCommand, ['run', dashboardLaunch.script]);
+  const dashboard = startProcess(npmCommand, ['run', dashboardLaunch.script]);
+  dashboardProcess = dashboard;
+  const { host: dashboardHost, port: dashboardPort } = portChecks.dashboard;
+  void waitForPortListening(dashboardHost, dashboardPort, DASHBOARD_LISTEN_TIMEOUT_MS).then((listening) => {
+    // Once it listens, npm, Vite and esbuild are all running and are swept together
+    if (listening) raiseChildTreePriority(dashboard, 'dashboard');
+    else process.stderr.write(`[start-dev] The dashboard never listened on ${dashboardHost}:${dashboardPort}; its priority was not raised.\n`);
+  });
   dashboardProcess.on('exit', (code) => {
     if (!shuttingDown) {
       process.stderr.write(`[start-dev] Dashboard exited with code ${code ?? 0}; stopping status server.\n`);

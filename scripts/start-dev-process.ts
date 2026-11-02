@@ -1,6 +1,7 @@
 import { spawnSync, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 
+import { raiseProcessTreePriority } from '../src/lib/process-priority.ts';
 import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from '../src/status-server/shutdown-budget.ts';
 import { SHUTDOWN_MESSAGE } from '../src/status-server/shutdown-message.ts';
 
@@ -19,6 +20,13 @@ type StopChildProcessTreeOptions = {
   // (the real spawnSync and narrow test stubs both satisfy this).
   spawnSync?: (command: string, args: string[], options: { stdio: 'ignore'; windowsHide: boolean }) => { status: number | null };
 };
+
+/** Raises a started child and the processes it started so far to High, reporting what it could not raise. */
+export function raiseChildTreePriority(child: ChildProcess, name: string): void {
+  if (child.pid === undefined) return;
+  const problem = raiseProcessTreePriority(child.pid);
+  if (problem !== null) process.stderr.write(`[start-dev] ${name}: ${problem}\n`);
+}
 
 export function stopChildProcessTree(
   child: KillableChild | null,

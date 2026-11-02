@@ -3,6 +3,7 @@ import { readdirSync, statSync, watch } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { raiseOwnPriority } from '../src/lib/process-priority.ts';
 import { BUSY_QUERY_MESSAGE, BusyReplyMessageSchema, ShutdownMessageSchema } from '../src/status-server/shutdown-message.ts';
 import { stopChildProcessTree, stopStatusChild } from './start-dev-process.ts';
 
@@ -62,6 +63,7 @@ function askBusy(child: ChildProcess): Promise<string[]> {
 
 /** Runs `entry`, restarting it after real source edits once it has no live runs; every stop is a graceful IPC shutdown. */
 export function superviseWithRestarts(options: RestarterOptions): void {
+  raiseOwnPriority();
   const watchStartedAtMs = Date.now();
   let stopping = false;
   let restartInFlight = false;

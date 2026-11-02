@@ -5,7 +5,6 @@ import { z } from '../src/lib/zod.ts';
 import { parseJsonValueText } from '../src/lib/json.ts';
 
 export type StartupPortCheck = {
-  service: 'status' | 'dashboard';
   name: string;
   host: string;
   port: number;
@@ -59,24 +58,22 @@ export function getStatusServerPort(env: NodeJS.ProcessEnv): number {
 export function buildStartupPortChecks(
   env: NodeJS.ProcessEnv,
   dashboardPackageJsonPath = path.resolve(process.cwd(), 'dashboard', 'package.json'),
-): StartupPortCheck[] {
+): { status: StartupPortCheck; dashboard: StartupPortCheck } {
   const dashboardDevScript = readDashboardDevScript(dashboardPackageJsonPath);
-  return [
-    {
-      service: 'status',
+  return {
+    status: {
       name: 'status server',
       host: getStatusServerConnectHost(env),
       port: getStatusServerPort(env),
       fatalIfInUse: true,
     },
-    {
-      service: 'dashboard',
+    dashboard: {
       name: 'dashboard',
       host: parseCliValue(dashboardDevScript, 'host') || '127.0.0.1',
       port: parsePositivePort(parseCliValue(dashboardDevScript, 'port') || undefined, 6876),
       fatalIfInUse: false,
     },
-  ];
+  };
 }
 
 export function isPortInUse(host: string, port: number): Promise<boolean> {
@@ -94,4 +91,16 @@ export function isPortInUse(host: string, port: number): Promise<boolean> {
       resolve(false);
     });
   });
+}
+
+const PORT_LISTEN_POLL_MS = 500;
+
+/** Polls until something listens on `host:port`; false once `timeoutMs` passes without it. */
+export async function waitForPortListening(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await isPortInUse(host, port))) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, PORT_LISTEN_POLL_MS));
+  }
+  return true;
 }

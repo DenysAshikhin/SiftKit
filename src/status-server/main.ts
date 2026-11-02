@@ -1,10 +1,12 @@
 import { startStatusServer } from './index.ts';
 import { getErrorMessage } from '../lib/errors.ts';
+import { raiseOwnPriority } from '../lib/process-priority.ts';
 import { waitForChatOwnerLease } from '../state/chat-runtime-owner.ts';
 import { getRuntimeDatabase } from '../state/runtime-db.ts';
 import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from './shutdown-budget.ts';
 import { BusyQueryMessageSchema, ShutdownMessageSchema, type BusyReplyMessage } from './shutdown-message.ts';
 
+raiseOwnPriority();
 // A server that died without releasing the chat lease holds it for up to one term.
 await waitForChatOwnerLease(getRuntimeDatabase());
 const server = startStatusServer({

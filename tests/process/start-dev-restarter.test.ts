@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
@@ -133,4 +134,14 @@ test('a shutdown message stops the server gracefully, then the restarter exits c
   restarter.child.send(SHUTDOWN_MESSAGE);
   assert.equal(await restarter.exit, 0);
   assert.deepEqual(restarter.lines, ['started', 'graceful-stop']);
+});
+
+test('the restarter runs at the High priority class', {
+  skip: process.platform !== 'win32' ? 'priority classes are Windows-only' : false,
+}, async (t) => {
+  const restarter = await RestarterProcess.start();
+  t.after(() => { restarter.stop(); });
+  const pid = restarter.child.pid;
+  if (pid === undefined) throw new Error('The restarter did not expose a PID.');
+  assert.equal(os.getPriority(pid), os.constants.priority.PRIORITY_HIGH);
 });

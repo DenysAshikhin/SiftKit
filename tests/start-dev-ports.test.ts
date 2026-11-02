@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 import { isBackendReadyStatusCode } from '../scripts/start-dev-health.ts';
-import { buildStartupPortChecks, getStatusServerPort } from '../scripts/start-dev-ports.ts';
+import { buildStartupPortChecks, getStatusServerPort, waitForPortListening } from '../scripts/start-dev-ports.ts';
 import { stopChildProcessTree } from '../scripts/start-dev-process.ts';
 import { readPackageJson } from './helpers/package-json.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
@@ -31,20 +32,10 @@ test('start-dev preflights both status and dashboard ports before spawning servi
       dashboardPackagePath,
     );
 
-    assert.deepEqual(
-      checks.map((check) => `${check.name}:${check.host}:${check.port}`),
-      [
-        'status server:127.0.0.1:4765',
-        'dashboard:127.0.0.1:6876',
-      ],
-    );
-    assert.deepEqual(
-      checks.map((check) => `${check.service}:${check.fatalIfInUse}`),
-      [
-        'status:true',
-        'dashboard:false',
-      ],
-    );
+    assert.deepEqual(checks, {
+      status: { name: 'status server', host: '127.0.0.1', port: 4765, fatalIfInUse: true },
+      dashboard: { name: 'dashboard', host: '127.0.0.1', port: 6876, fatalIfInUse: false },
+    });
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -96,4 +87,30 @@ test('stable status script starts the full stable dev stack', () => {
 test('status server port derives from one exported helper', () => {
   assert.equal(getStatusServerPort({}), 4765);
   assert.equal(getStatusServerPort({ SIFTKIT_STATUS_PORT: '5123' }), 5123);
+});
+
+/** Binds a free loopback port, then frees it so nothing listens there. */
+async function reserveFreePort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve); });
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('The probe server has no TCP address.');
+  await new Promise((resolve) => { server.close(resolve); });
+  return address.port;
+}
+
+test('start-dev waits for a port that starts listening later', async (t) => {
+  const port = await reserveFreePort();
+  const server = net.createServer();
+  t.after(() => { server.close(); });
+  setTimeout(() => { server.listen(port, '127.0.0.1'); }, 300);
+  assert.equal(await waitForPortListening('127.0.0.1', port, 5_000), true);
+});
+
+test('start-dev stops waiting for a port that never listens', async () => {
+  const port = await reserveFreePort();
+  const startedAt = Date.now();
+  assert.equal(await waitForPortListening('127.0.0.1', port, 600), false);
+  // One refused probe on Windows can take up to its 1 s socket timeout
+  assert.ok(Date.now() - startedAt < 5_000, 'the wait ends near its timeout');
 });

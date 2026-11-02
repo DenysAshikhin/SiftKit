@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { ChildProcessEngineLauncher, type EngineProcess } from '../../src/status-server/engine-process.ts';
+import { createProcessTreeFixture } from '../helpers/process-tree-fixture.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 function readStream(stream: NodeJS.ReadableStream | null): Promise<string> {
@@ -46,6 +48,31 @@ test('the child-process launcher runs the command in its directory with exactly 
     assert.equal(stderr, 'engine-stderr');
   } finally {
     delete process.env.ENGINE_ABSENT;
+  }
+});
+
+test('the child-process launcher raises an engine and the processes it started to High', {
+  skip: process.platform !== 'win32' ? 'priority classes are Windows-only' : false,
+}, async () => {
+  const fixture = createProcessTreeFixture('siftkit-engine-priority-');
+  const launcher = new ChildProcessEngineLauncher();
+  const engineProcess = launcher.launch({
+    command: process.execPath,
+    args: [fixture.parentScript],
+    workingDirectory: path.dirname(fixture.parentScript),
+    environment: { SystemRoot: process.env.SystemRoot },
+  });
+  const exited = waitForExit(engineProcess);
+  const enginePid = engineProcess.pid;
+  if (enginePid === undefined) throw new Error('The engine process did not expose a PID.');
+  try {
+    const grandchildPid = await fixture.waitForGrandchildPid();
+    assert.equal(launcher.raisePriority(engineProcess), null);
+    assert.equal(os.getPriority(enginePid), os.constants.priority.PRIORITY_HIGH);
+    assert.equal(os.getPriority(grandchildPid), os.constants.priority.PRIORITY_HIGH);
+  } finally {
+    launcher.terminate(engineProcess);
+    await exited;
   }
 });
 

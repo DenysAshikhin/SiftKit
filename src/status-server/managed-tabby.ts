@@ -91,6 +91,11 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
         this.spawnProcess(launchEnvironment);
       }
       await this.waitForProcess(preset, processSignature);
+      // Ready means the model is loaded, so its CPU worker processes exist and are swept with the rest
+      const priorityProblem = this.child ? this.host.launcher.raisePriority(this.child) : null;
+      if (priorityProblem !== null) {
+        serverLogger.warning({ scope: 'exl3', id: preset.id, event: 'engine_priority_partial', fields: '', alert: priorityProblem });
+      }
     } catch (error) {
       try {
         await this.stopProcess();

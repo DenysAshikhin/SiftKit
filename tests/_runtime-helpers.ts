@@ -1393,6 +1393,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
   });
 
   return {
+    pid: child.pid,
     port: startupInfo.port,
     startupWarning: startupInfo.startupWarning || null,
     statusUrl: `http://127.0.0.1:${startupInfo.port}/status`,

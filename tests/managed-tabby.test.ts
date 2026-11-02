@@ -645,6 +645,32 @@ test('managed Tabby overrides conflicting inherited allocator settings', async (
   }
 });
 
+test('managed Tabby raises its launched engine process tree once the engine is ready', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-priority');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    assert.equal(fixture.launcher.launches.length, 1);
+    assert.equal(fixture.launcher.priorityRaises.length, 1);
+    assert.equal(fixture.launcher.priorityRaises[0]?.exitCode, null);
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    assert.equal(fixture.launcher.priorityRaises.length, 1, 'an already-ready engine is not swept again');
+  });
+});
+
+test('managed Tabby logs the engine processes it could not raise under the preset', async (t) => {
+  const warnings = t.mock.method(serverLogger, 'warning', () => {});
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-priority-partial');
+    fixture.launcher.priorityProblem = 'Could not raise every process to High priority: processes 7 could not be raised.';
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    assert.equal(fixture.runtime.getProcessState(), 'ready', 'a partial raise does not fail the start');
+    const priorityWarnings = warnings.mock.calls
+      .map((call) => call.arguments[0])
+      .filter((event) => event?.scope === 'exl3' && event.event === 'engine_priority_partial');
+    assert.deepEqual(priorityWarnings.map((event) => [event?.id, event?.alert]), [[fixture.exl3Preset.id, fixture.launcher.priorityProblem]]);
+  });
+});
+
 const DISK_CACHE = { DiskCacheDir: 'D:\\AI\\exl3-disk-cache', CacheRam: 1024 };
 
 test('managed Tabby drains a disk-cache preset through unload before terminating it', async () => {

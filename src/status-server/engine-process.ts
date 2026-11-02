@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 
 import type { Exl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
 import { InterpreterExl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
+import { raiseProcessTreePriority } from '../lib/process-priority.ts';
 import { terminateProcessTree } from '../lib/process-tree.ts';
 import { NvidiaSmiGpuMemoryProbe, type GpuMemoryProbe } from './gpu-memory.ts';
 
@@ -27,6 +28,8 @@ export interface EngineProcessLauncher {
   launch(spec: EngineLaunchSpec): EngineProcess;
   /** Stops the whole process tree; completion is observed through the process's `exit` event. */
   terminate(engineProcess: EngineProcess): void;
+  /** Raises the engine and the processes it started so far to High; returns what could not be raised, or null. */
+  raisePriority(engineProcess: EngineProcess): string | null;
 }
 
 /** Everything a managed engine needs from the host machine: its interpreter and its processes. */
@@ -50,6 +53,10 @@ export class ChildProcessEngineLauncher implements EngineProcessLauncher {
 
   terminate(engineProcess: EngineProcess): void {
     if (engineProcess.pid) terminateProcessTree(engineProcess.pid);
+  }
+
+  raisePriority(engineProcess: EngineProcess): string | null {
+    return engineProcess.pid ? raiseProcessTreePriority(engineProcess.pid) : null;
   }
 }
 

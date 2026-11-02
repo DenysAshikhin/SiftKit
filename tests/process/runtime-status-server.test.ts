@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -37,6 +38,26 @@ test('real status server reports a startup warning when the managed engine exits
       assert.match(String(server.startupWarning || ''), /TabbyAPI exited unexpectedly \(code=7/u);
       const health = await requestJson<HealthCheckResponse>(`http://127.0.0.1:${server.port}/health`);
       assert.equal(health.ok, true);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('real status server runs at the High priority class', {
+  skip: process.platform !== 'win32' ? 'priority classes are Windows-only' : false,
+}, async () => {
+  await withTempEnv(async (tempRoot) => {
+    const configPath = path.join(tempRoot, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify(getDefaultConfig(), null, 2), 'utf8');
+    const server = await startStatusServerProcess({
+      statusPath: path.join(tempRoot, 'status', 'inference.txt'),
+      configPath,
+      disableManagedEngineStartup: true,
+    });
+    try {
+      if (server.pid === undefined) throw new Error('The status server did not expose a PID.');
+      assert.equal(os.getPriority(server.pid), os.constants.priority.PRIORITY_HIGH);
     } finally {
       await server.close();
     }

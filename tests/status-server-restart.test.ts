@@ -55,6 +55,10 @@ class CpuRejectingLauncher implements EngineProcessLauncher {
   terminate(process: EngineProcess): void {
     this.delegate.terminate(process);
   }
+
+  raisePriority(process: EngineProcess): string | null {
+    return this.delegate.raisePriority(process);
+  }
 }
 
 function requestJsonAllowError<T>(

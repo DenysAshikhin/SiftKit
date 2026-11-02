@@ -161,7 +161,8 @@ $processes = [SiftKitProcessSnapshot]::EnumerateProcesses() |
 ConvertTo-Json -Compress @($processes)
 `;
 
-function snapshotWindowsDescendantPids(rootPid: number, spawnSyncImpl: typeof spawnSync): number[] {
+/** The descendants of `rootPid` alive now, deepest first, from one Toolhelp32 snapshot; null when it fails. Windows only. */
+export function listWindowsDescendantPids(rootPid: number, spawnSyncImpl: typeof spawnSync = spawnSync): number[] | null {
   let result: SpawnSyncReturns<Buffer>;
   try {
     result = spawnSyncImpl(
@@ -170,20 +171,20 @@ function snapshotWindowsDescendantPids(rootPid: number, spawnSyncImpl: typeof sp
       { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: TOOLHELP_SNAPSHOT_TIMEOUT_MS },
     );
   } catch {
-    return [];
+    return null;
   }
   if (result.error !== undefined || (result.status ?? 1) !== 0) {
-    return [];
+    return null;
   }
   const stdout = result.stdout?.toString('utf8').trim() ?? '';
   if (stdout === '') {
-    return [];
+    return null;
   }
   try {
     const snapshot = WindowsProcessSnapshotSchema.safeParse(parseJsonValueText(stdout));
-    return snapshot.success ? orderDescendantProcessIds(rootPid, snapshot.data) : [];
+    return snapshot.success ? orderDescendantProcessIds(rootPid, snapshot.data) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -193,7 +194,8 @@ function terminateWindowsFallback(
   spawnSyncImpl: typeof spawnSync,
 ): boolean {
   let terminated = false;
-  for (const descendantPid of snapshotWindowsDescendantPids(rootPid, spawnSyncImpl)) {
+  // Without a snapshot only the root is left to terminate
+  for (const descendantPid of listWindowsDescendantPids(rootPid, spawnSyncImpl) ?? []) {
     try {
       if (processObject.kill(descendantPid, 'SIGTERM')) {
         terminated = true;

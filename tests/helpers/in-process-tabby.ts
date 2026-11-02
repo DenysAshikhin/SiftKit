@@ -188,6 +188,10 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
   readonly encodeRequests: { body: z.infer<typeof EncodeRequestSchema>; authorization: string | undefined }[] = [];
   /** 'unload' and 'terminate' in the order they happened. */
   readonly events: string[] = [];
+  /** Every engine process raised to High priority, in order. */
+  readonly priorityRaises: EngineProcess[] = [];
+  /** What the next priority raise reports it could not raise; null when it raises everything. */
+  priorityProblem: string | null = null;
   private readonly processes: FakeTabbyProcess[] = [];
   private deferredLogReleased = false;
 
@@ -228,6 +232,11 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
   terminate(engineProcess: EngineProcess): void {
     this.events.push('terminate');
     for (const process of this.processes) if (process === engineProcess) process.exit(0);
+  }
+
+  raisePriority(engineProcess: EngineProcess): string | null {
+    this.priorityRaises.push(engineProcess);
+    return this.priorityProblem;
   }
 
   /** Stops every launch still alive; for test teardown. */
@@ -408,6 +417,9 @@ export const NEVER_LAUNCHING_ENGINE_HOST: ManagedEngineHost = {
     },
     terminate() {
       throw new Error('Unexpected managed engine termination.');
+    },
+    raisePriority() {
+      throw new Error('Unexpected managed engine priority change.');
     },
   },
   packageLocator: {
