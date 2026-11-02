@@ -40,7 +40,8 @@ export function resolveRepoScopedPath(repoRoot: string, rawPath: OptionalJsonVal
   relativePath: string;
 } | null {
   const pathText = typeof rawPath === 'string' ? rawPath.trim() : '';
-  if (!pathText || isAbsolute(pathText)) return null;
+  if (!pathText) return null;
+  // An absolute path is re-expressed relative to the root and must pass the same checks.
   const absolutePath = resolve(repoRoot, pathText);
   const relativePath = relative(repoRoot, absolutePath);
   if (relativePath.startsWith('..') || isAbsolute(relativePath)) return null;

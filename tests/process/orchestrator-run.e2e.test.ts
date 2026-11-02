@@ -25,7 +25,6 @@ import { parseJsonText, parseJsonValueText } from '../../src/lib/json.ts';
 import type { JsonObject } from '../../src/lib/json-types.ts';
 import { z } from '../../src/lib/zod.ts';
 import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.ts';
-import type { RepoSearchExecutionRequest } from '../../src/repo-search/types.ts';
 import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from '../helpers/dashboard-model-queue-harness.ts';
 import { requestJson } from '../helpers/dashboard-http.ts';
 import { readStatusModelRequests } from '../helpers/model-request-status.ts';
@@ -59,9 +58,9 @@ const WRITE_TASK = makeOrchestratorTask({ id: 'greeting', title: 'Add the greeti
   readPaths: ['src/app.ts'], writePaths: [TARGET], verification: [TARGET_EXISTS],
   steps: [{ instruction: `Create ${TARGET} exporting greeting.`, expectedResult: 'The module exists.' }],
   acceptance: ['src/greeting.ts exports greeting.'] });
-const READ_TASK = makeOrchestratorTask({ id: 'read-app', readPaths: ['src/app.ts'], verification: [PASSING_CHECK],
-  steps: [{ instruction: 'Report the value of app in src/app.ts.', expectedResult: 'The value.' }],
-  acceptance: ['The report states the value of app.'] });
+const FAREWELL_TASK = makeOrchestratorTask({ ...WRITE_TASK, id: 'farewell', title: 'Add farewell', writePaths: ['src/farewell.ts'],
+  verification: [PASSING_CHECK], steps: [{ instruction: 'Create src/farewell.ts exporting farewell.', expectedResult: 'The module exists.' }],
+  acceptance: ['src/farewell.ts exports farewell.'] });
 
 function planOf(tasks = [WRITE_TASK], finalVerification = [PASSING_CHECK]): OrchestratorPlan {
   return { ...makeOrchestratorPlan(tasks), finalVerification };
@@ -75,29 +74,31 @@ function tool(name: string, args: JsonObject): MockPlannerResponseInput {
 
 const savePlan = (plan: OrchestratorPlan = planOf()) => tool('save_plan', { plan });
 
-function dispatch(...children: { taskId: string; purpose?: OrchestratorChildPurpose; instruction?: string }[]) {
-  return tool('dispatch', { children: children.map((child) => ({ taskId: child.taskId, purpose: child.purpose ?? 'implementation',
-    instruction: child.instruction ?? `Do task ${child.taskId}.` })) });
+function dispatch(child: { taskId: string; purpose?: OrchestratorChildPurpose; instruction?: string }) {
+  return tool('dispatch', { taskId: child.taskId, purpose: child.purpose ?? 'implementation',
+    instruction: child.instruction ?? `Do task ${child.taskId}.` });
 }
 
 const GREETING_EVIDENCE = { path: TARGET, line: 1, snippet: 'export const greeting' };
-const APP_EVIDENCE = { path: 'src/app.ts', line: 1, snippet: 'export const app = 1;' };
+const FAREWELL_EVIDENCE = { path: 'src/farewell.ts', line: 1, snippet: 'export const farewell' };
 
 function review(taskId: string, verdict: 'pass' | 'fail', overrides: Partial<OrchestratorRecordReviewArgs> = {}) {
-  const evidence = taskId === 'greeting' ? GREETING_EVIDENCE : APP_EVIDENCE;
+  const evidence = taskId === 'farewell' ? FAREWELL_EVIDENCE : GREETING_EVIDENCE;
   return tool('record_review', { taskId, verdict, criteria: [{ index: 0, met: verdict === 'pass', evidence: verdict === 'pass' ? [evidence] : [] }],
     findings: verdict === 'pass' ? [] : [{ path: 'src/app.ts', line: 1, issue: 'The greeting is not exported.' }], ...overrides });
 }
 
 const COMPLETE: MockPlannerResponseInput = { content: '{"status":"completed","summary":"Added the greeting module."}' };
 
+function announcedApprovalId(output: string): string {
+  const approvalId = /approvalId "([0-9a-f-]{36})"/u.exec(output)?.[1];
+  if (approvalId === undefined) throw new Error(`No announced approval in: ${output.slice(0, 400)}`);
+  return approvalId;
+}
+
 /** decide on the approval the previous tool result announced. */
 function decideAnnounced(decision: 'approve' | 'deny' | 'escalate'): ParentTurn {
-  return (output) => {
-    const approvalId = /approvalId "([0-9a-f-]{36})"/u.exec(output)?.[1];
-    if (approvalId === undefined) throw new Error(`No announced approval in: ${output.slice(0, 400)}`);
-    return tool('decide', { approvalId, decision, reason: 'Creates the planned file inside its scope.' });
-  };
+  return (output) => tool('decide', { approvalId: announcedApprovalId(output), decision, reason: 'Creates the planned file inside its scope.' });
 }
 
 // ---- the children's turns ----
@@ -106,16 +107,14 @@ function writeFile(content: string, file = TARGET): MockPlannerResponseInput {
   return { toolCalls: [{ name: 'write', arguments: { path: file, content } }] };
 }
 
-const AGENT_REPORT: MockPlannerResponseInput = { content: JSON.stringify({ kind: 'agent', status: 'completed', deviations: [] }) };
-
-const SEARCH_REPORT: MockPlannerResponseInput = { content: JSON.stringify({ kind: 'search',
-  findings: [{ claim: 'app is 1.', evidence: [{ path: 'src/app.ts', line: 1 }] }], unknowns: [] }) };
+const AGENT_REPORT: MockPlannerResponseInput = { content: JSON.stringify({ status: 'completed', deviations: [] }) };
 
 /** A writer that creates the greeting, approved by its own reviewer, and reports. */
 const WRITER: MockPlannerResponseInput[] = [writeFile(GREETING), APPROVING_VERDICT, AGENT_REPORT];
 
-/** A reader that looks at app.ts first, so its finish carries repository evidence. */
-const READER: MockPlannerResponseInput[] = [tool('read', { path: 'src/app.ts' }), SEARCH_REPORT];
+/** A writer that creates the farewell module, approved by its own reviewer, and reports. */
+const FAREWELL_WRITER: MockPlannerResponseInput[] = [writeFile("export const farewell = 'bye';\n", 'src/farewell.ts'),
+  APPROVING_VERDICT, AGENT_REPORT];
 
 // ---- the harness ----
 
@@ -189,6 +188,9 @@ test('one conversation plans, dispatches a writer, reviews it, and finishes; the
     assert.deepEqual(context.harness.loadedModelNames, ['model-a', 'model-b', 'model-a'],
       'the parent on A, its child on B, then the parent resumes on A');
     assert.equal(engine.prompts('parent').length, 1, 'the whole run is one orchestrator conversation');
+    const parentPrompt = engine.prompts('parent')[0] ?? '';
+    assert.match(parentPrompt, /^- repo-agent \(model /mu, 'the repo-agent preset is a worker');
+    assert.doesNotMatch(parentPrompt, /^- (?:repo-search|plan|orchestrator) \(/mu, 'read-only and orchestrator presets are never workers');
     assert.equal(state.parentRunIds.length, 1);
     assert.deepEqual(state.attempts.map((attempt) => [attempt.purpose, attempt.attempt, attempt.status, attempt.result?.outcome]),
       [['implementation', 1, 'settled', 'passed']]);
@@ -292,78 +294,25 @@ test('a child out of resubmits reports its failing checks, and the orchestrator 
   assert.match(second ?? '', /Write src\/greeting\.ts itself; the last attempt never created it\./u, 'the retry carries the orchestrator\'s new instruction');
 });
 
-/** Waits up to 20 s for the writer's file, so the reader can settle only once both tasks overlapped. */
-const WAIT_FOR_TARGET: OrchestratorVerificationCheck = { kind: 'command', cwd: '.', expectedExitCode: 0,
-  command: `$deadline = (Get-Date).AddSeconds(20); while (-not (Test-Path ${TARGET})) { if ((Get-Date) -gt $deadline) { exit 1 }; `
-    + 'Start-Sleep -Milliseconds 50 }; exit 0' };
-
-test('a writer and a reader dispatched together run at once and the reader is never charged with the write', async (t) => {
-  const context = await startHarness(t, 'siftkit-orchestrator-parallel-');
-  const { engine } = context;
-  await context.harness.updateParallelSlots(2);
-  await context.harness.assignOperationModel('repo-agent', MODEL_A);
-  const reader = { ...READ_TASK, verification: [WAIT_FOR_TARGET] };
-  engine.parent.push([savePlan(planOf([WRITE_TASK, reader])), dispatch({ taskId: 'greeting' }, { taskId: 'read-app' }),
-    review('greeting', 'pass'), COMPLETE]);
-  // The two children may reach the engine in either order, so each answers by its own prompt.
-  const child = (request: RepoSearchExecutionRequest) => (request.prompt.includes('Report the value of app') ? READER : WRITER);
-  engine.children.push(child, child);
-
-  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
-
-  assertCompleted(state, engine);
-  const firstSettled = events.findIndex((event) => event.message.startsWith('Settled'));
-  const started = events.slice(0, firstSettled).filter((event) => / running\.$/u.test(event.message)).map((event) => event.taskId);
-  assert.deepEqual(started.sort(), ['greeting', 'read-app'], 'both tasks were running before either settled');
-  const readAttempt = state.attempts.find((attempt) => attempt.taskId === 'read-app');
-  assert.deepEqual(readAttempt?.result?.changedPaths, []);
-  const reports = engine.parentToolOutputs()[1] ?? '';
-  assert.ok(reports.includes('## greeting (implementation') && reports.includes('## read-app (implementation'), 'one batch carries both reports');
-  assert.match(engine.prompts('parent')[0] ?? '', /2 parallel slots/u);
-});
-
-test('two readers dispatched together on a one-slot model both run, one after the other, and the parent is warned', async (t) => {
-  const context = await startHarness(t, 'siftkit-orchestrator-queued-');
-  const { engine } = context;
-  const again = { ...READ_TASK, id: 'read-again' };
-  engine.parent.push([savePlan(planOf([READ_TASK, again])), dispatch({ taskId: 'read-app' }, { taskId: 'read-again' }),
-    { content: '{"status":"blocked","reason":"Stop after the readers."}' }]);
-  engine.children.push(READER, READER);
-
-  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
-
-  assert.equal(state.failure?.code, 'blocked', [JSON.stringify(state.failure), ...engine.parentToolOutputs()].join('\n---\n'));
-  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['read-app', 'completed'], ['read-again', 'completed']]);
-  const lifecycle = events.filter((event) => / running\.$/u.test(event.message) || event.message.startsWith('Settled'))
-    .map((event) => `${event.taskId} ${event.message.startsWith('Settled') ? 'settled' : 'running'}`);
-  assert.deepEqual(lifecycle, ['read-app running', 'read-app settled', 'read-again running', 'read-again settled'],
-    'the queued reader starts only once the first frees the slot');
-  const reports = engine.parentToolOutputs()[1] ?? '';
-  assert.ok(reports.includes('## read-app (implementation') && reports.includes('## read-again (implementation'), 'one result carries both reports');
-  assert.match(reports, /Model exl3-main has only 1 parallel slot, so read-app, read-again ran in sequence, not in parallel\./u);
-});
-
 test('code refuses an invalid plan or dispatch in the tool result, and the conversation goes on until it finishes blocked', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-refusals-');
   const { engine } = context;
   // A name no machine resolves; a live run failed the same way on `grep`, which some PATHs do provide.
   const missingTool: OrchestratorVerificationCheck = { kind: 'command', command: 'node --version | siftkit-missing-tool v', cwd: '.',
     expectedExitCode: 0 };
-  const second = makeOrchestratorTask({ ...WRITE_TASK, id: 'farewell', writePaths: ['src/farewell.ts'] });
-  const dependent = { ...READ_TASK, dependsOn: ['greeting'] };
-  engine.parent.push([savePlan(planOf([{ ...WRITE_TASK, verification: [missingTool] }])), savePlan(planOf([WRITE_TASK, second, dependent])),
-    dispatch({ taskId: 'greeting' }, { taskId: 'farewell' }), dispatch({ taskId: 'read-app' }), dispatch({ taskId: 'nowhere' }),
+  const dependent = makeOrchestratorTask({ ...FAREWELL_TASK, id: 'goodbye', writePaths: ['src/goodbye.ts'], dependsOn: ['greeting'] });
+  engine.parent.push([savePlan(planOf([{ ...WRITE_TASK, verification: [missingTool] }])), savePlan(planOf([WRITE_TASK, FAREWELL_TASK, dependent])),
+    dispatch({ taskId: 'goodbye' }), dispatch({ taskId: 'nowhere' }),
     { content: '{"status":"blocked","reason":"The greeting cannot be written."}' }]);
 
   const { state } = await followRun(context, (await startRun(context, 'off')).runId);
 
   assert.equal(state.phase, 'failed');
   assert.deepEqual(state.failure, { code: 'blocked', message: 'The orchestrator stopped: The greeting cannot be written.', taskId: null });
-  const [badPlan, goodPlan, twoWriters, unmet, unknown] = engine.parentToolOutputs();
+  const [badPlan, goodPlan, unmet, unknown] = engine.parentToolOutputs();
   assert.match(badPlan ?? '', /^Not done:\n- Check `node --version \| siftkit-missing-tool v` cannot run in PowerShell/u);
   assert.match(goodPlan ?? '', /^Plan saved to .*plan\.md with 3 task\(s\)\./u);
-  assert.match(twoWriters ?? '', /Task 'farewell' cannot start: another task in this dispatch already changes files\./u);
-  assert.match(unmet ?? '', /Task 'read-app' cannot start: its dependencies are not complete: greeting\./u);
+  assert.match(unmet ?? '', /Task 'goodbye' cannot start: its dependencies are not complete: greeting\./u);
   assert.match(unknown ?? '', /Task 'nowhere' is not in the saved plan\./u);
   assert.equal(engine.prompts('children').length, 0, 'no refused dispatch started a child');
   assert.match(engine.prompts('parent')[0] ?? '', /Command checks run in PowerShell \(Windows, powershell\.exe\)/u);
@@ -373,10 +322,10 @@ test('update_tasks revises the saved plan and its Markdown, and save_plan only m
   const context = await startHarness(t, 'siftkit-orchestrator-update-tasks-');
   const { engine } = context;
   engine.parent.push([savePlan(),
-    tool('update_tasks', { update: [{ taskId: 'greeting', set: { title: 'Write the greeting module' } }], add: [READ_TASK] }),
-    savePlan(), tool('update_tasks', { remove: ['nowhere'] }), dispatch({ taskId: 'read-app' }),
-    { content: '{"status":"blocked","reason":"Stop after the reader."}' }]);
-  engine.children.push(READER);
+    tool('update_tasks', { update: [{ taskId: 'greeting', set: { title: 'Write the greeting module' } }], add: [FAREWELL_TASK] }),
+    savePlan(), tool('update_tasks', { remove: ['nowhere'] }), dispatch({ taskId: 'farewell' }),
+    { content: '{"status":"blocked","reason":"Stop after the farewell."}' }]);
+  engine.children.push(FAREWELL_WRITER);
 
   const { state } = await followRun(context, (await startRun(context, 'off')).runId);
 
@@ -384,8 +333,9 @@ test('update_tasks revises the saved plan and its Markdown, and save_plan only m
   assert.match(updated ?? '', /^Plan updated: .*plan\.md now has 2 task\(s\)\./u);
   assert.match(replaced ?? '', /A plan is already saved; change it with update_tasks\./u);
   assert.match(unknown ?? '', /Task 'nowhere' is not in the saved plan\./u);
-  assert.deepEqual(state.plan?.tasks.map((task) => [task.id, task.title]), [['greeting', 'Write the greeting module'], ['read-app', READ_TASK.title]]);
-  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['greeting', 'pending'], ['read-app', 'completed']]);
+  assert.deepEqual(state.plan?.tasks.map((task) => [task.id, task.title]), [['greeting', 'Write the greeting module'], ['farewell', FAREWELL_TASK.title]]);
+  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['greeting', 'pending'], ['farewell', 'aborted']],
+    'the dispatched task was open when the run stopped blocked');
   assert.ok(state.planPath);
   assert.match(fs.readFileSync(path.join(context.repo, state.planPath ?? ''), 'utf8'), /Write the greeting module/u);
 });
@@ -393,35 +343,13 @@ test('update_tasks revises the saved plan and its Markdown, and save_plan only m
 test('update_tasks sent whole as a string inside its update argument, as a live run did, revises the plan', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-update-wrapped-');
   const { engine } = context;
-  engine.parent.push([savePlan(), tool('update_tasks', { update: JSON.stringify({ add: [READ_TASK] }) }),
+  engine.parent.push([savePlan(), tool('update_tasks', { update: JSON.stringify({ add: [FAREWELL_TASK] }) }),
     { content: '{"status":"blocked","reason":"Stop after the update."}' }]);
 
   const { state } = await followRun(context, (await startRun(context, 'off')).runId);
 
   assert.match(engine.parentToolOutputs()[1] ?? '', /^Plan updated: .*plan\.md now has 2 task\(s\)\./u);
-  assert.deepEqual(state.plan?.tasks.map((task) => task.id), ['greeting', 'read-app']);
-});
-
-test('a read-only task is decided by its checks: a pass completes it unreviewed, a failure returns it for one more attempt', async (t) => {
-  const context = await startHarness(t, 'siftkit-orchestrator-read-only-');
-  const { engine } = context;
-  const failing = { ...READ_TASK, id: 'read-fail', verification: [{ ...PASSING_CHECK, command: 'exit 1' }] };
-  engine.parent.push([savePlan(planOf([READ_TASK, failing])), dispatch({ taskId: 'read-app' }), review('read-app', 'pass'),
-    dispatch({ taskId: 'read-fail' }), dispatch({ taskId: 'read-fail' }),
-    { content: '{"status":"blocked","reason":"The failing survey never passed."}' }]);
-  const failingReader = [tool('read', { path: 'src/app.ts' }), SEARCH_REPORT, SEARCH_REPORT, SEARCH_REPORT];
-  engine.children.push(READER, failingReader, failingReader);
-
-  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
-
-  assert.equal(state.failure?.code, 'blocked', [JSON.stringify(state.failure), ...engine.parentToolOutputs()].join('\n---\n'));
-  const [, passed, refused, firstFailure, lastFailure] = engine.parentToolOutputs();
-  assert.match(passed ?? '', /- read-app: completed \(implementation 1\/2/u);
-  assert.match(refused ?? '', /Task 'read-app' is read-only; its checks decide it, so it takes no review\./u);
-  assert.match(firstFailure ?? '', /- read-fail: pending \(implementation 1\/2/u);
-  assert.match(lastFailure ?? '', /- read-fail: failed \(implementation 2\/2/u);
-  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status, task.review]), [['read-app', 'completed', null], ['read-fail', 'failed', null]]);
-  assert.equal(events.some((event) => / reviewing\.$/u.test(event.message)), false, 'no read-only task waits for a review');
+  assert.deepEqual(state.plan?.tasks.map((task) => task.id), ['greeting', 'farewell']);
 });
 
 test('a child releases its model while its submission checks run, and the checks carry no nested-run marker', async (t) => {
@@ -506,6 +434,30 @@ test('with approval auto the orchestrator decides a child escalation in its own 
   assert.equal(engine.prompts('children').length, 1, 'the approval continues the same child');
   assert.ok(events.some((event) => event.message.startsWith('Orchestrator approve: write')));
   assert.equal(fs.readFileSync(path.join(context.repo, TARGET), 'utf8'), GREETING);
+});
+
+test('while a child awaits a decision, code refuses a check, a second dispatch, and a plan change, and decide resumes it', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-one-child-');
+  const { engine } = context;
+  const refusedThenDecide: ParentTurn = (output) => ({ toolCalls: [
+    tool('run_check', { command: 'node --version', cwd: '.' }),
+    dispatch({ taskId: 'greeting', instruction: 'Again.' }),
+    tool('update_tasks', { update: [{ taskId: 'greeting', set: { title: 'Renamed' } }] }),
+    tool('decide', { approvalId: announcedApprovalId(output), decision: 'approve', reason: 'Inside its scope.' }),
+  ].flatMap((turn) => turn.toolCalls ?? []) });
+  engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' }), refusedThenDecide, review('greeting', 'pass'), COMPLETE]);
+  engine.children.push(ESCALATING_WRITER);
+
+  const { state } = await followRun(context, (await startRun(context, 'auto')).runId);
+
+  assertCompleted(state, engine);
+  const [, , check, again, update, decided] = engine.parentToolOutputs();
+  assert.match(check ?? '', /A child is still running; run checks once it reports\./u);
+  assert.match(again ?? '', /A child approval is waiting; answer it with decide\./u);
+  assert.match(update ?? '', /A child is still running; change the plan once it reports\./u);
+  assert.match(decided ?? '', /## greeting \(implementation attempt 1\): passed/u);
+  assert.equal(state.attempts.length, 1, 'the refused dispatch started no child');
+  assert.equal(state.plan?.tasks[0]?.title, WRITE_TASK.title, 'the refused update left the plan alone');
 });
 
 test('with approval auto an escalation the orchestrator cannot judge goes to the person', async (t) => {
@@ -650,10 +602,10 @@ test('the CLI starts a run, streams committed events, and prints the typed resul
 
   assert.equal(exitCode, 0, stderr.text);
   const result = z.object({ runId: z.string().uuid(), status: z.string(),
-    tasks: z.array(z.object({ taskId: z.string(), review: z.string().nullable(), report: z.object({ kind: z.string() }).loose().nullable() })),
+    tasks: z.array(z.object({ taskId: z.string(), review: z.string().nullable(), report: z.object({ status: z.string() }).loose().nullable() })),
     attempts: z.array(z.object({ outcome: z.string().nullable() }).loose()) }).loose().parse(parseJsonValueText(stdout.text));
   assert.equal(result.status, 'completed');
-  assert.deepEqual([result.tasks[0]?.review, result.tasks[0]?.report?.kind, result.attempts[0]?.outcome], ['pass', 'agent', 'passed']);
+  assert.deepEqual([result.tasks[0]?.review, result.tasks[0]?.report?.status, result.attempts[0]?.outcome], ['pass', 'completed', 'passed']);
   assert.match(stderr.text, /\[orchestrator #1\] preparing_plan: Orchestrator run created\./u);
   assert.match(stderr.text, /Reserved implementation attempt 1\./u);
   const status = new CollectingStream();
@@ -683,8 +635,9 @@ test('the events stream carries the orchestrator conversation and live children,
     [['save_plan', 'succeeded'], ['dispatch', 'succeeded'], ['record_review', 'succeeded']]);
   assert.ok(activities.some((activity) => activity.parent?.parked === true), 'the parent shows as parked while its child works');
   const scheduled = activities.find((activity) => activity.schedule !== null)?.schedule;
-  assert.deepEqual(scheduled?.claims.map(({ taskId, modelId, mutating }) => ({ taskId, modelId, mutating })),
-    [{ taskId: 'greeting', modelId: ALTERNATE_MODEL_PRESET_ID, mutating: true }]);
+  assert.deepEqual(scheduled?.claims.map(({ taskId, modelId }) => ({ taskId, modelId })),
+    [{ taskId: 'greeting', modelId: ALTERNATE_MODEL_PRESET_ID }]);
+  assert.deepEqual(scheduled?.waits, []);
   const childViews = activities.flatMap((activity) => activity.children);
   assert.ok(childViews.length > 0 && childViews.every((child) => child.childRunId === state.attempts[0]?.childRunId));
   assert.ok(childViews.some((child) => child.tools.some((entry) => entry.status === 'succeeded')), 'the child tool call settled');
@@ -727,15 +680,15 @@ test('a client that connects mid-run starts from the live snapshot, and an abort
 test('a run keeps the configuration it started with when presets change mid-run', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-pinned-config-');
   const { engine } = context;
-  const dependent = { ...READ_TASK, dependsOn: ['greeting'] };
+  const dependent = { ...FAREWELL_TASK, dependsOn: ['greeting'] };
   engine.parent.push([savePlan(planOf([WRITE_TASK, dependent])), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'),
-    dispatch({ taskId: 'read-app' }), COMPLETE]);
-  engine.children.push(ESCALATING_WRITER, READER);
+    dispatch({ taskId: 'farewell' }), review('farewell', 'pass'), COMPLETE]);
+  engine.children.push(ESCALATING_WRITER, FAREWELL_WRITER);
   const started = await startRun(context, 'interactive');
   const following = followRun(context, started.runId);
 
   let approval = await waitForApprovalOrEnd(context, started.runId);
-  await context.harness.updateOperationPreset('repo-search', { allowedTools: ['read'] });
+  await context.harness.updateOperationPreset('repo-agent', { allowedTools: ['read', 'edit'] });
   while (approval !== null) {
     await requestJson(`${context.baseUrl}/orchestrator/decide`, { method: 'POST',
       body: JSON.stringify({ runId: started.runId, approvalId: approval.approval?.approvalId, decision: 'approve' }) });
@@ -744,26 +697,8 @@ test('a run keeps the configuration it started with when presets change mid-run'
 
   const { state } = await following;
   assertCompleted(state, engine);
-  assert.notDeepEqual(engine.requireRepoSearch('Report the value of app').allowedTools, ['read'],
-    'the reader keeps the tools the run started with');
-});
-
-test('a reader that starts after the writer finished is charged with its own change to the writer\'s file, and the orchestrator sees it', async (t) => {
-  const context = await startHarness(t, 'siftkit-orchestrator-late-reader-');
-  const { engine } = context;
-  const touchTarget: OrchestratorVerificationCheck = { kind: 'command', cwd: '.', expectedExitCode: 0,
-    command: `Add-Content -Path ${TARGET} -Value '// touched by a reader check'; exit 0` };
-  const dependent = { ...READ_TASK, dependsOn: ['greeting'], verification: [touchTarget] };
-  engine.parent.push([savePlan(planOf([WRITE_TASK, dependent])), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'),
-    dispatch({ taskId: 'read-app' }), { content: '{"status":"blocked","reason":"The reader changed a file."}' }]);
-  engine.children.push(WRITER, [tool('read', { path: 'src/app.ts' }), SEARCH_REPORT, SEARCH_REPORT, SEARCH_REPORT]);
-
-  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
-
-  assert.equal(state.failure?.code, 'blocked');
-  const readAttempt = state.attempts.find((attempt) => attempt.taskId === 'read-app');
-  assert.deepEqual([readAttempt?.result?.outcome, readAttempt?.result?.changedPaths], ['passed', [TARGET]]);
-  assert.ok((engine.parentToolOutputs().at(-1) ?? '').includes(`- ${TARGET} +1 -0`), 'the reader\'s change reaches the orchestrator');
+  assert.notDeepEqual(engine.requireRepoSearch('Create src/farewell.ts exporting farewell').allowedTools, ['read', 'edit'],
+    'the second writer keeps the tools the run started with');
 });
 
 test('the orchestrator is told which uncommitted changes predate the run', async (t) => {

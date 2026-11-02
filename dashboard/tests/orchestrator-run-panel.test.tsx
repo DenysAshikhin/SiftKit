@@ -63,11 +63,11 @@ const LIVE_CHILD: OrchestratorChildActivity = {
   ],
 };
 
-const CLAIM = { taskId: TASK.id, modelId: 'exl3-main', mutating: true, contextTokens: 4000 };
+const CLAIM = { taskId: TASK.id, modelId: 'exl3-main', contextTokens: 4000 };
 
 function liveActivity(children: OrchestratorChildActivity[]): OrchestratorActivity {
   return { runId: RUN_ID, children, parent: null,
-    schedule: { claims: [CLAIM], models: [{ modelId: 'exl3-main', slots: 2, used: 1 }], writerUsed: true, waits: [] } };
+    schedule: { claims: [CLAIM], waits: [] } };
 }
 
 test('a running task shows its phase, plan path, and attempts, and Stop aborts', () => {
@@ -178,10 +178,10 @@ test('a running task opens its agent card with turn, context, recent tool calls,
   const transcript = screen.getByRole('link', { name: 'Transcript' });
   assert.ok(transcript instanceof window.HTMLAnchorElement);
   assert.equal(transcript.getAttribute('href'), `?tab=runs&run=${CHILD_ID}`);
-  screen.getByText(`${TASK.id} · repo-agent · writer`);
+  screen.getByText(`${TASK.id} · repo-agent`);
 });
 
-test('the slot meter shows held scheduler slots, and a pending task says why it waits', () => {
+test('a pending task says which dependencies it waits for, and the panel shows no slot meter', () => {
   const second = { ...TASK, id: 'second', title: 'Second write' };
   const state = runState({
     plan: { goal: 'Greet', constraints: [], tasks: [TASK, second], finalVerification: [CHECK] },
@@ -189,13 +189,12 @@ test('the slot meter shows held scheduler slots, and a pending task says why it 
       { taskId: 'second', status: 'pending', review: null }],
   });
   const activity: OrchestratorActivity = { runId: RUN_ID, children: [LIVE_CHILD], parent: null, schedule: {
-    claims: [CLAIM, { ...CLAIM, taskId: 'second' }], models: [{ modelId: 'exl3-main', slots: 2, used: 1 }], writerUsed: true,
-    waits: [{ taskId: 'second', wait: { kind: 'writer_slot' } }],
+    claims: [CLAIM, { ...CLAIM, taskId: 'second' }],
+    waits: [{ taskId: 'second', dependencies: [TASK.id] }],
   } };
   renderPanel(state, activity);
-  screen.getByTitle('writer slot in use');
-  screen.getByTitle('1 of 2 exl3-main slots in use');
-  screen.getByText('waiting for writer slot');
+  screen.getByText(`needs ${TASK.id}`);
+  assert.equal(screen.queryByLabelText('Scheduler slots'), null);
 });
 
 test('the phase stepper marks where the run is, even while paused for approval', () => {

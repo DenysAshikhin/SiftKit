@@ -11,7 +11,6 @@ import {
   type OrchestratorTaskClaim,
   type OrchestratorTaskState,
   type OrchestratorTaskStatus,
-  type OrchestratorTaskWait,
 } from '@siftkit/contracts';
 
 export type OrchestratorStepStatus = 'done' | 'now' | 'failed' | 'todo';
@@ -49,23 +48,12 @@ export function orchestratorSteps(phase: OrchestratorPhase, workPhase: Orchestra
   }));
 }
 
-function describeWait(wait: OrchestratorTaskWait): string {
-  switch (wait.kind) {
-    case 'dependencies':
-      return `needs ${wait.taskIds.join(', ')}`;
-    case 'writer_slot':
-      return 'waiting for writer slot';
-    case 'model_slot':
-      return `waiting for ${wait.modelId} slot`;
-  }
-}
-
 /** Why a pending task has not started, as the latest dispatch recorded it. */
 export function waitReason(task: OrchestratorTaskState, state: OrchestratorRunState, activity: OrchestratorActivity | null): string | null {
   if (task.status !== 'pending') return null;
   if (isOrchestratorTerminalPhase(state.phase)) return 'not started';
-  const wait = activity?.schedule?.waits.find((entry) => entry.taskId === task.taskId)?.wait;
-  return wait === undefined ? 'queued' : describeWait(wait);
+  const wait = activity?.schedule?.waits.find((entry) => entry.taskId === task.taskId);
+  return wait === undefined ? 'queued' : `needs ${wait.dependencies.join(', ')}`;
 }
 
 /** e.g. "impl 2/2 · fix 1/2"; attempt numbers are sequential, so the count is the latest number. */

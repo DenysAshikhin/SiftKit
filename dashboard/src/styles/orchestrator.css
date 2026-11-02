@@ -20,11 +20,6 @@
 .orch-phase.failed { color: var(--bad); }
 .orch-phase.failed i { background: var(--ch-red); }
 
-.orch-slots { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 12px 10px; font-size: 0.68rem; color: var(--dim); align-items: center; }
-.orch-slot-group { display: inline-flex; align-items: center; gap: 5px; }
-.orch-slot { width: 18px; height: 8px; border-radius: 3px; border: 1px solid var(--line); }
-.orch-slot.used { background: var(--run); border-color: var(--run); }
-.orch-slot.writer.used { background: var(--ch-blue); border-color: var(--ch-blue); }
 
 .orch-tasks { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .orch-task { border-bottom: 1px solid var(--line); }

@@ -387,13 +387,13 @@ export function buildAgentSystemPrompt(
   ].join('\n');
 }
 
-/** The parent of an orchestrator run: inspects, plans, reviews, and decides; never edits or delegates. */
+/** The parent of an orchestrator run: reads, plans, verifies, and reviews; repo-agent children make every edit. */
 export function buildOrchestratorSystemPrompt(toolDefinitions: readonly PlannerToolDefinition[]): string {
   const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
   return [
     'You are the SiftKit orchestrator: in one conversation you plan, dispatch subagents, review their work, and decide.',
     buildNativePlannerInstructions(toolNames),
-    'You never edit files or run mutating commands yourself; subagents change the repository through dispatch.',
+    'You never edit files yourself; repo-agent subagents change the repository through dispatch. Read code with your read tools and verify with run_check.',
     'Base every claim on tool evidence from this repository. Unknown is a valid answer; invention is not.',
     'Your final answer must be exactly one JSON object as the task describes, with no prose around it.',
   ].join('\n');

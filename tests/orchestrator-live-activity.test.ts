@@ -39,8 +39,7 @@ class FakeSession {
 }
 
 const SCHEDULE: OrchestratorSchedule = {
-  claims: [{ taskId: 'write', modelId: 'exl3-main', mutating: true, contextTokens: 4000 }],
-  models: [{ modelId: 'exl3-main', slots: 2, used: 1 }], writerUsed: true, waits: [],
+  claims: [{ taskId: 'write', modelId: 'exl3-main', contextTokens: 4000 }], waits: [],
 };
 
 test('each scheduler pass is published as it was decided, and a snapshot is a copy the caller cannot change', (t) => {

@@ -39,6 +39,16 @@ test('grep finds matches with file:line anchors and respects the ignore policy',
   assert.doesNotMatch(result.output, /node_modules/u);
 });
 
+test('grep resolves an absolute in-repo path exactly like its repository-relative form', async () => {
+  const root = makeRepo();
+  const absolute = await executeRepoTool(nativeCall('grep', { pattern: 'alpha', path: path.join(root, 'src') }), makeContext(root));
+  const relative = await executeRepoTool(nativeCall('grep', { pattern: 'alpha', path: 'src' }), makeContext(root));
+  assert.ok(absolute.ok, absolute.ok ? '' : absolute.reason);
+  assert.ok(relative.ok);
+  // rg emits matches in thread order, so compare line sets rather than sequence.
+  assert.deepEqual(absolute.output.split('\n').sort(), relative.output.split('\n').sort());
+});
+
 test('grep glob filters to matching files only', async () => {
   const root = makeRepo();
   const result = await executeRepoTool(nativeCall('grep', { pattern: 'alpha', glob: '*.md' }), makeContext(root));

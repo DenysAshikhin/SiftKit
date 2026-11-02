@@ -4,7 +4,7 @@ import { getAbortError } from '../lib/abort.ts';
 import { canonicalRepositoryKey } from '../lib/repository-key.ts';
 import type { OrchestratorRunStore } from '../orchestrator/run-store.ts';
 
-/** An `exclusive` holder overlaps only shared readers with the same owner. */
+/** Shared readers overlap; an exclusive holder overlaps nothing. */
 export type RepositoryAccess = 'shared' | 'exclusive';
 
 /** The child run store's part in a restart: a running child of an interrupted parent never resumes. */
@@ -16,29 +16,23 @@ export type RepositoryLease = {
   release(): void;
 };
 
-/** One held or requested access; `owner` (an orchestrator run ID, or null) scopes exclusive overlap. */
-type RepositoryClaim = { access: RepositoryAccess; owner: string | null };
-type RepositoryWaiter = RepositoryClaim & { grant(): void };
-type RepositoryEntry = { holders: RepositoryClaim[]; waiters: RepositoryWaiter[] };
+/** One granted lease; a fresh object per grant, so release removes exactly this one. */
+type RepositoryHolder = { access: RepositoryAccess };
+type RepositoryWaiter = RepositoryHolder & { grant(): void };
+type RepositoryEntry = { holders: RepositoryHolder[]; waiters: RepositoryWaiter[] };
 
-function sameOwner(left: RepositoryClaim, right: RepositoryClaim): boolean {
-  return left.owner !== null && left.owner === right.owner;
-}
-
-function isCompatible(next: RepositoryClaim, holders: readonly RepositoryClaim[]): boolean {
-  if (holders.length === 0) return true;
-  if (next.access === 'shared') return holders.every((holder) => holder.access === 'shared' || sameOwner(holder, next));
-  return holders.every((holder) => holder.access === 'shared' && sameOwner(holder, next));
+function isCompatible(next: RepositoryAccess, holders: readonly RepositoryHolder[]): boolean {
+  return holders.length === 0 || (next === 'shared' && holders.every((holder) => holder.access === 'shared'));
 }
 
 /**
- * Server-owned repository ownership: shared readers overlap, and one exclusive holder overlaps only its
- * own run's readers. Waiters are FIFO, so no later request starts ahead of one queued.
+ * Server-owned repository ownership: shared readers overlap, and an exclusive holder overlaps nothing.
+ * Waiters are FIFO, so no later request starts ahead of one queued.
  */
 export class RepositoryGate {
   private readonly entries = new Map<string, RepositoryEntry>();
 
-  acquire(repoRoot: string, access: RepositoryAccess, owner: string | null, abortSignal: AbortSignal): Promise<RepositoryLease> {
+  acquire(repoRoot: string, access: RepositoryAccess, abortSignal: AbortSignal): Promise<RepositoryLease> {
     let key: string;
     try {
       key = canonicalRepositoryKey(repoRoot);
@@ -54,17 +48,17 @@ export class RepositoryGate {
         this.drain(key, entry);
         rejectLease(getAbortError(abortSignal));
       };
-      const claim: RepositoryClaim = { access, owner };
+      const holder: RepositoryHolder = { access };
       const waiter: RepositoryWaiter = {
-        ...claim,
+        access,
         grant: () => {
           abortSignal.removeEventListener('abort', onAbort);
-          entry.holders.push(claim);
+          entry.holders.push(holder);
           let released = false;
           resolveLease({ access, release: () => {
             if (released) return;
             released = true;
-            entry.holders.splice(entry.holders.indexOf(claim), 1);
+            entry.holders.splice(entry.holders.indexOf(holder), 1);
             this.drain(key, entry);
           } });
         },
@@ -77,7 +71,7 @@ export class RepositoryGate {
 
   private drain(key: string, entry: RepositoryEntry): void {
     for (let next = entry.waiters[0]; next; next = entry.waiters[0]) {
-      if (!isCompatible(next, entry.holders)) break;
+      if (!isCompatible(next.access, entry.holders)) break;
       entry.waiters.shift();
       next.grant();
     }

@@ -32,8 +32,8 @@ test('a rendered plan states every task scope, step, check, and acceptance crite
     makeOrchestratorTask({ id: 'edit', title: 'Edit loader', workerPresetId: 'repo-agent', dependsOn: ['inspect'],
       writePaths: ['src/a.ts'], verification: [COMMAND] }),
   ]));
-  for (const expected of ['# Exercise the orchestrator.', '## Task inspect: Inspect README', '- Worker: `repo-search`',
-    '- Writes: none (read-only)', '## Task edit: Edit loader', '- Depends on: `inspect`', '- Writes: `src/a.ts`',
+  for (const expected of ['# Exercise the orchestrator.', '## Task inspect: Inspect README', '- Worker: `repo-agent`',
+    '- Writes: `README.md`', '## Task edit: Edit loader', '- Depends on: `inspect`', '- Writes: `src/a.ts`',
     '1. Read README.md and report its installation commands.', '   Expected: Commands with file and line evidence.',
     '- Run `npm test` in `.`; expected exit 0.', '- Every reported command is supported by the current README.',
     '## Final verification']) {

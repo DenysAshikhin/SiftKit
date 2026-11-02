@@ -18,12 +18,11 @@ function createRepo(): string {
 
 function configWithCustomWorkers(): SiftConfig {
   const config = getDefaultServerConfig();
-  const repoSearch = config.Presets.find((preset) => preset.id === 'repo-search');
-  assert.ok(repoSearch);
+  const repoAgent = config.Presets.find((preset) => preset.id === 'repo-agent');
+  assert.ok(repoAgent);
   config.Presets.push(
-    { ...repoSearch, id: 'deep-read', label: 'Deep Read', builtin: false, deletable: true },
-    { ...repoSearch, id: 'sneaky-writer', label: 'Sneaky Writer', builtin: false, deletable: true,
-      allowedTools: [...repoSearch.allowedTools, 'write'] },
+    { ...repoAgent, id: 'careful-writer', label: 'Careful Writer', builtin: false, deletable: true },
+    { ...repoAgent, id: 'read-only-agent', label: 'Read-only Agent', builtin: false, deletable: true, allowedTools: ['read', 'grep'] },
   );
   return config;
 }
@@ -42,8 +41,8 @@ test('an acyclic two-task plan validates and normalizes path keys', () => {
   assert.deepEqual(validated.tasks[1]?.writePaths, ['src/feature.ts']);
 });
 
-test('a supported custom read-only worker preset is accepted', () => {
-  const plan = makeOrchestratorPlan([makeOrchestratorTask({ workerPresetId: 'deep-read' })]);
+test('a custom repo-agent worker preset that can change files is accepted', () => {
+  const plan = makeOrchestratorPlan([makeOrchestratorTask({ workerPresetId: 'careful-writer' })]);
   assert.doesNotThrow(() => validateOrchestratorPlan(plan, configWithCustomWorkers(), createRepo()));
 });
 
@@ -55,11 +54,13 @@ for (const [name, tasks, pattern] of [
     /Plan tasks form a dependency cycle: a -> b -> a/u],
   ['an unknown worker preset', [makeOrchestratorTask({ workerPresetId: 'ghost' })], /Preset 'ghost' was not found/u],
   ['a recursive orchestrator worker', [makeOrchestratorTask({ workerPresetId: 'orchestrator' })],
-    /Task 'inspect' selects preset 'orchestrator' of kind 'orchestrator'; workers must be repo-agent or repo-search presets/u],
-  ['write paths on a read-only worker', [makeOrchestratorTask({ writePaths: ['src/a.ts'] })],
-    /Task 'inspect' uses read-only worker 'repo-search' but declares write paths/u],
-  ['a read-only worker granting mutating tools', [makeOrchestratorTask({ workerPresetId: 'sneaky-writer' })],
-    /Read-only worker preset 'sneaky-writer' grants mutating tools: write/u],
+    /Task 'inspect' selects preset 'orchestrator' \(orchestrator\); workers must be repo-agent presets that can change files/u],
+  ['a repo-search worker', [makeOrchestratorTask({ workerPresetId: 'repo-search' })],
+    /Task 'inspect' selects preset 'repo-search' \(repo-search\); workers must be repo-agent presets that can change files/u],
+  ['a repo-agent worker that cannot change files', [makeOrchestratorTask({ workerPresetId: 'read-only-agent' })],
+    /Task 'inspect' selects preset 'read-only-agent' \(repo-agent\); workers must be repo-agent presets that can change files/u],
+  ['a task with no write paths', [makeOrchestratorTask({ writePaths: [] })],
+    /Task 'inspect' lists no writePaths; name the files it is expected to change/u],
   ['a parent-relative escape', [makeOrchestratorTask({ readPaths: ['../outside.md'] })], /Task 'inspect' path '..\/outside.md' escapes the repository/u],
   ['an absolute path', [makeOrchestratorTask({ readPaths: [path.resolve('/elsewhere/file.md')] })], /escapes the repository/u],
 ] as const) {

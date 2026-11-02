@@ -38,7 +38,7 @@ test('the orchestrator prompt states the task, the workers, the run baseline, an
   assert.ok(model && worker);
   assert.match(prompt, /Requested task: Add a greeting module\./u);
   assert.match(prompt, /Supplied plan: none\./u);
-  assert.ok(prompt.includes(`- repo-agent (repo-agent, can modify files; model ${model.id}`), prompt);
+  assert.ok(prompt.includes(`- repo-agent (model ${model.id}, ${model.NumCtx} context tokens): `), prompt);
   assert.match(prompt, /Command checks run in PowerShell/u);
   assert.match(prompt, /Uncommitted changes that predate this run \(never count them against any task\): README\.md\./u);
   for (const tool of ['save_plan', 'update_tasks', 'dispatch', 'record_review', 'run_check']) assert.ok(prompt.includes(tool), tool);
@@ -54,20 +54,21 @@ test('the orchestrator prompt carries the planning rules that keep tasks small a
   }
 });
 
-test('the orchestrator prompt delegates code exploration to survey tasks and revises plans with update_tasks', () => {
+test('the orchestrator explores the code and runs checks itself, and plans only implementation tasks', () => {
   const prompt = buildOrchestratorPrompt(brief());
-  for (const rule of ['Leave code exploration to subagents', 'Survey first', 'at most 2 survey tasks', 'fits in one report',
-    'A survey is not reviewed', 'Survey again', 'at most 4 surveys in total', 'add the implementation tasks with update_tasks',
-    'Review every reported task that changes files', 'writePaths are guidance, not a limit', 'never to read files or search code',
-    'line counts, not the code']) {
+  for (const rule of ['Explore the code yourself with read, grep, find, ls, and git', 'Use run_check',
+    'baseline', 'reproduce', 'never to change files', 'add the rest with update_tasks', 'Review every reported task',
+    'writePaths are guidance, not a limit', 'line counts, not the code', 'Dispatch one task at a time']) {
     assert.ok(prompt.includes(rule), rule);
   }
-  assert.equal(prompt.includes('review each'), false, 'surveys are never sent for review');
+  for (const gone of ['survey', 'Survey', 'read-only', 'Leave code exploration to subagents', 'never to read files or search code']) {
+    assert.equal(prompt.includes(gone), false, gone);
+  }
 });
 
 test('the orchestrator adds implementation tasks in small batches in dependency order', () => {
   const prompt = buildOrchestratorPrompt(brief());
-  assert.ok(prompt.includes('at most 4 tasks per update_tasks call, in dependency order'), prompt);
+  assert.ok(prompt.includes('at most 4 tasks per save_plan or update_tasks call'), prompt);
 });
 
 test('the review step judges every deviation and host finding, and treats a weakened or silenced test as a defect', () => {
@@ -92,7 +93,7 @@ test('each approval mode tells the orchestrator who answers escalations', () => 
 });
 
 test('a child instruction names its task, the orchestrator instruction, scope, steps, checks, and criteria by index', () => {
-  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1, kind: 'agent',
+  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1,
     scratchPath: 'C:/scratch', preexistingDirtyPaths: ['README.md'] });
   assert.ok(instruction.startsWith("Implement ONLY task 'greeting' — Add greeting — from plan .siftkit/orchestrator/r/plan.md"), instruction);
   assert.match(instruction, /implementation attempt 1 of 2\./u);
@@ -106,18 +107,15 @@ test('a child instruction names its task, the orchestrator instruction, scope, s
 });
 
 test('a fix instruction says fix, and a clean tree mentions no prior changes', () => {
-  const instruction = buildChildInstruction({ work: work('fix'), attempt: 2, kind: 'agent', scratchPath: 'C:/scratch', preexistingDirtyPaths: [] });
+  const instruction = buildChildInstruction({ work: work('fix'), attempt: 2, scratchPath: 'C:/scratch', preexistingDirtyPaths: [] });
   assert.ok(instruction.startsWith("Fix ONLY task 'greeting'"), instruction);
   assert.match(instruction, /fix attempt 2 of 2\./u);
   assert.doesNotMatch(instruction, /already had uncommitted changes/u);
 });
 
-test('each child ends with the report template of its kind, which names the report schema fields', () => {
-  const agent = buildChildInstruction({ work: work('implementation'), attempt: 1, kind: 'agent', scratchPath: 's', preexistingDirtyPaths: [] });
-  const search = buildChildInstruction({ work: work('implementation'), attempt: 1, kind: 'search', scratchPath: 's', preexistingDirtyPaths: [] });
-  assert.match(agent, /Use TDD where behavior changes\./u);
-  assert.match(search, /Do not change files\./u);
-  const [agentShape, searchShape] = OrchestratorHandoffReportSchema.options.map((option) => Object.keys(option.shape));
-  assert.deepEqual(Object.keys(JsonObjectSchema.parse(parseJsonValueText(reportTemplate(agent)))), agentShape);
-  assert.deepEqual(Object.keys(JsonObjectSchema.parse(parseJsonValueText(reportTemplate(search)))), searchShape);
+test('each child ends with the report template, which names the report schema fields', () => {
+  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1, scratchPath: 's', preexistingDirtyPaths: [] });
+  assert.match(instruction, /Use TDD where behavior changes\./u);
+  assert.deepEqual(Object.keys(JsonObjectSchema.parse(parseJsonValueText(reportTemplate(instruction)))),
+    Object.keys(OrchestratorHandoffReportSchema.shape));
 });

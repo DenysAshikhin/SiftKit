@@ -5,7 +5,7 @@ import type { OrchestratorHandoffReport, OrchestratorRunState } from '@siftkit/c
 import type { OrchestratorInvocation } from './orchestrator-args.ts';
 import { StatusServerApiClient } from './status-server-api-client.ts';
 
-/** The handoff report of the task's latest passing attempt; for a read-only task this is its answer. */
+/** The handoff report of the task's latest passing attempt. */
 function taskReport(state: OrchestratorRunState, taskId: string): OrchestratorHandoffReport | null {
   const passing = state.attempts.filter((attempt) => attempt.taskId === taskId && attempt.result?.passed === true);
   return passing[passing.length - 1]?.result?.report ?? null;

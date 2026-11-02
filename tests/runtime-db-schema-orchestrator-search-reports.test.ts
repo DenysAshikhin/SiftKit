@@ -44,13 +44,12 @@ function seedSchema85(): { dbPath: string; runId: string } {
   return { dbPath, runId: state.runId };
 }
 
-test('the 85 to 86 upgrade strips the restated question and confidence grades from search reports', (t) => {
+test('search reports seeded at 85 end as no report after the upgrade chain', (t) => {
   t.after(closeAllRuntimeDatabases);
   const { dbPath, runId } = seedSchema85();
   const database = getRuntimeDatabase(dbPath);
   assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
   const [survey, write] = new OrchestratorRunStore(database).read(runId).attempts.map((attempt) => attempt.result?.report);
-  assert.deepEqual(survey, { kind: 'search', unknowns: ['Who calls it.'],
-    findings: [{ claim: 'greet() at src/greeting.ts:1', evidence: [{ path: 'src/greeting.ts', line: 1 }] }] });
-  assert.deepEqual(write, AGENT_REPORT, 'agent reports are untouched');
+  assert.equal(survey, null);
+  assert.deepEqual(write, { status: 'completed', deviations: [] }, 'agent reports keep their status and deviations');
 });

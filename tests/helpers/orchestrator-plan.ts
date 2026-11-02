@@ -3,7 +3,7 @@ import { OrchestratorPlanSchema, OrchestratorTaskSchema, type OrchestratorPlan, 
 export function makeOrchestratorTask(overrides: Partial<OrchestratorTask> = {}): OrchestratorTask {
   return OrchestratorTaskSchema.parse({
     id: 'inspect', title: 'Inspect README', dependsOn: [],
-    workerPresetId: 'repo-search', readPaths: ['README.md'], writePaths: [],
+    workerPresetId: 'repo-agent', readPaths: ['README.md'], writePaths: ['README.md'],
     steps: [{ instruction: 'Read README.md and report its installation commands.',
       expectedResult: 'Commands with file and line evidence.' }],
     verification: [{ kind: 'evidence', instruction: 'Verify each reported command in README.md.',

@@ -403,7 +403,7 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
       try {
         // Repository ownership before model admission; never the reverse.
         if (this.repository) {
-          this.repositoryLease = await this.repository.gate.acquire(this.repository.repoRoot, this.repository.access, null, this.executionSignal);
+          this.repositoryLease = await this.repository.gate.acquire(this.repository.repoRoot, this.repository.access, this.executionSignal);
         }
         this.lock = await this.locks.acquire(this.runId, this.executionSignal);
       } finally {

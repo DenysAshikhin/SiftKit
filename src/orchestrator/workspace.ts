@@ -71,14 +71,12 @@ export async function captureWorkspace(repoRoot: string): Promise<WorkspaceSnaps
   return snapshot;
 }
 
-/** Content changed since `baseline`, apart from `excluded` paths; a pre-existing edit left untouched is not a change. */
-export async function diffWorkspace(repoRoot: string, baseline: WorkspaceSnapshot,
-  excluded: ReadonlySet<string> = new Set()): Promise<WorkspaceChanges> {
+/** Content changed since `baseline`; a pre-existing edit left untouched is not a change. */
+export async function diffWorkspace(repoRoot: string, baseline: WorkspaceSnapshot): Promise<WorkspaceChanges> {
   const candidates = new Set([...baseline.keys(), ...await listDirtyPaths(repoRoot)]);
   const changed: string[] = [];
   const digest = createHash('sha256');
   for (const path of [...candidates].sort()) {
-    if (excluded.has(path)) continue;
     const current = readContent(repoRoot, path);
     const before = baseline.has(path) ? baseline.get(path) ?? null : await headContent(repoRoot, path);
     if (contentHash(before) === contentHash(current)) continue;

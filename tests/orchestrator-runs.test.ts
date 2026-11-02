@@ -62,10 +62,10 @@ test('shared leases overlap; an exclusive waits for them and blocks later reader
   const repo = createManagedTempDir('siftkit-gate-');
   const gate = new RepositoryGate();
   const signal = new AbortController().signal;
-  const readerA = await gate.acquire(repo, 'shared', null, signal);
-  const readerB = await gate.acquire(repo, 'shared', null, signal);
-  const writer = gate.acquire(repo, 'exclusive', null, signal);
-  const lateReader = gate.acquire(repo, 'shared', null, signal);
+  const readerA = await gate.acquire(repo, 'shared', signal);
+  const readerB = await gate.acquire(repo, 'shared', signal);
+  const writer = gate.acquire(repo, 'exclusive', signal);
+  const lateReader = gate.acquire(repo, 'shared', signal);
   assert.equal(await settle(writer), 'pending');
   readerA.release();
   assert.equal(await settle(writer), 'pending');
@@ -77,30 +77,15 @@ test('shared leases overlap; an exclusive waits for them and blocks later reader
   (await lateReader).release();
 });
 
-test('an owned exclusive lease overlaps only its own run\'s readers; other owners and a second exclusive wait', async () => {
-  const repo = createManagedTempDir('siftkit-gate-owned-');
+test('two exclusive leases never overlap', async () => {
+  const repo = createManagedTempDir('siftkit-gate-exclusive-');
   const gate = new RepositoryGate();
   const signal = new AbortController().signal;
-  const writer = await gate.acquire(repo, 'exclusive', 'run-a', signal);
-  const ownReader = await settle(gate.acquire(repo, 'shared', 'run-a', signal));
-  assert.notEqual(ownReader, 'pending', 'the same run reads beside its writer');
-  const otherReader = gate.acquire(repo, 'shared', 'run-b', signal);
-  assert.equal(await settle(otherReader), 'pending', 'another run never reads beside this writer');
-  writer.release();
-  if (ownReader !== 'pending') ownReader.release();
-  const otherLease = await otherReader;
-  const secondWriter = gate.acquire(repo, 'exclusive', 'run-a', signal);
-  assert.equal(await settle(secondWriter), 'pending', 'a writer waits for another owner\'s reader');
-  otherLease.release();
-  const secondLease = await secondWriter;
-  const thirdWriter = gate.acquire(repo, 'exclusive', 'run-a', signal);
-  assert.equal(await settle(thirdWriter), 'pending', 'two exclusive leases never overlap, even in one run');
-  const unowned = gate.acquire(repo, 'shared', null, signal);
-  secondLease.release();
-  const thirdLease = await thirdWriter;
-  assert.equal(await settle(unowned), 'pending', 'an unowned reader never shares with an exclusive lease');
-  thirdLease.release();
-  (await unowned).release();
+  const first = await gate.acquire(repo, 'exclusive', signal);
+  const second = gate.acquire(repo, 'exclusive', signal);
+  assert.equal(await settle(second), 'pending');
+  first.release();
+  (await second).release();
 });
 
 test('path aliases share one repository key and an unknown root fails loudly', async () => {
@@ -109,29 +94,29 @@ test('path aliases share one repository key and an unknown root fails loudly', a
   fs.symlinkSync(repo, link, 'junction');
   const gate = new RepositoryGate();
   const signal = new AbortController().signal;
-  const writer = await gate.acquire(repo, 'exclusive', null, signal);
+  const writer = await gate.acquire(repo, 'exclusive', signal);
   const alias = `${repo.replace(/\\/gu, '/')}/sub/..`;
   for (const candidate of [alias, link]) {
-    assert.equal(await settle(gate.acquire(candidate, 'shared', null, signal).then((lease: RepositoryLease) => {
+    assert.equal(await settle(gate.acquire(candidate, 'shared', signal).then((lease: RepositoryLease) => {
       lease.release();
       return 'granted';
     })), 'pending', candidate);
   }
   writer.release();
   fs.rmSync(link, { force: true, recursive: true });
-  await assert.rejects(gate.acquire(path.join(repo, 'missing'), 'shared', null, signal), /ENOENT/u);
+  await assert.rejects(gate.acquire(path.join(repo, 'missing'), 'shared', signal), /ENOENT/u);
 });
 
 test('an aborted waiter leaves the queue without ever holding the repository', async () => {
   const repo = createManagedTempDir('siftkit-gate-abort-');
   const gate = new RepositoryGate();
-  const writer = await gate.acquire(repo, 'exclusive', null, new AbortController().signal);
+  const writer = await gate.acquire(repo, 'exclusive', new AbortController().signal);
   const controller = new AbortController();
-  const waiting = gate.acquire(repo, 'exclusive', null, controller.signal);
+  const waiting = gate.acquire(repo, 'exclusive', controller.signal);
   controller.abort(new Error('stopped'));
   await assert.rejects(waiting, /stopped/u);
   writer.release();
-  const next = await gate.acquire(repo, 'exclusive', null, new AbortController().signal);
+  const next = await gate.acquire(repo, 'exclusive', new AbortController().signal);
   next.release();
 });
 

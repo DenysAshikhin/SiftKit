@@ -171,12 +171,12 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   }),
   dispatch: buildRepoToolDefinition({
     toolName: 'dispatch',
-    description: 'Start fresh subagents for saved plan tasks (at most one writer per call), then wait. Children beyond the free parallel slots of their model are queued and start as slots free. Returns every child report once none is running or queued, or earlier when a child needs your approval decision.',
-    exampleArgs: { children: [{ taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts exporting greeting; keep src/app.ts unchanged.' }] },
+    description: 'Start a fresh subagent for one saved plan task, then wait. Returns its report once it finishes, or earlier when it needs your approval decision. One child runs at a time.',
+    exampleArgs: { taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts exporting greeting; keep src/app.ts unchanged.' },
   }),
   decide: buildRepoToolDefinition({
     toolName: 'decide',
-    description: 'Answer a child approval that was escalated to you: approve, deny, or escalate it to the user. Then waits for the running children like dispatch.',
+    description: 'Answer a child approval that was escalated to you: approve, deny, or escalate it to the user. Then waits for the running child like dispatch.',
     exampleArgs: { approvalId: '00000000-0000-4000-8000-000000000000', decision: 'approve', reason: 'Runs the test file of the task.' },
   }),
   run_check: buildRepoToolDefinition({

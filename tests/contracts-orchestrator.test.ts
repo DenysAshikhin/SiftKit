@@ -8,10 +8,9 @@ import {
   ORCHESTRATOR_RECENT_TOOL_LIMIT,
   OrchestratorActivitySchema,
   OrchestratorChildActivitySchema,
-  OrchestratorModelSlotsSchema,
   OrchestratorPhaseSchema,
   OrchestratorTaskStatusSchema,
-  OrchestratorTaskWaitSchema,
+  OrchestratorScheduleSchema,
   isOrchestratorOpenTaskStatus,
   OrchestratorChildWorkSchema,
   OrchestratorDecideRequestSchema,
@@ -25,7 +24,6 @@ import {
   OrchestratorTaskSchema,
   OrchestratorUpdateTasksArgsSchema,
   OrchestratorVerificationCheckSchema,
-  ORCHESTRATOR_MAX_DISPATCH,
   SiftPresetCollectionSchema,
   orchestratorCheckFailure,
   SiftPresetSchema,
@@ -62,28 +60,21 @@ test('every child works one plan task under the orchestrator instruction for tha
   assert.equal(OrchestratorChildWorkSchema.safeParse({ ...work, planPath: undefined }).success, false);
 });
 
-test('a handoff report is an agent status with its deviations or anchored search findings, never free text', () => {
-  const agent = { kind: 'agent', status: 'completed', deviations: [{ what: 'Also changed src/b.ts.', why: 'It imports the renamed type.' }] };
-  assert.equal(OrchestratorHandoffReportSchema.safeParse(agent).success, true);
-  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, summary: 'extra' }).success, false);
-  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, status: 'done' }).success, false);
-  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, deviations: ['Also changed src/b.ts.'] }).success, false);
-  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...agent, deviations: [{ what: 'Skipped step 2.', why: ' ' }] }).success, false);
-  const finding = { claim: 'One caller.', evidence: [{ path: 'src/a.ts', line: 3 }] };
-  const search = { kind: 'search', unknowns: [], findings: [finding] };
-  assert.equal(OrchestratorHandoffReportSchema.safeParse(search).success, true);
-  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...search, findings: [{ ...finding, evidence: [] }] }).success, false);
-  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...search, understood: 'Find callers.' }).success, false, 'no restated question');
-  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...search, findings: [{ ...finding, confidence: 'high' }] }).success, false,
-    'no confidence grade');
+test('a handoff report is a status with its deviations, never free text or a kind', () => {
+  const report = { status: 'completed', deviations: [{ what: 'Also changed src/b.ts.', why: 'It imports the renamed type.' }] };
+  assert.equal(OrchestratorHandoffReportSchema.safeParse(report).success, true);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...report, summary: 'extra' }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...report, kind: 'agent' }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...report, status: 'done' }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...report, deviations: ['Also changed src/b.ts.'] }).success, false);
+  assert.equal(OrchestratorHandoffReportSchema.safeParse({ ...report, deviations: [{ what: 'Skipped step 2.', why: ' ' }] }).success, false);
 });
 
-test('a dispatch starts one or two children and a review judges every criterion with code evidence', () => {
+test('a dispatch starts exactly one child and a review judges every criterion with code evidence', () => {
   const child = { taskId: 'inspect', purpose: 'implementation', instruction: 'Do it.' };
-  assert.equal(ORCHESTRATOR_MAX_DISPATCH, 2);
-  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [] }).success, false);
-  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [child, { ...child, taskId: 'b' }] }).success, true);
-  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [child, child, child] }).success, false);
+  assert.equal(OrchestratorDispatchArgsSchema.safeParse(child).success, true);
+  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [child] }).success, false);
+  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ taskId: 'a' }).success, false);
   const review = { taskId: 'inspect', verdict: 'pass', findings: [],
     criteria: [{ index: 0, met: true, evidence: [{ path: 'README.md', line: 2, snippet: 'npm install' }] }] };
   assert.equal(OrchestratorRecordReviewArgsSchema.safeParse(review).success, true);
@@ -92,9 +83,9 @@ test('a dispatch starts one or two children and a review judges every criterion 
   assert.equal(OrchestratorRecordReviewArgsSchema.safeParse({ ...review, verdict: 'pass_with_notes' }).success, false);
 });
 
-test('fields with an obvious value may be omitted, but a partial task update never gains a default', () => {
-  const { writePaths: _omitted, ...readOnly } = makeOrchestratorTask();
-  assert.deepEqual(OrchestratorTaskSchema.parse(readOnly).writePaths, [], 'a task without writePaths writes nothing');
+test('a task names its writePaths, a check fills its obvious defaults, and a partial task update never gains a default', () => {
+  const { writePaths: _omitted, ...unscoped } = makeOrchestratorTask();
+  assert.equal(OrchestratorTaskSchema.safeParse(unscoped).success, false, 'every task names its writePaths');
   assert.deepEqual(OrchestratorVerificationCheckSchema.parse({ kind: 'command', command: 'npm test' }),
     { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 });
   assert.deepEqual(OrchestratorRecordReviewArgsSchema.parse({ taskId: 'inspect', verdict: 'pass',
@@ -167,9 +158,8 @@ const LIVE_CHILD = {
 };
 const LIVE_TOOL = { toolCallId: 't1', turn: 3, activityKind: 'edit', command: 'write src/greeting.ts', status: 'running' };
 const SCHEDULE = {
-  claims: [{ taskId: 'greeting', modelId: 'exl3-main', mutating: true, contextTokens: 32768 }],
-  models: [{ modelId: 'exl3-main', slots: 2, used: 1 }], writerUsed: true,
-  waits: [{ taskId: 'report', wait: { kind: 'dependencies', taskIds: ['greeting'] } }],
+  claims: [{ taskId: 'greeting', modelId: 'exl3-main', contextTokens: 32768 }],
+  waits: [{ taskId: 'report', dependencies: ['greeting'] }],
 };
 
 test('a live activity snapshot carries the scheduler pass and children with a bounded tool history', () => {
@@ -182,14 +172,12 @@ test('a live activity snapshot carries the scheduler pass and children with a bo
   assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, tools: tooMany }).success, false);
   assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, extra: true }).success, false);
   assert.equal(OrchestratorChildActivitySchema.safeParse({ ...LIVE_CHILD, maxTurns: null, turn: 0 }).success, true);
-  assert.equal(OrchestratorModelSlotsSchema.safeParse({ modelId: 'm', slots: 0, used: 0 }).success, false);
-  assert.equal(OrchestratorModelSlotsSchema.safeParse({ modelId: 'm', slots: 1, used: -1 }).success, false);
 });
 
-test('a wait names its unmet dependencies, the writer slot, or the full model', () => {
-  assert.equal(OrchestratorTaskWaitSchema.safeParse({ kind: 'dependencies', taskIds: [] }).success, false);
-  assert.equal(OrchestratorTaskWaitSchema.safeParse({ kind: 'writer_slot' }).success, true);
-  assert.equal(OrchestratorTaskWaitSchema.safeParse({ kind: 'model_slot', modelId: 'exl3-main' }).success, true);
+test('a schedule wait names at least one unmet dependency, and the schedule carries no slots', () => {
+  assert.equal(OrchestratorScheduleSchema.safeParse({ ...SCHEDULE, waits: [{ taskId: 'report', dependencies: [] }] }).success, false);
+  assert.equal(OrchestratorScheduleSchema.safeParse({ ...SCHEDULE, writerUsed: true }).success, false);
+  assert.equal(OrchestratorScheduleSchema.safeParse(SCHEDULE).success, true);
 });
 
 test('open task statuses are exactly the statuses of live work', () => {

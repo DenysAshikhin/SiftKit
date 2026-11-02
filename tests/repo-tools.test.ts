@@ -432,6 +432,43 @@ test('read refuses to follow an in-repo symlink that resolves outside the reposi
   assert.ok(result.ok === false && /repository root/u.test(result.reason), `unexpected: ${JSON.stringify(result)}`);
 });
 
+test('an absolute in-repo path resolves exactly like its repository-relative form', async () => {
+  const root = makeRepo();
+  const context = makeContext(root);
+  const pairs = [
+    [nativeCall('ls', { path: root }), nativeCall('ls', {})],
+    [nativeCall('ls', { path: path.join(root, 'src') }), nativeCall('ls', { path: 'src' })],
+    [nativeCall('read', { path: path.join(root, 'src', 'a.ts') }), nativeCall('read', { path: 'src/a.ts' })],
+    [nativeCall('find', { pattern: '*.ts', path: path.join(root, 'src', 'nested') }), nativeCall('find', { pattern: '*.ts', path: 'src/nested' })],
+  ];
+  for (const [absoluteCall, relativeCall] of pairs) {
+    const absolute = await executeRepoTool(absoluteCall, context);
+    const relative = await executeRepoTool(relativeCall, context);
+    assert.ok(absolute.ok, absolute.ok ? '' : `${absoluteCall.toolName}: ${absolute.reason}`);
+    assert.ok(relative.ok);
+    assert.equal(absolute.output, relative.output, absoluteCall.toolName);
+  }
+});
+
+test('an absolute path still passes the repository-root, symlink, and ignore checks', async () => {
+  const root = makeRepo();
+  const outside = createManagedTempDir('siftkit-outside-');
+  fs.writeFileSync(path.join(outside, 'secret.txt'), 'top secret\n', 'utf8');
+  fs.symlinkSync(outside, path.join(root, 'escape'), 'junction');
+  const context = makeContext(root);
+  const rejections = [
+    [nativeCall('ls', { path: path.dirname(root) }), /repository root/u],
+    [nativeCall('read', { path: path.join(outside, 'secret.txt') }), /repository root/u],
+    [nativeCall('read', { path: path.join(root, 'escape', 'secret.txt') }), /repository root/u],
+    [nativeCall('read', { path: path.join(root, 'node_modules', 'hidden.ts') }), /ignored by runtime policy/u],
+  ] as const;
+  for (const [call, reason] of rejections) {
+    const result = await executeRepoTool(call, context);
+    assert.equal(result.ok, false, JSON.stringify(call.args));
+    assert.ok(result.ok === false && reason.test(result.reason), `unexpected: ${JSON.stringify(result)}`);
+  }
+});
+
 test('read path keys fold case only on case-insensitive filesystems', () => {
   assert.equal(buildReadPathKeyForCaseSensitivity('Src/App.ts', true), 'src/app.ts');
   assert.equal(buildReadPathKeyForCaseSensitivity('Src/App.ts', false), 'Src/App.ts');

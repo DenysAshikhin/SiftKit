@@ -212,6 +212,17 @@ test('canonical schema rejects malformed native arguments at the model boundary'
   }
 });
 
+test('ls, grep, and find planner metadata describe path as repository-root relative', () => {
+  for (const toolName of ['ls', 'grep', 'find'] as const) {
+    const parameters = resolveRepoSearchPlannerToolDefinitions([toolName])[0]?.function.parameters;
+    if (!parameters) {
+      throw new Error(`Expected ${toolName} tool parameters.`);
+    }
+    const pathDescription = z.string().parse(asObject(asObject(parameters.properties).path).description);
+    assert.match(pathDescription, /relative to the repository root/u, toolName);
+  }
+});
+
 test('run planner metadata uses canonical modes and line limit', () => {
   const definition = resolveRepoSearchPlannerToolDefinitions(['run'])[0];
   if (!definition) {

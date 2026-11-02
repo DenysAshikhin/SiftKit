@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 
 import type {
   OrchestratorCheckResult,
   OrchestratorCodeEvidence,
   OrchestratorCommandCheck,
+  OrchestratorReviewFinding,
   OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
 
@@ -53,4 +54,14 @@ export function findEvidenceProblem(repoRoot: string, evidence: OrchestratorCode
   const window = lines.slice(Math.max(0, evidence.line - 1 - SNIPPET_LINE_TOLERANCE), evidence.line + SNIPPET_LINE_TOLERANCE).join('\n');
   return normalizeCode(window).includes(normalizeCode(evidence.snippet))
     ? null : `${evidence.path}:${evidence.line} does not contain the cited snippet`;
+}
+
+/** Why a cited location does not exist: a missing file or a line past its end. */
+export function findCitationProblem(repoRoot: string, citation: Pick<OrchestratorReviewFinding, 'path' | 'line'>): string | null {
+  const resolved = resolveRepoScopedPath(repoRoot, citation.path);
+  if (resolved === null || !existsSync(resolved.absolutePath) || !statSync(resolved.absolutePath).isFile()) {
+    return `${citation.path} is not a file in the repository`;
+  }
+  const lineCount = readFileSync(resolved.absolutePath, 'utf8').split(/\r?\n/u).length;
+  return citation.line > lineCount ? `${citation.path}:${citation.line} is past the end of the file` : null;
 }

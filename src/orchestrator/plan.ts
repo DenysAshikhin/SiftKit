@@ -6,20 +6,15 @@ import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
 
 const MUTATING_TOOLS = ['write', 'edit', 'run'] as const;
 
-/** A worker that can change the checkout needs exclusive repository ownership. */
-export function workerCanMutate(preset: SiftPreset): boolean {
-  return MUTATING_TOOLS.some((tool) => preset.allowedTools.includes(tool));
+/** Workers are repo-agent presets that can change files; orchestrators never delegate to orchestrators. */
+export function isOrchestratorWorker(preset: SiftPreset): boolean {
+  return preset.presetKind === 'repo-agent' && MUTATING_TOOLS.some((tool) => preset.allowedTools.includes(tool));
 }
 
-/** Workers the orchestrator may start; orchestrators never delegate to orchestrators. */
 export function requireOrchestratorWorkerPreset(config: SiftConfig, task: Pick<OrchestratorTask, 'id' | 'workerPresetId'>): SiftPreset {
   const preset = PresetCatalog.fromPresets(config.Presets).requireById(task.workerPresetId);
-  if (preset.presetKind !== 'repo-agent' && preset.presetKind !== 'repo-search') {
-    throw new Error(`Task '${task.id}' selects preset '${preset.id}' of kind '${preset.presetKind}'; workers must be repo-agent or repo-search presets.`);
-  }
-  if (preset.presetKind === 'repo-search') {
-    const granted = MUTATING_TOOLS.filter((tool) => preset.allowedTools.includes(tool));
-    if (granted.length > 0) throw new Error(`Read-only worker preset '${preset.id}' grants mutating tools: ${granted.join(', ')}.`);
+  if (!isOrchestratorWorker(preset)) {
+    throw new Error(`Task '${task.id}' selects preset '${preset.id}' (${preset.presetKind}); workers must be repo-agent presets that can change files.`);
   }
   return preset;
 }
@@ -77,10 +72,8 @@ function assertDependencies(tasks: OrchestratorTask[]): void {
 export function validateOrchestratorPlan(plan: OrchestratorPlan, config: SiftConfig, repoRoot: string): OrchestratorPlan {
   assertDependencies(plan.tasks);
   const tasks = plan.tasks.map((task) => {
-    const worker = requireOrchestratorWorkerPreset(config, task);
-    if (worker.presetKind === 'repo-search' && task.writePaths.length > 0) {
-      throw new Error(`Task '${task.id}' uses read-only worker '${worker.id}' but declares write paths.`);
-    }
+    requireOrchestratorWorkerPreset(config, task);
+    if (task.writePaths.length === 0) throw new Error(`Task '${task.id}' lists no writePaths; name the files it is expected to change.`);
     const owner = `Task '${task.id}'`;
     return {
       ...task,
@@ -113,7 +106,7 @@ export function renderOrchestratorPlan(plan: OrchestratorPlan): string {
       `- Worker: \`${task.workerPresetId}\``,
       `- Depends on: ${task.dependsOn.length === 0 ? 'none' : task.dependsOn.map((id) => `\`${id}\``).join(', ')}`,
       `- Reads: ${task.readPaths.length === 0 ? 'none' : task.readPaths.map((entry) => `\`${entry}\``).join(', ')}`,
-      `- Writes: ${task.writePaths.length === 0 ? 'none (read-only)' : task.writePaths.map((entry) => `\`${entry}\``).join(', ')}`,
+      `- Writes: ${task.writePaths.map((entry) => `\`${entry}\``).join(', ')}`,
       `- Temporary: ${task.temporaryPaths.length === 0 ? 'none' : task.temporaryPaths.map((entry) => `\`${entry}\``).join(', ')}`, '',
       '### Steps', '',
       ...task.steps.flatMap((step, index) => [`${index + 1}. ${step.instruction}`, `   Expected: ${step.expectedResult}`]), '',

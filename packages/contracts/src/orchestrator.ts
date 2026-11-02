@@ -15,8 +15,6 @@ export const ORCHESTRATOR_MAX_ATTEMPTS = 2;
 export const ORCHESTRATOR_MAX_RESUBMITS = 2;
 /** Fixed policy: how often the orchestrator may try to finish while final verification fails. */
 export const ORCHESTRATOR_MAX_FINISH_ATTEMPTS = 3;
-/** One writer and one reader run at a time; they share the checkout. */
-export const ORCHESTRATOR_MAX_DISPATCH = 2;
 
 /** `implementation` builds a task; `fix` repairs a task the orchestrator's review failed. */
 export const OrchestratorChildPurposeSchema = z.enum(['implementation', 'fix']);
@@ -37,8 +35,8 @@ export const OrchestratorVerificationCheckSchema = z.discriminatedUnion('kind', 
 ]);
 export type OrchestratorVerificationCheck = z.infer<typeof OrchestratorVerificationCheckSchema>;
 
-/** A task's fields with no defaults, so a partial update patches only what it names. */
-const OrchestratorTaskFieldsSchema = z.object({
+/** Every field is required with no defaults, so a partial update patches only what it names. */
+export const OrchestratorTaskSchema = z.object({
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
   title: z.string().trim().min(1),
   dependsOn: z.array(z.string().min(1)),
@@ -52,9 +50,6 @@ const OrchestratorTaskFieldsSchema = z.object({
   acceptance: z.array(z.string().trim().min(1)).min(1),
   temporaryPaths: z.array(z.string().min(1)),
 }).strict();
-/** A whole task; a read-only one may omit writePaths. */
-export const OrchestratorTaskSchema = OrchestratorTaskFieldsSchema
-  .extend({ writePaths: OrchestratorTaskFieldsSchema.shape.writePaths.default([]) }).strict();
 export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>;
 
 export const OrchestratorPlanSchema = z.object({
@@ -139,31 +134,13 @@ export function orchestratorCheckFailure(result: OrchestratorCheckResult): strin
 export const OrchestratorWorkerStatusSchema = z.enum(['completed', 'failed', 'aborted', 'approval_timeout']);
 export type OrchestratorWorkerStatus = z.infer<typeof OrchestratorWorkerStatusSchema>;
 
-/** A repository location a child cites; the host checks the path and line exist. */
-export const OrchestratorCitationSchema = z.object({ path: z.string().min(1), line: z.number().int().positive() }).strict();
-export type OrchestratorCitation = z.infer<typeof OrchestratorCitationSchema>;
-
 const ReportIndexSchema = z.number().int().nonnegative();
 
-/** A writer's outcome: whether it finished, and where it departed from the plan and why. The host attaches the measured facts. */
-export const OrchestratorAgentReportSchema = z.object({
-  kind: z.literal('agent'),
+/** A worker's outcome: whether it finished, and where it departed from the plan and why. The host attaches the measured facts. */
+export const OrchestratorHandoffReportSchema = z.object({
   status: z.enum(['completed', 'incomplete']),
   deviations: z.array(z.object({ what: z.string().trim().min(1), why: z.string().trim().min(1) }).strict()),
 }).strict();
-export type OrchestratorAgentReport = z.infer<typeof OrchestratorAgentReportSchema>;
-
-/** A searcher's map of where things are, each finding anchored, plus what it could not determine. */
-export const OrchestratorSearchReportSchema = z.object({
-  kind: z.literal('search'),
-  findings: z.array(z.object({
-    claim: z.string().trim().min(1), evidence: z.array(OrchestratorCitationSchema).min(1),
-  }).strict()),
-  unknowns: z.array(z.string().trim().min(1)),
-}).strict();
-export type OrchestratorSearchReport = z.infer<typeof OrchestratorSearchReportSchema>;
-
-export const OrchestratorHandoffReportSchema = z.discriminatedUnion('kind', [OrchestratorAgentReportSchema, OrchestratorSearchReportSchema]);
 export type OrchestratorHandoffReport = z.infer<typeof OrchestratorHandoffReportSchema>;
 
 /** How a child's submissions ended: its checks passed, they still failed when resubmits ran out, or no usable report came. */
@@ -261,7 +238,7 @@ export type OrchestratorSavePlanArgs = z.infer<typeof OrchestratorSavePlanArgsSc
 /** Revises the saved plan in place: patch tasks by id, add or remove tasks, or replace the final verification. */
 export const OrchestratorUpdateTasksArgsSchema = z.object({
   update: z.array(z.object({
-    taskId: z.string().min(1), set: OrchestratorTaskFieldsSchema.omit({ id: true }).partial().strict(),
+    taskId: z.string().min(1), set: OrchestratorTaskSchema.omit({ id: true }).partial().strict(),
   }).strict()).default([]),
   add: z.array(OrchestratorTaskSchema).default([]),
   remove: z.array(z.string().min(1)).default([]),
@@ -269,10 +246,9 @@ export const OrchestratorUpdateTasksArgsSchema = z.object({
 }).strict();
 export type OrchestratorUpdateTasksArgs = z.infer<typeof OrchestratorUpdateTasksArgsSchema>;
 
+/** Starts one fresh child for one saved task; children run one at a time. */
 export const OrchestratorDispatchArgsSchema = z.object({
-  children: z.array(z.object({
-    taskId: z.string().min(1), purpose: OrchestratorChildPurposeSchema, instruction: z.string().trim().min(1),
-  }).strict()).min(1).max(ORCHESTRATOR_MAX_DISPATCH),
+  taskId: z.string().min(1), purpose: OrchestratorChildPurposeSchema, instruction: z.string().trim().min(1),
 }).strict();
 export type OrchestratorDispatchArgs = z.infer<typeof OrchestratorDispatchArgsSchema>;
 
@@ -350,7 +326,7 @@ export const OrchestratorParentTurnSchema = z.object({
 }).strict();
 export type OrchestratorParentTurn = z.infer<typeof OrchestratorParentTurnSchema>;
 
-/** The orchestrator's own live conversation; `parked` means it released its model while children work. */
+/** The orchestrator's own live conversation; `parked` means it released its model while its child or a check works. */
 export const OrchestratorParentActivitySchema = z.object({
   waitingForModel: z.boolean(), parked: z.boolean(), promptTokens: z.number().nonnegative(),
   prompt: z.object({ system: z.string(), user: z.string() }).strict().nullable(),
@@ -359,29 +335,16 @@ export const OrchestratorParentActivitySchema = z.object({
 }).strict();
 export type OrchestratorParentActivity = z.infer<typeof OrchestratorParentActivitySchema>;
 
-/** What a task claims while its child runs: one slot of its worker's model, and the writer slot if it mutates. */
+/** The model a task's child runs on, and that model's context size. */
 export const OrchestratorTaskClaimSchema = z.object({
-  taskId: z.string().min(1), modelId: z.string().min(1), mutating: z.boolean(), contextTokens: z.number().positive(),
+  taskId: z.string().min(1), modelId: z.string().min(1), contextTokens: z.number().positive(),
 }).strict();
 export type OrchestratorTaskClaim = z.infer<typeof OrchestratorTaskClaimSchema>;
 
-export const OrchestratorModelSlotsSchema = z.object({
-  modelId: z.string().min(1), slots: z.number().positive(), used: z.number().int().nonnegative(),
-}).strict();
-export type OrchestratorModelSlots = z.infer<typeof OrchestratorModelSlotsSchema>;
-
-/** Why a pending task cannot be dispatched now, in the order the host checks. */
-export const OrchestratorTaskWaitSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('dependencies'), taskIds: z.array(z.string().min(1)).min(1) }).strict(),
-  z.object({ kind: z.literal('writer_slot') }).strict(),
-  z.object({ kind: z.literal('model_slot'), modelId: z.string().min(1) }).strict(),
-]);
-export type OrchestratorTaskWait = z.infer<typeof OrchestratorTaskWaitSchema>;
-
-/** The latest dispatch: every running claim, the slots held, and why each pending task waits. */
+/** The latest dispatch: every task's claim, and the unmet dependencies of each pending task that has some. */
 export const OrchestratorScheduleSchema = z.object({
-  claims: z.array(OrchestratorTaskClaimSchema), models: z.array(OrchestratorModelSlotsSchema), writerUsed: z.boolean(),
-  waits: z.array(z.object({ taskId: z.string().min(1), wait: OrchestratorTaskWaitSchema }).strict()),
+  claims: z.array(OrchestratorTaskClaimSchema),
+  waits: z.array(z.object({ taskId: z.string().min(1), dependencies: z.array(z.string().min(1)).min(1) }).strict()),
 }).strict();
 export type OrchestratorSchedule = z.infer<typeof OrchestratorScheduleSchema>;
 

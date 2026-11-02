@@ -126,7 +126,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
   {
     id: 'orchestrator',
     label: 'Orchestrator',
-    description: 'Prepares an implementation plan, delegates bounded steps to repo-agent and repo-search workers, and verifies each one.',
+    description: 'Plans from its own reading of the repository, delegates each task to a repo-agent worker, and verifies and reviews every one.',
     presetKind: 'orchestrator',
     operationMode: 'read-only',
     promptPrefix: '',

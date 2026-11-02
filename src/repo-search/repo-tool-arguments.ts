@@ -55,7 +55,7 @@ export const ReadToolArgsSchema = z.object({
 
 export const GrepToolArgsSchema = z.object({
   pattern: RequiredTrimmedTextSchema.describe('Search pattern (regex, or literal string when literal=true)'),
-  path: PathSchema.describe('Directory or file to search (default: repository root)').optional(),
+  path: PathSchema.describe('Directory or file to search, relative to the repository root (default: repository root)').optional(),
   glob: RequiredTrimmedTextSchema.describe("Filter files by glob pattern, e.g. '*.ts' or 'src/**/*.test.ts'").optional(),
   ignoreCase: z.boolean().describe('Case-insensitive search (default: true)').optional(),
   literal: z.boolean().describe('Treat pattern as a literal string instead of a regex (default: false)').optional(),
@@ -65,12 +65,12 @@ export const GrepToolArgsSchema = z.object({
 
 export const FindToolArgsSchema = z.object({
   pattern: RequiredTrimmedTextSchema.describe("Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.test.ts'"),
-  path: PathSchema.describe('Directory to search in (default: repository root)').optional(),
+  path: PathSchema.describe('Directory to search in, relative to the repository root (default: repository root)').optional(),
   limit: PositiveIntegerSchema.describe('Maximum number of results (default: 1000)').optional(),
 }).strict();
 
 export const LsToolArgsSchema = z.object({
-  path: DirectoryPathSchema.describe('Directory to list (default: repository root)').optional(),
+  path: DirectoryPathSchema.describe('Directory to list, relative to the repository root (default: repository root)').optional(),
   limit: PositiveIntegerSchema.describe('Maximum number of entries to return (default: 500)').optional(),
 }).strict();
 

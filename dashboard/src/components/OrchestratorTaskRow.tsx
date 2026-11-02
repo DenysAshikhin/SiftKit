@@ -66,7 +66,7 @@ function AgentCard({ child, claim, attempt, writePaths, now }: {
         ))}
       </div>
       <div className="orch-agent-foot">
-        {writePaths.length === 0 ? 'read-only' : <>writes <code>{writePaths.join(' · ')}</code></>}
+        writes <code>{writePaths.join(' · ')}</code>
       </div>
     </div>
   );
@@ -105,7 +105,6 @@ export function OrchestratorTaskRow({ task, state, activity, now }: {
   React.useEffect(() => {
     if (open) setExpanded(true);
   }, [open]);
-  const role = claim === undefined ? null : claim.mutating ? 'writer' : 'read-only';
   return (
     <li className={open ? 'orch-task open' : 'orch-task'}>
       <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
@@ -113,7 +112,7 @@ export function OrchestratorTaskRow({ task, state, activity, now }: {
           {open ? <span className="sp" /> : <span className={`dot ${taskTone(task.status)}`} />}
           <span className="orch-task-name">
             {planned?.title ?? task.taskId}
-            <small>{[task.taskId, planned?.workerPresetId, role].filter((part) => part !== undefined && part !== null).join(' · ')}</small>
+            <small>{[task.taskId, planned?.workerPresetId].filter((part) => part !== undefined).join(' · ')}</small>
           </span>
           <span className="orch-task-doing">{nowDoing(task, child) ?? waitReason(task, state, activity)}</span>
           <span className="orch-task-attempts">{attemptSummary(task.taskId, state.attempts)}</span>

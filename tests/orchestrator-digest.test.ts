@@ -5,15 +5,15 @@ import { renderRunDigest, type RunDigestInput } from '../src/orchestrator/digest
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
 const plan = makeOrchestratorPlan([
-  makeOrchestratorTask({ id: 'survey', title: 'Survey the store' }),
-  makeOrchestratorTask({ id: 'store', title: 'Add the store', dependsOn: ['survey'], workerPresetId: 'repo-agent',
+  makeOrchestratorTask({ id: 'locate', title: 'Locate the store', writePaths: ['src/store-index.ts'] }),
+  makeOrchestratorTask({ id: 'store', title: 'Add the store', dependsOn: ['locate'], workerPresetId: 'repo-agent',
     writePaths: ['src/store.ts', 'tests/store.test.ts'] }),
 ]);
 
 function input(overrides: Partial<RunDigestInput> = {}): RunDigestInput {
   return {
-    plan, planPath: '.siftkit/orchestrator/r/plan.md', ledger: 'Task ledger:\n- survey: completed\n- store: reviewing',
-    tasks: [{ taskId: 'survey', status: 'completed', review: null }, { taskId: 'store', status: 'reviewing', review: {
+    plan, planPath: '.siftkit/orchestrator/r/plan.md', ledger: 'Task ledger:\n- locate: completed\n- store: reviewing',
+    tasks: [{ taskId: 'locate', status: 'completed', review: null }, { taskId: 'store', status: 'reviewing', review: {
       attempt: 1, purpose: 'implementation', verdict: 'fail', criteria: [],
       findings: [{ path: 'src/store.ts', line: 12, issue: 'save() ignores the revision.' }],
     } }],
@@ -27,9 +27,9 @@ test('the digest says the conversation was dropped and outlines the plan, the le
   assert.match(digest, /re-read/iu);
   assert.match(digest, /Plan: \.siftkit\/orchestrator\/r\/plan\.md/u);
   assert.match(digest, /Goal: Exercise the orchestrator\./u);
-  assert.match(digest, /- survey: Survey the store \(repo-search; writes nothing\)/u);
-  assert.match(digest, /- store: Add the store \(repo-agent; writes src\/store\.ts, tests\/store\.test\.ts; after survey\)/u);
-  assert.match(digest, /Task ledger:\n- survey: completed\n- store: reviewing/u);
+  assert.match(digest, /- locate: Locate the store \(repo-agent; writes src\/store-index\.ts\)/u);
+  assert.match(digest, /- store: Add the store \(repo-agent; writes src\/store\.ts, tests\/store\.test\.ts; after locate\)/u);
+  assert.match(digest, /Task ledger:\n- locate: completed\n- store: reviewing/u);
   assert.match(digest, /store \(implementation attempt 1\) failed review:\n- src\/store\.ts:12 save\(\) ignores the revision\./u);
   assert.match(digest, /0 of 3 finish attempts used/u);
   assert.doesNotMatch(digest, /waiting for record_review|waiting for decide/u);

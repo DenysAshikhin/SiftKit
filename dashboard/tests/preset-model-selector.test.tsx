@@ -74,7 +74,7 @@ test('a model preset still assigned to an operation cannot be deleted and names 
   screen.getByText('Assigned to Deep Dive; reassign before deleting.');
 });
 
-test('an orchestrator preset has no subagent cap; its concurrency follows the worker model parallel slots', () => {
+test('an orchestrator preset has no subagent cap; it runs one child at a time', () => {
   render(
     <PresetsSection
       dashboardConfig={TWO_MODEL_DASHBOARD_CONFIG}

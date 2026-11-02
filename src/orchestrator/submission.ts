@@ -4,11 +4,10 @@ import {
   type OrchestratorCheckResult,
   type OrchestratorHandoffReport,
   type OrchestratorSubmissionOutcome,
-  type OrchestratorTask,
 } from '@siftkit/contracts';
 
 import type { SubmissionGate, SubmissionVerdict } from '../repo-search/engine/submission-gate.ts';
-import { HANDOFF_REPORT_MAX_CHARS, parseHandoffReport, renderReportInstruction, type HandoffKind } from './handoff.ts';
+import { HANDOFF_REPORT_MAX_CHARS, parseHandoffReport, renderReportInstruction } from './handoff.ts';
 import type { WorkspaceChanges } from './workspace.ts';
 
 /** Unusable reports a child may send back, per problem, before its attempt ends without a new one. */
@@ -16,10 +15,10 @@ const MAX_UNUSABLE_REPORTS = { length: 2, shape: 2 } as const;
 /** How much of each failing check's output the child reads back. */
 const CHECK_OUTPUT_TAIL_CHARS = 4_000;
 
-/** What the run does for a submission: its checks under the run's approval policy, and the changes charged to the child. */
+/** What the run does for its one running child's submission: the task's checks under the run's approval policy, and its changes. */
 export interface SubmissionHost {
-  runTaskChecks(task: OrchestratorTask): Promise<OrchestratorCheckResult[]>;
-  measureChanges(task: OrchestratorTask): Promise<WorkspaceChanges>;
+  runTaskChecks(): Promise<OrchestratorCheckResult[]>;
+  measureChanges(): Promise<WorkspaceChanges>;
 }
 
 /** The last judged submission: what the attempt result records. */
@@ -41,15 +40,9 @@ export class WorkerSubmission implements SubmissionGate {
   private readonly unusable = { length: 0, shape: 0 };
   private last: SubmissionRecord | null = null;
   private readonly host: SubmissionHost;
-  private readonly task: OrchestratorTask;
-  private readonly kind: HandoffKind;
-  private readonly repoRoot: string;
 
-  constructor(host: SubmissionHost, input: { task: OrchestratorTask; kind: HandoffKind; repoRoot: string }) {
+  constructor(host: SubmissionHost) {
     this.host = host;
-    this.task = input.task;
-    this.kind = input.kind;
-    this.repoRoot = input.repoRoot;
   }
 
   /** The judged submission the child ended on; null when it never finished. */
@@ -60,7 +53,7 @@ export class WorkerSubmission implements SubmissionGate {
   async review(answer: string): Promise<SubmissionVerdict> {
     // Once its length retries are spent, a well-shaped report is judged at any length rather than discarded.
     const enforceLength = this.unusable.length < MAX_UNUSABLE_REPORTS.length;
-    const parsed = parseHandoffReport(answer, this.kind, this.repoRoot, enforceLength);
+    const parsed = parseHandoffReport(answer, enforceLength);
     if (!parsed.ok) {
       this.unusable[parsed.reason] += 1;
       if (this.unusable[parsed.reason] > MAX_UNUSABLE_REPORTS[parsed.reason]) {
@@ -69,11 +62,11 @@ export class WorkerSubmission implements SubmissionGate {
       }
       return { kind: 'reject', message: parsed.reason === 'length'
         ? parsed.problem
-        : [`Your report could not be used: ${parsed.problem}`, renderReportInstruction(this.kind)].join('\n') };
+        : [`Your report could not be used: ${parsed.problem}`, renderReportInstruction()].join('\n') };
     }
     this.submissions += 1;
-    const checks = await this.host.runTaskChecks(this.task);
-    const changes = await this.host.measureChanges(this.task);
+    const checks = await this.host.runTaskChecks();
+    const changes = await this.host.measureChanges();
     const findings = checks.flatMap((check) => orchestratorCheckFailure(check) ?? []);
     const outcome = findings.length > 0 ? 'checks_failed' : 'passed';
     const overrun = answer.length - HANDOFF_REPORT_MAX_CHARS;
@@ -91,7 +84,7 @@ export class WorkerSubmission implements SubmissionGate {
 
   /** Keeps the last judged submission when there is one, re-measured, so its report and checks still reach the orchestrator. */
   private async endWithoutUsableReport(problem: string): Promise<SubmissionRecord> {
-    const changes = await this.host.measureChanges(this.task);
+    const changes = await this.host.measureChanges();
     const unusable = `Later reports were unusable: ${problem}`;
     if (this.last === null) {
       return { report: null, outcome: 'report_invalid', submissions: 0, checks: [], changes,

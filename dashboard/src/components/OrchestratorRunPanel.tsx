@@ -6,7 +6,6 @@ import {
   type OrchestratorPendingApproval,
   type OrchestratorPhase,
   type OrchestratorRunState,
-  type OrchestratorSchedule,
   type RepoAgentDecision,
 } from '@siftkit/contracts';
 import { useNow } from '../hooks/useNow.ts';
@@ -36,24 +35,6 @@ function ApprovalRequest({ pending, onDecide }: { pending: OrchestratorPendingAp
 /** Elapsed times are shown to the second. */
 const CLOCK_TICK_MS = 1000;
 
-function SlotMeter({ schedule }: { schedule: OrchestratorSchedule }) {
-  return (
-    <div className="orch-slots" aria-label="Scheduler slots">
-      <span className="orch-slot-group" title={schedule.writerUsed ? 'writer slot in use' : 'writer slot free'}>
-        writer <span className={schedule.writerUsed ? 'orch-slot writer used' : 'orch-slot writer'} />
-      </span>
-      {schedule.models.map((model) => (
-        <span key={model.modelId} className="orch-slot-group" title={`${model.used} of ${model.slots} ${model.modelId} slots in use`}>
-          {model.modelId}
-          {Array.from({ length: model.slots }, (_, index) => (
-            <span key={index} className={index < model.used ? 'orch-slot used' : 'orch-slot'} />
-          ))}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, onDecide, onAbort }: {
   state: OrchestratorRunState;
   activity: OrchestratorActivity | null;
@@ -64,7 +45,6 @@ export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, 
 }) {
   const live = !isOrchestratorTerminalPhase(state.phase);
   const now = useNow(CLOCK_TICK_MS, live);
-  const schedule = activity?.schedule ?? null;
   const completed = state.tasks.filter((task) => task.status === 'completed').length;
   return (
     <section className="orchestrator-run" aria-label="Orchestrator run">
@@ -88,7 +68,6 @@ export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, 
           </li>
         ))}
       </ol>
-      {schedule !== null ? <SlotMeter schedule={schedule} /> : null}
       <ol className="orch-tasks">
         {state.tasks.map((task) => <OrchestratorTaskRow key={task.taskId} task={task} state={state} activity={activity} now={now} />)}
       </ol>

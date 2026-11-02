@@ -1,7 +1,6 @@
 import type { OrchestratorAttemptResult, OrchestratorRecordReviewArgs, OrchestratorTask } from '@siftkit/contracts';
 
-import { findCitationProblem } from './handoff.ts';
-import { findEvidenceProblem } from './verification.ts';
+import { findCitationProblem, findEvidenceProblem } from './verification.ts';
 
 /**
  * Why a review cannot be recorded. Every acceptance criterion is judged exactly once; a pass needs passing

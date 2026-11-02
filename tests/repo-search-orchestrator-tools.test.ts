@@ -17,7 +17,7 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-orchestrator-tools-');
 const TOOLS = resolveRepoSearchPlannerToolDefinitions(['read', ...ORCHESTRATOR_TOOL_NAMES]);
-const DISPATCH = { children: [{ taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts.' }] };
+const DISPATCH = { taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts.' };
 
 class RecordingHost implements OrchestratorToolHost {
   readonly calls: OrchestratorToolCall[] = [];
@@ -63,7 +63,7 @@ test('update_tasks reaches the host with omitted lists defaulted to empty', asyn
 test('a host refusal is a failed tool result the model reads, and invalid arguments never reach the host', async () => {
   const host = new RecordingHost(() => ({ ok: false, output: 'Task greeting is not in the saved plan.' }));
   const result = await run(host, [
-    { toolCalls: [{ name: 'dispatch', arguments: { children: [] } }] },
+    { toolCalls: [{ name: 'dispatch', arguments: { taskId: 'greeting' } }] },
     { toolCalls: [{ name: 'dispatch', arguments: DISPATCH }] },
     { content: 'done' }, { content: 'done' },
   ]);

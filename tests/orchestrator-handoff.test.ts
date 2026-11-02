@@ -16,7 +16,7 @@ function result(overrides: Partial<OrchestratorAttemptResult> = {}): Orchestrato
     workerStatus: 'completed', workerOutput: '{}', outcome: 'checks_failed', submissions: 3, passed: false,
     checks: [passing, failing], findings: ['Check `npm run lint` exited 1; expected 0.'],
     changedPaths: ['src/store.ts', 'tests/store.test.ts'], changeDigest: 'd',
-    report: { kind: 'agent', status: 'incomplete', deviations: [
+    report: { status: 'incomplete', deviations: [
       { what: 'Kept the old export.', why: 'The CLI still imports it.' },
       { what: 'Left the CLI wiring.', why: 'It belongs to the cli task.' },
     ] },
@@ -38,31 +38,16 @@ test('an attempt renders as the child status and deviations, the measured diffst
   assert.match(text, /Checks \(the gate's last run\):\n- pass `npm test`/u);
   assert.match(text, /- FAIL `npm run lint` exited 1[^\n]*\n[^]*src\/store\.ts:4 unused import/u);
   assert.doesNotMatch(text, /all good/u, 'passing output is not shown');
-  assert.doesNotMatch(text, /"kind":"agent"/u);
+  assert.doesNotMatch(text, /"status":/u);
   assert.ok(text.length < 2_500, `rendered ${text.length} characters`);
 });
 
 test('a completed attempt without deviations says so in one line', () => {
-  const text = renderAttemptForParent(result({ report: { kind: 'agent', status: 'completed', deviations: [] } }), DIFFSTAT);
+  const text = renderAttemptForParent(result({ report: { status: 'completed', deviations: [] } }), DIFFSTAT);
   assert.match(text, /Status: completed\nDeviations: none\./u);
 });
 
-test('a search report renders only its findings and unknowns: no citation repeats, empty changes, or evidence checks', () => {
-  const evidence: OrchestratorCheckResult = { check: { kind: 'evidence', instruction: 'Cite the store.', paths: ['src/store.ts'] },
-    executed: false, exitCode: null, timedOut: false, output: '' };
-  const text = renderAttemptForParent(result({ outcome: 'passed', checks: [evidence], findings: [], changedPaths: [], report: {
-    kind: 'search',
-    findings: [{ claim: 'save() at src/store.ts:9', evidence: [{ path: 'src/store.ts', line: 9 }] }],
-    unknowns: ['Whether the CLI saves.'],
-  } }), []);
-  assert.equal(text, [
-    '## store (implementation attempt 1): passed, worker completed, 3 submission(s)',
-    'Findings:\n- save() at src/store.ts:9',
-    'Unknowns:\n- Whether the CLI saves.',
-  ].join('\n'));
-});
-
-test('an agent attempt still names empty changes and lists only command checks', () => {
+test('an attempt names empty changes and lists only command checks', () => {
   const evidence: OrchestratorCheckResult = { check: { kind: 'evidence', instruction: 'Read the diff.', paths: ['src/store.ts'] },
     executed: false, exitCode: null, timedOut: false, output: '' };
   const text = renderAttemptForParent(result({ checks: [passing, evidence] }), []);

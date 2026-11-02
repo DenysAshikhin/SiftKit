@@ -47,13 +47,8 @@ function runState(statuses: Record<string, OrchestratorTaskStatus>, overrides: P
 }
 
 const SCHEDULE: OrchestratorSchedule = {
-  claims: [{ taskId: 'write', modelId: 'm', mutating: true, contextTokens: 4000 }],
-  models: [{ modelId: 'm', slots: 1, used: 1 }], writerUsed: true,
-  waits: [
-    { taskId: 'read', wait: { kind: 'model_slot', modelId: 'm' } },
-    { taskId: 'write-2', wait: { kind: 'writer_slot' } },
-    { taskId: 'after', wait: { kind: 'dependencies', taskIds: ['write'] } },
-  ],
+  claims: [{ taskId: 'write', modelId: 'm', contextTokens: 4000 }],
+  waits: [{ taskId: 'after', dependencies: ['write'] }],
 };
 const ACTIVITY: OrchestratorActivity = { runId: RUN_ID, schedule: SCHEDULE, parent: null, children: [] };
 
@@ -80,8 +75,8 @@ test('the stepper marks done, current, and failed steps, using the last work pha
 test('a pending task shows the wait the latest dispatch recorded for it', () => {
   const state = runState({ write: 'running' });
   assert.equal(waitReason(taskOf(state, 'after'), state, ACTIVITY), 'needs write');
-  assert.equal(waitReason(taskOf(state, 'write-2'), state, ACTIVITY), 'waiting for writer slot');
-  assert.equal(waitReason(taskOf(state, 'read'), state, ACTIVITY), 'waiting for m slot');
+  assert.equal(waitReason(taskOf(state, 'write-2'), state, ACTIVITY), 'queued', 'met dependencies leave only the dispatch to wait for');
+  assert.equal(waitReason(taskOf(state, 'read'), state, ACTIVITY), 'queued');
   assert.equal(waitReason(taskOf(state, 'read'), state, { ...ACTIVITY, schedule: { ...SCHEDULE, waits: [] } }), 'queued');
   assert.equal(waitReason(taskOf(state, 'read'), state, null), 'queued');
   assert.equal(waitReason(taskOf(state, 'write'), state, ACTIVITY), null);
@@ -114,7 +109,7 @@ test('now doing prefers the running tool, then the model wait, then the turn, th
 });
 
 test('labels: context percent, elapsed time, run elapsed, and tones for every status and phase', () => {
-  assert.equal(contextPercent(CHILD, { taskId: 'write', modelId: 'm', mutating: true, contextTokens: 4000 }), 25);
+  assert.equal(contextPercent(CHILD, { taskId: 'write', modelId: 'm', contextTokens: 4000 }), 25);
   assert.equal(formatElapsed(47_000), '47s');
   assert.equal(formatElapsed(842_000), '14m 02s');
   assert.equal(formatElapsed(3_780_000), '1h 03m');

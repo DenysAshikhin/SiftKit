@@ -48,7 +48,7 @@ function seedSchema84(): { dbPath: string; runId: string } {
   return { dbPath, runId: state.runId };
 }
 
-test('the 84 to 85 upgrade drops write scope and reduces agent reports to a status and deviations', (t) => {
+test('the 84 to 89 upgrades drop write scope and reduce agent reports to a status and deviations', (t) => {
   t.after(closeAllRuntimeDatabases);
   const { dbPath, runId } = seedSchema84();
   const database = getRuntimeDatabase(dbPath);
@@ -58,9 +58,9 @@ test('the 84 to 85 upgrade drops write scope and reduces agent reports to a stat
   assert.deepEqual([farewell?.outcome, farewell?.passed, farewell?.findings], ['checks_failed', false, []]);
   assert.deepEqual(greeting?.changedPaths, ['src/greeting.ts', 'docs/x.md']);
   assert.equal(greeting !== null && greeting !== undefined && 'scopeViolations' in greeting, false);
-  assert.deepEqual(greeting?.report, { kind: 'agent', status: 'completed', deviations: [
+  assert.deepEqual(greeting?.report, { status: 'completed', deviations: [
     { what: 'Kept the old export.', why: 'Stated with the deviation in a schema-84 report.' },
     { what: 'The CLI needs it.', why: 'Work the child found for another task.' },
   ] });
-  assert.deepEqual(farewell?.report, { kind: 'agent', status: 'incomplete', deviations: [] });
+  assert.deepEqual(farewell?.report, { status: 'incomplete', deviations: [] });
 });

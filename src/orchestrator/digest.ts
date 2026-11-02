@@ -25,8 +25,7 @@ export function renderRunDigest(input: RunDigestInput): string {
       + 'nothing below is lost. Earlier file reads are gone too: re-read any file you need.',
     ...(input.plan === null || input.planPath === null ? [] : [[
       `Plan: ${input.planPath}`, `Goal: ${input.plan.goal}`, 'Tasks:',
-      ...input.plan.tasks.map((task) => `- ${task.id}: ${task.title} (${task.workerPresetId}; `
-        + `${task.writePaths.length === 0 ? 'writes nothing' : `writes ${task.writePaths.join(', ')}`}`
+      ...input.plan.tasks.map((task) => `- ${task.id}: ${task.title} (${task.workerPresetId}; writes ${task.writePaths.join(', ')}`
         + `${task.dependsOn.length === 0 ? '' : `; after ${task.dependsOn.join(', ')}`})`),
     ].join('\n')]),
     input.ledger,
