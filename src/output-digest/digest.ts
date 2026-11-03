@@ -13,8 +13,10 @@ import { parseTsc } from './tsc.ts';
 import type { DigestFailure, ToolDigest } from './types.ts';
 import { parseVitest } from './vitest.ts';
 
-export const DIGEST_HEADING = 'Digest of the whole output:';
+const DIGEST_HEADING = 'Digest of the whole output:';
 const MESSAGE_LINE_CAP = 12;
+// Room for the `… N more digest lines` notice a cut digest ends with.
+const CUT_NOTICE_RESERVE_CHARS = 32;
 
 /** One digest per tool whose output markers appear in `text`, in a fixed order; none for unrecognised output. */
 export function digestToolOutput(text: string): ToolDigest[] {
@@ -53,4 +55,24 @@ export function renderDigests(digests: readonly ToolDigest[]): string | null {
     ...digests.flatMap((digest) => [headline(digest), ...digest.failures.map(failureLine)]),
     ...(details.length > 0 ? ['Details:', ...details] : []),
   ].join('\n');
+}
+
+/** The rendered digest of `text` and whether any recognised tool failed; null when no parser recognised it. */
+export function digestOutput(text: string): { failed: boolean; text: string } | null {
+  const digests = digestToolOutput(text);
+  const rendered = renderDigests(digests);
+  return rendered === null ? null : { failed: digests.some((digest) => digest.failed), text: rendered };
+}
+
+/** The digest's first whole lines within `maxChars`, then how many it left out; verdicts and failure names lead, so they survive. */
+export function cutDigest(digest: string, maxChars: number): string {
+  if (digest.length <= maxChars) return digest;
+  const lines = digest.split('\n');
+  let kept = 0;
+  let length = 0;
+  while (kept < lines.length && length + lines[kept].length + 1 <= maxChars - CUT_NOTICE_RESERVE_CHARS) {
+    length += lines[kept].length + 1;
+    kept += 1;
+  }
+  return [...lines.slice(0, kept), `… ${lines.length - kept} more digest lines`].join('\n');
 }

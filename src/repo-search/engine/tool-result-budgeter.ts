@@ -13,6 +13,9 @@ export type FittedToolResult = {
   rawResultTokenCount: number;
 };
 
+// A truncated result keeps half its budget, so a digest within a third leaves the tail at least a sixth.
+const DIGEST_BUDGET_SHARE = 1 / 3;
+
 type CountedTokenResult = {
   tokenCount: number;
   estimated: boolean;
@@ -92,9 +95,9 @@ export class ToolResultBudgeter {
           return budgeter.countTokenValue(text);
         },
       });
-      // The digest keeps at most half the budget, cut from its end so every verdict and failure name survives first.
+      // The digest is cut from its end so every verdict and failure name survives first.
       const headerText = options.digest === null ? undefined : (await fitter.fitSegments({
-        segments: options.digest.split('\n'), separator: '\n', maxTokens: maxResultTokens / 2, unit: 'lines', keep: 'head',
+        segments: options.digest.split('\n'), separator: '\n', maxTokens: maxResultTokens * DIGEST_BUDGET_SHARE, unit: 'lines', keep: 'head',
       })).visibleText;
       const fitResult = await fitter.fitSegments({
         headerText,

@@ -23,7 +23,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { ChatJournalStore } from '../src/state/chat-journal.ts';
 import { replayChatContext } from '../src/status-server/chat-context-replay.ts';
 import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.ts';
-import { digestToolOutput, renderDigests } from '../src/output-digest/digest.ts';
+import { digestOutput } from '../src/output-digest/digest.ts';
 import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
@@ -988,7 +988,7 @@ test('a validation run leads with the digest of its raw output, taken before sha
   });
   await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_digest_1', toolName: 'run', args: { command: 'npm test' } }], '', 0, false);
   await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_digest_2', toolName: 'run', args: { command: 'Write-Output stable' } }], '', 0, false);
-  const digest = renderDigests(digestToolOutput(output));
+  const digest = digestOutput(output)?.text ?? null;
   assert.ok(digest !== null);
   assert.match(digest, /^Digest of the whole output:\npytest: FAILED \(2 failed, 1 passed\)\n/u);
   const shown = commands[0]?.promptOutput ?? '';
@@ -996,4 +996,19 @@ test('a validation run leads with the digest of its raw output, taken before sha
   assert.match(shown, /\d+ lines omitted from validation command output\./u);
   assert.doesNotMatch(shown, /short test summary info/u, 'the shaped tail itself holds none of the failures');
   assert.doesNotMatch(commands[1]?.promptOutput ?? '', /Digest of the whole output/u);
+});
+
+test('a run with outputMode "full" returns its raw output with no digest ahead of it', async () => {
+  const root = createManagedTempDir('siftkit-run-full-');
+  const output = readDigestFixture('pytest/fail.txt').trimEnd();
+  const args = { command: 'Get-Content log.txt', outputMode: 'full' };
+  const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent', null, {
+    [buildRepoToolRequestedCommand('run', args)]: { exitCode: 0, stdout: output, stderr: '' },
+    [STABLE_COMMAND]: { exitCode: 0, stdout: 'stable\n', stderr: '' },
+  });
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_full_1', toolName: 'run', args }], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_full_2', toolName: 'run', args: { command: 'Write-Output stable' } }], '', 0, false);
+  const shown = commands[0]?.promptOutput ?? '';
+  assert.match(shown, /short test summary info/u, 'the raw output is shown');
+  assert.doesNotMatch(shown, /Digest of the whole output/u);
 });

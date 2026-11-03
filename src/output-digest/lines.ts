@@ -1,4 +1,4 @@
-import type { DigestCount, DigestFailure } from './types.ts';
+import type { DigestCount, DigestFailure, DigestTool, ToolDigest } from './types.ts';
 
 // CSI colour codes and OSC sequences (MSBuild's progress and hyperlink codes) end with BEL or ESC \.
 const TERMINAL_CODE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-9;?]*[A-Za-z]/gu;
@@ -58,4 +58,12 @@ export function uniqueFailures(failures: readonly DigestFailure[]): DigestFailur
     seen.add(key);
     return true;
   });
+}
+
+/** A compiler's digest from its diagnostics; one repeated in a closing summary counts once. */
+export function diagnosticDigest(tool: DigestTool, diagnostics: readonly { severity: string; failure: DigestFailure }[]): ToolDigest {
+  const errors = uniqueFailures(diagnostics.filter((entry) => entry.severity === 'error').map((entry) => entry.failure));
+  const warnings = uniqueFailures(diagnostics.filter((entry) => entry.severity === 'warning').map((entry) => entry.failure));
+  const counts = [{ label: 'errors', value: errors.length }, { label: 'warnings', value: warnings.length }];
+  return { tool, counts, failed: errors.length > 0, failures: errors };
 }

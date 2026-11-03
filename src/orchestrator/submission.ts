@@ -7,14 +7,13 @@ import {
 } from '@siftkit/contracts';
 
 import type { SubmissionGate, SubmissionVerdict } from '../repo-search/engine/submission-gate.ts';
-import { HANDOFF_REPORT_MAX_CHARS, parseHandoffReport, renderReportInstruction } from './handoff.ts';
-import { renderCheckOutput } from './verification.ts';
+import { HANDOFF_REPORT_MAX_CHARS, parseHandoffReport, renderCheckOutput, renderReportInstruction } from './handoff.ts';
 import type { WorkspaceChanges } from './workspace.ts';
 
 /** Unusable reports a child may send back, per problem, before its attempt ends without a new one. */
 const MAX_UNUSABLE_REPORTS = { length: 2, shape: 2 } as const;
 /** How much of each failing check's output the child reads back. */
-const CHECK_OUTPUT_TAIL_CHARS = 4_000;
+const CHECK_OUTPUT_CHARS = 4_000;
 
 /** What the run does for its one running child's submission: the task's checks under the run's approval policy, and its changes. */
 export interface SubmissionHost {
@@ -78,7 +77,7 @@ export class WorkerSubmission implements SubmissionGate {
       `Your submission ${this.submissions} of ${ORCHESTRATOR_MAX_RESUBMITS + 1} failed its checks:`,
       ...findings.map((finding) => `- ${finding}`),
       ...checks.filter((check) => orchestratorCheckFailure(check) !== null)
-        .map((check) => `Output of ${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, CHECK_OUTPUT_TAIL_CHARS)}`),
+        .map((check) => `Output of ${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, CHECK_OUTPUT_CHARS)}`),
       'Fix the problems, then finish again with an updated report.',
     ].join('\n') };
   }

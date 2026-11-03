@@ -75,6 +75,7 @@ test('SummaryRequestRunner handles deterministic command-output summaries withou
 
   assert.equal(result.PolicyDecision, 'deterministic-test-output');
   assert.equal(result.Classification, 'summary');
+  assert.match(result.Summary, /^PASS: every recognised tool passed\nDigest of the whole output:\njest: passed \(7 tests, 7 passed\)$/u);
   assert.equal(result.RawReviewRequired, false);
   assert.equal(result.ModelCallSucceeded, true);
   assert.equal(result.Provider, DEFAULT_SUMMARY_PROVIDER);
@@ -114,7 +115,7 @@ for (const [fixture, failure] of [
     }).run();
     assert.equal(result.PolicyDecision, 'deterministic-test-output');
     assert.equal(result.Classification, 'command_failure');
-    assert.match(result.Summary, /^FAIL: Digest of the whole output:\n/u);
+    assert.match(result.Summary, /^FAIL: a recognised tool failed\nDigest of the whole output:\n/u);
     assert.ok(result.Summary.includes(failure), result.Summary);
   });
 }
@@ -127,5 +128,5 @@ test('SummaryRequestRunner fails a pass/fail answer on a non-zero exit even when
     format: 'text', policyProfile: 'general', sourceKind: 'command-output', commandExitCode: 1,
   }).run();
   assert.equal(result.Classification, 'command_failure');
-  assert.match(result.Summary, /^FAIL: Digest of the whole output:\njest: passed \(3 tests, 1 skipped, 2 passed\)$/u);
+  assert.match(result.Summary, /^FAIL: the command exited 1, though every recognised tool passed\nDigest of the whole output:\njest: passed \(3 tests, 1 skipped, 2 passed\)$/u);
 });

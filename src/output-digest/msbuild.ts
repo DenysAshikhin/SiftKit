@@ -1,4 +1,4 @@
-import { uniqueFailures } from './lines.ts';
+import { diagnosticDigest } from './lines.ts';
 import type { ToolDigest } from './types.ts';
 
 // The classic logger ends `Build succeeded.`/`Build FAILED.`; the terminal logger ends `Build failed with N error(s) in 0.9s`.
@@ -15,8 +15,5 @@ export function parseMsbuild(lines: readonly string[]): ToolDigest | null {
     return [{ severity: match[4], failure: { name: `${match[5]}: ${match[6]}`, location, message: [] } }];
   });
   // MSBuild repeats every diagnostic in its closing summary.
-  const errors = uniqueFailures(diagnostics.filter((entry) => entry.severity === 'error').map((entry) => entry.failure));
-  const warnings = uniqueFailures(diagnostics.filter((entry) => entry.severity === 'warning').map((entry) => entry.failure));
-  const counts = [{ label: 'errors', value: errors.length }, { label: 'warnings', value: warnings.length }];
-  return { tool: 'msbuild', counts, failed: errors.length > 0, failures: errors };
+  return diagnosticDigest('msbuild', diagnostics);
 }

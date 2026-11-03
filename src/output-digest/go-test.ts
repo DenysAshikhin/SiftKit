@@ -33,7 +33,10 @@ export function parseGoTest(lines: readonly string[]): ToolDigest | null {
     current = run?.[1] ?? result?.[2] ?? current;
     if (result?.[1] === 'FAIL' && !failedTests.includes(result[2])) failedTests.push(result[2]);
     const message = MESSAGE_LINE.exec(line);
-    if (message !== null && current !== null) messages.set(current, [...(messages.get(current) ?? []), { location: message[1], text: message[2] }]);
+    if (message === null || current === null) continue;
+    const own = messages.get(current) ?? [];
+    own.push({ location: message[1], text: message[2] });
+    messages.set(current, own);
   }
   if (ok + failedPackages === 0 && failedTests.length === 0) return null;
   const leaves = failedTests.filter((name) => !failedTests.some((other) => other.startsWith(`${name}/`)));

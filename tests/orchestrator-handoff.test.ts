@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import type { OrchestratorAttemptResult, OrchestratorCheckResult } from '@siftkit/contracts';
 
-import { renderAttemptForParent } from '../src/orchestrator/handoff.ts';
+import { renderAttemptForParent, renderCheckOutput } from '../src/orchestrator/handoff.ts';
 
 const passing: OrchestratorCheckResult = { check: { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 },
   executed: true, exitCode: 0, timedOut: false, output: 'all good '.repeat(50), digest: null };
@@ -62,4 +62,20 @@ test('without a usable report the tail of the final answer stands in for it', ()
   const text = renderAttemptForParent(result({ report: null, outcome: 'report_invalid', workerOutput: `${'x'.repeat(5_000)}END` }), DIFFSTAT);
   assert.match(text, /No usable report\. End of the final answer:\nx+END\nChanges/u);
   assert.ok(text.length < 4_000);
+});
+
+test('a check renders within its size as its digest, then its output tail; without a digest, as the tail alone', () => {
+  const digest = failing.digest ?? '';
+  assert.equal(renderCheckOutput(failing, 400), `${digest}\n${failing.output.slice(-(400 - digest.length - 1))}`);
+  assert.equal(renderCheckOutput({ ...failing, digest: null }, 400), failing.output.slice(-400));
+});
+
+test('a digest too long for half the size is cut from its end, so the output tail keeps the other half', () => {
+  const digest = ['Digest of the whole output:', 'pytest: FAILED (300 failed)',
+    ...Array.from({ length: 300 }, (unused, index) => `✖ test_${index} — tests/test_x.py:${index}`)].join('\n');
+  const rendered = renderCheckOutput({ ...failing, digest }, 1_500);
+  assert.ok(rendered.length <= 1_500, String(rendered.length));
+  assert.ok(rendered.startsWith('Digest of the whole output:\npytest: FAILED (300 failed)\n✖ test_0 — tests/test_x.py:0\n'), rendered);
+  assert.match(rendered, /… \d+ more digest lines\n/u);
+  assert.ok(rendered.endsWith(failing.output.slice(-700)), 'at least half the size is the output tail');
 });

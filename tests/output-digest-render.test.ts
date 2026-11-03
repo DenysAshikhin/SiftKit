@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { digestToolOutput, renderDigests } from '../src/output-digest/digest.ts';
+import { cutDigest, digestOutput, digestToolOutput, renderDigests } from '../src/output-digest/digest.ts';
 import type { ToolDigest } from '../src/output-digest/types.ts';
 import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
 
@@ -43,4 +43,21 @@ test('a failure message is capped at 12 lines and says how many it left out', ()
 test('output no parser recognises has no digest', () => {
   assert.deepEqual(digestToolOutput('Compiling 3 files...\nerror: something odd happened\nDone in 2.1s.'), []);
   assert.equal(renderDigests([]), null);
+  assert.equal(digestOutput('Done in 2.1s.'), null);
+});
+
+test('digesting output gives its rendered digest and whether any recognised tool failed', () => {
+  assert.deepEqual(digestOutput(readDigestFixture('jest/pass.txt')),
+    { failed: false, text: renderDigests(digestToolOutput(readDigestFixture('jest/pass.txt'))) });
+  assert.equal(digestOutput(readDigestFixture('pytest/fail.txt'))?.failed, true);
+});
+
+test('a digest cut to a size keeps its first whole lines and says how many it left out', () => {
+  const digest = ['Digest of the whole output:', ...Array.from({ length: 100 }, (unused, index) => `✖ test_${index} — t.py:${index}`)].join('\n');
+  assert.equal(cutDigest(digest, digest.length), digest);
+  const cut = cutDigest(digest, 200);
+  assert.ok(cut.length <= 200, cut);
+  const lines = cut.split('\n');
+  assert.deepEqual(lines.slice(0, 3), ['Digest of the whole output:', '✖ test_0 — t.py:0', '✖ test_1 — t.py:1']);
+  assert.equal(lines.at(-1), `… ${101 - (lines.length - 1)} more digest lines`);
 });

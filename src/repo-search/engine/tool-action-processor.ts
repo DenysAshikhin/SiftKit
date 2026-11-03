@@ -55,7 +55,7 @@ import {
   type TurnOutcome,
 } from './task-loop-support.ts';
 import { ToolResultBudgeter } from './tool-result-budgeter.ts';
-import { digestToolOutput, renderDigests } from '../../output-digest/digest.ts';
+import { digestOutput } from '../../output-digest/digest.ts';
 import { TokenUsageTracker } from './token-usage.ts';
 import { ToolStatsRecorder } from './tool-stats.ts';
 import { TranscriptManager } from './transcript-manager.ts';
@@ -997,12 +997,12 @@ export class ToolActionProcessor {
       output: execution.output,
       decision: runFullOutputDecision,
     });
-    // Digested before validation shaping keeps only the last lines, so the failures it drops still lead the result.
-    const digest = renderDigests(digestToolOutput(execution.output));
+    // Digested before validation shaping keeps only the last lines, so the failures it drops still lead the result; `full` stays raw.
+    const digest = runFullOutputDecision.effectiveMode === 'full' ? null : digestOutput(execution.output);
     return {
       ...execution,
       output,
-      ...(digest === null ? {} : { digest }),
+      digest: digest?.text,
     };
   }
 
@@ -1197,7 +1197,7 @@ export class ToolActionProcessor {
       commandSucceededForFitting: Number(executed.exitCode) === 0,
       outputUnit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit ? nativeExecution.outputUnit : 'lines',
       keep: nativeExecution && nativeExecution.ok && nativeExecution.outputKeep ? nativeExecution.outputKeep : 'head',
-      digest: nativeExecution && nativeExecution.ok && nativeExecution.digest !== undefined ? nativeExecution.digest : null,
+      digest: nativeExecution && nativeExecution.ok ? nativeExecution.digest ?? null : null,
     });
     resultText = fitted.resultText;
     const fittedReturnedSegmentCount = fitted.fittedReturnedSegmentCount;

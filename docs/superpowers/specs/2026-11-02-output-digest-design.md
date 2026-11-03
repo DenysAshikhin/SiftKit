@@ -108,11 +108,11 @@ Details:
 
 ### 2.1 The worker's `run` tool
 
-`ToolResultBudgeter.fit` (in `src/repo-search/engine/tool-result-budgeter.ts`) renders the digest of the command's output and leads the tool result with it. This applies whether the command passed or failed.
+`ToolResultBudgeter.fit` (in `src/repo-search/engine/tool-result-budgeter.ts`) renders the digest of the command's output and leads the tool result with it. This applies whether the command passed or failed. The digest is computed from the raw output in `ToolActionProcessor`, before validation shaping keeps the last 50 lines; a run served with `outputMode: "full"` gets none, so `full` stays raw.
 
 - **The output fits:** the result is the digest, then the whole output.
 - **It doesn't fit:**
-  - the digest is fitted from its head into half the result budget;
+  - the digest is fitted from its head into a third of the result budget, so the tail always keeps at least a sixth;
   - the truncation notice follows it;
   - the raw tail fills what remains.
 - **No digest:** behaviour is unchanged.
@@ -130,7 +130,8 @@ Its explanation changes to say that the result starts with a digest of recognise
 - **New field:** `OrchestratorCheckResultSchema` gains `digest: z.string().nullable()`.
   - `runVerificationCheck` computes it from the **full** output, before the stored output is cut to its last 20,000 characters.
   - Evidence and unexecuted checks have `digest: null`.
-- **One renderer:** `renderCheckOutput(result, tailChars)` in `src/orchestrator/verification.ts` returns the digest followed by the output's last `tailChars` characters. It is the only renderer used by:
+- **Stored size:** the stored digest is cut from its end (`cutDigest`) to 20,000 characters, like the stored output.
+- **One renderer:** `renderCheckOutput(result, maxChars)` in `src/orchestrator/handoff.ts` returns the digest, cut to at most half of `maxChars`, then the output's tail in the rest. It is the only renderer used by:
   - the submission gate's failing-check feedback to the child (`submission.ts`);
   - the check lines in the attempt report the orchestrator reads (`handoff.ts`);
   - the `run_check` tool result (`run.ts`);
@@ -141,10 +142,10 @@ Its explanation changes to say that the result starts with a digest of recognise
 
 ### 2.3 `siftkit summary`
 
-The deterministic fast path in `src/summary/request-runner.ts` (`tryDeterministicTestOutput`) uses `digestToolOutput` in place of the Jest-only `parseDeterministicTestOutput`. It still runs only for command output with a pass/fail question.
+The deterministic fast path in `src/summary/request-runner.ts` (`tryDigestSummary`) uses `digestOutput` in place of the Jest-only `parseDeterministicTestOutput`. It still runs only for command output with a pass/fail question.
 
 - **Verdict:** FAIL when any digest failed or the command's exit code is non-zero; otherwise PASS.
-- **Summary:** the rendered digest.
+- **Summary:** a verdict line naming its reason (`PASS: every recognised tool passed`, `FAIL: a recognised tool failed`, or `FAIL: the command exited N, though every recognised tool passed`), then the rendered digest.
 - **Cleanup:** `src/summary/test-output.ts` is deleted. Its tests move to the jest parser's fixtures.
 
 ## 3. Error handling
@@ -168,7 +169,7 @@ The deterministic fast path in `src/summary/request-runner.ts` (`tryDeterministi
   - an oversized failed result is the digest, the notice and then the tail, within `FAILED_COMMAND_TAIL_CAP_TOKENS`;
   - unrecognised output behaves exactly as today.
 - **Orchestrator:**
-  - `runVerificationCheck` stores the digest computed from output longer than 20,000 characters;
-  - each of the four renderers leads with the digest;
+  - `runVerificationCheck` (a process test, `tests/process/orchestrator-check-digest.test.ts`, since it spawns PowerShell) stores the digest computed from output longer than 20,000 characters, and cuts a digest of thousands of failures to 20,000;
+  - each of the four renderers leads with the digest and stays within its size;
   - the 89 → 90 upgrade sets `digest: null`, and a real schema-89 file reopens at 90.
 - **`siftkit summary`:** a pytest failure and a dotnet test failure each produce a FAIL verdict whose summary names the failing test and its location, with no model call.

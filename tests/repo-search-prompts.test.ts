@@ -16,6 +16,7 @@ import {
 import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.ts';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.ts';
 import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.ts';
+import { DIGEST_TOOLS } from '../src/output-digest/types.ts';
 import {
   PresetSystemContextBuilder,
   type PresetSystemContext,
@@ -290,6 +291,8 @@ test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with
   assert.ok(prompt.includes(RUN_SHELL_LABEL), 'run tool line must use the executor-derived shell label');
   assert.match(prompt, /Select-Object|Get-Content|Select-String/u, 'must steer to PowerShell idioms');
   assert.match(prompt, /Long output reaches you as its tail/u, 'must say long output is truncated to the tail');
+  assert.equal(prompt.match(/truncated to its tail|reaches you as its tail/gu)?.length, 1, 'the tail is stated once');
+  assert.ok(prompt.includes(`(${DIGEST_TOOLS.join(', ')})`), 'the digest tools are listed from the parsers');
 });
 
 test('buildAgentSystemPrompt says recognised test output leads with a digest, and never steers to trimming or filtering it', () => {

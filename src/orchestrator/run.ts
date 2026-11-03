@@ -56,7 +56,7 @@ import { chatSessionExists } from '../state/chat-sessions.ts';
 import { showRunInChatSession } from './chat-sessions.ts';
 import { findUnrunnableChecks } from './check-preflight.ts';
 import { renderRunDigest } from './digest.ts';
-import { renderAttemptForParent } from './handoff.ts';
+import { renderAttemptForParent, renderCheckOutput } from './handoff.ts';
 import { OrchestratorLiveActivity } from './live-activity.ts';
 import { OrchestratorInfrastructureError, ParentLease } from './parent-lease.ts';
 import { findTestPathsOutsideScope, renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
@@ -64,7 +64,7 @@ import { buildChildInstruction, buildOrchestratorPrompt } from './prompts.ts';
 import { findReviewProblems } from './review.ts';
 import { describeSchedule, dispatchProblem, orchestratorWorkers, type PlanWorker } from './scheduler.ts';
 import { WorkerSubmission, type SubmissionHost } from './submission.ts';
-import { renderCheckOutput, runVerificationCheck, unexecutedCheck } from './verification.ts';
+import { runVerificationCheck, unexecutedCheck } from './verification.ts';
 import { startOrchestratorChild, toChildOutcome } from './workers.ts';
 import {
   captureWorkspace,
@@ -82,7 +82,7 @@ import {
 /** The parent's whole job is one conversation; planning alone can take dozens of turns. */
 const PARENT_MAX_TURNS = 600;
 /** How much of a command's output the orchestrator reads back. */
-const COMMAND_OUTPUT_TAIL_CHARS = 4_000;
+const COMMAND_OUTPUT_CHARS = 4_000;
 
 /** The one child between its start and its settled result. */
 type LiveChild = {
@@ -692,7 +692,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const [result] = await this.runOwnedChecks([check]);
     if (result === undefined) throw new Error('A check run returned no result.');
     const status = !result.executed ? 'not run' : result.timedOut ? 'timed out' : `exit ${result.exitCode ?? 'unknown'}`;
-    return { ok: orchestratorCheckFailure(result) === null, output: `${status}\n${renderCheckOutput(result, COMMAND_OUTPUT_TAIL_CHARS)}` };
+    return { ok: orchestratorCheckFailure(result) === null, output: `${status}\n${renderCheckOutput(result, COMMAND_OUTPUT_CHARS)}` };
   }
 
   private recordReview(args: OrchestratorRecordReviewArgs): OrchestratorToolOutcome {
@@ -774,7 +774,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     }
     return { kind: 'reject', message: [
       `Final verification failed (finish ${this.finishAttempts} of ${ORCHESTRATOR_MAX_FINISH_ATTEMPTS}):`,
-      ...failing.map((check) => `${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, COMMAND_OUTPUT_TAIL_CHARS)}`),
+      ...failing.map((check) => `${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, COMMAND_OUTPUT_CHARS)}`),
       'Dispatch fixes for the tasks responsible, then finish again.',
     ].join('\n') };
   }

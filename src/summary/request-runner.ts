@@ -34,7 +34,7 @@ import {
 import { getSummaryDecision, getPolicyDecision } from './decision.ts';
 import { SummaryProgressReporter } from './progress-reporter.ts';
 import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.ts';
-import { digestToolOutput, renderDigests } from '../output-digest/digest.ts';
+import { digestOutput } from '../output-digest/digest.ts';
 import { resolveSummaryProvider } from './types.ts';
 import type {
   SummaryProviderId,
@@ -135,7 +135,7 @@ export class SummaryRequestRunner {
   async run(): Promise<SummaryResult> {
     this.validateInput();
     this.logStart();
-    const deterministicResult = await this.tryDeterministicTestOutput();
+    const deterministicResult = await this.tryDigestSummary();
     if (deterministicResult) {
       return deterministicResult;
     }
@@ -158,19 +158,21 @@ export class SummaryRequestRunner {
     this.progress.start(this.inputText.length);
   }
 
-  private async tryDeterministicTestOutput(): Promise<SummaryResult | null> {
+  private async tryDigestSummary(): Promise<SummaryResult | null> {
     const sourceKindForFastPath = this.request.sourceKind || 'standalone';
     if (sourceKindForFastPath !== 'command-output' || !isPassFailQuestion(this.request.question)) {
       return null;
     }
-    const digests = digestToolOutput(this.inputText);
-    const digestText = renderDigests(digests);
-    if (digestText === null) {
+    const digest = digestOutput(this.inputText);
+    if (digest === null) {
       return null;
     }
-    // A non-zero exit fails the run even when every recognised tool passed.
+    // A non-zero exit fails the run even when every recognised tool passed; the verdict line says which.
     const exitCode = this.request.commandExitCode;
-    const verdict = digests.some((digest) => digest.failed) || (typeof exitCode === 'number' && exitCode !== 0) ? 'FAIL' : 'PASS';
+    const exitFailed = typeof exitCode === 'number' && exitCode !== 0;
+    const verdict = digest.failed || exitFailed ? 'FAIL' : 'PASS';
+    const reason = digest.failed ? 'a recognised tool failed'
+      : exitFailed ? `the command exited ${exitCode}, though every recognised tool passed` : 'every recognised tool passed';
 
     const model = this.request.config ? getConfiguredModel(this.request.config) : 'unknown';
     const result: SummaryResult = {
@@ -179,7 +181,7 @@ export class SummaryRequestRunner {
       PolicyDecision: 'deterministic-test-output',
       Provider: this.provider,
       Model: model,
-      Summary: `${verdict}: ${digestText}`,
+      Summary: `${verdict}: ${reason}\n${digest.text}`,
       Classification: verdict === 'PASS' ? 'summary' : 'command_failure',
       RawReviewRequired: verdict === 'FAIL',
       ModelCallSucceeded: true,

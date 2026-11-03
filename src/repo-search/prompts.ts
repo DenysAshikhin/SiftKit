@@ -4,6 +4,7 @@ import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema, ToolAc
 import { z } from '../lib/zod.ts';
 import { RUNTIME_DIR_NAME } from '../lib/paths.ts';
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
+import { DIGEST_TOOLS } from '../output-digest/types.ts';
 import {
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
@@ -249,7 +250,7 @@ const STRUCTURED_REPO_TOOL_GUIDANCE =
   '- Prefer the structured repository tools over `run` for repository discovery: use `grep` for content search, `find` for filenames, `ls` for directory structure, and `read` for anchored file content. Do not use `run` for these operations when the corresponding structured tool is available.';
 
 const RUN_SHELL_GUIDANCE =
-  `- Use \`run\` only for validation or operations that available structured tools cannot express. The structured \`grep\` tool remains available; only the Unix shell command \`grep\` is unavailable inside \`run\`. \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-String, Where-Object, Get-Content). Long output reaches you as its tail. Test and type-check output SiftKit recognises (node:test, vitest, jest, pytest, dotnet test, go test, cargo test, tsc, mypy, pyright, MSBuild, eslint) also starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message. Do not cut test output yourself with \`Select-Object -Last\` or \`Get-Content -Tail\`, and do not filter it with \`Select-String\`: the digest is built from the whole output, so run test commands unfiltered. Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
+  `- Use \`run\` only for validation or operations that available structured tools cannot express. The structured \`grep\` tool remains available; only the Unix shell command \`grep\` is unavailable inside \`run\`. \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-String, Where-Object, Get-Content). Long output reaches you as its tail. Test and type-check output SiftKit recognises (${DIGEST_TOOLS.join(', ')}) also starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message. Do not cut test output yourself with \`Select-Object -Last\` or \`Get-Content -Tail\`, and do not filter it with \`Select-String\`: the digest is built from the whole output, so run test commands unfiltered. Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
 
 function buildNativePlannerInstructions(toolNames: readonly string[]): string {
   if (toolNames.length === 0) {
@@ -374,7 +375,6 @@ export function buildAgentSystemPrompt(
     '- Be concise. Show file paths clearly when working with files.',
     RUN_SHELL_GUIDANCE,
     '- Prefer forward slashes for paths (`dashboard/node_modules`, `src/lib/foo.ts`), including inside `run` commands. If a native executable requires backslashes, JSON-escape each one as `\\\\`; an unescaped backslash in JSON can silently corrupt the argument.',
-    '- Long `run` output is truncated to its tail, so final summaries and errors survive.',
     `- Commands for test, build, lint, and typecheck keep their final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines, after the digest of their whole output, under \`outputMode: "auto"\`; always use "auto" for these. Do not add tail pipelines or temporary redirection.`,
     '- Reserve `outputMode: "full"` for raw log streams where the untrimmed text itself is required. On a test/build/lint/typecheck command the first "full" request is served as "auto" with a notice; if the raw output is still required, repeat the identical run with "full" immediately.',
     '- Prefer `edit` (exact replacement) over `write` for existing files; use `write` only for new files or full rewrites.',

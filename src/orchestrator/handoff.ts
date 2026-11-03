@@ -10,13 +10,13 @@ import {
 import { toError } from '../lib/errors.ts';
 import { JsonObjectSchema } from '../lib/json-types.ts';
 import { ModelJson } from '../lib/model-json.ts';
+import { cutDigest } from '../output-digest/digest.ts';
 import type { DiffstatEntry } from './workspace.ts';
-import { renderCheckOutput } from './verification.ts';
 
 /** A report this long would crowd the orchestrator's context; about 2.2k tokens. */
 export const HANDOFF_REPORT_MAX_CHARS = 9_000;
 /** How much of a failing check's output the orchestrator reads beside a report. */
-const CHECK_OUTPUT_TAIL_CHARS = 1_500;
+const CHECK_OUTPUT_CHARS = 1_500;
 /** How much of a final answer stands in for a report the child never made usable. */
 const FINAL_ANSWER_TAIL_CHARS = 2_000;
 
@@ -106,5 +106,12 @@ function renderCheck(check: CommandCheckResult): string {
   const failure = orchestratorCheckFailure(check);
   if (failure === null) return `- pass \`${check.check.command}\``;
   return `- FAIL \`${check.check.command}\` ${!check.executed ? 'never ran' : check.timedOut ? 'timed out' : `exited ${check.exitCode ?? 'unknown'}`}\n`
-    + renderCheckOutput(check, CHECK_OUTPUT_TAIL_CHARS);
+    + renderCheckOutput(check, CHECK_OUTPUT_CHARS);
+}
+
+/** A check's output for a model within `maxChars`: its digest in at most half, then the output's tail. */
+export function renderCheckOutput(result: OrchestratorCheckResult, maxChars: number): string {
+  if (result.digest === null) return result.output.slice(-maxChars);
+  const digest = cutDigest(result.digest, maxChars / 2);
+  return `${digest}\n${result.output.slice(Math.max(0, result.output.length - (maxChars - digest.length - 1)))}`;
 }

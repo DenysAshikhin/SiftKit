@@ -13,6 +13,13 @@
 
 **Tech Stack:** TypeScript (Node ≥ 26, `node:test`), Zod contracts in `packages/contracts`, SQLite runtime DB with explicit schema upgrades, React dashboard (vitest).
 
+> **Revised after implementation.** The code blocks below are as first executed; the spec is current. Changes since:
+> - Consumers call `digestOutput(text)` (`{ failed, text } | null`); `DIGEST_HEADING` is private; tool names come from `DIGEST_TOOLS`.
+> - `renderCheckOutput(result, maxChars)` lives in `handoff.ts` and stays within `maxChars`; the stored digest is cut to 20,000 characters.
+> - The budgeter's digest share is a third, not half; `outputMode: "full"` runs get no digest.
+> - The `runVerificationCheck` test is in `tests/process/orchestrator-check-digest.test.ts`, since it spawns PowerShell.
+> - The summary fast path is `tryDigestSummary`, and its summary starts with a verdict line naming the reason.
+
 **Rules for every task:**
 - TDD: a failing test, then the minimum code, then a passing test.
 - Do not commit.

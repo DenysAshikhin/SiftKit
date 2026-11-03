@@ -2,7 +2,7 @@ import { dedent, projectFrameLocation } from './lines.ts';
 import type { DigestCount, DigestFailure, ToolDigest } from './types.ts';
 
 const COUNT_LABELS = ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo'];
-const COUNT_LINE = /^ℹ (tests|pass|fail|cancelled|skipped|todo) (\d+)$/u;
+const COUNT_LINE = new RegExp(`^ℹ (${COUNT_LABELS.join('|')}) (\\d+)$`, 'u');
 const FAILING_HEADING = '✖ failing tests:';
 const DECLARED_AT = /^test at (.+)$/u;
 const RESULT_LINE = /^✖ (.+) \(\d+(?:\.\d+)?ms\)$/u;

@@ -5,7 +5,7 @@ import { TemporaryTimingRecorder } from '../src/lib/temporary-timing-recorder.ts
 import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.ts';
 import { FAILED_COMMAND_TAIL_CAP_TOKENS } from '../src/repo-search/engine/turn-budget.ts';
 import { estimateTokenCount } from '../src/lib/token-estimate.ts';
-import { digestToolOutput, renderDigests } from '../src/output-digest/digest.ts';
+import { digestOutput } from '../src/output-digest/digest.ts';
 import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
 
 function makeBudgeter(): ToolResultBudgeter {
@@ -131,7 +131,7 @@ test('a result that fits leads with its digest, then the whole output', async ()
 test('an oversized failed run is its whole digest, the truncation notice, then the tail, within the failed-command cap', async () => {
   const output = readDigestFixture('node-test/noisy-e2e-fail.txt');
   const resultText = `exit_code=1\n${output}`;
-  const digest = renderDigests(digestToolOutput(output));
+  const digest = digestOutput(output)?.text ?? null;
   assert.ok(digest !== null);
   const fitted = await makeBudgeter().fit({
     taskId: 't1', turn: 1, toolName: 'run', resultText, rawResultText: resultText, capacity: ROOMY,
@@ -156,4 +156,19 @@ test('a digest longer than half the failed-command cap is cut from its end, ahea
     + '✖ broken test number 0 — tests/x.test.ts:1:1\n'), fitted.resultText);
   assert.doesNotMatch(fitted.resultText, /broken test number 299 /u);
   assert.ok(fitted.resultText.endsWith('fail-line-399'));
+});
+
+test('a digest close to half the failed-command cap is cut so the output tail keeps at least a sixth of the cap', async () => {
+  const failures = Array.from({ length: 200 }, (unused, index) => `✖ broken test number ${index} — tests/x.test.ts:${index + 1}:1`);
+  const digestLines = ['Digest of the whole output:', 'node:test: FAILED (200 tests, 0 pass, 200 fail)'];
+  while (estimateTokenCount(undefined, digestLines.join('\n')) < FAILED_COMMAND_TAIL_CAP_TOKENS * 0.45) digestLines.push(failures[digestLines.length]);
+  const digest = digestLines.join('\n');
+  const resultText = Array.from({ length: 400 }, (unused, index) => `fail-line-${index}`).join('\n');
+  const fitted = await makeBudgeter().fit({
+    taskId: 't1', turn: 1, toolName: 'run', resultText, rawResultText: resultText, capacity: ROOMY,
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail', digest,
+  });
+  const tail = fitted.resultText.slice(fitted.resultText.indexOf('fail-line-'));
+  assert.ok(estimateTokenCount(undefined, tail) >= FAILED_COMMAND_TAIL_CAP_TOKENS / 6, tail);
+  assert.ok(fitted.resultText.startsWith('Digest of the whole output:\nnode:test: FAILED (200 tests, 0 pass, 200 fail)\n'));
 });
