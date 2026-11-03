@@ -64,7 +64,7 @@ import { buildChildInstruction, buildOrchestratorPrompt } from './prompts.ts';
 import { findReviewProblems } from './review.ts';
 import { describeSchedule, dispatchProblem, orchestratorWorkers, type PlanWorker } from './scheduler.ts';
 import { WorkerSubmission, type SubmissionHost } from './submission.ts';
-import { runVerificationCheck, unexecutedCheck } from './verification.ts';
+import { renderCheckOutput, runVerificationCheck, unexecutedCheck } from './verification.ts';
 import { startOrchestratorChild, toChildOutcome } from './workers.ts';
 import {
   captureWorkspace,
@@ -692,7 +692,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const [result] = await this.runOwnedChecks([check]);
     if (result === undefined) throw new Error('A check run returned no result.');
     const status = !result.executed ? 'not run' : result.timedOut ? 'timed out' : `exit ${result.exitCode ?? 'unknown'}`;
-    return { ok: orchestratorCheckFailure(result) === null, output: `${status}\n${result.output.slice(-COMMAND_OUTPUT_TAIL_CHARS)}` };
+    return { ok: orchestratorCheckFailure(result) === null, output: `${status}\n${renderCheckOutput(result, COMMAND_OUTPUT_TAIL_CHARS)}` };
   }
 
   private recordReview(args: OrchestratorRecordReviewArgs): OrchestratorToolOutcome {
@@ -774,7 +774,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     }
     return { kind: 'reject', message: [
       `Final verification failed (finish ${this.finishAttempts} of ${ORCHESTRATOR_MAX_FINISH_ATTEMPTS}):`,
-      ...failing.map((check) => `${orchestratorCheckFailure(check) ?? ''}\n${check.output.slice(-COMMAND_OUTPUT_TAIL_CHARS)}`),
+      ...failing.map((check) => `${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, COMMAND_OUTPUT_TAIL_CHARS)}`),
       'Dispatch fixes for the tasks responsible, then finish again.',
     ].join('\n') };
   }

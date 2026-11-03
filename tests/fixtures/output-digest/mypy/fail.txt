@@ -1,0 +1,4 @@
+pkg\a.py:4: error: Incompatible types in assignment (expression has type "int", variable has type "str")  [assignment]
+pkg\a.py:5: error: Argument 1 to "add" has incompatible type "str"; expected "int"  [arg-type]
+pkg\b.py:3: error: Module has no attribute "missing_name"  [attr-defined]
+Found 3 errors in 2 files (checked 4 source files)

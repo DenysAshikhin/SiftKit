@@ -1,0 +1,17 @@
+   Compiling mathlib v0.1.0 (C:\tmp\rsx\output-digest-capture\cargo)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.11s
+     Running unittests src\lib.rs (target\debug\deps\mathlib-183d0b6f865545ca.exe)
+
+running 3 tests
+test tests::slow ... ignored
+test tests::adds ... ok
+test tests::adds_negative ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mathlib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { findEvidenceProblem } from '../src/orchestrator/verification.ts';
+import { findEvidenceProblem, renderCheckOutput } from '../src/orchestrator/verification.ts';
 import { renderOrchestratorPlan } from '../src/orchestrator/plan.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
@@ -39,4 +39,11 @@ test('a rendered plan states every task scope, step, check, and acceptance crite
     '## Final verification']) {
     assert.ok(markdown.includes(expected), expected);
   }
+});
+
+test('a check renders as its digest, then its output tail; without a digest, as the tail alone', () => {
+  const result = { check: COMMAND, executed: true, exitCode: 1, timedOut: false, output: `${'x'.repeat(50)}END`,
+    digest: 'Digest of the whole output:\npytest: FAILED (1 failed)' };
+  assert.equal(renderCheckOutput(result, 10), 'Digest of the whole output:\npytest: FAILED (1 failed)\nxxxxxxxEND');
+  assert.equal(renderCheckOutput({ ...result, digest: null }, 10), 'xxxxxxxEND');
 });

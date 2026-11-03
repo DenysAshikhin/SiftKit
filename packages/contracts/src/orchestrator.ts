@@ -111,10 +111,11 @@ export function isOrchestratorOpenTaskStatus(status: OrchestratorTaskStatus): bo
 
 export const OrchestratorAttemptNumberSchema = z.number().int().min(1).max(ORCHESTRATOR_MAX_ATTEMPTS);
 
-/** One declared check and what actually happened when it ran; `executed` false means it never ran. */
+/** One declared check and what happened when it ran; `executed` false means it never ran, and `digest` digests its whole output. */
 export const OrchestratorCheckResultSchema = z.object({
   check: OrchestratorVerificationCheckSchema,
   executed: z.boolean(), exitCode: z.number().int().nullable(), timedOut: z.boolean(), output: z.string(),
+  digest: z.string().nullable(),
 }).strict();
 export type OrchestratorCheckResult = z.infer<typeof OrchestratorCheckResultSchema>;
 

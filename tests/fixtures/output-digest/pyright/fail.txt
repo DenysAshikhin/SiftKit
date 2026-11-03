@@ -1,0 +1,8 @@
+c:\tmp\rsx\output-digest-capture\pyc\pkg\a.py
+  c:\tmp\rsx\output-digest-capture\pyc\pkg\a.py:4:15 - error: Type "int" is not assignable to declared type "str"
+    "int" is not assignable to "str" (reportAssignmentType)
+  c:\tmp\rsx\output-digest-capture\pyc\pkg\a.py:5:5 - error: Argument of type "Literal['x']" cannot be assigned to parameter "a" of type "int" in function "add"
+    "Literal['x']" is not assignable to "int" (reportArgumentType)
+c:\tmp\rsx\output-digest-capture\pyc\pkg\b.py
+  c:\tmp\rsx\output-digest-capture\pyc\pkg\b.py:3:20 - error: "missing_name" is not a known attribute of module "pkg.a" (reportAttributeAccessIssue)
+3 errors, 0 warnings, 0 informations

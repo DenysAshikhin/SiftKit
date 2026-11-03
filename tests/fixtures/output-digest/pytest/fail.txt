@@ -1,0 +1,32 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\tmp\rsx\output-digest-capture\pytest\onlyfail
+plugins: anyio-4.15.1
+collected 3 items
+
+test_math.py .FF                                                         [100%]
+
+================================== FAILURES ===================================
+_____________________________ test_compares_lists _____________________________
+
+    def test_compares_lists():
+>       assert ['model-a', 'model-b', 'model-a'] == ['model-a', 'model-b']
+E       AssertionError: assert ['model-a', '...b', 'model-a'] == ['model-a', 'model-b']
+E         
+E         Left contains one more item: 'model-a'
+E         Use -v to get more diff
+
+test_math.py:4: AssertionError
+____________________________ TestSuite.test_throws ____________________________
+
+self = <test_math.TestSuite object at 0x0000015BC8900410>
+
+    def test_throws(self):
+>       raise TypeError("Cannot read properties of None (reading 'run_id')")
+E       TypeError: Cannot read properties of None (reading 'run_id')
+
+test_math.py:7: TypeError
+=========================== short test summary info ===========================
+FAILED test_math.py::test_compares_lists - AssertionError: assert ['model-a',...
+FAILED test_math.py::TestSuite::test_throws - TypeError: Cannot read properti...
+========================= 2 failed, 1 passed in 0.10s =========================

@@ -156,7 +156,7 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
       });
 
       assert.match(result.Summary, /^PASS:/u);
-      assert.match(result.Summary, /Test Suites: 1 passed, 1 total/u);
+      assert.match(result.Summary, /jest: passed \(7 tests, 7 passed\)/u);
       assert.equal(fs.existsSync(logPath), false);
       assert.equal(server.state.statusPosts.some((post) => post.running === true), false);
       let terminalPost: TerminalStatusPost | undefined;

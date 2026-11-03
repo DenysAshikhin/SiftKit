@@ -289,7 +289,15 @@ test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with
   assert.ok(RUN_SHELL_LABEL.includes(POWERSHELL_EXECUTABLE), 'label must be built from the executable name');
   assert.ok(prompt.includes(RUN_SHELL_LABEL), 'run tool line must use the executor-derived shell label');
   assert.match(prompt, /Select-Object|Get-Content|Select-String/u, 'must steer to PowerShell idioms');
-  assert.match(prompt, /tail/iu, 'must say long output is truncated to the tail');
+  assert.match(prompt, /Long output reaches you as its tail/u, 'must say long output is truncated to the tail');
+});
+
+test('buildAgentSystemPrompt says recognised test output leads with a digest, and never steers to trimming or filtering it', () => {
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
+  assert.doesNotMatch(prompt, /PowerShell syntax \([^)]*(?:-Last|-Tail)/u, 'trimming idioms are not offered as the syntax to use');
+  assert.match(prompt, /starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message/u);
+  assert.match(prompt, /Do not cut test output yourself with `Select-Object -Last` or `Get-Content -Tail`, and do not filter it with `Select-String`/u);
+  assert.doesNotMatch(prompt, /Select-String '\^\(✖\|ℹ\)'/u, 'the interim result-line filter is gone');
 });
 
 test('buildAgentSystemPrompt states the exact UTF-8 boundaries and newline split idiom', () => {

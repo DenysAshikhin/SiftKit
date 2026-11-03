@@ -8,6 +8,7 @@ import {
 
 import type { SubmissionGate, SubmissionVerdict } from '../repo-search/engine/submission-gate.ts';
 import { HANDOFF_REPORT_MAX_CHARS, parseHandoffReport, renderReportInstruction } from './handoff.ts';
+import { renderCheckOutput } from './verification.ts';
 import type { WorkspaceChanges } from './workspace.ts';
 
 /** Unusable reports a child may send back, per problem, before its attempt ends without a new one. */
@@ -77,7 +78,7 @@ export class WorkerSubmission implements SubmissionGate {
       `Your submission ${this.submissions} of ${ORCHESTRATOR_MAX_RESUBMITS + 1} failed its checks:`,
       ...findings.map((finding) => `- ${finding}`),
       ...checks.filter((check) => orchestratorCheckFailure(check) !== null)
-        .map((check) => `Output of ${orchestratorCheckFailure(check) ?? ''}\n${check.output.slice(-CHECK_OUTPUT_TAIL_CHARS)}`),
+        .map((check) => `Output of ${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, CHECK_OUTPUT_TAIL_CHARS)}`),
       'Fix the problems, then finish again with an updated report.',
     ].join('\n') };
   }

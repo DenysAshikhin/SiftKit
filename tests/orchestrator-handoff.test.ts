@@ -6,9 +6,10 @@ import type { OrchestratorAttemptResult, OrchestratorCheckResult } from '@siftki
 import { renderAttemptForParent } from '../src/orchestrator/handoff.ts';
 
 const passing: OrchestratorCheckResult = { check: { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 },
-  executed: true, exitCode: 0, timedOut: false, output: 'all good '.repeat(50) };
+  executed: true, exitCode: 0, timedOut: false, output: 'all good '.repeat(50), digest: null };
 const failing: OrchestratorCheckResult = { check: { kind: 'command', command: 'npm run lint', cwd: '.', expectedExitCode: 0 },
-  executed: true, exitCode: 1, timedOut: false, output: `${'noise '.repeat(400)}src/store.ts:4 unused import` };
+  executed: true, exitCode: 1, timedOut: false, output: `${'noise '.repeat(400)}src/store.ts:4 unused import`,
+  digest: 'Digest of the whole output:\neslint: FAILED (1 errors, 0 warnings)\n✖ unused import (no-unused-vars) — src/store.ts:4:1' };
 
 function result(overrides: Partial<OrchestratorAttemptResult> = {}): OrchestratorAttemptResult {
   return {
@@ -36,7 +37,7 @@ test('an attempt renders as the child status and deviations, the measured diffst
   assert.match(text, /Deviations:\n- Kept the old export\. Why: The CLI still imports it\.\n- Left the CLI wiring\. Why: It belongs to the cli task\./u);
   assert.match(text, /Changes \(measured since the attempt began\):\n- src\/store\.ts \+12 -3\n- tests\/store\.test\.ts \+40 -0 \(new\)/u);
   assert.match(text, /Checks \(the gate's last run\):\n- pass `npm test`/u);
-  assert.match(text, /- FAIL `npm run lint` exited 1[^\n]*\n[^]*src\/store\.ts:4 unused import/u);
+  assert.match(text, /- FAIL `npm run lint` exited 1\nDigest of the whole output:\neslint: FAILED \(1 errors, 0 warnings\)\n✖ unused import \(no-unused-vars\) — src\/store\.ts:4:1\n[^]*src\/store\.ts:4 unused import/u);
   assert.doesNotMatch(text, /all good/u, 'passing output is not shown');
   assert.doesNotMatch(text, /"status":/u);
   assert.ok(text.length < 2_500, `rendered ${text.length} characters`);
@@ -49,7 +50,7 @@ test('a completed attempt without deviations says so in one line', () => {
 
 test('an attempt names empty changes and lists only command checks', () => {
   const evidence: OrchestratorCheckResult = { check: { kind: 'evidence', instruction: 'Read the diff.', paths: ['src/store.ts'] },
-    executed: false, exitCode: null, timedOut: false, output: '' };
+    executed: false, exitCode: null, timedOut: false, output: '', digest: null };
   const text = renderAttemptForParent(result({ checks: [passing, evidence] }), []);
   assert.match(text, /Changes: none\.\n/u);
   assert.match(text, /Checks \(the gate's last run\):\n- pass `npm test`$/u);

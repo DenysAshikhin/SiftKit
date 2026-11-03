@@ -1,0 +1,7 @@
+
+C:\tmp\rsx\output-digest-capture\eslint\src\b.js
+  1:5  warning  'total' is never reassigned. Use 'const' instead  prefer-const
+
+✖ 1 problem (0 errors, 1 warning)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

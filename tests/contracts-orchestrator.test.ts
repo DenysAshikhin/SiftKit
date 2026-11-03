@@ -137,12 +137,12 @@ test('a decide request is a repo-agent decision addressed to one run approval', 
 test('a check failure explains a failing command and never flags an evidence check', () => {
   const command = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
   const evidence: OrchestratorVerificationCheck = { kind: 'evidence', instruction: 'Confirm it.', paths: ['README.md'] };
-  const result = { executed: true, exitCode: 0, timedOut: false, output: '' };
+  const result = { executed: true, exitCode: 0, timedOut: false, output: '', digest: null };
   assert.equal(orchestratorCheckFailure({ ...result, check: command }), null);
   assert.equal(orchestratorCheckFailure({ ...result, check: command, exitCode: 1 }), 'Check `npm test` exited 1; expected 0.');
   assert.equal(orchestratorCheckFailure({ ...result, check: command, executed: false, exitCode: null }), 'Check `npm test` never ran.');
   assert.equal(orchestratorCheckFailure({ ...result, check: command, timedOut: true, exitCode: 124 }), 'Check `npm test` timed out.');
-  assert.equal(orchestratorCheckFailure({ check: evidence, executed: false, exitCode: null, timedOut: false, output: '' }), null);
+  assert.equal(orchestratorCheckFailure({ check: evidence, executed: false, exitCode: null, timedOut: false, output: '', digest: null }), null);
 });
 
 test('a stored failure carries one of the known failure codes', () => {

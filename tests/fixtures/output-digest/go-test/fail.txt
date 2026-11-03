@@ -1,0 +1,9 @@
+--- FAIL: TestAdd (0.00s)
+    calc_test.go:7: Add(2, 2) = 4, want 4
+--- FAIL: TestTable (0.00s)
+    --- FAIL: TestTable/neg (0.00s)
+        calc_test.go:15: got -2, want -3
+FAIL
+FAIL	example.com/gomod/calc	0.575s
+ok  	example.com/gomod/other	(cached)
+FAIL

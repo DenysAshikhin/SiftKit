@@ -1,0 +1,996 @@
+﻿{"ok":true,"port":23083,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-happy-plUZpZ\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-happy-plUZpZ\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:09  st --------  incoming  task=orchestrator arrival_position=1
+17:53:09  st 1b9ca6f6  lock_acquired  task=orchestrator wait_ms=18
+17:53:09  rs 58fdfeba  start  task=repo-search  prompt_chars=4919
+17:53:09  rs 58fdfeba  inventory  models=1  elapsed=0s
+17:53:09  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:09  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:09  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:09  st 58fdfeba  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:10  st --------  incoming  task=repo_agent arrival_position=2
+17:53:10  st 1b9ca6f6  lock_released  task=orchestrator held_ms=543 queue_remaining=1
+17:53:10  st da45fa53  lock_acquired  task=repo_agent wait_ms=22
+17:53:10  rs 8ed035d5  start  task=repo-search  prompt_chars=1230
+17:53:10  rs 8ed035d5  inventory  models=1  elapsed=0s
+17:53:10  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:10  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:10  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:10  rs 8ed035d5  auto-approval  t1  approve: write — Inside the task scope.
+17:53:10  rs 8ed035d5  command  t1/100  prompt=2,859tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:10  st da45fa53  lock_released  task=repo_agent held_ms=9 queue_remaining=0
+17:53:10  st 8ed035d5  start  task=repo-search raw_chars=1,230 prompt=1,230 chunk repo-search
+17:53:10  st --------  incoming  task=repo_agent arrival_position=1
+17:53:10  st 998b8eb0  lock_acquired  task=repo_agent wait_ms=13
+17:53:10  st 8ed035d5  complete_done  state=completed duration_ms=2
+17:53:10  rs 8ed035d5  completed  elapsed=0s  verdict=pass
+17:53:10  st 998b8eb0  lock_released  task=repo_agent held_ms=119 queue_remaining=0
+17:53:10  st 8ed035d5  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:10  st 8ed035d5  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:10  st 8ed035d5  terminal_metadata_process_done  state=completed duration_ms=12
+17:53:10  st --------  incoming  task=orchestrator arrival_position=1
+17:53:10  st fa831516  lock_acquired  task=orchestrator wait_ms=22
+17:53:10  st fa831516  lock_released  task=orchestrator held_ms=9 queue_remaining=0
+17:53:11  st --------  incoming  task=orchestrator arrival_position=1
+17:53:11  st 339aba81  lock_acquired  task=orchestrator wait_ms=9
+17:53:11  st 58fdfeba  complete_done  state=completed duration_ms=2
+17:53:11  rs 58fdfeba  completed  elapsed=1s  verdict=pass
+17:53:11  st 339aba81  lock_released  task=orchestrator held_ms=16 queue_remaining=0
+✖ one conversation plans, dispatches a writer, reviews it, and finishes; the parent releases its model while the child works (1935.8269ms)
+{"ok":true,"port":23097,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-resubmit-A92Xcy\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-resubmit-A92Xcy\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:11  st --------  incoming  task=orchestrator arrival_position=1
+17:53:11  st eaab0976  lock_acquired  task=orchestrator wait_ms=12
+17:53:11  rs b186057f  start  task=repo-search  prompt_chars=4919
+17:53:11  rs b186057f  inventory  models=1  elapsed=0s
+17:53:11  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:11  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:11  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:11  st b186057f  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:12  st --------  incoming  task=repo_agent arrival_position=2
+17:53:12  st eaab0976  lock_released  task=orchestrator held_ms=464 queue_remaining=1
+17:53:12  st f08fa520  lock_acquired  task=repo_agent wait_ms=26
+17:53:12  rs 8f7470c1  start  task=repo-search  prompt_chars=1205
+17:53:12  rs 8f7470c1  inventory  models=1  elapsed=0s
+17:53:12  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:12  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:12  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:12  rs 8f7470c1  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  read path="src/app.ts" offset=1
+17:53:12  st f08fa520  lock_released  task=repo_agent held_ms=10 queue_remaining=0
+17:53:12  st 8f7470c1  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:12  st --------  incoming  task=repo_agent arrival_position=1
+17:53:12  st 9109091c  lock_acquired  task=repo_agent wait_ms=9
+17:53:12  rs 8f7470c1  auto-approval  t3  approve: write — Inside the task scope.
+17:53:12  rs 8f7470c1  command  t3/100  prompt=3,020tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:12  st 9109091c  lock_released  task=repo_agent held_ms=57 queue_remaining=0
+17:53:12  st --------  incoming  task=repo_agent arrival_position=1
+17:53:12  st 8cce83f3  lock_acquired  task=repo_agent wait_ms=12
+17:53:12  st 8f7470c1  complete_done  state=completed duration_ms=3
+17:53:12  rs 8f7470c1  completed  elapsed=1s  verdict=pass
+17:53:12  st 8cce83f3  lock_released  task=repo_agent held_ms=113 queue_remaining=0
+17:53:12  st 8f7470c1  done  task=repo-search total_elapsed=0s output_tokens=32 thinking_tokens=0 tool_tokens=33
+17:53:12  st 8f7470c1  tool_stats  task=repo-search tool=read calls=1 output_chars=46 output_tokens=19 output_tokens_estimated=1
+17:53:12  st 8f7470c1  tool_stats  task=repo-search tool=loop calls=0 output_chars=0 output_tokens=0 output_tokens_estimated=0
+17:53:12  st 8f7470c1  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:12  st 8f7470c1  terminal_metadata_process_done  state=completed duration_ms=18
+17:53:13  st --------  incoming  task=orchestrator arrival_position=1
+17:53:13  st 7b83acda  lock_acquired  task=orchestrator wait_ms=32
+17:53:13  st 7b83acda  lock_released  task=orchestrator held_ms=10 queue_remaining=0
+17:53:13  st --------  incoming  task=orchestrator arrival_position=1
+17:53:13  st 2141f88c  lock_acquired  task=orchestrator wait_ms=8
+17:53:13  st b186057f  complete_done  state=completed duration_ms=3
+17:53:13  rs b186057f  completed  elapsed=2s  verdict=pass
+17:53:13  st 2141f88c  lock_released  task=orchestrator held_ms=21 queue_remaining=0
+✔ failing checks go back to the same child, which fixes them and resubmits inside its one session (2135.6075ms)
+{"ok":true,"port":23112,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-out-of-scope-test-dym9s0\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-out-of-scope-test-dym9s0\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:13  st --------  incoming  task=orchestrator arrival_position=1
+17:53:13  st c71abd49  lock_acquired  task=orchestrator wait_ms=8
+17:53:13  rs 11bce840  start  task=repo-search  prompt_chars=4919
+17:53:13  rs 11bce840  inventory  models=1  elapsed=0s
+17:53:13  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:13  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:13  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:13  st 11bce840  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:14  st --------  incoming  task=repo_agent arrival_position=2
+17:53:14  st c71abd49  lock_released  task=orchestrator held_ms=466 queue_remaining=1
+17:53:14  st 25fe1da0  lock_acquired  task=repo_agent wait_ms=23
+17:53:14  rs 05833abc  start  task=repo-search  prompt_chars=1205
+17:53:14  rs 05833abc  inventory  models=1  elapsed=0s
+17:53:14  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:14  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:14  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:14  rs 05833abc  auto-approval  t1  approve: write — Inside the task scope.
+17:53:14  rs 05833abc  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:14  rs 05833abc  auto-approval  t2  approve: write — Inside the task scope.
+17:53:14  rs 05833abc  command  t2/100  prompt=2,928tok  thinking-total=0  elapsed=0s  write path="tests/audit.test.ts" bytes=16 sha="3f9934bc4a"
+17:53:14  rs 05833abc  auto-approval  t3  approve: write — Inside the task scope.
+17:53:14  rs 05833abc  command  t3/100  prompt=3,001tok  thinking-total=0  elapsed=0s  write path="src/other.ts" bytes=24 sha="c766c61106"
+17:53:14  st 25fe1da0  lock_released  task=repo_agent held_ms=16 queue_remaining=0
+17:53:14  st 05833abc  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:14  st --------  incoming  task=repo_agent arrival_position=1
+17:53:14  st 3005d350  lock_acquired  task=repo_agent wait_ms=11
+17:53:14  st 05833abc  complete_done  state=completed duration_ms=2
+17:53:14  rs 05833abc  completed  elapsed=1s  verdict=pass
+17:53:14  st 3005d350  lock_released  task=repo_agent held_ms=209 queue_remaining=0
+17:53:14  st 05833abc  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=43
+17:53:14  st 05833abc  tool_stats  task=repo-search tool=write calls=3 output_chars=103 output_tokens=43 output_tokens_estimated=3
+17:53:14  st 05833abc  terminal_metadata_process_done  state=completed duration_ms=9
+17:53:15  st --------  incoming  task=orchestrator arrival_position=1
+17:53:15  st e25f51c4  lock_acquired  task=orchestrator wait_ms=13
+17:53:15  st 11bce840  complete_done  state=completed duration_ms=2
+17:53:15  rs 11bce840  completed  elapsed=2s  verdict=pass
+17:53:15  st e25f51c4  lock_released  task=orchestrator held_ms=17 queue_remaining=0
+✔ a writer that edits a test outside its writePaths reaches the orchestrator as a host finding naming that test (2079.9023ms)
+{"ok":true,"port":23127,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-invalid-four-hlLaUX\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-invalid-four-hlLaUX\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:15  st --------  incoming  task=orchestrator arrival_position=1
+17:53:15  st 7eab7193  lock_acquired  task=orchestrator wait_ms=13
+17:53:15  rs cea4fa75  start  task=repo-search  prompt_chars=4919
+17:53:15  rs cea4fa75  inventory  models=1  elapsed=0s
+17:53:15  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:15  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:15  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:15  st cea4fa75  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:16  st cea4fa75  complete_done  state=completed duration_ms=1
+17:53:16  rs cea4fa75  completed  elapsed=0s  verdict=pass
+17:53:16  st 7eab7193  lock_released  task=orchestrator held_ms=395 queue_remaining=0
+✔ the orchestrator conversation survives four invalid responses in a row and goes on (841.6745ms)
+{"ok":true,"port":23138,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-invalid-five-KAa04B\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-invalid-five-KAa04B\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:16  st --------  incoming  task=orchestrator arrival_position=1
+17:53:16  st edbf3866  lock_acquired  task=orchestrator wait_ms=7
+17:53:16  rs 7c0dcfc4  start  task=repo-search  prompt_chars=4919
+17:53:16  rs 7c0dcfc4  inventory  models=1  elapsed=0s
+17:53:16  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:16  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:16  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:16  st 7c0dcfc4  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:16  st 7c0dcfc4  complete_done  state=failed duration_ms=1
+17:53:16  rs 7c0dcfc4  failed  elapsed=0s  error="Terminal synthesis produced no usable output after 3 attempts (reason=invalid_response_limit, last=mock_exhausted)."
+17:53:16  st edbf3866  lock_released  task=orchestrator held_ms=24 queue_remaining=0
+✔ a fifth invalid response in a row ends the orchestrator conversation (525.4194ms)
+{"ok":true,"port":23150,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-retry-Vyl6xG\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-retry-Vyl6xG\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:17  st --------  incoming  task=orchestrator arrival_position=1
+17:53:17  st cfa188cd  lock_acquired  task=orchestrator wait_ms=13
+17:53:17  rs 9b3e828f  start  task=repo-search  prompt_chars=4919
+17:53:17  rs 9b3e828f  inventory  models=1  elapsed=0s
+17:53:17  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:17  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:17  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:17  st 9b3e828f  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:17  st --------  incoming  task=repo_agent arrival_position=2
+17:53:17  st cfa188cd  lock_released  task=orchestrator held_ms=492 queue_remaining=1
+17:53:17  st dc73d1b9  lock_acquired  task=repo_agent wait_ms=36
+17:53:17  rs c2c93664  start  task=repo-search  prompt_chars=1205
+17:53:17  rs c2c93664  inventory  models=1  elapsed=0s
+17:53:17  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:17  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:17  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:17  rs c2c93664  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  read path="src/app.ts" offset=1
+17:53:17  st dc73d1b9  lock_released  task=repo_agent held_ms=15 queue_remaining=0
+17:53:17  st c2c93664  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:18  st --------  incoming  task=repo_agent arrival_position=1
+17:53:18  st 4778d9ac  lock_acquired  task=repo_agent wait_ms=11
+17:53:18  st 4778d9ac  lock_released  task=repo_agent held_ms=59 queue_remaining=0
+17:53:18  st --------  incoming  task=repo_agent arrival_position=1
+17:53:18  st 0e05256e  lock_acquired  task=repo_agent wait_ms=11
+17:53:18  st 0e05256e  lock_released  task=repo_agent held_ms=50 queue_remaining=0
+17:53:18  st --------  incoming  task=repo_agent arrival_position=1
+17:53:18  st 80668580  lock_acquired  task=repo_agent wait_ms=13
+17:53:18  st c2c93664  complete_done  state=completed duration_ms=2
+17:53:18  rs c2c93664  completed  elapsed=1s  verdict=pass
+17:53:18  st 80668580  lock_released  task=repo_agent held_ms=61 queue_remaining=0
+17:53:18  st c2c93664  done  task=repo-search total_elapsed=0s output_tokens=48 thinking_tokens=0 tool_tokens=19
+17:53:18  st c2c93664  tool_stats  task=repo-search tool=read calls=1 output_chars=46 output_tokens=19 output_tokens_estimated=1
+17:53:18  st c2c93664  tool_stats  task=repo-search tool=loop calls=0 output_chars=0 output_tokens=0 output_tokens_estimated=0
+17:53:18  st c2c93664  terminal_metadata_process_done  state=completed duration_ms=7
+17:53:18  st --------  incoming  task=orchestrator arrival_position=1
+17:53:18  st 59802cc5  lock_acquired  task=orchestrator wait_ms=18
+17:53:18  st --------  incoming  task=repo_agent arrival_position=2
+17:53:18  st 59802cc5  lock_released  task=orchestrator held_ms=84 queue_remaining=1
+17:53:18  st a8d7593c  lock_acquired  task=repo_agent wait_ms=31
+17:53:18  rs 2748d6f3  start  task=repo-search  prompt_chars=1252
+17:53:18  rs 2748d6f3  inventory  models=1  elapsed=0s
+17:53:18  rs 2748d6f3  auto-approval  t1  approve: write — Inside the task scope.
+17:53:18  rs 2748d6f3  command  t1/100  prompt=2,864tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:18  st a8d7593c  lock_released  task=repo_agent held_ms=12 queue_remaining=0
+17:53:18  st 2748d6f3  start  task=repo-search raw_chars=1,252 prompt=1,252 chunk repo-search
+17:53:19  st --------  incoming  task=repo_agent arrival_position=1
+17:53:19  st 1290cb29  lock_acquired  task=repo_agent wait_ms=12
+17:53:19  st 2748d6f3  complete_done  state=completed duration_ms=5
+17:53:19  rs 2748d6f3  completed  elapsed=0s  verdict=pass
+17:53:19  st 1290cb29  lock_released  task=repo_agent held_ms=104 queue_remaining=0
+17:53:19  st 2748d6f3  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:19  st 2748d6f3  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:19  st 2748d6f3  terminal_metadata_process_done  state=completed duration_ms=7
+17:53:19  st --------  incoming  task=orchestrator arrival_position=1
+17:53:19  st 0ce749df  lock_acquired  task=orchestrator wait_ms=22
+17:53:19  st 0ce749df  lock_released  task=orchestrator held_ms=10 queue_remaining=0
+17:53:19  st --------  incoming  task=orchestrator arrival_position=1
+17:53:19  st 48860ef5  lock_acquired  task=orchestrator wait_ms=13
+17:53:19  st 9b3e828f  complete_done  state=completed duration_ms=2
+17:53:19  rs 9b3e828f  completed  elapsed=2s  verdict=pass
+17:53:19  st 48860ef5  lock_released  task=orchestrator held_ms=18 queue_remaining=0
+✔ a child out of resubmits reports its failing checks, and the orchestrator dispatches a fresh second attempt (2929.3197ms)
+{"ok":true,"port":4433,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-refusals-adNkMX\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-refusals-adNkMX\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:20  st --------  incoming  task=orchestrator arrival_position=1
+17:53:20  st 7fad55a2  lock_acquired  task=orchestrator wait_ms=7
+17:53:20  rs 74b31f8a  start  task=repo-search  prompt_chars=4919
+17:53:20  rs 74b31f8a  inventory  models=1  elapsed=0s
+17:53:20  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:20  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:20  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:20  st 74b31f8a  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:21  st 74b31f8a  complete_done  state=completed duration_ms=2
+17:53:21  rs 74b31f8a  completed  elapsed=2s  verdict=pass
+17:53:21  st 7fad55a2  lock_released  task=orchestrator held_ms=1592 queue_remaining=0
+✔ code refuses an invalid plan or dispatch in the tool result, and the conversation goes on until it finishes blocked (2070.7606ms)
+{"ok":true,"port":4445,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-update-tasks-5ggSg8\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-update-tasks-5ggSg8\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:22  st --------  incoming  task=orchestrator arrival_position=1
+17:53:22  st 282b9eac  lock_acquired  task=orchestrator wait_ms=10
+17:53:22  rs 3bdcc42c  start  task=repo-search  prompt_chars=4919
+17:53:22  rs 3bdcc42c  inventory  models=1  elapsed=0s
+17:53:22  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:22  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:22  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:22  st 3bdcc42c  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:23  st --------  incoming  task=repo_agent arrival_position=2
+17:53:23  st 282b9eac  lock_released  task=orchestrator held_ms=838 queue_remaining=1
+17:53:23  st f1eeeccc  lock_acquired  task=repo_agent wait_ms=27
+17:53:23  rs 7857f2e9  start  task=repo-search  prompt_chars=1143
+17:53:23  rs 7857f2e9  inventory  models=1  elapsed=0s
+17:53:23  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:23  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:23  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:23  rs 7857f2e9  auto-approval  t1  approve: write — Inside the task scope.
+17:53:23  rs 7857f2e9  command  t1/100  prompt=2,837tok  thinking-total=0  elapsed=0s  write path="src/farewell.ts" bytes=31 sha="852106ca9e"
+17:53:23  st f1eeeccc  lock_released  task=repo_agent held_ms=7 queue_remaining=0
+17:53:23  st 7857f2e9  start  task=repo-search raw_chars=1,143 prompt=1,143 chunk repo-search
+17:53:23  st --------  incoming  task=repo_agent arrival_position=1
+17:53:23  st 2fd24efc  lock_acquired  task=repo_agent wait_ms=13
+17:53:23  st 7857f2e9  complete_done  state=completed duration_ms=2
+17:53:23  rs 7857f2e9  completed  elapsed=0s  verdict=pass
+17:53:23  st 2fd24efc  lock_released  task=repo_agent held_ms=116 queue_remaining=0
+17:53:23  st 7857f2e9  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:23  st 7857f2e9  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:23  st 7857f2e9  terminal_metadata_process_done  state=completed duration_ms=9
+17:53:23  st --------  incoming  task=orchestrator arrival_position=1
+17:53:23  st 4ce3d538  lock_acquired  task=orchestrator wait_ms=27
+17:53:23  st 3bdcc42c  complete_done  state=completed duration_ms=2
+17:53:23  rs 3bdcc42c  completed  elapsed=1s  verdict=pass
+17:53:23  st 4ce3d538  lock_released  task=orchestrator held_ms=19 queue_remaining=0
+✔ update_tasks revises the saved plan and its Markdown, and save_plan only makes the first plan (1897.2671ms)
+{"ok":true,"port":4459,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-update-wrapped-xyuK8h\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-update-wrapped-xyuK8h\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:24  st --------  incoming  task=orchestrator arrival_position=1
+17:53:24  st 4eecfc39  lock_acquired  task=orchestrator wait_ms=16
+17:53:24  rs 11fdd4c7  start  task=repo-search  prompt_chars=4919
+17:53:24  rs 11fdd4c7  inventory  models=1  elapsed=0s
+17:53:24  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:24  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:24  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:24  st 11fdd4c7  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:24  st 11fdd4c7  complete_done  state=completed duration_ms=2
+17:53:24  rs 11fdd4c7  completed  elapsed=1s  verdict=pass
+17:53:24  st 4eecfc39  lock_released  task=orchestrator held_ms=761 queue_remaining=0
+✔ update_tasks sent whole as a string inside its update argument, as a live run did, revises the plan (1223.5854ms)
+{"ok":true,"port":4470,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-check-lease-GqjMkq\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-check-lease-GqjMkq\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:25  st --------  incoming  task=orchestrator arrival_position=1
+17:53:25  st d7d85e85  lock_acquired  task=orchestrator wait_ms=8
+17:53:25  rs 13196a8c  start  task=repo-search  prompt_chars=4919
+17:53:25  rs 13196a8c  inventory  models=1  elapsed=0s
+17:53:25  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:25  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:25  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:25  st 13196a8c  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:25  st --------  incoming  task=repo_agent arrival_position=2
+17:53:25  st d7d85e85  lock_released  task=orchestrator held_ms=343 queue_remaining=1
+17:53:25  st 23ff5a18  lock_acquired  task=repo_agent wait_ms=16
+17:53:25  rs 9d2225ea  start  task=repo-search  prompt_chars=1547
+17:53:25  rs 9d2225ea  inventory  models=1  elapsed=0s
+17:53:25  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:25  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:25  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:25  rs 9d2225ea  auto-approval  t1  approve: write — Inside the task scope.
+17:53:25  rs 9d2225ea  command  t1/100  prompt=2,938tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:25  st 23ff5a18  lock_released  task=repo_agent held_ms=6 queue_remaining=0
+17:53:25  st 9d2225ea  start  task=repo-search raw_chars=1,547 prompt=1,547 chunk repo-search
+17:53:26  st --------  incoming  task=repo_agent arrival_position=1
+17:53:26  st 58b94e3e  lock_acquired  task=repo_agent wait_ms=13
+17:53:26  st 9d2225ea  complete_done  state=completed duration_ms=2
+17:53:26  rs 9d2225ea  completed  elapsed=1s  verdict=pass
+17:53:26  st 58b94e3e  lock_released  task=repo_agent held_ms=123 queue_remaining=0
+17:53:26  st 9d2225ea  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:26  st 9d2225ea  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:26  st 9d2225ea  terminal_metadata_process_done  state=completed duration_ms=11
+17:53:26  st --------  incoming  task=orchestrator arrival_position=1
+17:53:26  st 09a19def  lock_acquired  task=orchestrator wait_ms=19
+17:53:26  st 09a19def  lock_released  task=orchestrator held_ms=13 queue_remaining=0
+17:53:26  st --------  incoming  task=orchestrator arrival_position=1
+17:53:26  st 4b2ad993  lock_acquired  task=orchestrator wait_ms=9
+17:53:27  st 13196a8c  complete_done  state=completed duration_ms=2
+17:53:27  rs 13196a8c  completed  elapsed=2s  verdict=pass
+17:53:27  st 4b2ad993  lock_released  task=orchestrator held_ms=17 queue_remaining=0
+✔ a child releases its model while its submission checks run, and the checks carry no nested-run marker (2104.2858ms)
+{"ok":true,"port":4486,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-supplied-a70yUk\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-supplied-a70yUk\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:27  st --------  incoming  task=orchestrator arrival_position=1
+17:53:27  st e0aabd7b  lock_acquired  task=orchestrator wait_ms=9
+17:53:27  rs d144be6a  start  task=repo-search  prompt_chars=5003
+17:53:27  rs d144be6a  inventory  models=1  elapsed=0s
+17:53:27  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:27  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:27  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:27  st d144be6a  start  task=repo-search raw_chars=5,003 prompt=5,003 chunk repo-search
+17:53:27  st --------  incoming  task=repo_agent arrival_position=2
+17:53:27  st e0aabd7b  lock_released  task=orchestrator held_ms=507 queue_remaining=1
+17:53:27  st f1d74f57  lock_acquired  task=repo_agent wait_ms=20
+17:53:27  rs 77138ac5  start  task=repo-search  prompt_chars=1297
+17:53:27  rs 77138ac5  inventory  models=1  elapsed=0s
+17:53:27  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:27  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:27  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:27  rs 77138ac5  auto-approval  t1  approve: write — Inside the task scope.
+17:53:27  rs 77138ac5  command  t1/100  prompt=2,879tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:27  st f1d74f57  lock_released  task=repo_agent held_ms=7 queue_remaining=0
+17:53:27  st 77138ac5  start  task=repo-search raw_chars=1,297 prompt=1,297 chunk repo-search
+17:53:28  st --------  incoming  task=repo_agent arrival_position=1
+17:53:28  st 325cbf81  lock_acquired  task=repo_agent wait_ms=10
+17:53:28  st 77138ac5  complete_done  state=completed duration_ms=1
+17:53:28  rs 77138ac5  completed  elapsed=0s  verdict=pass
+17:53:28  st 325cbf81  lock_released  task=repo_agent held_ms=103 queue_remaining=0
+17:53:28  st 77138ac5  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:28  st 77138ac5  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:28  st 77138ac5  terminal_metadata_process_done  state=completed duration_ms=14
+17:53:28  st --------  incoming  task=orchestrator arrival_position=1
+17:53:28  st bfb3c468  lock_acquired  task=orchestrator wait_ms=16
+17:53:28  st bfb3c468  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+17:53:28  st --------  incoming  task=orchestrator arrival_position=1
+17:53:28  st 9d41029a  lock_acquired  task=orchestrator wait_ms=8
+17:53:28  st d144be6a  complete_done  state=completed duration_ms=2
+17:53:28  rs d144be6a  completed  elapsed=1s  verdict=pass
+17:53:28  st 9d41029a  lock_released  task=orchestrator held_ms=17 queue_remaining=0
+17:53:28  st d144be6a  done  task=repo-search total_elapsed=1s output_tokens=25 thinking_tokens=0 tool_tokens=259
+17:53:28  st d144be6a  tool_stats  task=repo-search tool=save_plan calls=1 output_chars=159 output_tokens=64 output_tokens_estimated=1
+17:53:28  st d144be6a  tool_stats  task=repo-search tool=dispatch calls=1 output_chars=354 output_tokens=142 output_tokens_estimated=1
+17:53:28  st d144be6a  tool_stats  task=repo-search tool=record_review calls=1 output_chars=131 output_tokens=53 output_tokens_estimated=1
+17:53:28  st d144be6a  terminal_metadata_process_done  state=completed duration_ms=8
+✔ a supplied plan is quoted to the orchestrator, and a missing one fails before the conversation starts (1751.2768ms)
+{"ok":true,"port":4505,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-approval-off-UZdGxb\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-approval-off-UZdGxb\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:29  st --------  incoming  task=orchestrator arrival_position=1
+17:53:29  st b5a563a3  lock_acquired  task=orchestrator wait_ms=13
+17:53:29  rs 1ce3ab0e  start  task=repo-search  prompt_chars=4919
+17:53:29  rs 1ce3ab0e  inventory  models=1  elapsed=0s
+17:53:29  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:29  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:29  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:29  st 1ce3ab0e  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:29  st --------  incoming  task=repo_agent arrival_position=2
+17:53:29  st b5a563a3  lock_released  task=orchestrator held_ms=427 queue_remaining=1
+17:53:29  st 4c331085  lock_acquired  task=repo_agent wait_ms=26
+17:53:29  rs a106d5ce  start  task=repo-search  prompt_chars=1205
+17:53:29  rs a106d5ce  inventory  models=1  elapsed=0s
+17:53:29  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:29  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:29  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:29  rs a106d5ce  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:29  rs a106d5ce  approval_wait  approval=e4fe11b3 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:29  st 4c331085  lock_released  task=repo_agent held_ms=12 queue_remaining=0
+17:53:29  rs a106d5ce  approval_decision  approval=e4fe11b3 decision=approve waited_ms=3
+17:53:29  st --------  incoming  task=repo_agent arrival_position=1
+17:53:29  st 8f2a5558  lock_acquired  task=repo_agent wait_ms=11
+17:53:29  rs a106d5ce  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:29  st 8f2a5558  lock_released  task=repo_agent held_ms=5 queue_remaining=0
+17:53:29  st a106d5ce  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:29  st --------  incoming  task=repo_agent arrival_position=1
+17:53:29  st 62733ff7  lock_acquired  task=repo_agent wait_ms=11
+17:53:30  st a106d5ce  complete_done  state=completed duration_ms=2
+17:53:30  rs a106d5ce  completed  elapsed=0s  verdict=pass
+17:53:30  st 62733ff7  lock_released  task=repo_agent held_ms=129 queue_remaining=0
+17:53:30  st a106d5ce  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:30  st a106d5ce  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:30  st a106d5ce  terminal_metadata_process_done  state=completed duration_ms=10
+17:53:30  st --------  incoming  task=orchestrator arrival_position=1
+17:53:30  st edb15d9a  lock_acquired  task=orchestrator wait_ms=22
+17:53:30  st edb15d9a  lock_released  task=orchestrator held_ms=11 queue_remaining=0
+17:53:30  st --------  incoming  task=orchestrator arrival_position=1
+17:53:30  st f28e37e6  lock_acquired  task=orchestrator wait_ms=8
+17:53:30  st 1ce3ab0e  complete_done  state=completed duration_ms=2
+17:53:30  rs 1ce3ab0e  completed  elapsed=1s  verdict=pass
+17:53:30  st f28e37e6  lock_released  task=orchestrator held_ms=21 queue_remaining=0
+✔ with approval off a child escalation is approved without waking the orchestrator (1813.6687ms)
+{"ok":true,"port":4520,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-approval-auto-iyzjHN\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-approval-auto-iyzjHN\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:31  st --------  incoming  task=orchestrator arrival_position=1
+17:53:31  st 76c3d29f  lock_acquired  task=orchestrator wait_ms=11
+17:53:31  rs a034cd5c  start  task=repo-search  prompt_chars=5042
+17:53:31  rs a034cd5c  inventory  models=1  elapsed=0s
+17:53:31  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:31  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:31  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:31  st a034cd5c  start  task=repo-search raw_chars=5,042 prompt=5,042 chunk repo-search
+17:53:31  st --------  incoming  task=repo_agent arrival_position=2
+17:53:31  st 76c3d29f  lock_released  task=orchestrator held_ms=431 queue_remaining=1
+17:53:31  st a136f785  lock_acquired  task=repo_agent wait_ms=25
+17:53:31  rs 86b96453  start  task=repo-search  prompt_chars=1205
+17:53:31  rs 86b96453  inventory  models=1  elapsed=0s
+17:53:31  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:31  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:31  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:31  rs 86b96453  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:31  rs 86b96453  approval_wait  approval=8579d080 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:31  st a136f785  lock_released  task=repo_agent held_ms=9 queue_remaining=0
+17:53:31  st --------  incoming  task=orchestrator arrival_position=1
+17:53:31  st 86b96453  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:31  st c5829561  lock_acquired  task=orchestrator wait_ms=21
+17:53:31  st c5829561  lock_released  task=orchestrator held_ms=6 queue_remaining=0
+17:53:31  rs 86b96453  approval_decision  approval=8579d080 decision=approve waited_ms=29
+17:53:31  st --------  incoming  task=repo_agent arrival_position=1
+17:53:31  st 9e7d6716  lock_acquired  task=repo_agent wait_ms=12
+17:53:31  rs 86b96453  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:31  st 9e7d6716  lock_released  task=repo_agent held_ms=3 queue_remaining=0
+17:53:31  st --------  incoming  task=repo_agent arrival_position=1
+17:53:31  st 72495984  lock_acquired  task=repo_agent wait_ms=14
+17:53:31  st 86b96453  complete_done  state=completed duration_ms=2
+17:53:31  rs 86b96453  completed  elapsed=0s  verdict=pass
+17:53:31  st 72495984  lock_released  task=repo_agent held_ms=95 queue_remaining=0
+17:53:31  st 86b96453  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:31  st 86b96453  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:31  st 86b96453  terminal_metadata_process_done  state=completed duration_ms=8
+17:53:32  st --------  incoming  task=orchestrator arrival_position=1
+17:53:32  st e1acb935  lock_acquired  task=orchestrator wait_ms=21
+17:53:32  st e1acb935  lock_released  task=orchestrator held_ms=7 queue_remaining=0
+17:53:33  st --------  incoming  task=orchestrator arrival_position=1
+17:53:33  st 0728ee66  lock_acquired  task=orchestrator wait_ms=9
+17:53:33  st a034cd5c  complete_done  state=completed duration_ms=2
+17:53:33  rs a034cd5c  completed  elapsed=2s  verdict=pass
+17:53:33  st 0728ee66  lock_released  task=orchestrator held_ms=19 queue_remaining=0
+✔ with approval auto the orchestrator decides a child escalation in its own conversation and the same child continues (2510.2842ms)
+{"ok":true,"port":4535,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-one-child-cCMOxa\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-one-child-cCMOxa\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:33  st --------  incoming  task=orchestrator arrival_position=1
+17:53:33  st 1cbbed75  lock_acquired  task=orchestrator wait_ms=7
+17:53:33  rs 5f7deadc  start  task=repo-search  prompt_chars=5042
+17:53:33  rs 5f7deadc  inventory  models=1  elapsed=0s
+17:53:33  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:33  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:33  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:33  st 5f7deadc  start  task=repo-search raw_chars=5,042 prompt=5,042 chunk repo-search
+17:53:33  st --------  incoming  task=repo_agent arrival_position=2
+17:53:33  st 1cbbed75  lock_released  task=orchestrator held_ms=443 queue_remaining=1
+17:53:33  st 05d4e64a  lock_acquired  task=repo_agent wait_ms=22
+17:53:33  rs 01d8f94d  start  task=repo-search  prompt_chars=1205
+17:53:33  rs 01d8f94d  inventory  models=1  elapsed=0s
+17:53:33  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:33  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:33  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:33  rs 01d8f94d  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:33  rs 01d8f94d  approval_wait  approval=4e3f4c06 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:33  st 05d4e64a  lock_released  task=repo_agent held_ms=12 queue_remaining=0
+17:53:33  st --------  incoming  task=orchestrator arrival_position=1
+17:53:34  st 01d8f94d  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:34  st d466bbbd  lock_acquired  task=orchestrator wait_ms=19
+17:53:34  st d466bbbd  lock_released  task=orchestrator held_ms=6 queue_remaining=0
+17:53:34  rs 01d8f94d  approval_decision  approval=4e3f4c06 decision=approve waited_ms=29
+17:53:34  st --------  incoming  task=repo_agent arrival_position=1
+17:53:34  st f15694c3  lock_acquired  task=repo_agent wait_ms=20
+17:53:34  rs 01d8f94d  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:34  st f15694c3  lock_released  task=repo_agent held_ms=2 queue_remaining=0
+17:53:34  st --------  incoming  task=repo_agent arrival_position=1
+17:53:34  st 288959f5  lock_acquired  task=repo_agent wait_ms=20
+17:53:34  st 01d8f94d  complete_done  state=completed duration_ms=2
+17:53:34  rs 01d8f94d  completed  elapsed=0s  verdict=pass
+17:53:34  st 288959f5  lock_released  task=repo_agent held_ms=111 queue_remaining=0
+17:53:34  st 01d8f94d  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:34  st 01d8f94d  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:34  st 01d8f94d  terminal_metadata_process_done  state=completed duration_ms=7
+17:53:34  st --------  incoming  task=orchestrator arrival_position=1
+17:53:34  st 6bce1811  lock_acquired  task=orchestrator wait_ms=12
+17:53:34  st 6bce1811  lock_released  task=orchestrator held_ms=7 queue_remaining=0
+17:53:35  st --------  incoming  task=orchestrator arrival_position=1
+17:53:35  st 760d877a  lock_acquired  task=orchestrator wait_ms=8
+17:53:35  st 5f7deadc  complete_done  state=completed duration_ms=3
+17:53:35  rs 5f7deadc  completed  elapsed=2s  verdict=pass
+17:53:35  st 760d877a  lock_released  task=orchestrator held_ms=17 queue_remaining=0
+✖ while a child awaits a decision, code refuses a check, a second dispatch, and a plan change, and decide resumes it (1944.1301ms)
+{"ok":true,"port":4549,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-approval-escalate-vFf4Ih\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-approval-escalate-vFf4Ih\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:35  st --------  incoming  task=orchestrator arrival_position=1
+17:53:35  st 95924c6a  lock_acquired  task=orchestrator wait_ms=8
+17:53:35  rs 7fa62537  start  task=repo-search  prompt_chars=5042
+17:53:35  rs 7fa62537  inventory  models=1  elapsed=0s
+17:53:35  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:35  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:35  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:35  st 7fa62537  start  task=repo-search raw_chars=5,042 prompt=5,042 chunk repo-search
+17:53:35  st --------  incoming  task=repo_agent arrival_position=2
+17:53:35  st 95924c6a  lock_released  task=orchestrator held_ms=474 queue_remaining=1
+17:53:35  st 7b2167fb  lock_acquired  task=repo_agent wait_ms=31
+17:53:35  rs 35aacf8b  start  task=repo-search  prompt_chars=1205
+17:53:35  rs 35aacf8b  inventory  models=1  elapsed=0s
+17:53:35  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:35  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:35  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:35  rs 35aacf8b  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:35  rs 35aacf8b  approval_wait  approval=99f1a93b tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:35  st 7b2167fb  lock_released  task=repo_agent held_ms=8 queue_remaining=0
+17:53:35  st --------  incoming  task=orchestrator arrival_position=1
+17:53:35  st 35aacf8b  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:35  st d299d64b  lock_acquired  task=orchestrator wait_ms=25
+17:53:36  st d299d64b  lock_released  task=orchestrator held_ms=4 queue_remaining=0
+17:53:36  rs 35aacf8b  approval_decision  approval=99f1a93b decision=approve waited_ms=94
+17:53:36  st --------  incoming  task=repo_agent arrival_position=1
+17:53:36  st 4d54bf76  lock_acquired  task=repo_agent wait_ms=15
+17:53:36  rs 35aacf8b  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:36  st 4d54bf76  lock_released  task=repo_agent held_ms=6 queue_remaining=0
+17:53:36  st --------  incoming  task=repo_agent arrival_position=1
+17:53:36  st 2e115b8a  lock_acquired  task=repo_agent wait_ms=7
+17:53:36  st 35aacf8b  complete_done  state=completed duration_ms=2
+17:53:36  rs 35aacf8b  completed  elapsed=0s  verdict=pass
+17:53:36  st 2e115b8a  lock_released  task=repo_agent held_ms=102 queue_remaining=0
+17:53:36  st 35aacf8b  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:36  st 35aacf8b  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:36  st 35aacf8b  terminal_metadata_process_done  state=completed duration_ms=7
+17:53:36  st --------  incoming  task=orchestrator arrival_position=1
+17:53:36  st fd8d0e2d  lock_acquired  task=orchestrator wait_ms=18
+17:53:36  st fd8d0e2d  lock_released  task=orchestrator held_ms=7 queue_remaining=0
+17:53:36  st --------  incoming  task=orchestrator arrival_position=1
+17:53:36  st 66c9adad  lock_acquired  task=orchestrator wait_ms=7
+17:53:36  st 7fa62537  complete_done  state=completed duration_ms=3
+17:53:36  rs 7fa62537  completed  elapsed=1s  verdict=pass
+17:53:36  st 66c9adad  lock_released  task=orchestrator held_ms=19 queue_remaining=0
+17:53:36  st 7fa62537  done  task=repo-search total_elapsed=1s output_tokens=25 thinking_tokens=0 tool_tokens=465
+17:53:36  st 7fa62537  tool_stats  task=repo-search tool=save_plan calls=1 output_chars=159 output_tokens=64 output_tokens_estimated=1
+17:53:36  st 7fa62537  tool_stats  task=repo-search tool=dispatch calls=1 output_chars=515 output_tokens=206 output_tokens_estimated=1
+17:53:36  st 7fa62537  tool_stats  task=repo-search tool=decide calls=1 output_chars=354 output_tokens=142 output_tokens_estimated=1
+17:53:36  st 7fa62537  tool_stats  task=repo-search tool=record_review calls=1 output_chars=131 output_tokens=53 output_tokens_estimated=1
+17:53:36  st 7fa62537  terminal_metadata_process_done  state=completed duration_ms=15
+✔ with approval auto an escalation the orchestrator cannot judge goes to the person (1837.6737ms)
+{"ok":true,"port":4585,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-interactive-Zu7Vd0\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-interactive-Zu7Vd0\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:37  st --------  incoming  task=orchestrator arrival_position=1
+17:53:37  st dc05b319  lock_acquired  task=orchestrator wait_ms=11
+17:53:37  rs 28284e8c  start  task=repo-search  prompt_chars=4910
+17:53:37  rs 28284e8c  inventory  models=1  elapsed=0s
+17:53:37  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:37  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:37  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:37  st 28284e8c  start  task=repo-search raw_chars=4,910 prompt=4,910 chunk repo-search
+17:53:37  st --------  incoming  task=repo_agent arrival_position=2
+17:53:37  st dc05b319  lock_released  task=orchestrator held_ms=484 queue_remaining=1
+17:53:37  st 7627e701  lock_acquired  task=repo_agent wait_ms=26
+17:53:37  rs b275d00f  start  task=repo-search  prompt_chars=1205
+17:53:37  rs b275d00f  inventory  models=1  elapsed=0s
+17:53:37  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:37  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:37  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:37  rs b275d00f  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:37  rs b275d00f  approval_wait  approval=1c490429 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:37  st 7627e701  lock_released  task=repo_agent held_ms=12 queue_remaining=0
+17:53:37  st b275d00f  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:37  rs b275d00f  approval_decision  approval=1c490429 decision=approve waited_ms=24
+17:53:37  st --------  incoming  task=repo_agent arrival_position=1
+17:53:37  st dfe1413b  lock_acquired  task=repo_agent wait_ms=9
+17:53:37  rs b275d00f  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:37  st dfe1413b  lock_released  task=repo_agent held_ms=5 queue_remaining=0
+17:53:38  st --------  incoming  task=repo_agent arrival_position=1
+17:53:38  st df37cb87  lock_acquired  task=repo_agent wait_ms=8
+17:53:38  st b275d00f  complete_done  state=completed duration_ms=1
+17:53:38  rs b275d00f  completed  elapsed=0s  verdict=pass
+17:53:38  st df37cb87  lock_released  task=repo_agent held_ms=135 queue_remaining=0
+17:53:38  st b275d00f  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:38  st b275d00f  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:38  st b275d00f  terminal_metadata_process_done  state=completed duration_ms=6
+17:53:38  st --------  incoming  task=orchestrator arrival_position=1
+17:53:38  st f9a42da5  lock_acquired  task=orchestrator wait_ms=26
+17:53:38  st f9a42da5  lock_released  task=orchestrator held_ms=17 queue_remaining=0
+17:53:38  st --------  incoming  task=orchestrator arrival_position=1
+17:53:38  st a76fce6b  lock_acquired  task=orchestrator wait_ms=12
+17:53:38  st 28284e8c  complete_done  state=completed duration_ms=1
+17:53:38  rs 28284e8c  completed  elapsed=1s  verdict=pass
+17:53:38  st a76fce6b  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+17:53:38  st 28284e8c  done  task=repo-search total_elapsed=1s output_tokens=25 thinking_tokens=0 tool_tokens=259
+17:53:38  st 28284e8c  tool_stats  task=repo-search tool=save_plan calls=1 output_chars=159 output_tokens=64 output_tokens_estimated=1
+17:53:38  st 28284e8c  tool_stats  task=repo-search tool=dispatch calls=1 output_chars=354 output_tokens=142 output_tokens_estimated=1
+17:53:38  st 28284e8c  tool_stats  task=repo-search tool=record_review calls=1 output_chars=131 output_tokens=53 output_tokens_estimated=1
+17:53:38  st 28284e8c  terminal_metadata_process_done  state=completed duration_ms=11
+✔ interactive runs forward child approvals and every check to the person, by exact approval ID (1987.8535ms)
+{"ok":true,"port":4650,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-final-fix-LfOTF9\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-final-fix-LfOTF9\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:39  st --------  incoming  task=orchestrator arrival_position=1
+17:53:39  st 10b36fd0  lock_acquired  task=orchestrator wait_ms=9
+17:53:39  rs da12b825  start  task=repo-search  prompt_chars=4919
+17:53:39  rs da12b825  inventory  models=1  elapsed=0s
+17:53:39  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:39  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:39  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:39  st da12b825  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:40  st --------  incoming  task=repo_agent arrival_position=2
+17:53:40  st 10b36fd0  lock_released  task=orchestrator held_ms=821 queue_remaining=1
+17:53:40  st 3074da79  lock_acquired  task=repo_agent wait_ms=22
+17:53:40  rs 8f056c63  start  task=repo-search  prompt_chars=1205
+17:53:40  rs 8f056c63  inventory  models=1  elapsed=0s
+17:53:40  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:40  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:40  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:40  rs 8f056c63  auto-approval  t1  approve: write — Inside the task scope.
+17:53:40  rs 8f056c63  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:40  st 3074da79  lock_released  task=repo_agent held_ms=12 queue_remaining=0
+17:53:40  st 8f056c63  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:40  st --------  incoming  task=repo_agent arrival_position=1
+17:53:40  st c1db625c  lock_acquired  task=repo_agent wait_ms=9
+17:53:40  st 8f056c63  complete_done  state=completed duration_ms=2
+17:53:40  rs 8f056c63  completed  elapsed=0s  verdict=pass
+17:53:40  st c1db625c  lock_released  task=repo_agent held_ms=114 queue_remaining=0
+17:53:40  st 8f056c63  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:40  st 8f056c63  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:40  st 8f056c63  terminal_metadata_process_done  state=completed duration_ms=11
+17:53:40  st --------  incoming  task=orchestrator arrival_position=1
+17:53:40  st 34d95f5f  lock_acquired  task=orchestrator wait_ms=24
+17:53:40  st 34d95f5f  lock_released  task=orchestrator held_ms=13 queue_remaining=0
+17:53:41  st --------  incoming  task=orchestrator arrival_position=1
+17:53:41  st 807b29c4  lock_acquired  task=orchestrator wait_ms=8
+17:53:41  st --------  incoming  task=repo_agent arrival_position=2
+17:53:41  st 807b29c4  lock_released  task=orchestrator held_ms=86 queue_remaining=1
+17:53:41  st b5ab2ff2  lock_acquired  task=repo_agent wait_ms=27
+17:53:41  rs da1a81d4  start  task=repo-search  prompt_chars=1292
+17:53:41  rs da1a81d4  inventory  models=1  elapsed=0s
+17:53:41  rs da1a81d4  auto-approval  t1  approve: write — Inside the task scope.
+17:53:41  rs da1a81d4  command  t1/100  prompt=2,878tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=31 sha="5a84e8cf16"
+17:53:41  st b5ab2ff2  lock_released  task=repo_agent held_ms=9 queue_remaining=0
+17:53:41  st da1a81d4  start  task=repo-search raw_chars=1,292 prompt=1,292 chunk repo-search
+17:53:41  st --------  incoming  task=repo_agent arrival_position=1
+17:53:41  st 9dfbfb25  lock_acquired  task=repo_agent wait_ms=7
+17:53:41  st da1a81d4  complete_done  state=completed duration_ms=2
+17:53:41  rs da1a81d4  completed  elapsed=0s  verdict=pass
+17:53:41  st 9dfbfb25  lock_released  task=repo_agent held_ms=66 queue_remaining=0
+17:53:41  st da1a81d4  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:41  st da1a81d4  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:41  st da1a81d4  terminal_metadata_process_done  state=completed duration_ms=9
+17:53:41  st --------  incoming  task=orchestrator arrival_position=1
+17:53:41  st 6d341322  lock_acquired  task=orchestrator wait_ms=19
+17:53:41  st 6d341322  lock_released  task=orchestrator held_ms=6 queue_remaining=0
+17:53:41  st --------  incoming  task=orchestrator arrival_position=1
+17:53:41  st b9bf329b  lock_acquired  task=orchestrator wait_ms=12
+17:53:41  st da12b825  complete_done  state=completed duration_ms=1
+17:53:41  rs da12b825  completed  elapsed=3s  verdict=pass
+17:53:41  st b9bf329b  lock_released  task=orchestrator held_ms=10 queue_remaining=0
+✔ a failing final verification rejects the finish with its output, and a fix lets the next finish complete (2974.4408ms)
+{"ok":true,"port":4668,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-final-failed-VbTiD0\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-final-failed-VbTiD0\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:42  st --------  incoming  task=orchestrator arrival_position=1
+17:53:42  st 89818984  lock_acquired  task=orchestrator wait_ms=9
+17:53:42  rs 4739d078  start  task=repo-search  prompt_chars=4919
+17:53:42  rs 4739d078  inventory  models=1  elapsed=0s
+17:53:42  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:42  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:42  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:42  st 4739d078  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:42  st --------  incoming  task=repo_agent arrival_position=2
+17:53:42  st 89818984  lock_released  task=orchestrator held_ms=460 queue_remaining=1
+17:53:42  st 794706cd  lock_acquired  task=repo_agent wait_ms=24
+17:53:42  rs 817c9289  start  task=repo-search  prompt_chars=1205
+17:53:42  rs 817c9289  inventory  models=1  elapsed=0s
+17:53:42  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:42  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:42  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:42  rs 817c9289  auto-approval  t1  approve: write — Inside the task scope.
+17:53:42  rs 817c9289  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:42  st 794706cd  lock_released  task=repo_agent held_ms=11 queue_remaining=0
+17:53:42  st 817c9289  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:43  st --------  incoming  task=repo_agent arrival_position=1
+17:53:43  st abb76514  lock_acquired  task=repo_agent wait_ms=13
+17:53:43  st 817c9289  complete_done  state=completed duration_ms=2
+17:53:43  rs 817c9289  completed  elapsed=0s  verdict=pass
+17:53:43  st abb76514  lock_released  task=repo_agent held_ms=120 queue_remaining=0
+17:53:43  st 817c9289  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:43  st 817c9289  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:43  st 817c9289  terminal_metadata_process_done  state=completed duration_ms=6
+17:53:43  st --------  incoming  task=orchestrator arrival_position=1
+17:53:43  st 802e666e  lock_acquired  task=orchestrator wait_ms=12
+17:53:43  st 802e666e  lock_released  task=orchestrator held_ms=7 queue_remaining=0
+17:53:43  st --------  incoming  task=orchestrator arrival_position=1
+17:53:43  st 478a9fbe  lock_acquired  task=orchestrator wait_ms=8
+17:53:43  st 478a9fbe  lock_released  task=orchestrator held_ms=5 queue_remaining=0
+17:53:43  st --------  incoming  task=orchestrator arrival_position=1
+17:53:43  st b309fcd0  lock_acquired  task=orchestrator wait_ms=8
+17:53:43  st b309fcd0  lock_released  task=orchestrator held_ms=7 queue_remaining=0
+17:53:44  st --------  incoming  task=orchestrator arrival_position=1
+17:53:44  st 12145834  lock_acquired  task=orchestrator wait_ms=11
+17:53:44  st 4739d078  complete_done  state=completed duration_ms=1
+17:53:44  rs 4739d078  completed  elapsed=2s  verdict=pass
+17:53:44  st 12145834  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+✔ a final verification that fails on every finish fails the run after the last one (2258.9753ms)
+{"ok":true,"port":55252,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-infra-ffliyA\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-infra-ffliyA\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:44  st --------  incoming  task=orchestrator arrival_position=1
+17:53:44  st 25a69025  lock_acquired  task=orchestrator wait_ms=8
+17:53:44  st 25a69025  lock_released  task=orchestrator held_ms=0 queue_remaining=0
+✔ an engine failure in the orchestrator conversation fails the run as infrastructure (462.129ms)
+{"ok":true,"port":55260,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-abort-C1rIFJ\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-abort-C1rIFJ\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:44  st --------  incoming  task=orchestrator arrival_position=1
+17:53:44  st 286033a7  lock_acquired  task=orchestrator wait_ms=7
+17:53:44  rs 2fe28f78  start  task=repo-search  prompt_chars=4910
+17:53:44  rs 2fe28f78  inventory  models=1  elapsed=0s
+17:53:44  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:44  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:44  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:45  st 2fe28f78  start  task=repo-search raw_chars=4,910 prompt=4,910 chunk repo-search
+17:53:46  st --------  incoming  task=repo_agent arrival_position=2
+17:53:46  st 286033a7  lock_released  task=orchestrator held_ms=1255 queue_remaining=1
+17:53:46  st 444dbcc2  lock_acquired  task=repo_agent wait_ms=21
+17:53:46  rs e9fc28ae  start  task=repo-search  prompt_chars=1205
+17:53:46  rs e9fc28ae  inventory  models=1  elapsed=0s
+17:53:46  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:46  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:46  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:46  rs e9fc28ae  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:46  rs e9fc28ae  approval_wait  approval=9ba613e2 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:46  st 444dbcc2  lock_released  task=repo_agent held_ms=19 queue_remaining=0
+17:53:46  st e9fc28ae  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:46  rs e9fc28ae  approval_abandoned  approval=9ba613e2 reason=client_disconnected
+17:53:46  st e9fc28ae  complete_done  state=failed duration_ms=2
+17:53:46  st 2fe28f78  complete_done  state=failed duration_ms=2
+17:53:46  rs e9fc28ae  failed  elapsed=0s  error="Stopped by user."
+17:53:46  rs 2fe28f78  failed  elapsed=1s  error="Aborted by user."
+17:53:46  st e9fc28ae  failed  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search elapsed=0s error=Stopped by user.
+17:53:46  st e9fc28ae  terminal_metadata_process_done  state=failed duration_ms=13
+17:53:46  st 2fe28f78  failed  task=repo-search raw_chars=4,910 prompt=4,910 chunk repo-search elapsed=1s error=Aborted by user.
+17:53:46  st 2fe28f78  terminal_metadata_process_done  state=failed duration_ms=9
+✔ a duplicate submission returns the same run and abort stops a parked child (1817.6577ms)
+{"ok":true,"port":55320,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-cli-GmIIeP\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-cli-GmIIeP\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:46  st --------  incoming  task=orchestrator arrival_position=1
+17:53:46  st 62b6193e  lock_acquired  task=orchestrator wait_ms=11
+17:53:46  rs c5dd1dda  start  task=repo-search  prompt_chars=4919
+17:53:46  rs c5dd1dda  inventory  models=1  elapsed=0s
+17:53:46  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:46  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:46  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:46  st c5dd1dda  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:47  st --------  incoming  task=repo_agent arrival_position=2
+17:53:47  st 62b6193e  lock_released  task=orchestrator held_ms=515 queue_remaining=1
+17:53:47  st 53954fc9  lock_acquired  task=repo_agent wait_ms=17
+17:53:47  rs 81b132aa  start  task=repo-search  prompt_chars=1205
+17:53:47  rs 81b132aa  inventory  models=1  elapsed=0s
+17:53:47  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:47  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:47  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:47  rs 81b132aa  auto-approval  t1  approve: write — Inside the task scope.
+17:53:47  rs 81b132aa  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:47  st 53954fc9  lock_released  task=repo_agent held_ms=16 queue_remaining=0
+17:53:47  st 81b132aa  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:48  st --------  incoming  task=repo_agent arrival_position=1
+17:53:48  st 3cb8c853  lock_acquired  task=repo_agent wait_ms=9
+17:53:48  st 81b132aa  complete_done  state=completed duration_ms=3
+17:53:48  rs 81b132aa  completed  elapsed=1s  verdict=pass
+17:53:48  st 3cb8c853  lock_released  task=repo_agent held_ms=115 queue_remaining=0
+17:53:48  st 81b132aa  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:48  st 81b132aa  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:48  st 81b132aa  terminal_metadata_process_done  state=completed duration_ms=11
+17:53:48  st --------  incoming  task=orchestrator arrival_position=1
+17:53:48  st aabc8a99  lock_acquired  task=orchestrator wait_ms=21
+17:53:48  st aabc8a99  lock_released  task=orchestrator held_ms=7 queue_remaining=0
+17:53:48  st --------  incoming  task=orchestrator arrival_position=1
+17:53:48  st b3ea5a48  lock_acquired  task=orchestrator wait_ms=9
+17:53:48  st c5dd1dda  complete_done  state=completed duration_ms=2
+17:53:48  rs c5dd1dda  completed  elapsed=2s  verdict=pass
+17:53:48  st b3ea5a48  lock_released  task=orchestrator held_ms=11 queue_remaining=0
+17:53:48  st c5dd1dda  done  task=repo-search total_elapsed=1s output_tokens=25 thinking_tokens=0 tool_tokens=259
+17:53:48  st c5dd1dda  tool_stats  task=repo-search tool=save_plan calls=1 output_chars=159 output_tokens=64 output_tokens_estimated=1
+17:53:48  st c5dd1dda  tool_stats  task=repo-search tool=dispatch calls=1 output_chars=354 output_tokens=142 output_tokens_estimated=1
+17:53:48  st c5dd1dda  tool_stats  task=repo-search tool=record_review calls=1 output_chars=131 output_tokens=53 output_tokens_estimated=1
+17:53:48  st c5dd1dda  terminal_metadata_process_done  state=completed duration_ms=6
+✔ the CLI starts a run, streams committed events, and prints the typed result with a completion exit code (2257.3865ms)
+{"ok":true,"port":36908,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-activity-W9kaeI\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-activity-W9kaeI\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:49  st --------  incoming  task=orchestrator arrival_position=1
+17:53:49  st 9045f62f  lock_acquired  task=orchestrator wait_ms=9
+17:53:49  rs 11c5cb68  start  task=repo-search  prompt_chars=4919
+17:53:49  rs 11c5cb68  inventory  models=1  elapsed=0s
+17:53:49  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:49  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:49  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:49  st 11c5cb68  start  task=repo-search raw_chars=4,919 prompt=4,919 chunk repo-search
+17:53:49  st --------  incoming  task=repo_agent arrival_position=2
+17:53:49  st 9045f62f  lock_released  task=orchestrator held_ms=432 queue_remaining=1
+17:53:49  st 3ac1cd59  lock_acquired  task=repo_agent wait_ms=22
+17:53:49  rs 6528c057  start  task=repo-search  prompt_chars=1205
+17:53:49  rs 6528c057  inventory  models=1  elapsed=0s
+17:53:49  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:49  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:49  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:49  rs 6528c057  auto-approval  t1  approve: write — Inside the task scope.
+17:53:49  rs 6528c057  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:49  st 3ac1cd59  lock_released  task=repo_agent held_ms=12 queue_remaining=0
+17:53:49  st 6528c057  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:50  st --------  incoming  task=repo_agent arrival_position=1
+17:53:50  st 5c66f71b  lock_acquired  task=repo_agent wait_ms=12
+17:53:50  st 6528c057  complete_done  state=completed duration_ms=2
+17:53:50  rs 6528c057  completed  elapsed=1s  verdict=pass
+17:53:50  st 5c66f71b  lock_released  task=repo_agent held_ms=119 queue_remaining=0
+17:53:50  st 6528c057  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:50  st 6528c057  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:50  st 6528c057  terminal_metadata_process_done  state=completed duration_ms=8
+17:53:50  st --------  incoming  task=orchestrator arrival_position=1
+17:53:50  st cd512bcb  lock_acquired  task=orchestrator wait_ms=17
+17:53:50  st cd512bcb  lock_released  task=orchestrator held_ms=9 queue_remaining=0
+17:53:50  st --------  incoming  task=orchestrator arrival_position=1
+17:53:50  st da308a8a  lock_acquired  task=orchestrator wait_ms=14
+17:53:50  st 11c5cb68  complete_done  state=completed duration_ms=2
+17:53:50  rs 11c5cb68  completed  elapsed=2s  verdict=pass
+17:53:50  st da308a8a  lock_released  task=orchestrator held_ms=20 queue_remaining=0
+17:53:50  st 11c5cb68  done  task=repo-search total_elapsed=1s output_tokens=25 thinking_tokens=7 tool_tokens=259
+17:53:50  st 11c5cb68  tool_stats  task=repo-search tool=save_plan calls=1 output_chars=159 output_tokens=64 output_tokens_estimated=1
+17:53:50  st 11c5cb68  tool_stats  task=repo-search tool=dispatch calls=1 output_chars=354 output_tokens=142 output_tokens_estimated=1
+17:53:50  st 11c5cb68  tool_stats  task=repo-search tool=record_review calls=1 output_chars=131 output_tokens=53 output_tokens_estimated=1
+17:53:50  st 11c5cb68  terminal_metadata_process_done  state=completed duration_ms=8
+✔ the events stream carries the orchestrator conversation and live children, and nothing once a child settles (2009.8033ms)
+{"ok":true,"port":53303,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-activity-snapshot-qFxbgx\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-activity-snapshot-qFxbgx\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:51  st --------  incoming  task=orchestrator arrival_position=1
+17:53:51  st 3050718e  lock_acquired  task=orchestrator wait_ms=12
+17:53:51  rs 0b92f568  start  task=repo-search  prompt_chars=4910
+17:53:51  rs 0b92f568  inventory  models=1  elapsed=0s
+17:53:51  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:51  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:51  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:51  st 0b92f568  start  task=repo-search raw_chars=4,910 prompt=4,910 chunk repo-search
+17:53:51  st --------  incoming  task=repo_agent arrival_position=2
+17:53:51  st 3050718e  lock_released  task=orchestrator held_ms=420 queue_remaining=1
+17:53:51  st ccf8f8e9  lock_acquired  task=repo_agent wait_ms=30
+17:53:51  rs cc77698d  start  task=repo-search  prompt_chars=1205
+17:53:51  rs cc77698d  inventory  models=1  elapsed=0s
+17:53:51  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:51  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:51  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:51  rs cc77698d  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:51  rs cc77698d  approval_wait  approval=629964e9 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:51  st ccf8f8e9  lock_released  task=repo_agent held_ms=9 queue_remaining=0
+17:53:51  st cc77698d  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:51  rs cc77698d  approval_abandoned  approval=629964e9 reason=client_disconnected
+17:53:51  st cc77698d  complete_done  state=failed duration_ms=2
+17:53:51  st 0b92f568  complete_done  state=failed duration_ms=2
+17:53:51  rs cc77698d  failed  elapsed=0s  error="Stopped by user."
+17:53:51  rs 0b92f568  failed  elapsed=0s  error="Aborted by user."
+✔ a client that connects mid-run starts from the live snapshot, and an aborted child leaves the view before the run ends (951.337ms)
+{"ok":true,"port":53339,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-pinned-config-f1Ngap\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-pinned-config-f1Ngap\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:52  st --------  incoming  task=orchestrator arrival_position=1
+17:53:52  st 97cae496  lock_acquired  task=orchestrator wait_ms=11
+17:53:52  rs 50f4f5ba  start  task=repo-search  prompt_chars=4910
+17:53:52  rs 50f4f5ba  inventory  models=1  elapsed=0s
+17:53:52  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:52  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:52  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:52  st 50f4f5ba  start  task=repo-search raw_chars=4,910 prompt=4,910 chunk repo-search
+17:53:52  st --------  incoming  task=repo_agent arrival_position=2
+17:53:52  st 97cae496  lock_released  task=orchestrator held_ms=440 queue_remaining=1
+17:53:52  st afdc7196  lock_acquired  task=repo_agent wait_ms=26
+17:53:52  rs 2e0c7bf8  start  task=repo-search  prompt_chars=1205
+17:53:52  rs 2e0c7bf8  inventory  models=1  elapsed=0s
+17:53:52  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:52  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:52  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:52  rs 2e0c7bf8  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+17:53:52  rs 2e0c7bf8  approval_wait  approval=ea5f2600 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:52  st afdc7196  lock_released  task=repo_agent held_ms=13 queue_remaining=0
+17:53:52  st 2e0c7bf8  start  task=repo-search raw_chars=1,205 prompt=1,205 chunk repo-search
+17:53:52  rs 2e0c7bf8  approval_decision  approval=ea5f2600 decision=approve waited_ms=40
+17:53:52  st --------  incoming  task=repo_agent arrival_position=1
+17:53:52  st bfa32f48  lock_acquired  task=repo_agent wait_ms=10
+17:53:52  rs 2e0c7bf8  command  t1/100  prompt=2,853tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+17:53:52  st bfa32f48  lock_released  task=repo_agent held_ms=4 queue_remaining=0
+17:53:52  st --------  incoming  task=repo_agent arrival_position=1
+17:53:52  st 736c5f50  lock_acquired  task=repo_agent wait_ms=11
+17:53:52  st 2e0c7bf8  complete_done  state=completed duration_ms=1
+17:53:52  rs 2e0c7bf8  completed  elapsed=0s  verdict=pass
+17:53:52  st 736c5f50  lock_released  task=repo_agent held_ms=95 queue_remaining=0
+17:53:52  st 2e0c7bf8  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:52  st 2e0c7bf8  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:52  st 2e0c7bf8  terminal_metadata_process_done  state=completed duration_ms=8
+17:53:53  st --------  incoming  task=orchestrator arrival_position=1
+17:53:53  st bff22a20  lock_acquired  task=orchestrator wait_ms=16
+17:53:53  st --------  incoming  task=repo_agent arrival_position=2
+17:53:53  st bff22a20  lock_released  task=orchestrator held_ms=71 queue_remaining=1
+17:53:53  st fa58210b  lock_acquired  task=repo_agent wait_ms=24
+17:53:53  rs 6c333f38  start  task=repo-search  prompt_chars=1238
+17:53:53  rs 6c333f38  inventory  models=1  elapsed=0s
+17:53:53  rs 6c333f38  auto-approval  t1  approve: write — Inside the task scope.
+17:53:53  rs 6c333f38  command  t1/100  prompt=2,865tok  thinking-total=0  elapsed=0s  write path="src/farewell.ts" bytes=31 sha="852106ca9e"
+17:53:53  st fa58210b  lock_released  task=repo_agent held_ms=9 queue_remaining=0
+17:53:53  st 6c333f38  start  task=repo-search raw_chars=1,238 prompt=1,238 chunk repo-search
+17:53:53  st --------  incoming  task=repo_agent arrival_position=1
+17:53:53  st ee8b05c7  lock_acquired  task=repo_agent wait_ms=9
+17:53:53  st 6c333f38  complete_done  state=completed duration_ms=1
+17:53:53  rs 6c333f38  completed  elapsed=0s  verdict=pass
+17:53:53  st ee8b05c7  lock_released  task=repo_agent held_ms=105 queue_remaining=0
+17:53:53  st 6c333f38  done  task=repo-search total_elapsed=0s output_tokens=16 thinking_tokens=0 tool_tokens=14
+17:53:53  st 6c333f38  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+17:53:53  st 6c333f38  terminal_metadata_process_done  state=completed duration_ms=8
+17:53:53  st --------  incoming  task=orchestrator arrival_position=1
+17:53:53  st 897aaf42  lock_acquired  task=orchestrator wait_ms=19
+17:53:53  st 897aaf42  lock_released  task=orchestrator held_ms=8 queue_remaining=0
+17:53:54  st --------  incoming  task=orchestrator arrival_position=1
+17:53:54  st b260a459  lock_acquired  task=orchestrator wait_ms=11
+17:53:54  st 50f4f5ba  complete_done  state=completed duration_ms=2
+17:53:54  rs 50f4f5ba  completed  elapsed=2s  verdict=pass
+17:53:54  st b260a459  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+17:53:54  st 50f4f5ba  done  task=repo-search total_elapsed=1s output_tokens=25 thinking_tokens=0 tool_tokens=550
+17:53:54  st 50f4f5ba  tool_stats  task=repo-search tool=save_plan calls=1 output_chars=209 output_tokens=84 output_tokens_estimated=1
+17:53:54  st 50f4f5ba  tool_stats  task=repo-search tool=dispatch calls=2 output_chars=777 output_tokens=312 output_tokens_estimated=2
+17:53:54  st 50f4f5ba  tool_stats  task=repo-search tool=record_review calls=2 output_chars=382 output_tokens=154 output_tokens_estimated=2
+17:53:54  st 50f4f5ba  terminal_metadata_process_done  state=completed duration_ms=7
+✔ a run keeps the configuration it started with when presets change mid-run (2493.2305ms)
+{"ok":true,"port":53429,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-preexisting-dirty-Z5NzIp\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-preexisting-dirty-Z5NzIp\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+17:53:54  st --------  incoming  task=orchestrator arrival_position=1
+17:53:54  st 170030b8  lock_acquired  task=orchestrator wait_ms=9
+17:53:54  rs e952ad77  start  task=repo-search  prompt_chars=4925
+17:53:54  rs e952ad77  inventory  models=1  elapsed=0s
+17:53:54  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+17:53:54  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+17:53:54  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+17:53:54  st e952ad77  start  task=repo-search raw_chars=4,925 prompt=4,925 chunk repo-search
+17:53:54  st e952ad77  complete_done  state=completed duration_ms=1
+17:53:54  rs e952ad77  completed  elapsed=0s  verdict=pass
+17:53:54  st 170030b8  lock_released  task=orchestrator held_ms=15 queue_remaining=0
+✔ the orchestrator is told which uncommitted changes predate the run (432.3778ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 23
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 46450.6468
+
+✖ failing tests:
+
+test at tests\process\zz-fit-demo.e2e.test.ts:176:1
+✖ one conversation plans, dispatches a writer, reviews it, and finishes; the parent releases its model while the child works (1935.8269ms)
+  AssertionError [ERR_ASSERTION]: the parent on A, its child on B, then the parent resumes on A
+  + actual - expected
+  
+    [
+      'model-a',
+      'model-b',
+  +   'model-a'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/denys/Documents/GitHub/SiftKit/tests/process/zz-fit-demo.e2e.test.ts:188:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'model-a', 'model-b', 'model-a' ],
+    expected: [ 'model-a', 'model-b' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests\process\zz-fit-demo.e2e.test.ts:439:1
+✖ while a child awaits a decision, code refuses a check, a second dispatch, and a plan change, and decide resumes it (1944.1301ms)
+  AssertionError [ERR_ASSERTION]: the refused dispatch started no child
+  
+  1 !== 2
+  
+      at TestContext.<anonymous> (file:///C:/Users/denys/Documents/GitHub/SiftKit/tests/process/zz-fit-demo.e2e.test.ts:459:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

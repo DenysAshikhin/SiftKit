@@ -23,6 +23,8 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { ChatJournalStore } from '../src/state/chat-journal.ts';
 import { replayChatContext } from '../src/status-server/chat-context-replay.ts';
 import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.ts';
+import { digestToolOutput, renderDigests } from '../src/output-digest/digest.ts';
+import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 const NOISY_VALIDATION_OUTPUT = Array.from(
@@ -972,4 +974,26 @@ test('ask_user in a run without a question gate fails loudly instead of running 
   const root = createManagedTempDir('siftkit-ask-user-no-gate-');
   const { processor } = makeProcessor(root, ['ask_user']);
   await assert.rejects(processor.executeBatch(1, [ASK_USER_ACTION], '', 0, false), /ask_user reached a run without a web chat question gate/u);
+});
+
+// The failures end the raw output's first lines; validation shaping keeps only the 100 noise lines' last 50.
+test('a validation run leads with the digest of its raw output, taken before shaping keeps its last 50 lines', async () => {
+  const root = createManagedTempDir('siftkit-run-digest-');
+  const noise = Array.from({ length: 100 }, (unused, index) => `noise line ${index} of the test log`);
+  const output = [readDigestFixture('pytest/fail.txt').trimEnd(), ...noise].join('\n');
+  const npmTest = buildRepoToolRequestedCommand('run', { command: 'npm test' });
+  const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent', null, {
+    [npmTest]: { exitCode: 1, stdout: output, stderr: '' },
+    [STABLE_COMMAND]: { exitCode: 0, stdout: 'stable\n', stderr: '' },
+  });
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_digest_1', toolName: 'run', args: { command: 'npm test' } }], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_digest_2', toolName: 'run', args: { command: 'Write-Output stable' } }], '', 0, false);
+  const digest = renderDigests(digestToolOutput(output));
+  assert.ok(digest !== null);
+  assert.match(digest, /^Digest of the whole output:\npytest: FAILED \(2 failed, 1 passed\)\n/u);
+  const shown = commands[0]?.promptOutput ?? '';
+  assert.ok(shown.startsWith(`${digest}\n`), shown);
+  assert.match(shown, /\d+ lines omitted from validation command output\./u);
+  assert.doesNotMatch(shown, /short test summary info/u, 'the shaped tail itself holds none of the failures');
+  assert.doesNotMatch(commands[1]?.promptOutput ?? '', /Digest of the whole output/u);
 });

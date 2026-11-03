@@ -1,0 +1,20 @@
+   Compiling mathlib v0.1.0 (C:\tmp\rsx\output-digest-capture\cargo)
+error[E0425]: cannot find value `undefined_value` in this scope
+ --> src\lib.rs:3:27
+  |
+3 | pub fn missing() -> i32 { undefined_value }
+  |                           ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0308]: mismatched types
+ --> src\lib.rs:2:26
+  |
+2 | pub fn broken() -> i32 { "text" }
+  |                    ---   ^^^^^^ expected `i32`, found `&str`
+  |                    |
+  |                    expected `i32` because of return type
+
+Some errors have detailed explanations: E0308, E0425.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `mathlib` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `mathlib` (lib test) due to 2 previous errors

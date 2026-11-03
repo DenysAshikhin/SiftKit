@@ -11,13 +11,14 @@ import type {
 import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.ts';
 import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../lib/powershell.ts';
 import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
+import { digestToolOutput, renderDigests } from '../output-digest/digest.ts';
 
 const CHECK_OUTPUT_MAX_CHARS = 20_000;
 const SNIPPET_LINE_TOLERANCE = 2;
 
 /** A check recorded without running: an evidence check awaiting review, or a denied command. */
 export function unexecutedCheck(check: OrchestratorVerificationCheck, output: string): OrchestratorCheckResult {
-  return { check, executed: false, exitCode: null, timedOut: false, output };
+  return { check, executed: false, exitCode: null, timedOut: false, output, digest: null };
 }
 
 /**
@@ -37,8 +38,15 @@ export async function runVerificationCheck(input: {
     cwd: cwd.absolutePath, abortSignal: input.abortSignal, timeoutMs: input.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS,
   });
   input.abortSignal.throwIfAborted();
+  // The digest reads the whole output; only the stored output is cut to its tail.
   return { check, executed: true, exitCode: result.exitCode, timedOut: result.exitCode === TIMEOUT_EXIT_CODE,
-    output: result.output.slice(-CHECK_OUTPUT_MAX_CHARS) };
+    output: result.output.slice(-CHECK_OUTPUT_MAX_CHARS), digest: renderDigests(digestToolOutput(result.output)) };
+}
+
+/** A check's output for a model: its digest, then the output's last `tailChars` characters. */
+export function renderCheckOutput(result: OrchestratorCheckResult, tailChars: number): string {
+  const tail = result.output.slice(-tailChars);
+  return result.digest === null ? tail : `${result.digest}\n${tail}`;
 }
 
 function normalizeCode(text: string): string {

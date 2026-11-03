@@ -28,7 +28,7 @@ function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunStat
 }
 
 const EVIDENCE = { kind: 'evidence', instruction: 'Confirm the greeting.', paths: ['src/a.ts'] } as const;
-const UNREVIEWED_EVIDENCE = { check: EVIDENCE, executed: false, exitCode: null, timedOut: false, output: '' };
+const UNREVIEWED_EVIDENCE = { check: EVIDENCE, executed: false, exitCode: null, timedOut: false, output: '', digest: null };
 
 function attempt(purpose: 'implementation' | 'fix', number: 1 | 2, passed: boolean | null, extraChecks: object[] = []) {
   return OrchestratorAttemptSchema.parse({
@@ -37,7 +37,7 @@ function attempt(purpose: 'implementation' | 'fix', number: 1 | 2, passed: boole
     status: passed === null ? 'running' : 'settled',
     result: passed === null ? null : {
       taskId: TASK.id, purpose, attempt: number, childRunId: CHILD_ID, workerStatus: 'completed', workerOutput: 'done',
-      report: null, outcome: passed ? 'passed' : 'checks_failed', submissions: passed ? 1 : 3, passed, checks: [{ check: CHECK, executed: true, exitCode: passed ? 0 : 1, timedOut: false, output: 'boom' }, ...extraChecks],
+      report: null, outcome: passed ? 'passed' : 'checks_failed', submissions: passed ? 1 : 3, passed, checks: [{ check: CHECK, executed: true, exitCode: passed ? 0 : 1, timedOut: false, output: 'boom', digest: null }, ...extraChecks],
       findings: [], changedPaths: ['src/a.ts'], changeDigest: 'd',
     },
   });

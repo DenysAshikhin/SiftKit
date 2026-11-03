@@ -34,7 +34,7 @@ import {
 import { getSummaryDecision, getPolicyDecision } from './decision.ts';
 import { SummaryProgressReporter } from './progress-reporter.ts';
 import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.ts';
-import { parseDeterministicTestOutput } from './test-output.ts';
+import { digestToolOutput, renderDigests } from '../output-digest/digest.ts';
 import { resolveSummaryProvider } from './types.ts';
 import type {
   SummaryProviderId,
@@ -160,15 +160,17 @@ export class SummaryRequestRunner {
 
   private async tryDeterministicTestOutput(): Promise<SummaryResult | null> {
     const sourceKindForFastPath = this.request.sourceKind || 'standalone';
-    const deterministicTestSummary = sourceKindForFastPath === 'command-output' && isPassFailQuestion(this.request.question)
-      ? parseDeterministicTestOutput({
-        inputText: this.inputText,
-        commandExitCode: this.request.commandExitCode,
-      })
-      : null;
-    if (!deterministicTestSummary) {
+    if (sourceKindForFastPath !== 'command-output' || !isPassFailQuestion(this.request.question)) {
       return null;
     }
+    const digests = digestToolOutput(this.inputText);
+    const digestText = renderDigests(digests);
+    if (digestText === null) {
+      return null;
+    }
+    // A non-zero exit fails the run even when every recognised tool passed.
+    const exitCode = this.request.commandExitCode;
+    const verdict = digests.some((digest) => digest.failed) || (typeof exitCode === 'number' && exitCode !== 0) ? 'FAIL' : 'PASS';
 
     const model = this.request.config ? getConfiguredModel(this.request.config) : 'unknown';
     const result: SummaryResult = {
@@ -177,9 +179,9 @@ export class SummaryRequestRunner {
       PolicyDecision: 'deterministic-test-output',
       Provider: this.provider,
       Model: model,
-      Summary: deterministicTestSummary.summary,
-      Classification: deterministicTestSummary.verdict === 'PASS' ? 'summary' : 'command_failure',
-      RawReviewRequired: deterministicTestSummary.verdict === 'FAIL',
+      Summary: `${verdict}: ${digestText}`,
+      Classification: verdict === 'PASS' ? 'summary' : 'command_failure',
+      RawReviewRequired: verdict === 'FAIL',
       ModelCallSucceeded: true,
       ProviderError: null,
     };

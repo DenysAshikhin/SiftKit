@@ -1,0 +1,91 @@
+file:///C:/tmp/rsx/output-digest-capture/node/fail/load.test.mjs:1
+import { missing } from './nothing-here.mjs';
+         ^^^^^^^
+SyntaxError: The requested module './nothing-here.mjs' does not provide an export named 'missing'
+    at #asyncInstantiate (node:internal/modules/esm/module_job:463:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:561:5)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v26.7.0
+✖ fail\load.test.mjs (69.1444ms)
+✔ adds numbers (0.4345ms)
+✖ compares arrays (1.0463ms)
+✖ counts attempts (0.1704ms)
+▶ suite
+  ✔ inner passes (0.0813ms)
+  ✖ inner throws (0.0694ms)
+✖ suite (0.4211ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 2
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 110.654
+
+✖ failing tests:
+
+test at fail\load.test.mjs:1:1
+✖ fail\load.test.mjs (69.1444ms)
+  'test failed'
+
+test at fail\math.test.mjs:4:1
+✖ compares arrays (1.0463ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'model-a',
+      'model-b',
+  +   'model-a'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/output-digest-capture/node/fail/math.test.mjs:4:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'model-a', 'model-b', 'model-a' ],
+    expected: [ 'model-a', 'model-b' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at fail\math.test.mjs:5:1
+✖ counts attempts (0.1704ms)
+  AssertionError [ERR_ASSERTION]: the refused dispatch started no child
+  
+  1 !== 2
+  
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/output-digest-capture/node/fail/math.test.mjs:5:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at fail\math.test.mjs:8:11
+✖ inner throws (0.0694ms)
+  TypeError: Cannot read properties of undefined (reading 'runId')
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/output-digest-capture/node/fail/math.test.mjs:8:46)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at TestContext.test (node:internal/test_runner/test:399:20)
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/output-digest-capture/node/fail/math.test.mjs:8:11)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)

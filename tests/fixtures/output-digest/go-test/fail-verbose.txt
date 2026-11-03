@@ -1,0 +1,17 @@
+=== RUN   TestAdd
+    calc_test.go:7: Add(2, 2) = 4, want 4
+--- FAIL: TestAdd (0.00s)
+=== RUN   TestTable
+=== RUN   TestTable/zero
+=== RUN   TestTable/neg
+    calc_test.go:15: got -2, want -3
+--- FAIL: TestTable (0.00s)
+    --- PASS: TestTable/zero (0.00s)
+    --- FAIL: TestTable/neg (0.00s)
+FAIL
+FAIL	example.com/gomod/calc	0.543s
+=== RUN   TestOne
+--- PASS: TestOne (0.00s)
+PASS
+ok  	example.com/gomod/other	(cached)
+FAIL

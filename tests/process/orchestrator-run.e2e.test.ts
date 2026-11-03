@@ -32,6 +32,7 @@ import { makeOrchestratorPlan, makeOrchestratorTask } from '../helpers/orchestra
 import { APPROVING_VERDICT, ESCALATING_VERDICTS, ScriptedEngineService, type ParentTurn } from '../helpers/scripted-engine-service.ts';
 import { requestSse } from '../helpers/sse-http.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
+import { digestFixturePath } from '../helpers/output-digest-fixtures.ts';
 
 const MODEL_A = 'exl3-main';
 const RUN_TIMEOUT_MS = 120_000;
@@ -539,6 +540,20 @@ test('a final verification that fails on every finish fails the run after the la
   assert.equal(state.phase, 'failed');
   assert.equal(state.failure?.code, 'final_verification_failed');
   assert.match(state.failure?.message ?? '', /Final verification failed 3 times: Check `exit 1` exited 1; expected 0\./u);
+});
+
+test('run_check leads its result with the digest of the whole check output', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-check-digest-');
+  const { engine } = context;
+  const command = `Get-Content -Raw -Encoding UTF8 '${digestFixturePath('pytest/fail.txt')}'; exit 1`;
+  engine.parent.push([savePlan(), tool('run_check', { command, cwd: '.' }), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'), COMPLETE]);
+  engine.children.push(WRITER);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  const [, check] = engine.parentToolOutputs();
+  assert.match(check ?? '', /exit 1\nDigest of the whole output:\npytest: FAILED \(2 failed, 1 passed\)\n✖ test_compares_lists — test_math\.py:4\n/u);
 });
 
 test('an engine failure in the orchestrator conversation fails the run as infrastructure', async (t) => {

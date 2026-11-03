@@ -1,0 +1,7 @@
+]9;4;3;\Restore complete (0.3s)
+  MathTests [36;1mnet10.0[m [31;1mfailed with 2 error(s)[m (0.2s)
+    C:\tmp\rsx\output-digest-capture\dotnet\MathTests\[1mBroken.cs[m(5,41): [31;1merror[m [31;1mCS0029[m: Cannot implicitly convert type 'string' to 'int'
+    C:\tmp\rsx\output-digest-capture\dotnet\MathTests\[1mBroken.cs[m(5,56): [31;1merror[m [31;1mCS0103[m: The name 'y' does not exist in the current context
+
+Build [31;1mfailed with 2 error(s)[m in 0.9s
+]9;4;0;\

@@ -56,6 +56,8 @@ export class ToolResultBudgeter {
     commandSucceededForFitting: boolean;
     outputUnit: ToolOutputTruncationUnit;
     keep: ToolOutputKeep;
+    /** A rendered digest of the whole command output, which leads the result; null when no parser recognised it. */
+    digest: string | null;
   }): Promise<FittedToolResult> {
     const rawToolTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_raw', {
       taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: options.rawResultText.length,
@@ -64,14 +66,15 @@ export class ToolResultBudgeter {
     const rawResultTokenCount = rawResultTokenResult.tokenCount;
     rawToolTokenSpan?.end({ tokenCount: rawResultTokenCount });
 
+    const candidateText = options.digest === null ? options.resultText : `${options.digest}\n${options.resultText}`;
     const promptToolTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_prompt', {
-      taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: options.resultText.length,
+      taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: candidateText.length,
     });
-    const candidateResultTokenResult = await this.countTokens(options.resultText);
+    const candidateResultTokenResult = await this.countTokens(candidateText);
     const candidateResultTokenCount = candidateResultTokenResult.tokenCount;
     promptToolTokenSpan?.end({ tokenCount: candidateResultTokenCount });
 
-    let resultText = options.resultText;
+    let resultText = candidateText;
     let resultTokenCount = candidateResultTokenCount;
     let resultTokenCountEstimated = candidateResultTokenResult.estimated;
     let fittedReturnedSegmentCount: number | null = null;
@@ -82,15 +85,19 @@ export class ToolResultBudgeter {
       : Math.min(FAILED_COMMAND_TAIL_CAP_TOKENS, successBudgetTokens);
 
     if (candidateResultTokenCount > maxResultTokens) {
-      const segments = resultText.split(/\r?\n/u).filter((line) => line.length > 0);
+      const segments = options.resultText.split(/\r?\n/u).filter((line) => line.length > 0);
       const budgeter = this;
       const fitter = new ToolOutputFitter({
         async countToolOutputTokens(text: string): Promise<number> {
           return budgeter.countTokenValue(text);
         },
       });
+      // The digest keeps at most half the budget, cut from its end so every verdict and failure name survives first.
+      const headerText = options.digest === null ? undefined : (await fitter.fitSegments({
+        segments: options.digest.split('\n'), separator: '\n', maxTokens: maxResultTokens / 2, unit: 'lines', keep: 'head',
+      })).visibleText;
       const fitResult = await fitter.fitSegments({
-        headerText: undefined,
+        headerText,
         segments,
         separator: '\n',
         maxTokens: maxResultTokens,

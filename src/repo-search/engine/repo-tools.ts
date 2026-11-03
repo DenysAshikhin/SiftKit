@@ -62,6 +62,8 @@ export type RepoToolExecution =
     // Which end survives per-tool truncation. Omitted → 'head'. Command output
     // (`run`) sets 'tail' so the trailing summary/errors survive.
     outputKeep?: ToolOutputKeep;
+    /** `run` only: the digest of the raw output, taken before validation shaping cuts it; absent when no parser recognised it. */
+    digest?: string;
     lineReadStats?: {
       lineReadCalls: number;
       lineReadLinesTotal: number;

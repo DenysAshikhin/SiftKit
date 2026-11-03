@@ -1,0 +1,11 @@
+# example.com/gomod/other [example.com/gomod/other.test]
+other\other.go:3:25: cannot use "one" (untyped string constant) as int value in return statement
+--- FAIL: TestAdd (0.00s)
+    calc_test.go:7: Add(2, 2) = 4, want 4
+--- FAIL: TestTable (0.00s)
+    --- FAIL: TestTable/neg (0.00s)
+        calc_test.go:15: got -2, want -3
+FAIL
+FAIL	example.com/gomod/calc	0.541s
+FAIL	example.com/gomod/other [build failed]
+FAIL

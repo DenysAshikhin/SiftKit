@@ -1,0 +1,21 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\tmp\rsx\output-digest-capture\pytest\fail
+plugins: anyio-4.15.1
+collected 3 items / 1 error
+
+=================================== ERRORS ====================================
+_______________________ ERROR collecting test_broken.py _______________________
+ImportError while importing test module 'C:\tmp\rsx\output-digest-capture\pytest\fail\test_broken.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\denys\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+test_broken.py:1: in <module>
+    from nothing_here import missing
+E   ModuleNotFoundError: No module named 'nothing_here'
+=========================== short test summary info ===========================
+ERROR test_broken.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+============================== 1 error in 0.20s ===============================

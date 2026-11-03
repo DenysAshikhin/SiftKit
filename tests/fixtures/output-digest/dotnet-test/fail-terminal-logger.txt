@@ -1,0 +1,42 @@
+]9;4;3;\Restore complete (0.4s)
+  MathTests [36;1mnet10.0[m [32;1msucceeded[m (0.3s) → ]8;;file:///C:/tmp/rsx/output-digest-capture/dotnet/MathTests/bin/Debug/net10.0\bin\Debug\net10.0\MathTests.dll]8;;\
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.36]   Discovering: MathTests
+[xUnit.net 00:00:00.40]   Discovered:  MathTests
+[xUnit.net 00:00:00.42]   Starting:    MathTests
+[xUnit.net 00:00:00.58]     MathTests.UnitTest1.Throws [FAIL]
+[xUnit.net 00:00:00.58]       System.InvalidOperationException : The store is closed.
+[xUnit.net 00:00:00.59]       Stack Trace:
+[xUnit.net 00:00:00.59]         C:\tmp\rsx\output-digest-capture\dotnet\MathTests\UnitTest1.cs(12,0): at MathTests.UnitTest1.Throws()
+[xUnit.net 00:00:00.59]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:00.59]            at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.59]     MathTests.UnitTest1.Compares [FAIL]
+[xUnit.net 00:00:00.59]       Assert.Equal() Failure: Collections differ
+[xUnit.net 00:00:00.59]       Expected: ["model-a", "model-b"]
+[xUnit.net 00:00:00.59]       Actual:   ["model-a", "model-b", "model-a"]
+[xUnit.net 00:00:00.59]                                        ↑ (pos 2)
+[xUnit.net 00:00:00.59]       Stack Trace:
+[xUnit.net 00:00:00.59]         C:\tmp\rsx\output-digest-capture\dotnet\MathTests\UnitTest1.cs(9,0): at MathTests.UnitTest1.Compares()
+[xUnit.net 00:00:00.59]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:00.59]            at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.60]   Finished:    MathTests
+  MathTests test [36;1mnet10.0[m [31;1mfailed with 2 error(s)[m (1.8s)
+    C:\tmp\rsx\output-digest-capture\dotnet\MathTests\[1mUnitTest1.cs[m(12): [31;1merror[m [31;1mTESTERROR[m: 
+      MathTests.UnitTest1.Throws (< 1ms): Error Message: System.InvalidOperationException : The store is closed.
+      Stack Trace:
+         at MathTests.UnitTest1.Throws() in C:\tmp\rsx\output-digest-capture\dotnet\MathTests\UnitTest1.cs:line 12
+         at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+         at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+    C:\tmp\rsx\output-digest-capture\dotnet\MathTests\[1mUnitTest1.cs[m(9): [31;1merror[m [31;1mTESTERROR[m: 
+      MathTests.UnitTest1.Compares (16ms): Error Message: Assert.Equal() Failure: Collections differ
+      Expected: ["model-a", "model-b"]
+      Actual:   ["model-a", "model-b", "model-a"]
+                                       ↑ (pos 2)
+      Stack Trace:
+         at MathTests.UnitTest1.Compares() in C:\tmp\rsx\output-digest-capture\dotnet\MathTests\UnitTest1.cs:line 9
+         at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+         at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+Test summary: total: 3, [31;1mfailed: 2[m, succeeded: 1, skipped: 0, duration: 1.8s
+Build [31;1mfailed with 2 error(s)[m in 3.3s
+]9;4;0;\

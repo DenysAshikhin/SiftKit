@@ -24,17 +24,6 @@ export function isValidationCommand(command: string): boolean {
   });
 }
 
-/**
- * Node's spec reporter prints its counts before an unbounded `✖ failing tests:` block, so pure-tail
- * retention drops the verdict exactly when there are enough failures for it to matter. These lines are
- * retained regardless of position; output from any other reporter matches nothing here and degrades to
- * plain tail.
- */
-const SUMMARY_LINE_PATTERNS = [
-  /^\s*ℹ /u,
-  /^\s*✖ failing tests:/u,
-] as const;
-
 function pluralizeLines(count: number): string {
   return count === 1 ? 'line' : 'lines';
 }
@@ -50,6 +39,7 @@ export class ValidationCommandOutputPolicy {
     return isValidationCommand(command);
   }
 
+  /** Keeps the last `lineLimit` lines; the run's digest, taken from the whole output first, carries its verdict and failures. */
   apply(options: {
     command: string;
     output: string;
@@ -65,93 +55,11 @@ export class ValidationCommandOutputPolicy {
     if (lines.length <= this.lineLimit) {
       return options.output;
     }
-    const retainedIndices = this.selectRetainedIndices(lines);
-    const omittedLineCount = lines.length - retainedIndices.length;
-    const rendered = [
-      `${omittedLineCount} ${pluralizeLines(omittedLineCount)} omitted from validation command output.`,
-    ];
-    let previousIndex: number | null = null;
-    for (const index of retainedIndices) {
-      if (previousIndex !== null) {
-        const gap = index - previousIndex - 1;
-        if (gap > 0) {
-          rendered.push(`… ${gap} ${pluralizeLines(gap)} omitted …`);
-        }
-      }
-      rendered.push(lines[index]);
-      previousIndex = index;
-    }
-    return rendered.join('\n');
-  }
-
-  /**
-   * Summary lines are reserved first, then the tail is grown downward for as long as the rendered
-   * result still fits. Indices are returned ascending so the result still reads as a log. With no
-   * summary lines this is exactly the previous tail-only behavior.
-   */
-  private selectRetainedIndices(lines: readonly string[]): number[] {
-    const summaryIndices: number[] = [];
-    for (const [index, line] of lines.entries()) {
-      if (SUMMARY_LINE_PATTERNS.some((pattern) => pattern.test(line))) {
-        summaryIndices.push(index);
-      }
-    }
-    if (summaryIndices.length === 0) {
-      return this.tailIndices(lines.length, this.lineLimit);
-    }
-    const reserved = this.trimToLineLimit(summaryIndices.slice(-this.lineLimit));
-    let tailStart = lines.length;
-    while (this.renderedLineCount(this.mergeTail(reserved, tailStart - 1, lines.length)) <= this.lineLimit) {
-      tailStart -= 1;
-    }
-    return this.mergeTail(reserved, tailStart, lines.length);
-  }
-
-  /** Reserved lines above `tailStart`, then every line from `tailStart` to the end. */
-  private mergeTail(reserved: readonly number[], tailStart: number, lineCount: number): number[] {
+    const omittedLineCount = lines.length - this.lineLimit;
     return [
-      ...reserved.filter((index) => index < tailStart),
-      ...this.tailIndices(lineCount, lineCount - tailStart),
-    ];
-  }
-
-  /**
-   * Retained lines plus the `… n lines omitted …` marker each interior gap renders as. Markers are
-   * part of what the caller has to read, so scattered summary lines would otherwise emit close to
-   * twice `lineLimit` and defeat the cap the policy exists to enforce.
-   */
-  private renderedLineCount(indices: readonly number[]): number {
-    let count = indices.length;
-    for (let index = 1; index < indices.length; index += 1) {
-      if (indices[index] - indices[index - 1] > 1) {
-        count += 1;
-      }
-    }
-    return count;
-  }
-
-  /**
-   * Drops the earliest indices until the marker-inclusive rendering fits, keeping the newest ones.
-   * Terminates because a single index renders as one line and `lineLimit` is at least one.
-   */
-  private trimToLineLimit(indices: readonly number[]): number[] {
-    let start = 0;
-    while (this.renderedLineCount(indices.slice(start)) > this.lineLimit) {
-      start += 1;
-    }
-    return indices.slice(start);
-  }
-
-  /**
-   * `apply` returns early when `lines.length <= this.lineLimit`, and the tail can never outgrow
-   * `lineLimit` without failing the fit check, so `count < lineCount` at every call site.
-   */
-  private tailIndices(lineCount: number, count: number): number[] {
-    const indices: number[] = [];
-    for (let index = lineCount - count; index < lineCount; index += 1) {
-      indices.push(index);
-    }
-    return indices;
+      `${omittedLineCount} ${pluralizeLines(omittedLineCount)} omitted from validation command output.`,
+      ...lines.slice(-this.lineLimit),
+    ].join('\n');
   }
 }
 

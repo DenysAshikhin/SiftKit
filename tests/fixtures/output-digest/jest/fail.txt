@@ -1,0 +1,54 @@
+FAIL fail/math.test.js
+  ● math › compares arrays
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 0
+    + Received  + 1
+
+      Array [
+        "model-a",
+        "model-b",
+    +   "model-a",
+      ]
+
+    [0m [90m 1 |[39m describe([32m'math'[39m[33m,[39m () [33m=>[39m {
+     [90m 2 |[39m   test([32m'adds'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m [33m+[39m [35m1[39m)[33m.[39mtoBe([35m2[39m)[33m;[39m })[33m;[39m
+    [31m[1m>[22m[39m[90m 3 |[39m   test([32m'compares arrays'[39m[33m,[39m () [33m=>[39m { expect([[32m'model-a'[39m[33m,[39m [32m'model-b'[39m[33m,[39m [32m'model-a'[39m])[33m.[39mtoEqual([[32m'model-a'[39m[33m,[39m [32m'model-b'[39m])[33m;[39m })[33m;[39m
+     [90m   |[39m                                                                             [31m[1m^[22m[39m
+     [90m 4 |[39m   test([32m'throws'[39m[33m,[39m () [33m=>[39m { [36mthrow[39m [36mnew[39m [33mTypeError[39m([32m"Cannot read properties of undefined (reading 'runId')"[39m)[33m;[39m })[33m;[39m
+     [90m 5 |[39m })[33m;[39m
+     [90m 6 |[39m[0m
+
+      at Object.toEqual (math.test.js:3:77)
+
+  ● math › throws
+
+    TypeError: Cannot read properties of undefined (reading 'runId')
+
+    [0m [90m 2 |[39m   test([32m'adds'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m [33m+[39m [35m1[39m)[33m.[39mtoBe([35m2[39m)[33m;[39m })[33m;[39m
+     [90m 3 |[39m   test([32m'compares arrays'[39m[33m,[39m () [33m=>[39m { expect([[32m'model-a'[39m[33m,[39m [32m'model-b'[39m[33m,[39m [32m'model-a'[39m])[33m.[39mtoEqual([[32m'model-a'[39m[33m,[39m [32m'model-b'[39m])[33m;[39m })[33m;[39m
+    [31m[1m>[22m[39m[90m 4 |[39m   test([32m'throws'[39m[33m,[39m () [33m=>[39m { [36mthrow[39m [36mnew[39m [33mTypeError[39m([32m"Cannot read properties of undefined (reading 'runId')"[39m)[33m;[39m })[33m;[39m
+     [90m   |[39m                                [31m[1m^[22m[39m
+     [90m 5 |[39m })[33m;[39m
+     [90m 6 |[39m[0m
+
+      at Object.<anonymous> (math.test.js:4:32)
+
+FAIL fail/broken.test.js
+  ● never runs
+
+    TypeError: missing is not a function
+
+    [0m [90m 1 |[39m [36mconst[39m { missing } [33m=[39m require([32m'./nothing-here'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 2 |[39m test([32m'never runs'[39m[33m,[39m () [33m=>[39m missing())[33m;[39m
+     [90m   |[39m                          [31m[1m^[22m[39m
+     [90m 3 |[39m[0m
+
+      at Object.missing (broken.test.js:2:26)
+
+Test Suites: 2 failed, 2 total
+Tests:       3 failed, 1 passed, 4 total
+Snapshots:   0 total
+Time:        1.186 s
+Ran all test suites.

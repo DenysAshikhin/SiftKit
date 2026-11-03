@@ -22,7 +22,7 @@ const RUN = OrchestratorRunStateSchema.parse({
   attempts: [{ taskId: TASK.id, purpose: 'implementation', attempt: 1, childRunId: CHILD_ID, reservedAtUtc: AT,
     work: { kind: 'implementation', planPath: 'plan.md', planHash: 'h', task: TASK, instruction: UNBROKEN }, status: 'settled',
     result: { taskId: TASK.id, purpose: 'implementation', attempt: 1, childRunId: CHILD_ID, workerStatus: 'completed', workerOutput: UNBROKEN,
-      report: null, outcome: 'checks_failed', submissions: 3, passed: false, checks: [{ check: CHECK, executed: true, exitCode: 1, timedOut: false, output: UNBROKEN }],
+      report: null, outcome: 'checks_failed', submissions: 3, passed: false, checks: [{ check: CHECK, executed: true, exitCode: 1, timedOut: false, output: UNBROKEN, digest: null }],
       findings: [], changedPaths: [HOSTILE_PATH], changeDigest: 'd' } }],
   parentRunIds: [], failure: null, createdAtUtc: AT, updatedAtUtc: AT,
   approval: { kind: 'child', approvalId: '00000000-0000-4000-8000-000000000003', childRunId: CHILD_ID, taskId: TASK.id, toolName: 'run',

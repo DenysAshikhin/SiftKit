@@ -171,7 +171,7 @@ test('run output-mode guidance is readable ASCII text', () => {
   const description = asObject(asObject(run?.function.parameters.properties).outputMode).description;
 
   if (typeof description !== 'string') throw new Error('run outputMode description must be a string');
-  assert.match(description, /commands - use it for those/u);
+  assert.match(description, /after a digest of their whole output - use it for those/u);
   assert.doesNotMatch(description, /[^\x00-\x7F]/u);
 });
 

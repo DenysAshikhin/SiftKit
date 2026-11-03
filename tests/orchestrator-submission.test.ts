@@ -11,7 +11,8 @@ const CHECK = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode
 const TASK = makeOrchestratorTask({ id: 'greeting', workerPresetId: 'repo-agent', writePaths: ['src/greeting.ts'], verification: [CHECK] });
 
 function checkResult(exitCode: number): OrchestratorCheckResult {
-  return { check: CHECK, executed: true, exitCode, timedOut: false, output: exitCode === 0 ? 'ok' : 'FAIL greeting.test.ts' };
+  return { check: CHECK, executed: true, exitCode, timedOut: false, output: exitCode === 0 ? 'ok' : 'FAIL greeting.test.ts',
+    digest: exitCode === 0 ? null : 'Digest of the whole output:\nnode:test: FAILED (1 tests, 0 pass, 1 fail)\n✖ greets — tests/greeting.test.ts:3:5' };
 }
 
 /** Answers each check run from a script and charges the current changed paths and digest. */
@@ -55,7 +56,8 @@ test('failing checks return their real output to the same child until the resubm
   for (const submitted of [1, 2]) {
     const verdict = await gate.review(ANSWER);
     assert.equal(verdict.kind, 'reject');
-    assert.match(verdict.kind === 'reject' ? verdict.message : '', new RegExp(`submission ${submitted} of 3[\\s\\S]*FAIL greeting\\.test\\.ts`, 'u'));
+    assert.match(verdict.kind === 'reject' ? verdict.message : '', new RegExp(`submission ${submitted} of 3[\\s\\S]*Output of [^\\n]*\\n`
+      + 'Digest of the whole output:\\nnode:test: FAILED \\(1 tests, 0 pass, 1 fail\\)\\n✖ greets — tests/greeting\\.test\\.ts:3:5\\nFAIL greeting\\.test\\.ts', 'u'));
   }
   assert.equal((await gate.review(ANSWER)).kind, 'accept');
   assert.equal(gate.record()?.outcome, 'checks_failed');

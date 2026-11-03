@@ -1,0 +1,13 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+C:\tmp\rsx\output-digest-capture\dotnet\MathTests\Broken.cs(5,41): error CS0029: Cannot implicitly convert type 'string' to 'int' [C:\tmp\rsx\output-digest-capture\dotnet\MathTests\MathTests.csproj]
+C:\tmp\rsx\output-digest-capture\dotnet\MathTests\Broken.cs(5,56): error CS0103: The name 'y' does not exist in the current context [C:\tmp\rsx\output-digest-capture\dotnet\MathTests\MathTests.csproj]
+
+Build FAILED.
+
+C:\tmp\rsx\output-digest-capture\dotnet\MathTests\Broken.cs(5,41): error CS0029: Cannot implicitly convert type 'string' to 'int' [C:\tmp\rsx\output-digest-capture\dotnet\MathTests\MathTests.csproj]
+C:\tmp\rsx\output-digest-capture\dotnet\MathTests\Broken.cs(5,56): error CS0103: The name 'y' does not exist in the current context [C:\tmp\rsx\output-digest-capture\dotnet\MathTests\MathTests.csproj]
+    0 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:00.90

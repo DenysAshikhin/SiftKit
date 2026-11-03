@@ -1,0 +1,26 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  MathTests -> C:\tmp\rsx\output-digest-capture\dotnet\MathTests\bin\Debug\net10.0\MathTests.dll
+Test run for C:\tmp\rsx\output-digest-capture\dotnet\MathTests\bin\Debug\net10.0\MathTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.15]     MathTests.UnitTest1.Throws [FAIL]
+[xUnit.net 00:00:00.16]     MathTests.UnitTest1.Compares [FAIL]
+  Failed MathTests.UnitTest1.Throws [< 1 ms]
+  Error Message:
+   System.InvalidOperationException : The store is closed.
+  Stack Trace:
+     at MathTests.UnitTest1.Throws() in C:\tmp\rsx\output-digest-capture\dotnet\MathTests\UnitTest1.cs:line 12
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Failed MathTests.UnitTest1.Compares [10 ms]
+  Error Message:
+   Assert.Equal() Failure: Collections differ
+Expected: ["model-a", "model-b"]
+Actual:   ["model-a", "model-b", "model-a"]
+                                 ↑ (pos 2)
+  Stack Trace:
+     at MathTests.UnitTest1.Compares() in C:\tmp\rsx\output-digest-capture\dotnet\MathTests\UnitTest1.cs:line 9
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+Failed!  - Failed:     2, Passed:     1, Skipped:     0, Total:     3, Duration: 26 ms - MathTests.dll (net10.0)

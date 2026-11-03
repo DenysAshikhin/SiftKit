@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 C:/tmp/rsx/output-digest-capture/vitest/pass
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 1 skipped (3)
+   Start at  18:24:04
+   Duration  240ms (transform 37ms, setup 0ms, import 62ms, tests 2ms, environment 0ms)
+

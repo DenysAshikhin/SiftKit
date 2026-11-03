@@ -8,6 +8,7 @@ import { DEFAULT_SUMMARY_PROVIDER } from '../src/summary/types.ts';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
 import { DeadEndpointEnv } from './helpers/dead-endpoints.ts';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.ts';
+import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
 
 // The deterministic path still posts terminal status; nothing here asserts on it.
 const isolatedRuntime = new IsolatedRuntime();
@@ -98,4 +99,33 @@ test('SummaryRequestRunner reports the requested provider on the deterministic p
 
   assert.equal(result.PolicyDecision, 'deterministic-test-output');
   assert.equal(result.Provider, 'mock');
+});
+
+for (const [fixture, failure] of [
+  ['pytest/fail.txt', '✖ test_compares_lists — test_math.py:4'],
+  ['dotnet-test/fail.txt', '✖ MathTests.UnitTest1.Compares — C:\\tmp\\rsx\\output-digest-capture\\dotnet\\MathTests\\UnitTest1.cs:9'],
+] as const) {
+  test(`SummaryRequestRunner answers a pass/fail question about ${fixture} from its digest, with no model call`, async () => {
+    const result = await new SummaryRequestRunner({
+      repoRoot: process.cwd(),
+      question: 'Did the test run pass? Return pass/fail and the failing tests.',
+      inputText: readDigestFixture(fixture),
+      format: 'text', policyProfile: 'general', sourceKind: 'command-output', commandExitCode: 1,
+    }).run();
+    assert.equal(result.PolicyDecision, 'deterministic-test-output');
+    assert.equal(result.Classification, 'command_failure');
+    assert.match(result.Summary, /^FAIL: Digest of the whole output:\n/u);
+    assert.ok(result.Summary.includes(failure), result.Summary);
+  });
+}
+
+test('SummaryRequestRunner fails a pass/fail answer on a non-zero exit even when every recognised tool passed', async () => {
+  const result = await new SummaryRequestRunner({
+    repoRoot: process.cwd(),
+    question: 'Did the test run pass? Return pass/fail.',
+    inputText: readDigestFixture('jest/pass.txt'),
+    format: 'text', policyProfile: 'general', sourceKind: 'command-output', commandExitCode: 1,
+  }).run();
+  assert.equal(result.Classification, 'command_failure');
+  assert.match(result.Summary, /^FAIL: Digest of the whole output:\njest: passed \(3 tests, 1 skipped, 2 passed\)$/u);
 });

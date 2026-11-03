@@ -97,7 +97,7 @@ export const RunToolArgsSchema = z.object({
     .describe(`Timeout in milliseconds (optional, default ${DEFAULT_RUN_TIMEOUT_MS}, max ${MAX_RUN_TIMEOUT_MS})`)
     .optional(),
   outputMode: RunOutputModeSchema
-    .describe(`Output shaping. auto (default) keeps a curated final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines for test/build/lint/typecheck commands - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.`)
+    .describe(`Output shaping. auto (default) keeps the final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines of test/build/lint/typecheck commands, after a digest of their whole output - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.`)
     .optional(),
 }).strict();
 

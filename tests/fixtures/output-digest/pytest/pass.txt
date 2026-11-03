@@ -1,0 +1,9 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\tmp\rsx\output-digest-capture\pytest\pass
+plugins: anyio-4.15.1
+collected 3 items
+
+test_math.py .s.                                                         [100%]
+
+======================== 2 passed, 1 skipped in 0.05s =========================

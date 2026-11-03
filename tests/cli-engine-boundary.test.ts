@@ -10,7 +10,7 @@ type SourceFile = {
 
 const FORBIDDEN_CLI_IMPORTS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
   { label: 'summary engine', pattern: /from\s+['"]\.\.\/summary\/core\.js['"]/u },
-  { label: 'summary deterministic helpers', pattern: /from\s+['"]\.\.\/summary\/(?:measure|test-output)\.js['"]/u },
+  { label: 'summary deterministic helpers', pattern: /from\s+['"]\.\.\/summary\/measure\.js['"]/u },
   { label: 'repo-search engine', pattern: /from\s+['"]\.\.\/repo-search\/(?:index|execute)\.js['"]/u },
   { label: 'local command engine', pattern: /from\s+['"]\.\.\/command\.js['"]/u },
   { label: 'local interactive engine', pattern: /from\s+['"]\.\.\/interactive\.js['"]/u },
