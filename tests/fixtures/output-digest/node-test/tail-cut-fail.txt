@@ -1,0 +1,60 @@
+generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ { toolName: 'read', command: 'read plan.md', exitCode: 3, rejection: null, output: 'PLAN BODY [1 of 40 lines]', durationMs: 0 } ],
+    expected: [ { toolName: 'read', command: 'read plan.md', exitCode: 3, rejection: null, output: 'PLAN BODY [1 of 40 lines]', durationMs: 500 } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests\orchestrator-live-flows.test.ts:575:1
+✖ two subscribers of one agent each get their own copy of the same frames (0.4144ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+    [
+      {
+        flow: {
+          agentRunId: '3f2b1c9a-7d4e-4a5b-9c8d-1e2f3a4b5c6d',
+          finalOutput: null,
+  ...
+      {
+  +     flow: {
+  +       agentRunId: '3f2b1c9a-7d4e-4a5b-9c8d-1e2f3a4b5c6d',
+  +       finalOutput: null,
+  +       finishedAtUtc: null,
+  +       live: true,
+  +       model: 'qwen3-32b',
+  +       prompt: {
+  +         system: [
+  +           'You are the orchestrator parent.'
+  +         ],
+  +         user: 'Implement task t1 from the plan.'
+  +       },
+  +       startedAtUtc: '2026-10-23T10:00:00.000Z',
+  +       throughput: null,
+  +       turns: []
+  +     },
+  +     kind: 'flow'
+  +   },
+  +   {
+        kind: 'turn',
+        turn: {
+          approvals: [],
+          elapsedMs: null,
+          progress: null,
+  
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-live-flows.test.ts:581:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { kind: 'flow', flow: [Object] }, { kind: 'flow', flow: [Object] }, { kind: 'turn', turn: [Object] } ],
+    expected: [ { kind: 'flow', flow: [Object] }, { kind: 'turn', turn: [Object] } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

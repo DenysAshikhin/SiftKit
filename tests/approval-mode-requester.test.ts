@@ -5,15 +5,13 @@ import type {
   ApprovalDecision,
   ApprovalRequestInput,
   ApprovalRequester,
-  HumanApprovalRequester,
-  HumanApprovalRequestInput,
   LiveApprovalMode,
 } from '../src/repo-search/engine/approval-gate.ts';
 import { ModeSwitchedApprovalRequester } from '../src/repo-search/engine/approval-mode-requester.ts';
 
-class FakeHumanGate implements HumanApprovalRequester {
-  readonly calls: HumanApprovalRequestInput[] = [];
-  request(input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
+class FakeHumanGate implements ApprovalRequester {
+  readonly calls: ApprovalRequestInput[] = [];
+  request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
     this.calls.push(input);
     return Promise.resolve({ kind: 'deny', reason: 'human' });
   }
@@ -36,7 +34,7 @@ class MutableMode implements LiveApprovalMode {
 }
 
 const INPUT: ApprovalRequestInput = {
-  turn: 1, toolName: 'write', command: 'write x', reviewPayload: null, pendingMessages: [],
+  turn: 1, toolName: 'write', command: 'write x', reviewPayload: null,
 };
 
 test('off approves without consulting either gate', async () => {

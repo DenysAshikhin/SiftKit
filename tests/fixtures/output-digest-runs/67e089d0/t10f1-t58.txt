@@ -1,0 +1,40 @@
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (205.5836ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6762.457
+EXIT_LIVE_A=0
+✔ an unflushed agent answers §2.1 with null fields last, and an agent with no transcript and no live flow is a 409 (206.6053ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2160.2634
+EXIT_AGENTS=0
+✔ activity reaches only its own run's subscribers, until they detach (4.7069ms)
+ℹ tests 82
+ℹ suites 0
+ℹ pass 82
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 901.8464
+EXIT_UNIT=0
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (214.0336ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6821.8117
+EXIT_LIVE_B=0

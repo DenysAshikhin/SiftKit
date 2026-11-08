@@ -25,6 +25,8 @@ import { replayChatContext } from '../src/status-server/chat-context-replay.ts';
 import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.ts';
 import { digestOutput } from '../src/output-digest/digest.ts';
 import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { parseJsonValueText } from '../src/lib/json.ts';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 const NOISY_VALIDATION_OUTPUT = Array.from(
@@ -614,6 +616,28 @@ test('an approval-denied granted retry is consumed', async () => {
   assert.equal(commands[2]?.reason, 'duplicate command');
 });
 
+test('an approval-denied call keeps its whole arguments in the transcript, while other large rejections are elided', async () => {
+  let requestCount = 0;
+  const approvalGate: ApprovalRequester = {
+    request(): Promise<{ kind: 'approve' } | { kind: 'deny'; reason: string }> {
+      requestCount += 1;
+      return Promise.resolve(requestCount === 1 ? { kind: 'deny', reason: 'test denial' } : { kind: 'approve' });
+    },
+  };
+  const root = createManagedTempDir('siftkit-denied-args-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, transcript } = makeProcessor(root, ['edit'], 'repo-agent', approvalGate);
+  const deniedArgs = { path: 'a.ts', edits: [{ oldText: 'alpha', newText: 'b'.repeat(600) }] };
+  const missedArgs = { path: 'a.ts', edits: [{ oldText: 'absent', newText: 'c'.repeat(600) }] };
+
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'denied_1', toolName: 'edit', args: deniedArgs }], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'missed_1', toolName: 'edit', args: missedArgs }], '', 0, false);
+
+  const callArguments = transcript.getMessages().flatMap((message) => message.tool_calls ?? []).map((call) => call.function.arguments);
+  assert.deepEqual(callArguments.map((value) => Object.keys(asObject(parseJsonValueText(value)))), [['path', 'edits'], ['elided']]);
+  assert.deepEqual(parseJsonValueText(callArguments[0] ?? ''), deniedArgs);
+});
+
 test('a non-run tool between downgrade and retry preserves the full grant', async () => {
   const root = createManagedTempDir('siftkit-run-full-non-run-');
   const { processor, commands } = makeProcessor(
@@ -998,7 +1022,7 @@ test('a validation run leads with the digest of its raw output, taken before sha
   assert.doesNotMatch(commands[1]?.promptOutput ?? '', /Digest of the whole output/u);
 });
 
-test('a run with outputMode "full" returns its raw output with no digest ahead of it', async () => {
+test('a run with outputMode "full" leads with the digest over its unshaped output', async () => {
   const root = createManagedTempDir('siftkit-run-full-');
   const output = readDigestFixture('pytest/fail.txt').trimEnd();
   const args = { command: 'Get-Content log.txt', outputMode: 'full' };
@@ -1009,6 +1033,9 @@ test('a run with outputMode "full" returns its raw output with no digest ahead o
   await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_full_1', toolName: 'run', args }], '', 0, false);
   await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_full_2', toolName: 'run', args: { command: 'Write-Output stable' } }], '', 0, false);
   const shown = commands[0]?.promptOutput ?? '';
-  assert.match(shown, /short test summary info/u, 'the raw output is shown');
-  assert.doesNotMatch(shown, /Digest of the whole output/u);
+  const digest = digestOutput(output)?.text ?? '';
+  assert.ok(digest.length > 0);
+  assert.ok(shown.startsWith(`${digest}\n`), shown);
+  assert.match(shown, /short test summary info/u, 'the whole raw output follows the digest');
+  assert.doesNotMatch(shown, /lines omitted from validation command output/u);
 });

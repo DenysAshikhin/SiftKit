@@ -1,0 +1,14 @@
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+LINT-OK
+✔ the 82 to 83 upgrade adds the session link, retires repo_key, and gives every stored run an explicit null session (24.4496ms)
+✔ the 82 to 83 upgrade is idempotent and keeps a session a stored run already names (7.9976ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 359.5387

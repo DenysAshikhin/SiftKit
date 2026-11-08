@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  buildApprovalVerdictMessages,
   requestApprovalVerdict,
-  type ExecutingPlannerRequest,
 } from '../src/repo-search/planner-protocol.ts';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.ts';
 import { ApprovalVerdictSchema } from '../src/repo-search/approval-verdict.ts';
+import { APPROVER_SYSTEM_PROMPT, buildApprovalReviewRequest } from '../src/repo-search/approval-review-policy.ts';
 import { buildPlannerJsonSchema } from '../src/planner-protocol/json-schema.ts';
 import { ApprovalModeSchema } from '@siftkit/contracts';
 import { RepoSearchApprovalRequestSchema } from '../src/repo-search/engine/approval-gate.ts';
@@ -17,28 +17,22 @@ import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
-import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.ts';
+import { baseVerdictOptions } from './helpers/approval-verdict-fixture.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.
 const MOCK_CONFIG = mockOfflineSiftConfig();
 
-const transcript: ChatMessage[] = [
-  { role: 'system', content: 'sys' },
-  { role: 'user', content: 'task' },
-  { role: 'assistant', content: 'analysis', reasoning_content: 'thinking-1' },
-];
-
 const APPROVE_MOCK = '{"verdict":"approve","reason":"ok"}';
 
-function verdictOptions(transcriptMessages: ChatMessage[], executing: ExecutingPlannerRequest) {
+function verdictOptions() {
   return {
     config: MOCK_CONFIG,
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
     throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
-    ...baseVerdictOptions(transcriptMessages, executing),
+    ...baseVerdictOptions(),
     timeoutMs: 5000,
     mockResponses: [{ content: APPROVE_MOCK }],
     mockResponseIndex: 0,
@@ -82,44 +76,26 @@ test('the approval verdict JSON schema constrains verdict to approve|deny|unsure
 });
 
 test('requestApprovalVerdict consumes one mock response and advances the index', async () => {
-  const response = await requestApprovalVerdict(verdictOptions(transcript, captureExecutingForVerdict(transcript)));
+  const response = await requestApprovalVerdict(verdictOptions());
   assert.equal(response.text, APPROVE_MOCK);
   assert.equal(response.nextMockResponseIndex, 1);
 });
 
-test('verdict accepts a transcript that extends the executing planner request', async () => {
-  const grown: ChatMessage[] = [...transcript, { role: 'assistant', content: 'follow-up' }];
-  const response = await requestApprovalVerdict(verdictOptions(grown, captureExecutingForVerdict(transcript)));
-  assert.equal(response.text, APPROVE_MOCK);
+test('a verdict request is the approver system prompt and one user message holding the whole proposed call', () => {
+  const request = buildApprovalReviewRequest({ toolName: 'edit', command: 'edit path="a.ts" edits=1 sha="0"', reviewPayload: '{"toolName":"edit"}' });
+  assert.deepEqual(buildApprovalVerdictMessages(request), [
+    { role: 'system', content: APPROVER_SYSTEM_PROMPT },
+    { role: 'user', content: request },
+  ]);
+  assert.equal(request, '<APPROVAL_REVIEW_REQUEST>\ntool: edit\ncommand: edit path="a.ts" edits=1 sha="0"\npayload:\n{"toolName":"edit"}');
+  assert.match(APPROVER_SYSTEM_PROMPT, /^You review one proposed tool call for a coding agent\. You are not that agent/u);
 });
 
-test('verdict fails loud when a transcript message diverges from the executing planner request', async () => {
-  const rewritten = transcript.map((message, index) => (
-    index === 1 ? { ...message, content: 'rewritten task' } : message
-  ));
-  await assert.rejects(
-    requestApprovalVerdict(verdictOptions(rewritten, captureExecutingForVerdict(transcript))),
-    /(?:diverged at message 1|message 1 diverged)/u,
+test('a run or git call reaches the approver with no payload section', () => {
+  assert.equal(
+    buildApprovalReviewRequest({ toolName: 'run', command: 'run command="npm test"', reviewPayload: null }),
+    '<APPROVAL_REVIEW_REQUEST>\ntool: run\ncommand: run command="npm test"',
   );
-});
-
-test('verdict fails loud when the transcript is shorter than the executing planner request', async () => {
-  await assert.rejects(
-    requestApprovalVerdict(verdictOptions(transcript.slice(0, 2), captureExecutingForVerdict(transcript))),
-    /diverged/u,
-  );
-});
-
-test('verdict serializes the transcript with the executing request flags', async () => {
-  // Captured with reasoning content disabled: the prefix has reasoning_content
-  // stripped, and the fresh verdict serialization must strip it identically.
-  const executing = captureExecutingForVerdict(transcript, {
-    thinkingEnabled: false,
-    reasoningContentEnabled: false,
-    preserveThinking: false,
-  });
-  const response = await requestApprovalVerdict(verdictOptions(transcript, executing));
-  assert.equal(response.text, APPROVE_MOCK);
 });
 
 test('a task loop refuses an approval verdict before any planner request', async () => {
@@ -143,8 +119,8 @@ test('a task loop refuses an approval verdict before any planner request', async
       },
     );
     await assert.rejects(
-      loop.requestApprovalVerdict('approve?', []),
-      /before any planner request/u,
+      loop.requestApprovalVerdict('approve?'),
+      /before any planner request; there are no tool definitions to review against/u,
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

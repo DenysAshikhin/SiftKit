@@ -7,6 +7,9 @@ import { InferenceToolCallParser } from '../llm-protocol/tool-call-parser.ts';
 import type { LiveContentClassification, InferenceToolCall } from '../llm-protocol/types.ts';
 import type { PlannerToolDefinition } from './json-schema.ts';
 
+/** Sole argument key of the placeholder that replaces a large rejected call's arguments in history. */
+export const ELIDED_ARGUMENTS_KEY = 'elided';
+
 export class NativePlannerResponseError extends Error {
   constructor(message: string) {
     super(message);
@@ -263,6 +266,13 @@ function parseToolAction(
   if (!definition) {
     const allowed = options.toolDefinitions.map((candidate) => candidate.function.name).join(', ');
     throw new NativePlannerToolCallError(`Unknown or disallowed tool "${toolName}". Allowed tools: ${allowed}.`, toolCall, args);
+  }
+  if (Object.keys(args).length === 1 && typeof args[ELIDED_ARGUMENTS_KEY] === 'string') {
+    throw new NativePlannerToolCallError(
+      `Tool "${toolName}" was called with the placeholder SiftKit put in your history for a rejected call; re-send the call with its complete arguments.`,
+      toolCall,
+      args,
+    );
   }
 
   if (definition.kind === 'finish') {

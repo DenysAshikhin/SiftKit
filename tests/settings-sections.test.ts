@@ -58,6 +58,7 @@ test('settings tooltip labels include the documented fields', () => {
       'Compaction reserve',
       'NcpuMoe',
       'ParallelSlots',
+      'ReviewerSlot',
       'UBatchSize',
       'CacheRam',
       'CacheRecurrentRam',

@@ -16,3 +16,7 @@ test('applied model preset state changes preset and admission capacity together'
   assert.equal(state.getPreset(), replacement);
   assert.equal(state.getParallelSlots(), 3);
 });
+test('admission capacity ignores the reviewer slot, which only the engine sees', () => {
+  const state = new AppliedModelPresetState({ ...getActiveModelPreset(getDefaultConfig()), ParallelSlots: 1, ReviewerSlot: true });
+  assert.equal(state.getParallelSlots(), 1);
+});

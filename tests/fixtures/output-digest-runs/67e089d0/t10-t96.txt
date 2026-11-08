@@ -1,0 +1,16 @@
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow (1817.1074ms)
+✔ a client that hangs up mid-stream stops hearing frames, and a stream opened after the agent settled answers flow then finished (1277.3753ms)
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (214.6462ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4069.2071
+✖ failing tests:
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow (1817.1074ms)
+  AssertionError [ERR_ASSERTION]: a turn frame is the whole turn, never a partial one
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents-live.test.ts:357:12)
+EXIT=1

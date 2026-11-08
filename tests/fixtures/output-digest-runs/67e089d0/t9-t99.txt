@@ -1,0 +1,5 @@
+78 lines truncated due to per-tool context limit.
+expected: /^Implement ONLY task 'greeting' — Add the greeting module — from plan /u,
+    operator: 'match',
+    diff: 'simple'
+  }

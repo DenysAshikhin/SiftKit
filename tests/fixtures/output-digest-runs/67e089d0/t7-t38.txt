@@ -1,0 +1,12 @@
+✔ detaching a subscriber stops its frames (0.1327ms)
+✔ two subscribers of one agent each get their own copy of the same frames (0.1681ms)
+✔ subscribing to a settled flow answers the whole flow and the finished frame with nothing left pending (0.1176ms)
+✔ an agent with no live flow has no stream (0.0508ms)
+ℹ tests 68
+ℹ suites 0
+ℹ pass 68
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 587.8497

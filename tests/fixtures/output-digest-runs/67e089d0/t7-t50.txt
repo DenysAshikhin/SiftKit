@@ -1,0 +1,7 @@
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+lint exit=0
+
+✔ a check failure explains a failing command and never flags an evidence check (0.1761ms)
+tests exit=0

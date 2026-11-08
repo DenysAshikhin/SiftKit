@@ -237,6 +237,14 @@ test('EXL3 adapter maps NgramRam onto TABBY_MODEL_NGRAM_RAM', () => {
   assert.equal(resident.TABBY_MODEL_NGRAM_RAM, 'true');
 });
 
+test('EXL3 adapter adds one engine lane for a reviewer slot beyond the parallel slots', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', ParallelSlots: 1 };
+
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, ReviewerSlot: false })).TABBY_MODEL_MAX_BATCH_SIZE, '1');
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, ReviewerSlot: true })).TABBY_MODEL_MAX_BATCH_SIZE, '2');
+});
+
 test('EXL3 adapter ships HybridDraftTokens with speculation on or off', () => {
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', KvCacheQuantization: 'f16' as const };
@@ -375,6 +383,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   CompactionReserveTokens: ALWAYS,
   NcpuMoe: MANAGED_ONLY,
   ParallelSlots: MANAGED_ONLY,
+  ReviewerSlot: MANAGED_ONLY,
   UBatchSize: ALWAYS,
   CacheRam: MANAGED_ONLY,
   CacheRecurrentRam: MANAGED_ONLY,

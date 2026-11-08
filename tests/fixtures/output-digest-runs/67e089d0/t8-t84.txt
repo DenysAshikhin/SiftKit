@@ -1,0 +1,200 @@
+✔ waiting for the model is shown once and cleared by the first turn (1.3775ms)
+✔ tool calls start running, settle by exit code, and only the most recent are kept (0.3185ms)
+✔ events with nothing visible return the same view (0.1284ms)
+✔ each scheduler pass is published as it was decided, and a snapshot is a copy the caller cannot change (12.2481ms)
+✔ a tracked child publishes visible progress only; untracking detaches it and drops it from the view (4.8258ms)
+✔ every running agent is reported in agents, a child keeps its own view, and both read one event stream (4.5889ms)
+✔ one worker event folds into both the child activity view and the live flow (4.5361ms)
+✔ a settled agent keeps its whole flow readable until it is dropped (4.4295ms)
+01:45:39  st --------  incoming  task=orchestrator arrival_position=1
+01:45:39  st 6eab4a33  lock_acquired  task=orchestrator wait_ms=7
+01:45:39  st 6eab4a33  lock_released  task=orchestrator held_ms=1 queue_remaining=0
+01:45:39  st --------  incoming  task=repo_agent arrival_position=1
+01:45:39  st 3af86224  lock_acquired  task=repo_agent wait_ms=7
+01:45:39  st 3af86224  lock_released  task=repo_agent held_ms=1 queue_remaining=0
+✔ prune drops exactly the settled flows whose transcript is stored, and clear empties the store (58.01ms)
+✔ a phase agent feeds its live flow through the sink, renews its lease, and its writer reports itself live (29.8572ms)
+✔ a worker flow carries the instruction and the very system context its engine was started with (33.6638ms)
+✔ llm_start opens its turn, and a retried turn reopens the same one (1.1786ms)
+✔ prompt sets the turn promptTokens (0.1318ms)
+✔ thinking replaces the whole thinking so far instead of appending to it (0.126ms)
+✔ narration and answer each replace the turn text (0.1128ms)
+✔ progress_update sets the turn progress (0.1039ms)
+✔ tool_start appends a running tool named for its activity kind (0.1929ms)
+✔ a tool stays running with no exit code and no output until its tool_result (0.2579ms)
+✔ approval_auto appends the decision the policy already took (0.1254ms)
+✔ approval_request appends one undecided approval, because the ask carries no verdict (0.1579ms)
+✔ llm_end stamps the turn elapsedMs from its start to its end (0.1526ms)
+✔ usage sets the turn thinkingTokens from its record (0.1458ms)
+✔ events the flow does not use leave it identical (0.1751ms)
+✔ an event for a turn that is not the open one leaves the flow identical (0.1674ms)
+✔ nothing has a turn to write to before the first llm_start (0.1717ms)
+✔ a finished live flow is the flow parsed from the same run, apart from tool output snippets (4.4972ms)
+✔ the store coalesces at the 250 ms rate §2.3 sets (0.0768ms)
+✔ create marks a flow live with its prompt, and finish settles it with its final answer (0.2375ms)
+✔ creating a live flow for an agent that already has one fails loudly (0.2628ms)
+✔ the activity entries follow the child waiting-for-model rule (0.1555ms)
+✔ a lock wait is activity only and never touches the flow (0.106ms)
+✔ an event for an agent the store never created is dropped (0.0633ms)
+✔ prune drops only a finished flow whose transcript is already stored (0.1688ms)
+✔ a subscriber gets the whole flow first, then one whole turn per window with its latest state, then the finished flow (0.6745ms)
+✔ detaching a subscriber stops its frames (0.1639ms)
+✔ two subscribers of one agent each get their own copy of the same frames (0.1879ms)
+✔ subscribing to a settled flow answers the whole flow and the finished frame with nothing left pending (0.1145ms)
+✔ an agent with no live flow has no stream (0.0539ms)
+✔ the same submission and payload returns the same parent; a different payload is rejected (16.4167ms)
+✔ two reservations against one revision cannot both succeed (9.6436ms)
+✔ each purpose allows two attempts and implementation attempts never consume the correction pool (15.8303ms)
+✔ attempt results settle exactly once and must name a reserved child (9.1461ms)
+✔ committed events replay in increasing sequence from any cursor (6.5711ms)
+✔ a restart keeps both budgets; interrupted runs reject further changes (9.8667ms)
+✔ a changed plan cannot drop or rename a task that already has attempts (6.3712ms)
+✔ a malformed stored row fails loudly instead of reading as a default (6.3814ms)
+✔ a stopped run aborts its open tasks and abandons unsettled attempts; untouched tasks stay pending (9.7028ms)
+✔ a run reports the merged throughput of its own phase runs and its children, ignoring unrelated runs (8.7823ms)
+✔ shared leases overlap; an exclusive waits for them and blocks later readers until it releases (3.2559ms)
+✔ an owned exclusive lease overlaps only its own run's readers; other owners and a second exclusive wait (1.2292ms)
+✔ path aliases share one repository key and an unknown root fails loudly (1.5169ms)
+✔ an aborted waiter leaves the queue without ever holding the repository (0.6935ms)
+✔ startup marks every stored nonterminal parent interrupted and never redispatches it (17.2788ms)
+✔ shutdown stops scheduling, aborts live parents, waits for them, and interrupts the unsettled (9.2705ms)
+✔ subscribers receive each committed state until they detach (6.7159ms)
+✔ startup marks the running children of an interrupted parent not resumable (14.6447ms)
+✔ activity reaches only its own run's subscribers, until they detach (5.0157ms)
+✔ builder loads enabled sources in stable order (3.8266ms)
+✔ builder skips each invalid configured file with a specific warning (0.8365ms)
+✔ builder skips unreadable configured paths without aborting later files (0.8393ms)
+✔ builder omits disabled or unavailable built-in sources (0.516ms)
+✔ composer includes the preset prefix exactly once (0.5458ms)
+✔ composer keeps the system context in the shared prefix when an additional prefix is added (0.153ms)
+✔ composer places a genuine additional prefix last, below the system context (0.0825ms)
+01:45:39  rs 2bbf3c4a  approval_wait  approval=f645ee9c tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 2bbf3c4a  approval_decision  approval=f645ee9c decision=abort waited_ms=2
+01:45:39  rs 8ad68578  approval_wait  approval=e70cd479 tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 8ad68578  approval_decision  approval=e70cd479 decision=abort waited_ms=0
+01:45:39  rs 75ec71aa  approval_wait  approval=12b879e0 tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 75ec71aa  approval_decision  approval=12b879e0 decision=abort waited_ms=0
+01:45:39  rs e21ea63a  approval_wait  approval=8ad6927c tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs e21ea63a  approval_decision  approval=8ad6927c decision=abort waited_ms=1
+01:45:39  rs 4005a51f  approval_wait  approval=92066a20 tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 4005a51f  approval_decision  approval=92066a20 decision=approve waited_ms=1
+01:45:39  rs 0f131493  approval_wait  approval=f4027a1d tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 0f131493  approval_decision  approval=f4027a1d decision=deny waited_ms=1
+01:45:39  rs afef76a8  approval_wait  approval=36db7a27 tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs afef76a8  approval_decision  approval=36db7a27 decision=abort waited_ms=0
+01:45:39  rs 8dd79086  approval_wait  approval=a414b9ee tool=run timeout_ms=25 command=npm install left-pad
+✔ Decision contracts require a deny reason and preserve it after parsing (1.476ms)
+✔ Session decisions require the owning run ID (28.1587ms)
+✔ Completion: engine returns immediately, boundary resolves completed, lock released (5.2771ms)
+✔ Non-finish engine result resolves failed and preserves terminal synthesis (4.3348ms)
+✔ Park boundary: ParkingEngine parks at approval_required with populated decide commands (8.2463ms)
+✔ Harness cleanup waits for an auto approval park and is idempotent (7.5982ms)
+✔ Harness cleanup observes interactive approval before aborting (7.29ms)
+✔ Approve resume: submitDecision approve resumes engine to completion (3.8289ms)
+✔ Deny resume: submitDecision deny resumes engine with denied output (3.603ms)
+✔ Abort: submitDecision abort resolves to aborted boundary, settled resolves cleanly (7.2872ms)
+01:45:39  rs 8dd79086  approval_timeout  approval=a414b9ee tool=run waited_ms=25
+01:45:39  rs 1cf6adaf  approval_wait  approval=643017b7 tool=run timeout_ms=600000 command=npm install left-pad
+✔ Timeout: decisionTimeoutMs expires, boundary resolves approval_timeout, engine abort does not overwrite (47.4644ms)
+01:45:39  rs 1cf6adaf  approval_decision  approval=643017b7 decision=approve waited_ms=51
+01:45:39  rs 820f0e57  approval_wait  approval=3d7bd91b tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 820f0e57  approval_decision  approval=3d7bd91b decision=abort waited_ms=1
+01:45:39  rs ba9b5291  admission_failure_persistence_failed  EISDIR: illegal operation on a directory, read
+01:45:39  rs d165132d  approval_wait  approval=c71bd15d tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs d165132d  approval_decision  approval=c71bd15d decision=approve waited_ms=0
+01:45:39  rs c3f48cfd  approval_wait  approval=d9f996ac tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs c3f48cfd  approval_decision  approval=d9f996ac decision=approve waited_ms=1
+01:45:39  rs c3f48cfd  session_failure_persistence_failed  Failed to persist repo-agent failure: durable failure transition failed. Original failure: Approval observer failed: durable decision transition failed
+01:45:39  rs 401c1568  command  t1/4  prompt=100tok  thinking-total=5  elapsed=0s  rg -n "cipher" src
+01:45:39  rs 1784f509  approval_wait  approval=05813829 tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 1784f509  approval_decision  approval=05813829 decision=approve waited_ms=0
+✔ Progress delivery: subscriber receives approval_request, waitForBoundary stays pending (56.99ms)
+✔ Boundary delivery: subscriber never sees approval_request, waitForBoundary resolves approval_required (7.7038ms)
+✔ Engine failure: engine rejects, boundary resolves failed, lock released (6.4377ms)
+✔ Empty engine failure still publishes a non-empty authoritative failed state (6.2548ms)
+✔ Admission persistence failure does not block the durable engine failure transition (2.6452ms)
+✔ Lock timeout: adapter returns null, boundary resolves failed with queue message (5.6554ms)
+✔ Boundary cancellation removes only the disconnected waiter and leaves the session resumable (3.0122ms)
+✔ Persistence failure while deciding retains the authoritative failed session state (6.4919ms)
+✔ session progress writer reports wantsLiveText from the attached subscriber (2.7608ms)
+✔ tool activity alone renews model ownership with no subscriber attached (2.7725ms)
+✔ provider activity on the session writer renews model ownership without a progress event (2.5327ms)
+✔ a parked approval releases the model lease and the decision re-acquires it before resuming (4.2492ms)
+01:45:39  rs 7af68393  approval_wait  approval=bc7a9db0 tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 7af68393  approval_decision  approval=bc7a9db0 decision=approve waited_ms=30
+01:45:39  rs 8d18ed60  approval_wait  approval=11d41c9c tool=run timeout_ms=600000 command=npm install left-pad
+01:45:39  rs 8d18ed60  approval_decision  approval=11d41c9c decision=approve waited_ms=1
+✔ repository ownership is taken before the model and held across a park until the run settles (57.1575ms)
+✔ a resume that cannot re-acquire the model fails the run without executing the approved tool (6.8204ms)
+01:45:39  rs 69082df4  command  t1/4  prompt=100tok  thinking-total=5  elapsed=0s  rg -n "cipher" src
+01:45:39  rs d7bcf26f  command  t1/4  prompt=100tok  thinking-total=5  elapsed=0s  rg -n "cipher" src
+01:45:39  rs d906461f  command  t1/4  prompt=100tok  thinking-total=5  elapsed=0s  rg -n "tool-start-log-marker" src
+01:45:39  rs cc64cdcb  approval_wait  approval=0348b8f9 tool=run timeout_ms=600000 command=npm install left-pad
+✔ an aborted run releases model ownership and cannot renew it afterwards (8.2328ms)
+✔ live-text events reach only a live-text subscriber: a live-text subscriber receives all four in order (2.2101ms)
+✔ live-text events reach only a live-text subscriber: a non-live-text subscriber receives only tool_start (2.0326ms)
+✔ answer events are never fanned out: a non-live-text subscriber receives nothing (2.0119ms)
+✔ answer events reach a live-text subscriber for stopped-transcript capture (1.8962ms)
+✔ live-text events are not server-logged (2.263ms)
+✔ session exposes the engine execution result after a completed run (2.0619ms)
+✔ session getExecutionResult returns null for an aborted run (1.8528ms)
+01:45:39  rs cc64cdcb  approval_decision  approval=0348b8f9 decision=approve waited_ms=15
+01:45:39  rs 8bb1baf3  approval_wait  approval=9648d17d tool=run timeout_ms=600000 command=npm install left-pad
+✔ setApprovalMode off releases a parked approval, reports it, and the run completes (18.3203ms)
+01:45:39  rs 8bb1baf3  approval_decision  approval=9648d17d decision=abort waited_ms=13
+01:45:39  rs 1e4b19c4  approval_wait  approval=a3141d03 tool=write timeout_ms=600000 command=write a.txt
+✔ setApprovalMode auto or interactive leaves a parked approval waiting and returns null (18.7132ms)
+01:45:39  rs 1e4b19c4  approval_decision  approval=a3141d03 decision=approve waited_ms=10
+01:45:39  rs c1e4e70b  approval_wait  approval=4eff2d48 tool=write timeout_ms=600000 command=write b.txt
+✔ setApprovalMode while running is visible to the engine on its next gate call (12.6433ms)
+01:45:39  rs c1e4e70b  approval_decision  approval=4eff2d48 decision=approve waited_ms=12
+01:45:39  rs ab27d145  command  t1/4  prompt=100tok  thinking-total=5  elapsed=0s  rg -n "cipher" src
+✔ a run started in off parks after a switch to interactive (14.8122ms)
+✔ every attached subscriber gets progress, live text reaches only the live-text one, and detaching one keeps the other (2.4169ms)
+✔ system prompt action instructions match the request tool surface (0.9595ms)
+✔ restricted and empty agent prompts preserve the completion review instruction (0.2139ms)
+✔ repo prompts render one canonical sparse-progress policy (0.2941ms)
+✔ base task prompt and initial user message exclude autoload content (0.1694ms)
+✔ buildTaskSystemPrompt omits agents.md block when disabled (1.6536ms)
+✔ buildTaskInitialUserPrompt omits repository file listing when disabled (0.0888ms)
+✔ buildTaskInitialUserPrompt never contains the repository file listing (0.0855ms)
+✔ buildTaskSystemPrompt advertises the native tool surface and no shell commands (0.6423ms)
+✔ buildTaskSystemPrompt preserves load-bearing planner rules after compression (0.6193ms)
+✔ buildTaskSystemPrompt compression keeps prompt under 6000 chars (no agents.md) (0.6376ms)
+✔ buildTaskSystemPrompt turn-1 directive searches from the repository root (0.5413ms)
+✔ buildTaskSystemPrompt leaves native tool schemas to the request (0.5102ms)
+✔ buildTaskSystemPrompt includes anti-loop and larger single-file read guidance (0.7105ms)
+✔ buildTaskSystemPrompt instructs larger reads and anchor-first flow without envelope examples (0.4736ms)
+✔ buildTaskSystemPrompt states ignored paths are auto-filtered by runtime policy (0.4354ms)
+✔ buildAgentSystemPrompt has persona, full tool list, edit-first guideline, and no search-discipline lines (11.369ms)
+✔ buildAgentSystemPrompt excludes the approval-review policy (12.4328ms)
+✔ buildTaskSystemPrompt excludes repo-agent approval-review policy (11.5912ms)
+✔ buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with tail-truncated output (10.5763ms)
+✔ buildAgentSystemPrompt states the exact UTF-8 boundaries and newline split idiom (9.3391ms)
+✔ buildAgentSystemPrompt gives safe forward-slash and escaped-backslash path guidance (9.5768ms)
+✔ buildAgentSystemPrompt documents automatic validation trimming and full output mode (8.9517ms)
+✔ buildAgentSystemPrompt requires a completion review against the task and referenced plans (9.1386ms)
+✔ buildAgentSystemPrompt uses context metadata without injecting context content (1.1064ms)
+✔ buildCompactionSummaryInstruction requests the complete resumable summary without embedding history (0.0934ms)
+✔ buildCompactionSummaryInstruction preserves system instructions outside the replaced history (0.0596ms)
+✔ restricted agent prompt with run declares the PowerShell shell and forbids nesting (10.9373ms)
+✔ restricted repo-search planner prompt prefers structured tools over run (9.2386ms)
+✔ web chat tools ride on top of the full agent surface without restricting the prompt (1.2633ms)
+✔ every web run kind gets the web chat tools and one shared guidance block; other runs get neither (0.8339ms)
+✔ summary prompt exposes separate instruction and input sections in exact order (0.7769ms)
+✔ compact summary prompt composes preset and startup context exactly once (0.1687ms)
+✔ chunk and merge summary prompts independently compose every section once (0.1427ms)
+✔ planner summary request keeps composed system instructions before user input (0.2191ms)
+✔ summary planner prompt exposes no progress action or policy (0.3172ms)
+✔ benchmark prompt label is fixture metadata rather than a fabricated model prompt (0.0943ms)
+✔ summary repro prompt uses configured preset instructions and startup context (4.0637ms)
+✔ every volatile summary prompt input leaves the system context inside the shared prefix (1.5395ms)
+✔ every volatile planner prompt input leaves the system context inside the shared prefix (0.8327ms)
+ℹ tests 141
+ℹ suites 0
+ℹ pass 141
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1265.3964

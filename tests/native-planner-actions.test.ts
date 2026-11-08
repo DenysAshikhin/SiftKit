@@ -7,6 +7,7 @@ import { completeLiveContent } from '../src/llm-protocol/live-content-classifier
 import { z } from '../src/lib/zod.ts';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../src/planner-protocol/json-schema.ts';
 import {
+  ELIDED_ARGUMENTS_KEY,
   NativePlannerResponseError,
   NativePlannerToolCallError,
   parseNativePlannerActions as parseNativePlannerActionsFromResult,
@@ -182,6 +183,28 @@ test('invalid arguments fail on their provider call id and field', () => {
       && error.callId === 'invalid-1'
       && error.toolName === 'git'
       && /operation/u.test(error.message),
+  );
+});
+
+test('a call copying the elided-arguments placeholder is refused with a re-send instruction', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '', toolCalls: [call('copied-1', 'edit', { [ELIDED_ARGUMENTS_KEY]: 'rejected edit call; 900 chars of arguments discarded' })] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerToolCallError
+      && error.callId === 'copied-1'
+      && error.message === 'Tool "edit" was called with the placeholder SiftKit put in your history for a rejected call; re-send the call with its complete arguments.',
+  );
+});
+
+test('a call carrying the placeholder key beside real arguments gets ordinary validation', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '', toolCalls: [call('mixed-1', 'edit', { [ELIDED_ARGUMENTS_KEY]: 'x', path: 'a.ts' })] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerToolCallError && !/placeholder/u.test(error.message),
   );
 });
 

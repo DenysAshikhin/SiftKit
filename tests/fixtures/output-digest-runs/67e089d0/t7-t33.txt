@@ -1,0 +1,35 @@
+✔ llm_start opens its turn, and a retried turn reopens the same one (1.1115ms)
+✔ prompt sets the turn promptTokens (0.1159ms)
+✔ thinking replaces the whole thinking so far instead of appending to it (0.1017ms)
+✔ narration and answer each replace the turn text (0.1052ms)
+✔ progress_update sets the turn progress (0.1009ms)
+✔ tool_start appends a running tool named for its activity kind (0.1665ms)
+✔ a tool stays running with no exit code and no output until its tool_result (0.2549ms)
+✔ approval_auto appends the decision the policy already took (0.1273ms)
+✔ approval_request appends one undecided approval, because the ask carries no verdict (0.1509ms)
+✔ llm_end stamps the turn elapsedMs from its start to its end (0.1436ms)
+✔ usage sets the turn thinkingTokens from its record (0.1251ms)
+✔ events the flow does not use leave it identical (0.1374ms)
+✔ an event for a turn that is not the open one leaves the flow identical (0.1519ms)
+✔ nothing has a turn to write to before the first llm_start (0.1149ms)
+✔ a finished live flow is the flow parsed from the same run, apart from tool output snippets (3.7134ms)
+✔ the store coalesces at the 250 ms rate §2.3 sets (0.0566ms)
+✔ create marks a flow live with its prompt, and finish settles it with its final answer (0.1812ms)
+✔ creating a live flow for an agent that already has one fails loudly (0.2229ms)
+✔ the activity entries follow the child waiting-for-model rule (0.1384ms)
+✔ a lock wait is activity only and never touches the flow (0.0973ms)
+✔ an event for an agent the store never created is dropped (0.0528ms)
+✔ prune drops only a finished flow whose transcript is already stored (0.151ms)
+✔ a subscriber gets the whole flow first, then one whole turn per window with its latest state, then the finished flow (0.5557ms)
+✔ detaching a subscriber stops its frames (0.1277ms)
+✔ two subscribers of one agent each get their own copy of the same frames (0.1708ms)
+✔ subscribing to a settled flow answers the whole flow and the finished frame with nothing left pending (0.1176ms)
+✔ an agent with no live flow has no stream (0.0485ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 518.7324

@@ -1,0 +1,25 @@
+file:///C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-verification.test.ts:12
+import { evaluateAttempt, findReviewCriteriaProblems, formatAttemptFailure } from '../src/orchestrator/verification.ts';
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+SyntaxError: The requested module '../src/orchestrator/verification.ts' does not provide an export named 'findReviewCriteriaProblems'
+    at #asyncInstantiate (node:internal/modules/esm/module_job:463:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:561:5)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v26.7.0
+✖ tests\orchestrator-verification.test.ts (263.0637ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 267.2831
+
+✖ failing tests:
+
+test at tests\orchestrator-verification.test.ts:1:1
+✖ tests\orchestrator-verification.test.ts (263.0637ms)
+  'test failed'

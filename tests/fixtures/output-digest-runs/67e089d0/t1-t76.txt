@@ -1,0 +1,5 @@
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+
+LINT_EXIT=0

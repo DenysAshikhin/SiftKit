@@ -1,0 +1,25 @@
+1335 lines truncated due to per-tool context limit.
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 37871.8576
+✖ failing tests:
+test at tests\process\orchestrator-run.e2e.test.ts:343:1
+✖ the CLI starts a run, streams committed events, and prints the typed result with a completion exit code (191.1058ms)
+  AssertionError [ERR_ASSERTION]: siftkit orchestrator is blocked inside agent run repo-search: the status server's model lock is held by the parent run, so this call would deadlock. Run the underlying command raw instead of routing it through siftkit.
+  
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-run.e2e.test.ts:360:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

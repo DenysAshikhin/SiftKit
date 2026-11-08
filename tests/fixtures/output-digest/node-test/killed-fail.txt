@@ -1,0 +1,14 @@
+timeout=420000ms exceeded; command was killed
+{"ok":true,"port":38730,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-run-hV84YW\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-run-hV84YW\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+03:11:28  st --------  incoming  task=orchestrator arrival_position=1
+03:11:28  st 0e9c9ef2  lock_acquired  task=orchestrator wait_ms=9
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow (30327.9148ms)
+{"ok":true,"port":38750,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-disconnect-8baeYP\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-disconnect-8baeYP\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+03:11:58  st --------  incoming  task=orchestrator arrival_position=1
+03:11:58  st 43d68d82  lock_acquired  task=orchestrator wait_ms=8
+✖ a client that hangs up mid-stream stops hearing frames, and a stream opened after the agent settled answers flow then finished (30260.526ms)
+{"ok":true,"port":24115,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-unflushed-G5JmOq\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-unflushed-G5JmOq\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+✖ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (209.0827ms)

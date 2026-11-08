@@ -1,0 +1,48 @@
+✔ an acyclic two-task plan validates and normalizes path keys (3.8916ms)
+✔ a supported custom read-only worker preset is accepted (1.2132ms)
+✔ plan validation rejects duplicate task ids (0.9662ms)
+✔ plan validation rejects a missing dependency (0.7814ms)
+✔ plan validation rejects a self dependency (0.8809ms)
+✔ plan validation rejects a cycle (0.7682ms)
+✔ plan validation rejects an unknown worker preset (0.7478ms)
+✔ plan validation rejects a recursive orchestrator worker (0.7645ms)
+✔ plan validation rejects write paths on a read-only worker (0.7627ms)
+✔ plan validation rejects a read-only worker granting mutating tools (0.781ms)
+✔ plan validation rejects a parent-relative escape (0.6998ms)
+✔ plan validation rejects an absolute path (0.6579ms)
+✔ plan validation rejects a path that escapes through a junction (1.1933ms)
+✔ verification commands and evidence paths are repository scoped too (0.7381ms)
+✔ a parent prompt is the run block, then the phase, then the answer JSON schema (0.8243ms)
+✔ every phase builder returns only its phase text (0.1554ms)
+✔ both evidence reviews state the shared answer guidance once (0.1041ms)
+✔ attempt review lists only the task baseline beyond the run context (0.0905ms)
+✔ attempt review numbers the acceptance criteria and demands one criteria entry per index (0.519ms)
+✔ final verification answers criteria empty because it judges none of them (0.0768ms)
+✔ drift review forbids answering not_required (0.0746ms)
+✔ final verification feeds back the problems that rejected its previous review (0.0843ms)
+✔ check approval and final verification state the goal once, via the saved plan (0.1444ms)
+✔ every phase label maps to a wire-safe json_schema name (0.1733ms)
+✔ plan preparation opens with the run block before any plan exists (0.1397ms)
+✔ the parent prompt heads its run block, phase text and schema with the exported constants in order (0.1636ms)
+✔ the worker instruction heads each block with an exported constant and keeps the list it introduces (0.1593ms)
+✔ every exported heading constant is a non-empty string that a builder actually emits as its own line (0.1629ms)
+✔ a completed worker with independently passing checks and verified evidence passes (3.4884ms)
+✔ a worker claim cannot pass a failing, missing, or timed-out check (1.9986ms)
+✔ evidence checks need a passing review whose anchors resolve to the cited lines (2.162ms)
+✔ a failing review fails the attempt without copying its findings into problems (0.7274ms)
+✔ the criteria validator accepts a review that judges every criterion exactly once (0.2504ms)
+✔ the criteria validator rejects a gap, a repeat, and an out-of-range index (0.1803ms)
+✔ the criteria validator rejects a pass with an unmet criterion and a fail with no finding (0.117ms)
+✔ the criteria validator rejects a finding citing a criterion the review marked met (0.1053ms)
+✔ the criteria validator requires empty criteria for the final verification (0.0947ms)
+✔ formatAttemptFailure renders every problem then each review finding with its criterion (0.2295ms)
+✔ formatAttemptFailure leaves a clean review contributing no text (0.089ms)
+✔ a rendered plan states every task scope, step, check, and acceptance criterion (1.5567ms)
+ℹ tests 40
+ℹ suites 0
+ℹ pass 40
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 553.2141

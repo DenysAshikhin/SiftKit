@@ -1,0 +1,27 @@
+28: 'no-restricted-syntax': [
+84: 'no-restricted-syntax': 'off',
+98: 'no-restricted-globals': [
+120: 'no-restricted-syntax': [
+--- leftovers:
+15: } from '../../src/orchestrator/prompt-headings.ts';
+19: type OrchestratorPromptPart,
+25: * Prompt text shaped exactly as src/orchestrator/prompts.ts assembles it, written with the shared §3.3 constants so this
+26: * suite exercises the splitter alone. tests/orchestrator-prompts.test.ts feeds the real builders' output through this
+31: 'Requested task: Ship the board',
+32: 'Worker presets (never another orchestrator):',
+35: 'Saved plan plan.md (sha256 abc):',
+37: '# Ship the board', '', '## Task t1: Do the thing', '- Writes: `src/a.ts`', '1. Edit it.',
+40: 'Phase: prepare the executable plan for this orchestrator run.',
+46: `Implement ONLY task 't1' — Do the thing — from plan plan.md (hash abc).`,
+64: function partText(part: OrchestratorPromptPart): string {
+74: function assertNothingDropped(user: string, parts: readonly OrchestratorPromptPart[]): void {
+90: test('the dashboard splits on the very constants src/orchestrator/prompt-headings.ts holds', () => {
+104: assert.deepEqual(PHASE_PROMPT.user.map((part) => part.title), ['Run context', 'Plan', 'Phase instructions', 'Answer schema']);
+105: const [context, plan, instructions, schema] = PHASE_PROMPT.user;
+106: if (context?.kind !== 'prose' || plan?.kind !== 'plan' || instructions?.kind !== 'prose' || schema?.kind !== 'schema') {
+107: assert.fail(`phase parts are not the run block, plan, prose and schema: ${JSON.stringify(PHASE_PROMPT.user)}`);
+111: assert.ok(!context.text.includes(PROMPT_PLAN_OPEN), 'the saved plan leaves the run block for its own fold');
+112: assert.match(plan.text, /Do the thing/u);
+113: assert.ok(!plan.text.includes(PROMPT_PLAN_CLOSE), 'the plan fold holds the plan, not the markers around it');
+114: assert.equal(instructions.text, 'Phase: prepare the executable plan for this orchestrator run.');
+126: assert.match(partText(parts[0] ?? { kind: 'prose', title: null, text: '' }), /Implement ONLY task 't1'/u);

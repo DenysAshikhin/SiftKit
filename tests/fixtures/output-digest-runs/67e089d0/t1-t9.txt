@@ -1,0 +1,16 @@
+---
+
+> siftkit@0.1.0 typecheck
+> tsc -p .\packages\contracts\tsconfig.json && tsc -p .\tsconfig.json && tsc -p .\tsconfig.scripts.json && tsc -p .\dashboard\tsconfig.json && tsc -p .\dashboard\tsconfig.node.json && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint
+
+src/orchestrator/phase-runner.ts(1,15): error TS2724: '"../../packages/contracts/src/orchestrator.ts"' has no exported member named 'OrchestratorPhaseLabel'. Did you mean 'OrchestratorPhase'?
+src/orchestrator/phase-runner.ts(111,31): error TS7053: Element implicitly has an 'any' type because expression of type 'OrchestratorPhaseLabel' can't be used to index type '{ readonly 'plan preparation': "plan_preparation"; readonly 'task review': "task_review"; readonly 'drift review': "drift_review"; readonly 'final verification': "final_verification"; readonly 'approval decision': "approval_decision"; }'.
+src/orchestrator/run.ts(326,74): error TS7053: Element implicitly has an 'any' type because expression of type 'OrchestratorPhaseLabel' can't be used to index type '{ readonly 'plan preparation': "plan_preparation"; readonly 'task review': "task_review"; readonly 'drift review': "drift_review"; readonly 'final verification': "final_verification"; readonly 'approval decision': "approval_decision"; }'.
+TYPECHECK_EXIT=2
+ls : Cannot find path 'C:\tmp\rsx\siftkit-compare-single\node_modules\@typescript' because it does not exist.
+At line:1 char:1
++ ls node_modules\@typescript; Write-Output "---"; npm run typecheck 2> ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\tmp\rsx\sift...les\@typescript:String) [Get-ChildItem], ItemNotFound 
+   Exception
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetChildItemCommand

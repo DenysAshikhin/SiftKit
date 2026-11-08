@@ -1,0 +1,11 @@
+1: import tseslint from 'typescript-eslint';
+6: // retain casts / explicit `unknown` / namespace imports. They are ratcheted off
+19:   // catches an import or binding a refactor stopped using. Dead references keep
+31:       selector: 'ImportNamespaceSpecifier',
+32:       message: 'Namespace imports (import * as) are banned; use named imports.',
+100:         { name: '__dirname', message: '__dirname is undefined in ESM; use moduleDirname(import.meta.url) from lib/paths.' },
+101:         { name: '__filename', message: '__filename is undefined in ESM; use moduleFilename(import.meta.url) from lib/paths.' },
+102:         { name: 'require', message: 'require is undefined in ESM; use import, or isMainModule(import.meta.url) from lib/paths for direct-run checks.' },
+116:   // namespace-import and JsonValue-union bans stay in force here.
+123:           selector: 'ImportNamespaceSpecifier',
+124:           message: 'Namespace imports (import * as) are banned; use named imports.',

@@ -1,0 +1,22 @@
+at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+EXIT_E2E=1
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (222.7405ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6466.1014
+EXIT_LIVE2=0

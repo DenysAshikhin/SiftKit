@@ -1,0 +1,14 @@
+✔ a completed worker with independently passing checks and verified evidence passes (3.3453ms)
+✔ a worker claim cannot pass a failing, missing, or timed-out check (1.9746ms)
+✔ evidence checks need a passing review whose anchors resolve to the cited lines (2.4098ms)
+✔ a rendered plan states every task scope, step, check, and acceptance criterion (1.6706ms)
+ℹ tests 41
+ℹ suites 0
+ℹ pass 41
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 651.4624
+
+SERVER_TESTS_EXIT=0

@@ -108,7 +108,7 @@ Details:
 
 ### 2.1 The worker's `run` tool
 
-`ToolResultBudgeter.fit` (in `src/repo-search/engine/tool-result-budgeter.ts`) renders the digest of the command's output and leads the tool result with it. This applies whether the command passed or failed. The digest is computed from the raw output in `ToolActionProcessor`, before validation shaping keeps the last 50 lines; a run served with `outputMode: "full"` gets none, so `full` stays raw.
+`ToolResultBudgeter.fit` (in `src/repo-search/engine/tool-result-budgeter.ts`) renders the digest of the command's output and leads the tool result with it. This applies whether the command passed or failed. The digest is computed from the raw output in `ToolActionProcessor`, before validation shaping keeps the last 50 lines; a run served with `outputMode: "full"` gets it too, ahead of its unshaped output (changed 2026-11-03, see `2026-11-03-run-67e089d0-followups-design.md`).
 
 - **The output fits:** the result is the digest, then the whole output.
 - **It doesn't fit:**

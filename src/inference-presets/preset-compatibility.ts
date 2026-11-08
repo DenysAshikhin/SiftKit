@@ -92,6 +92,7 @@ const PRESET_FIELD_SUPPORT = {
   CompactionReserveTokens: 'always',
   NcpuMoe: 'managed-only',
   ParallelSlots: 'managed-only',
+  ReviewerSlot: 'managed-only',
   UBatchSize: 'always',
   CacheRam: 'managed-only',
   CacheRecurrentRam: 'managed-only',

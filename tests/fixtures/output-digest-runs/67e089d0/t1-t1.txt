@@ -1,0 +1,7 @@
+=== 1
+
+EXIT=0
+=== 2
+
+EXIT=0
+=== git status

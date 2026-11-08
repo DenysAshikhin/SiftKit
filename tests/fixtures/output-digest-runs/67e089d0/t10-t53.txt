@@ -1,0 +1,13 @@
+DEBUG_FRAMES [["flow",1793694130028],["finished",1793694130262]]
+DEBUG_TURNS [[1,"Checking what the wo","",[["search",0]]],[2,"Reading the recent h","",[["search",0]]],[3,"Searching 
+the tracke","",[["search",0]]],[4,"Listing the tracked ","",[["search",0]]],[5,"Comparing the tree 
+w","",[["search",0]]],[6,"Reading the history ","",[["search",0]]],[7,"Checking the files 
+u","",[["search",0]]],[8,"","{\"status\":\"generated",[]]]
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow 
+(695.894ms)
+✔ a client that hangs up mid-stream stops hearing frames, and a stream opened after the agent settled answers flow 
+then finished (1164.6075ms)
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (201.88ms)
+✖ failing tests:
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow 
+(695.894ms)

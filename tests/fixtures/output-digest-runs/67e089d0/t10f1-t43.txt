@@ -1,0 +1,26 @@
+✔ the two agent endpoints report every agent of a finished run, in start order, from its state and its run logs (1214.2923ms)
+{"ok":true,"port":64970,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-unflushed-0w4ykX\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-unflushed-0w4ykX\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+✔ an unflushed agent answers §2.1 with null fields last, and an agent with no transcript and no live flow is a 409 (205.3248ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2192.4166
+EXIT_AGENTS=0
+✔ shutdown stops scheduling, aborts live parents, waits for them, and interrupts the unsettled (7.62ms)
+✔ subscribers receive each committed state until they detach (5.4093ms)
+✔ startup marks the running children of an interrupted parent not resumable (9.7957ms)
+✔ activity reaches only its own run's subscribers, until they detach (4.8529ms)
+ℹ tests 82
+ℹ suites 0
+ℹ pass 82
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 905.4461
+EXIT_UNIT=0

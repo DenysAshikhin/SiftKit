@@ -161,7 +161,8 @@ export class Exl3PresetAdapter {
       TABBY_MODEL_MAX_SEQ_LEN: String(request.max_seq_len),
       TABBY_MODEL_CACHE_SIZE: String(request.cache_size),
       TABBY_MODEL_CACHE_MODE: request.cache_mode,
-      TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots),
+      // The reviewer lane serves approval verdicts beside a running agent; the scheduler never admits into it.
+      TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots + (preset.ReviewerSlot ? 1 : 0)),
       TABBY_MODEL_CHUNK_SIZE: String(request.chunk_size),
       TABBY_MEMORY_SYSMEM_KV_CACHE: String(preset.CacheRam),
       TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(preset.CacheRecurrentRam),

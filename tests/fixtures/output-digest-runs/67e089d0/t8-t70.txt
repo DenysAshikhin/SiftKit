@@ -1,0 +1,6 @@
+16 lines truncated due to per-tool context limit.
+tests/repo-search-prompts.test.ts(114,40): error TS2345: Argument of type '{ content: string; warnings: never[]; hasAgentsMd: false; hasRepoFileListing: false; loadedFiles: string[]; }' is not assignable to parameter of type 'PresetSystemContext'.
+  Property 'sections' is missing in type '{ content: string; warnings: never[]; hasAgentsMd: false; hasRepoFileListing: false; loadedFiles: string[]; }' but required in type 'PresetSystemContext'.
+tests/summary-prompt-composition.test.ts(31,7): error TS2741: Property 'sections' is missing in type '{ content: string; warnings: never[]; hasAgentsMd: true; hasRepoFileListing: false; loadedFiles: never[]; }' but required in type 'PresetSystemContext'.
+tests/summary-prompt-composition.test.ts(191,7): error TS2741: Property 'sections' is missing in type '{ content: string; warnings: never[]; hasAgentsMd: false; hasRepoFileListing: true; loadedFiles: never[]; }' but required in type 'PresetSystemContext'.
+Notice: outputMode "full" was served as "auto" for this validation command. If the raw output is genuinely required, repeat this identical run with outputMode "full" as your next run call.

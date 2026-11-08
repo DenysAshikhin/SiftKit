@@ -1,0 +1,36 @@
+05:01:01  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+05:01:01  rs e99870d8  command  t1/100  prompt=2,665tok  thinking-total=36  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+05:01:01  st e99870d8  start  task=repo-search raw_chars=862 prompt=862 chunk repo-search
+05:01:01  rs e99870d8  command  t1/100  prompt=2,665tok  thinking-total=36  elapsed=0s  git operation="grep" pattern="const app"
+05:01:01  st e99870d8  complete_done  state=completed duration_ms=1
+05:01:01  rs e99870d8  completed  elapsed=0s  verdict=pass
+05:01:02  st e99870d8  drain_wait  state=completed wait_ms=1000 active=true q=1 model_q=0
+05:01:02  st dfe0ae5c  lock_released  task=repo_agent held_ms=284 queue_remaining=0
+05:01:02  st --------  incoming  task=orchestrator arrival_position=1
+05:01:02  st 394d37d9  lock_acquired  task=orchestrator wait_ms=14
+05:01:02  rs 9b52eb08  start  task=repo-search  prompt_chars=8883
+05:01:02  rs 9b52eb08  inventory  models=1  elapsed=0s
+05:01:02  st 9b52eb08  start  task=repo-search raw_chars=8,883 prompt=8,883 chunk repo-search
+05:01:02  st 9b52eb08  complete_done  state=completed duration_ms=1
+05:01:02  rs 9b52eb08  completed  elapsed=0s  verdict=pass
+05:01:02  st 394d37d9  lock_released  task=orchestrator held_ms=11 queue_remaining=0
+05:01:03  st e99870d8  drain_resume  waited=1s  cycles=1  q=2
+05:01:03  st e99870d8  done  task=repo-search total_elapsed=0s output_tokens=10 thinking_tokens=36 tool_tokens=27
+05:01:03  st e99870d8  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+05:01:03  st e99870d8  tool_stats  task=repo-search tool=git calls=1 output_chars=32 output_tokens=13 output_tokens_estimated=1
+05:01:03  st e99870d8  terminal_metadata_process_done  state=completed duration_ms=8
+05:01:03  st 9b52eb08  done  task=repo-search total_elapsed=0s output_tokens=74 thinking_tokens=0 tool_tokens=0
+05:01:03  st 9b52eb08  terminal_metadata_process_done  state=completed duration_ms=6
+✔ a running worker agent streams the whole current flow, then a whole turn whose tool has settled, then the finished flow (1673.7499ms)
+{"ok":true,"port":37682,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-unflushed-6XHyIp\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-unflushed-6XHyIp\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (213.3846ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6756.9143
+EXIT=0

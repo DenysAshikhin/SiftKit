@@ -1,0 +1,43 @@
+"typecheck": "tsc -p .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json && tsc -p 
+.\\tsconfig.scripts.json && tsc -p .\\dashboard\\tsconfig.json && tsc -p .\\dashboard\\tsconfig.node.json && npm run 
+typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run 
+lint",
+    "typecheck:analysis": "tsc -p .\\tsconfig.analysis.json",
+    "typecheck:test": "tsc -p .\\tsconfig.test.json",
+    "typecheck:dashboard-test": "tsc -p .\\dashboard\\tsconfig.test.json",
+    "typecheck:bench": "tsc -p .\\tsconfig.bench.json",
+    "test": "npm run typecheck:test && node .\\src\\test-runner\\run-tests.ts",
+    "desktop:test": "node .\\scripts\\desktop\\rust-env.mjs cargo test --manifest-path desktop/src-tauri/Cargo.toml",
+    "test:dashboard": "npm run typecheck:dashboard-test && vitest run --config .\\dashboard\\vitest.config.ts",
+    "test:process": "npm run typecheck:test && node .\\src\\test-runner\\run-tests.ts --process",
+    "test:perf": "npm run typecheck:test && node .\\src\\test-runner\\run-tests.ts --perf",
+    "test:coverage": "npm run typecheck:test && npx c8 --include=\"src/**/*.ts\" --exclude=\"node_modules/**\" 
+--exclude=\"tests/**\" --reporter=text --reporter=text-summary node .\\src\\test-runner\\run-tests.ts",
+    "test:coverage:llm": "npm run typecheck:test && npx c8 --include=\"src/llm-protocol/**/*.ts\" 
+--include=\"src/agent-loop/**/*.ts\" --exclude=\"node_modules/**\" --reporter=text --reporter=text-summary node 
+.\\src\\test-runner\\run-tests.ts",
+    "test:live": "npm run typecheck:test && powershell -Command \"$env:SIFTKIT_TEST_USE_EXISTING_SERVER='1'; if (-not 
+$env:SIFTKIT_STATUS_BACKEND_URL) { $env:SIFTKIT_STATUS_BACKEND_URL='http://127.0.0.1:4765/status' }; if (-not 
+$env:SIFTKIT_CONFIG_SERVICE_URL) { $env:SIFTKIT_CONFIG_SERVICE_URL='http://127.0.0.1:4765/config' }; node --test 
+--test-name-pattern 'concurrent oversized CLI summary requests' .\\tests\\process\\runtime-cli.test.ts\"",
+    "test:live:approval-cache-chain": "npm run typecheck:test && powershell -Command 
+\"$env:SIFTKIT_TEST_LIVE_APPROVAL_CACHE_CHAIN='1'; if (-not $env:SIFTKIT_STATUS_BACKEND_URL) { 
+$env:SIFTKIT_STATUS_BACKEND_URL='http://127.0.0.1:4765/status' }; if (-not $env:SIFTKIT_CONFIG_SERVICE_URL) { 
+$env:SIFTKIT_CONFIG_SERVICE_URL='http://127.0.0.1:4765/config' }; node .\\src\\test-runner\\run-tests.ts 
+live-approval-cache-chain\"",
+    "test:live:approval-verdict-budget": "npm run typecheck:test && powershell -Command 
+\"$env:SIFTKIT_TEST_LIVE_APPROVAL_VERDICT_BUDGET='1'; if (-not $env:SIFTKIT_STATUS_BACKEND_URL) { 
+$env:SIFTKIT_STATUS_BACKEND_URL='http://127.0.0.1:4765/status' }; if (-not $env:SIFTKIT_CONFIG_SERVICE_URL) { 
+$env:SIFTKIT_CONFIG_SERVICE_URL='http://127.0.0.1:4765/config' }; node .\\src\\test-runner\\run-tests.ts 
+live-approval-verdict-budget\"",
+    "test:live:repo-agent-compaction-replay": "npm run typecheck:test && powershell -Command 
+\"$env:SIFTKIT_TEST_LIVE_REPO_AGENT_COMPACTION_REPLAY='1'; node .\\src\\test-runner\\run-tests.ts 
+live-repo-agent-compaction-replay\"",
+    "lint": "eslint . --cache --cache-location .eslintcache",
+    "lint:fix": "eslint . --fix --cache --cache-location .eslintcache"
+    "@eslint/js": "^9.39.4",
+    "@testing-library/react": "^16.3.2",
+    "eslint": "^9.39.4",
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.11"
+eslint.config.mjs

@@ -1,0 +1,14 @@
+file:///C:/tmp/rsx/siftkit-compare-single/src/test-runner/test-targets.ts:66
+    throw new Error(`No test file matches ${rawValue}.`);
+          ^
+
+Error: No test file matches child approval unloads.
+    at resolveSingleTestTarget (file:///C:/tmp/rsx/siftkit-compare-single/src/test-runner/test-targets.ts:66:11)
+    at resolveTestArguments (file:///C:/tmp/rsx/siftkit-compare-single/src/test-runner/test-targets.ts:105:21)
+    at buildNodeTestArgs (file:///C:/tmp/rsx/siftkit-compare-single/src/test-runner/test-targets.ts:122:20)
+    at file:///C:/tmp/rsx/siftkit-compare-single/src/test-runner/run-tests.ts:37:18
+    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v26.7.0

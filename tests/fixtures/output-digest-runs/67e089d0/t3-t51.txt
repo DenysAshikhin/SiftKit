@@ -1,0 +1,12 @@
+23:23:23  st 26328a22  terminal_metadata_process_done  state=completed duration_ms=6
+23:23:23  st f5c835b4  done  task=repo-search total_elapsed=0s output_tokens=29 thinking_tokens=0 tool_tokens=0
+23:23:23  st f5c835b4  terminal_metadata_process_done  state=completed duration_ms=5
+✔ every parent phase reuses the run-start system context and run block, even after a writer adds a file (1892.9917ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 39181.2761

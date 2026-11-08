@@ -481,6 +481,7 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     ),
     NcpuMoe: getStrictNcpuMoe(input, defaults.NcpuMoe),
     ParallelSlots: getFinitePositiveInteger(input.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
+    ReviewerSlot: getBooleanWithDefault(input.ReviewerSlot, defaults.ReviewerSlot),
     UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_ENGINE_UBATCH_SIZE)),
     CacheRam: getFiniteNonNegativeInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_ENGINE_CACHE_RAM)),
     CacheRecurrentRam: getFiniteNonNegativeInteger(

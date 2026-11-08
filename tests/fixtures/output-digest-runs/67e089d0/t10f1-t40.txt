@@ -1,0 +1,41 @@
+05:00:03  st ae1bd8b6  lock_released  task=orchestrator held_ms=11 queue_remaining=0
+05:00:04  st 9681e12a  drain_resume  waited=1s  cycles=1  q=2
+05:00:04  st 9681e12a  done  task=repo-search total_elapsed=0s output_tokens=10 thinking_tokens=36 tool_tokens=27
+05:00:04  st 9681e12a  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+05:00:04  st 9681e12a  tool_stats  task=repo-search tool=git calls=1 output_chars=32 output_tokens=13 output_tokens_estimated=1
+05:00:04  st 9681e12a  terminal_metadata_process_done  state=completed duration_ms=7
+05:00:04  st 53d05d67  done  task=repo-search total_elapsed=0s output_tokens=74 thinking_tokens=0 tool_tokens=0
+05:00:04  st 53d05d67  terminal_metadata_process_done  state=completed duration_ms=6
+✖ a running worker agent streams the whole current flow, then a whole turn whose tool has settled, then the finished flow (1842.5572ms)
+{"ok":true,"port":3976,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-unflushed-oVRxLX\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-unflushed-oVRxLX\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (208.5185ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 3
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6901.6693
+
+✖ failing tests:
+
+test at tests\process\orchestrator-agents-live.test.ts:596:1
+✖ a running worker agent streams the whole current flow, then a whole turn whose tool has settled, then the finished flow (1842.5572ms)
+  AssertionError [ERR_ASSERTION]: §2.2 agrees the worker is still running
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents-live.test.ts:656:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+EXIT=1

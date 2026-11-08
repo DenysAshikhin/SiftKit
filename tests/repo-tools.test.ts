@@ -723,11 +723,43 @@ test('find reports an explicit no-match result instead of empty output', async (
   assert.equal(result.output, 'No files matched.');
 });
 
-test('planRead rejects an offset past the end of the file', () => {
+test('a read with an offset past the end returns the last limit lines under a notice', () => {
   const root = makeRepo();
-  const plan = planRead({ path: 'src/a.ts', offset: 6 }, root, buildIgnorePolicy(root));
+  const plan = planRead({ path: 'src/a.ts', offset: 9, limit: 2 }, root, buildIgnorePolicy(root));
+  assert.ok(!isFailedReadPlan(plan));
+  const execution = buildReadExecution('read', plan);
+  assert.ok(execution.ok);
+  assert.equal(
+    execution.output,
+    'offset 9 is past the end of src/a.ts (5 lines); showing lines 4-5.\n4: alpha\n5: line5\n(end of file: 5 lines)',
+  );
+});
+
+test('a read past the end without a limit returns at most the past-end window', () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'long.txt'), Array.from({ length: 100 }, (_, index) => `l${index + 1}`).join('\n'), 'utf8');
+  const plan = planRead({ path: 'long.txt', offset: 101 }, root, buildIgnorePolicy(root));
+  assert.ok(!isFailedReadPlan(plan));
+  const execution = buildReadExecution('read', plan);
+  assert.ok(execution.ok);
+  assert.match(execution.output, /^offset 101 is past the end of long\.txt \(100 lines\); showing lines 61-100\.\n61: l61\n/u);
+});
+
+test('a read at the last line keeps no past-end notice', () => {
+  const root = makeRepo();
+  const plan = planRead({ path: 'src/a.ts', offset: 5 }, root, buildIgnorePolicy(root));
+  assert.ok(!isFailedReadPlan(plan));
+  const execution = buildReadExecution('read', plan);
+  assert.ok(execution.ok);
+  assert.equal(execution.output, '5: line5\n(end of file: 5 lines)');
+});
+
+test('planRead rejects an offset past the end of an empty file', () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'empty.txt'), '', 'utf8');
+  const plan = planRead({ path: 'empty.txt', offset: 2 }, root, buildIgnorePolicy(root));
   assert.ok(isFailedReadPlan(plan));
-  assert.match(plan.reason, /past the end/u);
+  assert.match(plan.reason, /past the end of empty\.txt/u);
 });
 
 test('planRead rejects a file larger than READ_MAX_BYTES', () => {

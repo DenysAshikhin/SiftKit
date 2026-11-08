@@ -1,0 +1,36 @@
+RUN  v4.1.11 C:/tmp/rsx/siftkit-compare-single/dashboard
+
+ ❯ tests/prompt-parts.test.ts (6 tests | 1 failed) 6ms
+   × a worker instruction splits into its headed lists 3ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  06:43:07
+   Duration  341ms (transform 54ms, setup 126ms, import 86ms, tests 6ms, environment 0ms)
+
+EXIT:1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/prompt-parts.test.ts > a worker instruction splits into its headed lists
+AssertionError: a headed list's line is rendered 2 times: - Tests pass.
+
+2 !== 1
+
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ assertNothingDropped tests/prompt-parts.test.ts:85:14
+     83|     assert.ok(owners.length >= 1, `prompt line reached no part: ${line…
+     84|     if (/^(?:-\s|\d+\.\s)/u.test(line)) {
+     85|       assert.equal(owners.length, 1, `a headed list's line is rendered…
+       |              ^
+     86|     }
+     87|   }
+ ❯ tests/prompt-parts.test.ts:139:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯

@@ -1,0 +1,15 @@
+>     "typecheck": "tsc -p .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json && tsc -p 
+.\\tsconfig.scripts.json && tsc -p .\\dashboard\\tsconfig.json && tsc -p .\\dashboard\\tsconfig.node.json && npm run 
+typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run 
+lint",
+      "typecheck:analysis": "tsc -p .\\tsconfig.analysis.json",
+      "typecheck:test": "tsc -p .\\tsconfig.test.json",
+>     "test": "npm run typecheck:test && node .\\src\\test-runner\\run-tests.ts",
+      "desktop:install-toolchain": "node .\\scripts\\desktop\\install-toolchain.mjs",
+      "desktop:test": "node .\\scripts\\desktop\\rust-env.mjs cargo test --manifest-path desktop/src-tauri/Cargo.toml",
+>     "test:dashboard": "npm run typecheck:dashboard-test && vitest run --config .\\dashboard\\vitest.config.ts",
+      "test:process": "npm run typecheck:test && node .\\src\\test-runner\\run-tests.ts --process",
+      "test:perf": "npm run typecheck:test && node .\\src\\test-runner\\run-tests.ts --perf",
+>     "lint": "eslint . --cache --cache-location .eslintcache",
+      "lint:fix": "eslint . --fix --cache --cache-location .eslintcache"
+    },

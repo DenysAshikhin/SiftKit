@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { buildScorecard, runTaskLoop } from '../src/repo-search/engine.ts';
-import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.ts';
+import { APPROVAL_REVIEW_REQUEST_MARKER, APPROVER_SYSTEM_PROMPT } from '../src/repo-search/approval-review-policy.ts';
 import {
   CLIENT_ABORT_MESSAGE,
   buildApprovalTimeoutMessage,
@@ -88,7 +88,6 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
     toolName: 'git',
     command: "git operation=\"grep\" path=\"src1\" pattern=\"x\"",
     reviewPayload: null,
-    pendingMessages: [],
   });
 
   assert.deepEqual(decision, {
@@ -366,7 +365,6 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
     toolName: 'run',
     command: 'run command="Get-Content file.txt"',
     reviewPayload: null,
-    pendingMessages: [],
   });
 
   assert.deepEqual(decision, { kind: 'approve' });
@@ -379,7 +377,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
   assert.equal(verdictAttempts, 1);
 });
 
-test('auto mode over HTTP byte-preserves two approval overlays and an exempt read', async () => {
+test('auto mode over HTTP reviews each write in its own request, skips the exempt read, and leaves planner history untouched', async () => {
   const plannerBodies: ReturnType<typeof asObject>[] = [];
   const verdictBodies: ReturnType<typeof asObject>[] = [];
   let plannerCalls = 0;
@@ -432,9 +430,8 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {
         const parsed = asObject(parseJsonValueText(body));
         const lastMessage = asObject(asArray(parsed.messages).at(-1));
-        // The verdict question leads with the review policy and carries the marker as a block
-        // header partway down, so routing must look for the marker anywhere in the message.
-        // A planner request never contains it — the assertion at the end of this test proves it.
+        // A verdict's user message is the review request, so the marker routes it; a planner
+        // request never contains it — the assertions below prove it.
         if (String(lastMessage.content || '').includes(APPROVAL_REVIEW_REQUEST_MARKER)) {
           verdictBodies.push(parsed);
           sendChatCompletionSse(res, completionBody('{"verdict":"approve","reason":"scoped write"}', null));
@@ -507,22 +504,21 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
       const executingMessages = asArray(executing.messages);
       const verdictMessages = asArray(verdict.messages);
 
-      assert.equal(verdictMessages.length, executingMessages.length + 2);
-      assert.deepEqual(verdictMessages.slice(0, executingMessages.length), executingMessages);
-      const pending = asObject(verdictMessages[executingMessages.length]);
-      const pendingCall = asObject(asArray(pending.tool_calls)[0]);
-      const pendingFunction = asObject(pendingCall.function);
-      assert.deepEqual(
-        asObject(parseJsonValueText(String(pendingFunction.arguments || ''))),
-        expectedApprovalArgs[index],
-      );
+      // The approver sees its own prompt and the call with its whole payload, never the agent's history.
+      assert.deepEqual(verdictMessages.map((message) => asObject(message).role), ['system', 'user']);
+      assert.equal(asObject(verdictMessages[0]).content, APPROVER_SYSTEM_PROMPT);
+      const request = String(asObject(verdictMessages[1]).content);
+      assert.ok(request.startsWith(APPROVAL_REVIEW_REQUEST_MARKER), request);
+      assert.ok(request.includes(`payload:\n${JSON.stringify({ toolName: 'write', args: expectedApprovalArgs[index] }, null, 2)}`), request);
       assert.deepEqual(verdict.chat_template_kwargs, executing.chat_template_kwargs);
       assert.deepEqual(verdict.tools, executing.tools);
       assert.equal(verdict.tool_choice, 'none');
 
       const resumedMessages = asArray(resumed.messages);
       assert.deepEqual(resumedMessages.slice(0, executingMessages.length), executingMessages);
-      assert.deepEqual(resumedMessages[executingMessages.length], pending);
+      const pending = asObject(resumedMessages[executingMessages.length]);
+      const pendingFunction = asObject(asObject(asArray(pending.tool_calls)[0]).function);
+      assert.deepEqual(asObject(parseJsonValueText(String(pendingFunction.arguments || ''))), expectedApprovalArgs[index]);
       assert.equal(asObject(resumedMessages[executingMessages.length + 1]).role, 'tool');
       assert.equal(JSON.stringify(resumed).includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
     }
@@ -568,7 +564,7 @@ test('auto mode journals the reviewer verdict before it authorizes the tool', as
     evidenceRecorder: { recordApprovalReviewed: (evidence) => { reviewed.push(evidence); } },
   });
 
-  const decision = await gate.request({ call, turn: 1, toolName: 'write', command: 'write path="out.txt"', reviewPayload: null, pendingMessages: [] });
+  const decision = await gate.request({ call, turn: 1, toolName: 'write', command: 'write path="out.txt"', reviewPayload: null });
 
   assert.deepEqual(decision, { kind: 'approve' });
   assert.equal(reviewed.length, 1);
@@ -586,7 +582,7 @@ test('auto mode refuses to review a chat tool that has no proposed identity to j
     evidenceRecorder: { recordApprovalReviewed: () => { throw new Error('never journaled'); } },
   });
   await assert.rejects(
-    gate.request({ turn: 1, toolName: 'write', command: 'write path="out.txt"', reviewPayload: null, pendingMessages: [] }),
+    gate.request({ turn: 1, toolName: 'write', command: 'write path="out.txt"', reviewPayload: null }),
     /exact proposed tool identity/u,
   );
 });

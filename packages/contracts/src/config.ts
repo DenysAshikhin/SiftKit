@@ -57,7 +57,10 @@ export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 
 const ModelPresetSettingsShape = {
   ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
-  NumCtx: z.number(), CompactionReserveTokens: z.number().int().positive(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
+  NumCtx: z.number(), CompactionReserveTokens: z.number().int().positive(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(),
+  /** One extra engine lane for auto-approval verdicts; the scheduler still admits ParallelSlots requests. */
+  ReviewerSlot: z.boolean(),
+  UBatchSize: z.number(), CacheRam: z.number(),
   CacheRecurrentRam: z.number(),
   DiskCacheDir: z.string().min(1).nullable(), DiskCacheSizeMiB: z.number().int().positive(),
   DiskCacheCheckpointInterval: z.number().int().positive(),
@@ -79,7 +82,7 @@ const ModelPresetSettingsShape = {
 };
 
 export const ModelPresetFieldSchema = z.enum([
-  'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'CompactionReserveTokens', 'NcpuMoe', 'ParallelSlots', 'UBatchSize', 'CacheRam',
+  'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'CompactionReserveTokens', 'NcpuMoe', 'ParallelSlots', 'ReviewerSlot', 'UBatchSize', 'CacheRam',
   'CacheRecurrentRam', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',

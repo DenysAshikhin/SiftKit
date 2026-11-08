@@ -5,7 +5,6 @@ import { getAbortError } from '../../lib/abort.ts';
 import { ServerLogger, serverLogger, shortenRequestId } from '../../status-server/server-logger.ts';
 import type { ProgressWriter } from '../../lib/progress-writer.ts';
 import type { RepoSearchProgressEvent } from '../types.ts';
-import type { ChatMessage } from '../planner-chat-message.ts';
 import type { JsonObject } from '../../lib/json-types.ts';
 import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.ts';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
@@ -32,16 +31,12 @@ export type RepoSearchApprovalRequest = z.infer<typeof RepoSearchApprovalRequest
 export const RepoSearchApprovalResultSchema = z.object({ accepted: z.literal(true) });
 export type RepoSearchApprovalResult = z.infer<typeof RepoSearchApprovalResultSchema>;
 
-export type HumanApprovalRequestInput = {
+export type ApprovalRequestInput = {
   call?: ChatToolCallIdentity;
   turn: number;
   toolName: string;
   command: string;
   reviewPayload: string | null;
-};
-
-export type ApprovalRequestInput = HumanApprovalRequestInput & {
-  pendingMessages: ChatMessage[];
 };
 
 export function buildApprovalReviewPayload(input: {
@@ -68,10 +63,6 @@ export function isApprovalExemptReadOnlyTool(toolName: string): boolean {
 /** Anything that can answer an approval request: the human gate or the LLM decorator. */
 export type ApprovalRequester = {
   request(input: ApprovalRequestInput): Promise<ApprovalDecision>;
-};
-
-export type HumanApprovalRequester = {
-  request(input: HumanApprovalRequestInput): Promise<ApprovalDecision>;
 };
 
 /** Something whose approval mode can change while a run executes; read on every tool call. */
@@ -197,7 +188,7 @@ export class ApprovalGate {
     return this.requestId;
   }
 
-  async request(input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
+  async request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
     if (this.bypassReadOnlyTools && isApprovalExemptReadOnlyTool(input.toolName)) {
       return { kind: 'approve' };
     }
@@ -207,7 +198,7 @@ export class ApprovalGate {
     return decision;
   }
 
-  private park(input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
+  private park(input: ApprovalRequestInput): Promise<ApprovalDecision> {
     const approvalId = randomUUID();
     const startedAtMs = Date.now();
     if (this.evidenceRecorder) {

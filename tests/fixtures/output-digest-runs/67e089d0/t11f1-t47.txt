@@ -1,0 +1,62 @@
+M dashboard/src/orchestrator-api.ts
+ M dashboard/src/orchestrator-view.ts
+ M dashboard/tests/chat-tab.test.tsx
+ M dashboard/tests/orchestrator-run-panel.test.tsx
+ M dashboard/tests/orchestrator-view.test.ts
+ M dashboard/tests/use-orchestrator-run.test.tsx
+ M dashboard/tsconfig.json
+?? dashboard/src/orchestrator-board.ts
+?? dashboard/src/prompt-parts.ts
+?? dashboard/tests/orchestrator-api.test.ts
+?? dashboard/tests/prompt-parts.test.ts
+---
+ M dashboard/tsconfig.json
+---
+---
+✔ the default orchestrator inherits the model (2.4276ms)
+✔ attempts are a fixed policy and concurrency comes from the worker model, so no preset carries orchestrator options (0.7921ms)
+✔ implementation work needs a plan reference; drift-fix work is only findings and fixes (1.7936ms)
+✔ actionable reviews need complete findings and clean reviews carry none (0.7755ms)
+✔ a start request needs a task or a plan path and states which session it came from (0.5404ms)
+✔ a pending approval is either a parked child tool call or one orchestrator check command (0.4978ms)
+✔ a decide request is a repo-agent decision addressed to one run approval (0.3939ms)
+✔ a passing task review anchors each piece of evidence to a path, line, and snippet (0.3587ms)
+✔ an attempt result keeps the review typed and its problems as text (1.0617ms)
+✔ a check failure explains a failing command and never flags an evidence check (0.2134ms)
+✔ a stored failure carries one of the known failure codes (0.2781ms)
+✔ a live activity snapshot carries the scheduler pass and children with a bounded tool history (0.9689ms)
+✔ a wait names its unmet dependencies, the writer slot, or the full model (0.228ms)
+✔ open task statuses are exactly the statuses of live work (0.0867ms)
+✔ drift review and correction are task statuses, never run phases (0.0919ms)
+✔ the orchestrator stream names every frame from the shared contract (0.0576ms)
+✔ the contracts own the five parent phase labels (0.2563ms)
+✔ a phase run records its own ID and the task and attempt it judged (0.3644ms)
+✔ a run state lists its phase runs, and a bare list of phase run ids no longer parses (0.8784ms)
+✔ a review finding names the acceptance criterion it breaks, or none (0.1956ms)
+✔ both review arms judge every numbered criterion exactly once (0.4505ms)
+✔ an agent summary is one phase or one attempt with its throughput (0.8369ms)
+✔ an agent flow carries every turn, the prompt it was given, and whether it still runs (1.2795ms)
+✔ a live agent stream frame is the whole flow, one whole turn, or the finished flow (0.3814ms)
+✔ the activity frame names every running agent, phase agents included (0.354ms)
+✔ a parent prompt is the run block, then the phase, then the answer JSON schema (0.8779ms)
+✔ every phase builder returns only its phase text (0.1643ms)
+✔ both evidence reviews state the shared answer guidance once (0.1114ms)
+✔ attempt review lists only the task baseline beyond the run context (0.0863ms)
+✔ attempt review numbers the acceptance criteria and demands one criteria entry per index (0.5195ms)
+✔ final verification answers criteria empty because it judges none of them (0.0824ms)
+✔ drift review forbids answering not_required (0.0792ms)
+✔ final verification feeds back the problems that rejected its previous review (0.0893ms)
+✔ check approval and final verification state the goal once, via the saved plan (0.162ms)
+✔ every phase label maps to a wire-safe json_schema name (0.1824ms)
+✔ plan preparation opens with the run block before any plan exists (0.1364ms)
+✔ the parent prompt heads its run block, phase text and schema with the exported constants in order (0.1485ms)
+✔ the worker instruction heads each block with an exported constant and keeps the list it introduces (0.1434ms)
+✔ every exported heading constant is a non-empty string that a builder actually emits as its own line (0.1445ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 528.948

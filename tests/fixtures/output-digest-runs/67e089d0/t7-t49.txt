@@ -1,0 +1,8 @@
+> siftkit@0.1.0 typecheck:analysis
+> tsc -p .\tsconfig.analysis.json
+
+
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+typecheck exit=0

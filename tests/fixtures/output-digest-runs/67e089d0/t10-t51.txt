@@ -1,0 +1,12 @@
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow 
+(714.714ms)
+✔ a client that hangs up mid-stream stops hearing frames, and a stream opened after the agent settled answers flow 
+then finished (1142.499ms)
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (210.2291ms)
+✖ failing tests:
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow 
+(714.714ms)
+  AssertionError [ERR_ASSERTION]: the agent thought and called tools, so turn frames arrive: flow,finished
+    actual: false,
+    expected: true,
+    operator: '==',

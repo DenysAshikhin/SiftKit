@@ -184,6 +184,17 @@ export function ModelPresetsSection({
           <ModelPresetControl preset={preset} profile={profile} field="ParallelSlots" label="ParallelSlots">
             <input type="number" value={preset.ParallelSlots} onChange={(event) => modelPresetActions.setInteger('ParallelSlots', parseIntegerInput(event.target.value, preset.ParallelSlots))} />
           </ModelPresetControl>
+          <ModelPresetControl preset={preset} profile={profile} field="ReviewerSlot" label="ReviewerSlot">
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                aria-label="ReviewerSlot"
+                checked={preset.ReviewerSlot}
+                onChange={(event) => modelPresetActions.setBoolean('ReviewerSlot', event.target.checked)}
+              />
+              <span>{preset.ReviewerSlot ? 'Own lane' : 'Shared lane'}</span>
+            </label>
+          </ModelPresetControl>
           <ModelPresetControl preset={preset} profile={profile} field="UBatchSize" label="UBatchSize">
             <input type="number" value={preset.UBatchSize} onChange={(event) => modelPresetActions.setInteger('UBatchSize', parseIntegerInput(event.target.value, preset.UBatchSize))} />
           </ModelPresetControl>

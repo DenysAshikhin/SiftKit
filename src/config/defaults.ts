@@ -78,6 +78,7 @@ export function getDefaultConfigObject(): SiftConfig {
     CompactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
     NcpuMoe: 0,
     ParallelSlots: 1,
+    ReviewerSlot: false,
     UBatchSize: SIFT_DEFAULT_ENGINE_UBATCH_SIZE,
     CacheRam: SIFT_DEFAULT_ENGINE_CACHE_RAM,
     CacheRecurrentRam: SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM,

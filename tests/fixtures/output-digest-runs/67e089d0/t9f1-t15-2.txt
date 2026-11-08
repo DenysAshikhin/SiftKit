@@ -1,0 +1,241 @@
+1157 lines truncated due to per-tool context limit.
+02:39:47  st 80fd7bef  start  task=repo-search raw_chars=7,715 prompt=7,715 chunk repo-search
+02:39:47  st 80fd7bef  complete_done  state=completed duration_ms=1
+02:39:47  rs 80fd7bef  completed  elapsed=0s  verdict=pass
+02:39:47  st 4be81853  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+02:39:47  st 80fd7bef  done  task=repo-search total_elapsed=0s output_tokens=269 thinking_tokens=0 tool_tokens=0
+02:39:47  st 80fd7bef  terminal_metadata_process_done  state=completed duration_ms=7
+02:39:47  st --------  incoming  task=repo_agent arrival_position=1
+02:39:47  st 9bdcec44  lock_acquired  task=repo_agent wait_ms=14
+02:39:47  rs c0c47aed  start  task=repo-search  prompt_chars=862
+02:39:47  rs c0c47aed  inventory  models=1  elapsed=0s
+02:39:47  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+02:39:47  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+02:39:47  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+02:39:47  rs c0c47aed  approval_wait  approval=4093d9a4 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+02:39:47  st 9bdcec44  lock_released  task=repo_agent held_ms=6 queue_remaining=0
+02:39:47  st c0c47aed  start  task=repo-search raw_chars=862 prompt=862 chunk repo-search
+02:39:47  rs c0c47aed  approval_abandoned  approval=4093d9a4 reason=client_disconnected
+02:39:47  st c0c47aed  complete_done  state=failed duration_ms=2
+02:39:47  rs c0c47aed  failed  elapsed=0s  error="Stopped by user."
+✔ a client that connects mid-run starts from the live snapshot, and an aborted child leaves the view before the run ends (599.0417ms)
+{"ok":true,"port":61992,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-parallel-approvals-gYf1Lk\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-parallel-approvals-gYf1Lk\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+02:39:48  st --------  incoming  task=orchestrator arrival_position=1
+02:39:48  st 248c2ca4  lock_acquired  task=orchestrator wait_ms=11
+02:39:48  rs b0ff316a  start  task=repo-search  prompt_chars=7716
+02:39:48  rs b0ff316a  inventory  models=1  elapsed=0s
+02:39:48  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+02:39:48  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+02:39:48  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+02:39:48  st b0ff316a  start  task=repo-search raw_chars=7,716 prompt=7,716 chunk repo-search
+02:39:48  st b0ff316a  complete_done  state=completed duration_ms=1
+02:39:48  rs b0ff316a  completed  elapsed=0s  verdict=pass
+02:39:48  st 248c2ca4  lock_released  task=orchestrator held_ms=10 queue_remaining=0
+02:39:48  st b0ff316a  done  task=repo-search total_elapsed=0s output_tokens=417 thinking_tokens=0 tool_tokens=0
+02:39:48  st b0ff316a  terminal_metadata_process_done  state=completed duration_ms=6
+02:39:48  st --------  incoming  task=repo_search arrival_position=1
+02:39:48  st e5d80ffd  lock_acquired  task=repo_search wait_ms=8
+02:39:48  rs e6774bf5  start  task=repo-search  prompt_chars=844
+02:39:48  rs e6774bf5  inventory  models=1  elapsed=0s
+02:39:48  st --------  incoming  task=repo_search arrival_position=2
+02:39:48  st 19ea2721  lock_acquired  task=repo_search wait_ms=9
+02:39:48  rs d97e7f82  start  task=repo-search  prompt_chars=844
+02:39:48  rs d97e7f82  inventory  models=1  elapsed=0s
+02:39:48  st e6774bf5  start  task=repo-search raw_chars=844 prompt=844 chunk repo-search
+02:39:48  st d97e7f82  start  task=repo-search raw_chars=844 prompt=844 chunk repo-search
+02:39:48  st e6774bf5  complete_done  state=completed duration_ms=2
+02:39:48  st d97e7f82  complete_done  state=completed duration_ms=1
+02:39:48  rs e6774bf5  completed  elapsed=0s  verdict=pass
+02:39:48  st e5d80ffd  lock_released  task=repo_search held_ms=46 queue_remaining=0
+02:39:48  rs d97e7f82  completed  elapsed=0s  verdict=pass
+02:39:48  st 19ea2721  lock_released  task=repo_search held_ms=29 queue_remaining=0
+02:39:48  st e6774bf5  done  task=repo-search total_elapsed=0s output_tokens=4 thinking_tokens=0 tool_tokens=0
+02:39:48  st e6774bf5  terminal_metadata_process_done  state=completed duration_ms=6
+02:39:48  st d97e7f82  done  task=repo-search total_elapsed=0s output_tokens=4 thinking_tokens=0 tool_tokens=0
+02:39:48  st d97e7f82  terminal_metadata_process_done  state=completed duration_ms=6
+✔ parallel tasks take turns with their approvals, so every approval can be answered (987.8075ms)
+{"ok":true,"port":62039,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-preexisting-dirty-FOWp5w\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-preexisting-dirty-FOWp5w\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+02:39:49  st --------  incoming  task=orchestrator arrival_position=1
+02:39:49  st 17aad1ac  lock_acquired  task=orchestrator wait_ms=7
+02:39:49  rs 8f3f9a71  start  task=repo-search  prompt_chars=7721
+02:39:49  rs 8f3f9a71  inventory  models=1  elapsed=0s
+02:39:49  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+02:39:49  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+02:39:49  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+02:39:49  st 8f3f9a71  start  task=repo-search raw_chars=7,721 prompt=7,721 chunk repo-search
+02:39:49  st 8f3f9a71  complete_done  state=completed duration_ms=2
+02:39:49  rs 8f3f9a71  completed  elapsed=0s  verdict=pass
+02:39:49  st 17aad1ac  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+02:39:49  st 8f3f9a71  done  task=repo-search total_elapsed=0s output_tokens=246 thinking_tokens=0 tool_tokens=0
+02:39:49  st 8f3f9a71  terminal_metadata_process_done  state=completed duration_ms=9
+02:39:49  st --------  incoming  task=repo_search arrival_position=1
+02:39:49  st 7a206d7e  lock_acquired  task=repo_search wait_ms=8
+02:39:49  rs 61204a7b  start  task=repo-search  prompt_chars=925
+02:39:49  rs 61204a7b  inventory  models=1  elapsed=0s
+02:39:49  st 61204a7b  start  task=repo-search raw_chars=925 prompt=925 chunk repo-search
+02:39:49  st 61204a7b  complete_done  state=completed duration_ms=2
+02:39:49  rs 61204a7b  completed  elapsed=0s  verdict=pass
+02:39:49  st 7a206d7e  lock_released  task=repo_search held_ms=15 queue_remaining=0
+02:39:49  st 61204a7b  done  task=repo-search total_elapsed=0s output_tokens=10 thinking_tokens=0 tool_tokens=0
+02:39:49  st 61204a7b  terminal_metadata_process_done  state=completed duration_ms=7
+02:39:49  st --------  incoming  task=orchestrator arrival_position=1
+02:39:49  st ad7c299a  lock_acquired  task=orchestrator wait_ms=7
+02:39:49  rs 506f8a4c  start  task=repo-search  prompt_chars=4238
+02:39:49  rs 506f8a4c  inventory  models=1  elapsed=0s
+02:39:49  st 506f8a4c  start  task=repo-search raw_chars=4,238 prompt=4,238 chunk repo-search
+02:39:49  st 506f8a4c  complete_done  state=completed duration_ms=1
+02:39:49  rs 506f8a4c  completed  elapsed=0s  verdict=pass
+02:39:49  st ad7c299a  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+02:39:49  st 506f8a4c  done  task=repo-search total_elapsed=0s output_tokens=53 thinking_tokens=0 tool_tokens=0
+02:39:49  st 506f8a4c  terminal_metadata_process_done  state=completed duration_ms=8
+✔ the planner and the evidence reviewer are told which uncommitted changes predate their work (774.8129ms)
+{"ok":true,"port":62057,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-late-reader-uwvFUJ\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-late-reader-uwvFUJ\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+02:39:49  st --------  incoming  task=orchestrator arrival_position=1
+02:39:49  st e75ddde2  lock_acquired  task=orchestrator wait_ms=6
+02:39:49  rs 5385c73b  start  task=repo-search  prompt_chars=7715
+02:39:49  rs 5385c73b  inventory  models=1  elapsed=0s
+02:39:49  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+02:39:49  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+02:39:49  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+02:39:49  st 5385c73b  start  task=repo-search raw_chars=7,715 prompt=7,715 chunk repo-search
+02:39:49  st 5385c73b  complete_done  state=completed duration_ms=1
+02:39:49  rs 5385c73b  completed  elapsed=0s  verdict=pass
+02:39:49  st e75ddde2  lock_released  task=orchestrator held_ms=11 queue_remaining=0
+02:39:49  st 5385c73b  done  task=repo-search total_elapsed=0s output_tokens=462 thinking_tokens=0 tool_tokens=0
+02:39:49  st 5385c73b  terminal_metadata_process_done  state=completed duration_ms=7
+02:39:50  st --------  incoming  task=repo_agent arrival_position=1
+02:39:50  st 558b5f77  lock_acquired  task=repo_agent wait_ms=14
+02:39:50  rs 43b8d90d  start  task=repo-search  prompt_chars=862
+02:39:50  rs 43b8d90d  inventory  models=1  elapsed=0s
+02:39:50  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+02:39:50  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+02:39:50  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+02:39:50  rs 43b8d90d  command  t1/100  prompt=2,665tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+02:39:50  st 43b8d90d  start  task=repo-search raw_chars=862 prompt=862 chunk repo-search
+02:39:50  st 43b8d90d  complete_done  state=completed duration_ms=2
+02:39:50  rs 43b8d90d  completed  elapsed=0s  verdict=pass
+02:39:50  st 558b5f77  lock_released  task=repo_agent held_ms=16 queue_remaining=0
+02:39:50  st 43b8d90d  done  task=repo-search total_elapsed=0s output_tokens=4 thinking_tokens=0 tool_tokens=14
+02:39:50  st 43b8d90d  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+02:39:50  st 43b8d90d  terminal_metadata_process_done  state=completed duration_ms=13
+02:39:50  st --------  incoming  task=orchestrator arrival_position=1
+02:39:50  st ddcee38a  lock_acquired  task=orchestrator wait_ms=13
+02:39:50  rs ac7b99e0  start  task=repo-search  prompt_chars=9286
+02:39:50  rs ac7b99e0  inventory  models=1  elapsed=0s
+02:39:50  st ac7b99e0  start  task=repo-search raw_chars=9,286 prompt=9,286 chunk repo-search
+02:39:50  st ac7b99e0  complete_done  state=completed duration_ms=2
+02:39:50  rs ac7b99e0  completed  elapsed=0s  verdict=pass
+02:39:50  st ddcee38a  lock_released  task=orchestrator held_ms=10 queue_remaining=0
+02:39:50  st ac7b99e0  done  task=repo-search total_elapsed=0s output_tokens=74 thinking_tokens=0 tool_tokens=0
+02:39:50  st ac7b99e0  terminal_metadata_process_done  state=completed duration_ms=6
+02:39:50  st --------  incoming  task=repo_search arrival_position=1
+02:39:50  st 5103573c  lock_acquired  task=repo_search wait_ms=8
+02:39:50  rs 4910eca7  start  task=repo-search  prompt_chars=989
+02:39:50  rs 4910eca7  inventory  models=1  elapsed=0s
+02:39:50  st 4910eca7  start  task=repo-search raw_chars=989 prompt=989 chunk repo-search
+02:39:50  st 4910eca7  complete_done  state=completed duration_ms=1
+02:39:50  rs 4910eca7  completed  elapsed=0s  verdict=pass
+02:39:50  st 5103573c  lock_released  task=repo_search held_ms=17 queue_remaining=0
+02:39:50  st 4910eca7  done  task=repo-search total_elapsed=0s output_tokens=8 thinking_tokens=0 tool_tokens=0
+02:39:50  st 4910eca7  terminal_metadata_process_done  state=completed duration_ms=7
+02:39:50  st --------  incoming  task=repo_search arrival_position=1
+02:39:50  st 70cdd1e6  lock_acquired  task=repo_search wait_ms=8
+02:39:50  rs 3052e4a6  start  task=repo-search  prompt_chars=1874
+02:39:50  rs 3052e4a6  inventory  models=1  elapsed=0s
+02:39:50  st 3052e4a6  start  task=repo-search raw_chars=1,874 prompt=1,874 chunk repo-search
+02:39:50  st 3052e4a6  complete_done  state=completed duration_ms=1
+02:39:50  rs 3052e4a6  completed  elapsed=0s  verdict=pass
+02:39:50  st 70cdd1e6  lock_released  task=repo_search held_ms=16 queue_remaining=0
+02:39:50  st 3052e4a6  done  task=repo-search total_elapsed=0s output_tokens=8 thinking_tokens=0 tool_tokens=0
+02:39:50  st 3052e4a6  terminal_metadata_process_done  state=completed duration_ms=6
+✔ a reader that starts after the writer finished is still charged with its own change to the writer's file (1432.3446ms)
+{"ok":true,"port":62081,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-frozen-context-KiuReM\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-frozen-context-KiuReM\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+02:39:51  st --------  incoming  task=orchestrator arrival_position=1
+02:39:51  st a8a2b74e  lock_acquired  task=orchestrator wait_ms=7
+02:39:51  rs 1097cf54  start  task=repo-search  prompt_chars=7715
+02:39:51  rs 1097cf54  inventory  models=1  elapsed=0s
+02:39:51  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+02:39:51  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+02:39:51  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+02:39:51  st 1097cf54  start  task=repo-search raw_chars=7,715 prompt=7,715 chunk repo-search
+02:39:51  st 1097cf54  complete_done  state=completed duration_ms=2
+02:39:51  rs 1097cf54  completed  elapsed=0s  verdict=pass
+02:39:51  st a8a2b74e  lock_released  task=orchestrator held_ms=10 queue_remaining=0
+02:39:51  st 1097cf54  done  task=repo-search total_elapsed=0s output_tokens=269 thinking_tokens=0 tool_tokens=0
+02:39:51  st 1097cf54  terminal_metadata_process_done  state=completed duration_ms=6
+02:39:51  st --------  incoming  task=repo_agent arrival_position=1
+02:39:51  st 5b824d1d  lock_acquired  task=repo_agent wait_ms=15
+02:39:51  rs fdeea55c  start  task=repo-search  prompt_chars=862
+02:39:51  rs fdeea55c  inventory  models=1  elapsed=0s
+02:39:51  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+02:39:51  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+02:39:51  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+02:39:51  rs fdeea55c  auto-approval  t1  unsure: write — verdict call failed: [ { "code": "invalid_value", "values": [ "approve", "deny", "unsure" ], "path": [ "verdict" ], "message": "Invalid option: expected one of…
+02:39:51  rs fdeea55c  approval_wait  approval=17c5cd37 tool=write timeout_ms=600000 command=write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+02:39:51  st 5b824d1d  lock_released  task=repo_agent held_ms=7 queue_remaining=0
+02:39:51  st --------  incoming  task=orchestrator arrival_position=1
+02:39:51  st fdeea55c  start  task=repo-search raw_chars=862 prompt=862 chunk repo-search
+02:39:51  st 6d83d5d4  lock_acquired  task=orchestrator wait_ms=13
+02:39:51  rs 277548d1  start  task=repo-search  prompt_chars=2782
+02:39:51  rs 277548d1  inventory  models=1  elapsed=0s
+02:39:51  st 277548d1  start  task=repo-search raw_chars=2,782 prompt=2,782 chunk repo-search
+02:39:51  st 277548d1  complete_done  state=completed duration_ms=2
+02:39:51  rs 277548d1  completed  elapsed=0s  verdict=pass
+02:39:51  st 6d83d5d4  lock_released  task=orchestrator held_ms=9 queue_remaining=0
+02:39:51  rs fdeea55c  approval_decision  approval=17c5cd37 decision=approve waited_ms=28
+02:39:51  st --------  incoming  task=repo_agent arrival_position=1
+02:39:51  st 277548d1  drain_wait  state=completed wait_ms=1000 active=false q=1 model_q=1
+02:39:51  st 4b64e6bf  lock_acquired  task=repo_agent wait_ms=13
+02:39:51  rs fdeea55c  command  t1/100  prompt=2,665tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+02:39:51  st fdeea55c  complete_done  state=completed duration_ms=2
+02:39:51  rs fdeea55c  completed  elapsed=0s  verdict=pass
+02:39:51  st 4b64e6bf  lock_released  task=repo_agent held_ms=10 queue_remaining=0
+02:39:51  st --------  incoming  task=orchestrator arrival_position=1
+02:39:51  st b00c4f7d  lock_acquired  task=orchestrator wait_ms=14
+02:39:51  rs a953ddd3  start  task=repo-search  prompt_chars=2531
+02:39:51  rs a953ddd3  inventory  models=1  elapsed=0s
+02:39:51  st a953ddd3  start  task=repo-search raw_chars=2,531 prompt=2,531 chunk repo-search
+02:39:51  st a953ddd3  complete_done  state=completed duration_ms=1
+02:39:51  rs a953ddd3  completed  elapsed=0s  verdict=pass
+02:39:51  st b00c4f7d  lock_released  task=orchestrator held_ms=10 queue_remaining=0
+02:39:52  st --------  incoming  task=orchestrator arrival_position=1
+02:39:52  st a06ca79c  lock_acquired  task=orchestrator wait_ms=7
+02:39:52  rs 2ac5c254  start  task=repo-search  prompt_chars=8859
+02:39:52  rs 2ac5c254  inventory  models=1  elapsed=0s
+02:39:52  st 2ac5c254  start  task=repo-search raw_chars=8,859 prompt=8,859 chunk repo-search
+02:39:52  st 2ac5c254  complete_done  state=completed duration_ms=1
+02:39:52  rs 2ac5c254  completed  elapsed=0s  verdict=pass
+02:39:52  st a06ca79c  lock_released  task=orchestrator held_ms=11 queue_remaining=0
+02:39:52  st --------  incoming  task=orchestrator arrival_position=1
+02:39:52  st 15b030fa  lock_acquired  task=orchestrator wait_ms=6
+02:39:52  rs 73534fac  start  task=repo-search  prompt_chars=2478
+02:39:52  rs 73534fac  inventory  models=1  elapsed=0s
+02:39:52  st 73534fac  start  task=repo-search raw_chars=2,478 prompt=2,478 chunk repo-search
+02:39:52  st 73534fac  complete_done  state=completed duration_ms=1
+02:39:52  rs 73534fac  completed  elapsed=0s  verdict=pass
+02:39:52  st 15b030fa  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+02:39:52  st 277548d1  drain_resume  waited=1s  cycles=1  q=5
+02:39:52  st 277548d1  done  task=repo-search total_elapsed=0s output_tokens=31 thinking_tokens=0 tool_tokens=0
+02:39:52  st 277548d1  terminal_metadata_process_done  state=completed duration_ms=7
+02:39:52  st fdeea55c  done  task=repo-search total_elapsed=0s output_tokens=4 thinking_tokens=0 tool_tokens=14
+02:39:52  st fdeea55c  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+02:39:52  st fdeea55c  terminal_metadata_process_done  state=completed duration_ms=6
+02:39:52  st a953ddd3  done  task=repo-search total_elapsed=0s output_tokens=29 thinking_tokens=0 tool_tokens=0
+02:39:52  st a953ddd3  terminal_metadata_process_done  state=completed duration_ms=6
+02:39:52  st 2ac5c254  done  task=repo-search total_elapsed=0s output_tokens=74 thinking_tokens=0 tool_tokens=0
+02:39:52  st 2ac5c254  terminal_metadata_process_done  state=completed duration_ms=6
+02:39:52  st 73534fac  done  task=repo-search total_elapsed=0s output_tokens=29 thinking_tokens=0 tool_tokens=0
+02:39:52  st 73534fac  terminal_metadata_process_done  state=completed duration_ms=6
+✔ every parent phase reuses the run-start system context and run block, even after a writer adds a file (1861.6424ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 36
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 39248.9505

@@ -1,0 +1,21 @@
+✔ a stored transcript becomes the whole agent flow (5.2536ms)
+✔ prompt.system holds one entry per system message and prompt.user the turn-1 user text (0.369ms)
+✔ turn elapsed time runs from the nearest preceding provider_request_start (0.4569ms)
+✔ a tool whose result never arrives has no outcome yet (0.3272ms)
+✔ a rejected result answers with a null exit code and its rejection kind (0.4363ms)
+✔ a result only pairs with the start that carries the same turn and tool call id (0.3699ms)
+✔ thinking and text come from the turn that produced them (0.7102ms)
+✔ token counts a turn does not report stay null (0.2892ms)
+✔ the flow reports the caller's identity, not the transcript's (0.2014ms)
+✔ an empty transcript has no turns and no final answer (0.2055ms)
+✔ kinds the flow does not use are skipped (1.107ms)
+✔ a line whose payload fails its schema names the run and the line (1.7858ms)
+✔ a malformed or headerless line names the run and the line (0.5181ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 518.0219

@@ -1,0 +1,29 @@
+env=[repo-search]
+{"ok":true,"port":1327,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-new-g6J3sr\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-new-g6J3sr\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":1330,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-link-5g4Jk6\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-link-5g4Jk6\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a run started without a session gets exactly one session of its own, showing that run (198.4522ms)
+23:49:52  img default  vision_encoder_geometry_fallback  reason=model_path_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+23:49:52  img default  token_budget_fallback  reason=model_path_missing pixels_per_token=1024 max_pixels=2097152
+23:49:52  img default  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+{"ok":true,"port":1333,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-unknown-wTiKw8\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-unknown-wTiKw8\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a run started from a session shows on that session, and a second run re-points it (114.0389ms)
+{"ok":true,"port":1336,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-missing-repo-bbiB6a\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-missing-repo-bbiB6a\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a start that names a session nobody has cannot create a run (53.9965ms)
+{"ok":true,"port":1339,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Zm3pDL\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Zm3pDL\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a start for a repository folder that does not exist creates no run and no session (51.9697ms)
+{"ok":true,"port":1342,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Zm3pDL\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Zm3pDL\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":1345,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-busy-aAhAq8\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-busy-aAhAq8\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ the session keeps naming its run across a server restart, and reports it busy only while it runs (95.1554ms)
+{"ok":true,"port":1348,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-throughput-9yWhzl\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-throughput-9yWhzl\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a session reports a run of its own as busy work, and stops when the run settles (62.4799ms)
+{"ok":true,"port":1351,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-rail-1FxVIC\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-rail-1FxVIC\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a session showing a run reports that run's prefill and decode rates (68.4012ms)
+✔ a finished run leaves exactly its own session on the rail, never a phase run or a dispatched child (70.2198ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1451.2959

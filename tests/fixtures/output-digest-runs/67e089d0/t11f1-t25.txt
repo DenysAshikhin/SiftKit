@@ -1,0 +1,32 @@
+RUN  v4.1.11 C:/tmp/rsx/siftkit-compare-single/dashboard
+
+ ❯ tests/prompt-parts.test.ts (5 tests | 1 failed) 5ms
+   × a worker instruction splits into its headed lists 3ms
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 31 passed (32)
+   Start at  06:06:07
+   Duration  563ms (transform 499ms, setup 363ms, import 851ms, tests 26ms, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/prompt-parts.test.ts > a worker instruction splits into its headed lists
+AssertionError: prompt line reached no part: - Run `npm test` in .; expected exit 0.
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ assertNothingDropped tests/prompt-parts.test.ts:73:12
+     71|     const isHeading = headings.some((heading) => line === heading || l…
+     72|     if (line === '' || line === PLAN_OPEN || line === PLAN_CLOSE || is…
+     73|     assert.ok(joined.includes(line), `prompt line reached no part: ${l…
+       |            ^
+     74|   }
+     75| }
+ ❯ tests/prompt-parts.test.ts:130:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯

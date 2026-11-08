@@ -1,0 +1,52 @@
+{"ok":true,"port":18969,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-run-54OhEL\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-run-54OhEL\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+06:46:45  st --------  incoming  task=orchestrator arrival_position=1
+06:46:45  st f17a699b  lock_acquired  task=orchestrator wait_ms=9
+06:46:45  rs dce85dc7  start  task=repo-search  prompt_chars=7715
+06:46:45  rs dce85dc7  inventory  models=1  elapsed=0s
+06:46:45  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+06:46:45  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+06:46:45  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+06:46:45  st dce85dc7  start  task=repo-search raw_chars=7,715 prompt=7,715 chunk repo-search
+06:46:45  st dce85dc7  complete_done  state=completed duration_ms=2
+06:46:45  rs dce85dc7  completed  elapsed=0s  verdict=pass
+06:46:45  st f17a699b  lock_released  task=orchestrator held_ms=30 queue_remaining=0
+06:46:46  st dce85dc7  done  task=repo-search total_elapsed=0s output_tokens=269 thinking_tokens=0 tool_tokens=0
+06:46:46  st dce85dc7  terminal_metadata_process_done  state=completed duration_ms=11
+06:46:46  st --------  incoming  task=repo_agent arrival_position=1
+06:46:46  st 313d9c60  lock_acquired  task=repo_agent wait_ms=16
+06:46:46  rs 03784e6b  start  task=repo-search  prompt_chars=862
+06:46:46  rs 03784e6b  inventory  models=1  elapsed=0s
+06:46:46  img exl3-alt  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+06:46:46  img exl3-alt  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+06:46:46  img exl3-alt  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+06:46:46  rs 03784e6b  command  t1/100  prompt=2,665tok  thinking-total=0  elapsed=0s  write path="src/greeting.ts" bytes=30 sha="8236e25e70"
+06:46:46  st 03784e6b  start  task=repo-search raw_chars=862 prompt=862 chunk repo-search
+06:46:46  st 03784e6b  complete_done  state=completed duration_ms=1
+06:46:46  rs 03784e6b  completed  elapsed=0s  verdict=pass
+06:46:46  st 313d9c60  lock_released  task=repo_agent held_ms=24 queue_remaining=0
+06:46:46  st 03784e6b  done  task=repo-search total_elapsed=0s output_tokens=10 thinking_tokens=0 tool_tokens=14
+06:46:46  st 03784e6b  tool_stats  task=repo-search tool=write calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+06:46:46  st 03784e6b  terminal_metadata_process_done  state=completed duration_ms=8
+06:46:46  st --------  incoming  task=orchestrator arrival_position=1
+06:46:46  st 5cd23b69  lock_acquired  task=orchestrator wait_ms=13
+06:46:46  rs 213bc5aa  start  task=repo-search  prompt_chars=8873
+06:46:46  rs 213bc5aa  inventory  models=1  elapsed=0s
+06:46:46  st 213bc5aa  start  task=repo-search raw_chars=8,873 prompt=8,873 chunk repo-search
+06:46:46  st 213bc5aa  complete_done  state=completed duration_ms=1
+06:46:46  rs 213bc5aa  completed  elapsed=0s  verdict=pass
+06:46:46  st 5cd23b69  lock_released  task=orchestrator held_ms=12 queue_remaining=0
+06:46:46  st 213bc5aa  done  task=repo-search total_elapsed=0s output_tokens=74 thinking_tokens=0 tool_tokens=0
+06:46:46  st 213bc5aa  terminal_metadata_process_done  state=completed duration_ms=7
+✔ the two agent endpoints report every agent of a finished run, in start order, from its state and its run logs (1217.8169ms)
+{"ok":true,"port":18994,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-unflushed-YtJ7mU\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-unflushed-YtJ7mU\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+✔ an unflushed agent answers §2.1 with null fields last, and an agent with no transcript and no live flow is a 409 (209.4612ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2176.0695

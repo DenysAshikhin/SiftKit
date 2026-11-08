@@ -1,0 +1,29 @@
+✔ no chat content scrolls sideways, escapes its box, or loses its alignment in a real browser (2291.4509ms)
+{"ok":true,"port":57799,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-new-yGUJIN\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-new-yGUJIN\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":57802,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-link-ZeCuCE\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-link-ZeCuCE\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a run started without a session gets exactly one session of its own, showing that run (196.893ms)
+23:16:37  img default  vision_encoder_geometry_fallback  reason=model_path_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+23:16:37  img default  token_budget_fallback  reason=model_path_missing pixels_per_token=1024 max_pixels=2097152
+23:16:37  img default  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+{"ok":true,"port":57805,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-unknown-X3Quix\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-unknown-X3Quix\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a run started from a session shows on that session, and a second run re-points it (124.2796ms)
+{"ok":true,"port":57808,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-missing-repo-ckBbrI\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-missing-repo-ckBbrI\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a start that names a session nobody has cannot create a run (57.1946ms)
+{"ok":true,"port":57811,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Q3WD7c\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Q3WD7c\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a start for a repository folder that does not exist creates no run and no session (59.1212ms)
+{"ok":true,"port":57814,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Q3WD7c\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-restart-Q3WD7c\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":57817,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-busy-hGypD8\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-busy-hGypD8\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ the session keeps naming its run across a server restart, and reports it busy only while it runs (100.3036ms)
+{"ok":true,"port":57820,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-throughput-HV05gL\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-throughput-HV05gL\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a session reports a run of its own as busy work, and stops when the run settles (64.6796ms)
+{"ok":true,"port":57823,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-rail-d4BrKz\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-session-rail-d4BrKz\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ a session showing a run reports that run's prefill and decode rates (72.4722ms)
+✔ a finished run leaves exactly its own session on the rail, never a phase run or a dispatched child (70.5311ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2704.5169

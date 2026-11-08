@@ -1,0 +1,5 @@
+src/lib/powershell.ts(100,5): error TS2379: Argument of type '{ env: { [x: string]: string; } | undefined; cwd?: string; windowsHide?: boolean; abortSignal?: AbortSignal; timeoutMs?: number; stdinData?: string; }' is not assignable to parameter of type 'CapturedCommandOptions' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Types of property 'env' are incompatible.
+    Type '{ [x: string]: string; } | undefined' is not assignable to type 'Record<string, string>'.
+      Type 'undefined' is not assignable to type 'Record<string, string>'.
+EXIT:2

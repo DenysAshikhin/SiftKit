@@ -1,0 +1,23 @@
+✔ both evidence reviews state the shared answer guidance once (0.1078ms)
+✔ attempt review lists only the task baseline beyond the run context (0.0811ms)
+✔ attempt review numbers the acceptance criteria and demands one criteria entry per index (0.5483ms)
+✔ final verification answers criteria empty because it judges none of them (0.0726ms)
+✔ drift review forbids answering not_required (0.0854ms)
+✔ final verification feeds back the problems that rejected its previous review (0.0953ms)
+✔ check approval and final verification state the goal once, via the saved plan (0.1715ms)
+✔ every phase label maps to a wire-safe json_schema name (0.1795ms)
+✔ plan preparation opens with the run block before any plan exists (0.1386ms)
+✔ the parent prompt heads its run block, phase text and schema with the exported constants in order (0.1421ms)
+✔ the worker instruction heads each block with an exported constant and keeps the list it introduces (0.1588ms)
+✔ every exported heading constant is a non-empty string that a builder actually emits as its own line (0.1953ms)
+✔ the builders wrap a saved plan in the exported marker constants, and in nothing else (0.1429ms)
+✔ the dashboard split of real builder output keeps every line exactly once (0.9374ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 54
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 567.9818
+EXIT:0

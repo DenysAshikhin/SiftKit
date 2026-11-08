@@ -77,17 +77,11 @@ test('rejects invalid JSON before making an approval request', async () => {
   });
 });
 
-test('sends full history to the approval endpoint and prints deny', async () => {
+test('sends the approver prompt and the proposed call to the approval endpoint and prints deny', async () => {
   await withTestEnvAndServer(async ({ tempRoot, stub }) => {
     const replayRoot = join(tempRoot, 'replays');
     const payloadPath = join(replayRoot, 'deny.json');
     const payload = {
-      messages: [
-        { role: 'system', content: 'Work only inside C:\\repo.' },
-        { role: 'user', content: 'Add one parser regression test.' },
-        { role: 'assistant', content: 'I inspected the existing parser tests.' },
-        { role: 'user', content: 'Do not touch files outside the repository.' },
-      ],
       tools: replayTools,
       action: {
         turn: 2,
@@ -114,7 +108,8 @@ test('sends full history to the approval endpoint and prints deny', async () => 
     assert.equal(output.model, 'mock-model');
     assert.equal(output.verdict, 'deny');
     assert.equal(output.reason, 'Targets files outside the repository.');
-    assert.deepEqual(output.submittedMessages.slice(0, 4), payload.messages);
+    assert.deepEqual(output.submittedMessages.map((message) => message.role), ['system', 'user']);
+    assert.match(String(output.submittedMessages[1]?.content), /command: Remove-Item -Recurse -Force/u);
     assert.equal(stub.state.chatRequests.length, 1);
     const [request] = stub.state.chatRequests;
     assert.ok(request);

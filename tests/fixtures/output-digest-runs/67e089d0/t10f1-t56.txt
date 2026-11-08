@@ -1,0 +1,11 @@
+05:05:28  st f5452ffc  terminal_metadata_process_done  state=completed duration_ms=5
+✔ every parent phase reuses the run-start system context and run block, even after a writer adds a file (1894.4826ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 38975.5658
+EXIT_E2E=0

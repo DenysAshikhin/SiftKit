@@ -1,0 +1,18 @@
+M dashboard/tests/chat-tab.test.tsx
+ M dashboard/tests/orchestrator-run-panel.test.tsx
+ M dashboard/tests/orchestrator-view.test.ts
+ M dashboard/tests/use-orchestrator-run.test.tsx
+?? dashboard/tests/orchestrator-api.test.ts
+?? dashboard/tests/prompt-parts.test.ts
+
+C:\tmp\rsx\siftkit-compare-single\dashboard\tests\orchestrator-api.test.ts
+   9:8   error  'OrchestratorAgentSummary' is defined but never used                            @typescript-eslint/no-unused-vars
+  65:22  error  Explicit unknown is banned; validate at the boundary with a schema-derived DTO  no-restricted-syntax
+
+C:\tmp\rsx\siftkit-compare-single\dashboard\tests\orchestrator-view.test.ts
+  29:3  error  'commandCheckResult' is defined but never used  @typescript-eslint/no-unused-vars
+  32:3  error  'fileMarks' is defined but never used           @typescript-eslint/no-unused-vars
+
+✖ 4 problems (4 errors, 0 warnings)
+
+ESLINT EXIT 1

@@ -3,11 +3,10 @@ import test from 'node:test';
 
 import { parseJsonValueText } from '../src/lib/json.ts';
 import { ApprovalVerdictSchema } from '../src/repo-search/approval-verdict.ts';
-import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.ts';
+import { buildApprovalReviewRequest } from '../src/repo-search/approval-review-policy.ts';
 import { resolvePlannerThinkingFlags } from '../src/repo-search/engine/task-loop-support.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 import {
-  captureExecutingPlannerRequest,
   requestApprovalVerdict,
   requestRepoSearchPlannerProtocolAction,
   serializeProtocolMessages,
@@ -34,7 +33,7 @@ function retention(response: PlannerActionResponse, label: string): number {
   return cached / (cached + evaluated);
 }
 
-test('a budgeted verdict keeps the planner prefix cached and the next planner turn too', {
+test('a budgeted isolated verdict answers in JSON and leaves the agent prefix cached for its next turn', {
   timeout: LIVE_TEST_TIMEOUT_MS,
   skip: ENABLED ? false : 'set SIFTKIT_TEST_LIVE_APPROVAL_VERDICT_BUDGET=1 and use an existing local exl3 server',
 }, async () => {
@@ -50,7 +49,6 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
   });
 
   const plannerMessages = serializeProtocolMessages(transcript, thinking.reasoningContentEnabled);
-  const executing = captureExecutingPlannerRequest(plannerMessages, thinking, tools, 1_000);
   await requestRepoSearchPlannerProtocolAction({
     throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config, baseUrl, model, messages: plannerMessages,
@@ -62,18 +60,17 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
   const verdict = await requestApprovalVerdict({
     throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config, baseUrl, model,
-    transcriptMessages: transcript, pendingMessages: [],
-    question: buildApprovalVerdictQuestion({
+    reviewRequest: buildApprovalReviewRequest({
       toolName: 'write',
       command: 'write path="src/probe.ts"',
       reviewPayload: JSON.stringify({ toolName: 'write', args: { path: 'src/probe.ts', content: 'export const ok = true;' } }),
     }),
-    executing, timeoutMs: LIVE_REQUEST_TIMEOUT_MS,
+    tools, flags: thinking, timeoutMs: LIVE_REQUEST_TIMEOUT_MS,
   });
   assert.equal(verdict.toolCalls.length, 0);
   ApprovalVerdictSchema.parse(parseJsonValueText(verdict.text));
-  assert.ok(retention(verdict, 'verdict') >= CACHE_RETENTION_FRACTION, `verdict retention ${retention(verdict, 'verdict')}`);
 
+  // The verdict is a separate prompt; what must survive it is the agent prefix the next turn extends.
   const next = await requestRepoSearchPlannerProtocolAction({
     throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config, baseUrl, model,

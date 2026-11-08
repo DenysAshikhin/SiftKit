@@ -1,0 +1,7 @@
+RUN  v4.1.11 C:/tmp/rsx/siftkit-compare-single/dashboard
+
+
+ Test Files  3 passed (3)
+      Tests  32 passed (32)
+   Start at  06:11:22
+   Duration  557ms (transform 515ms, setup 386ms, import 856ms, tests 23ms, environment 0ms)

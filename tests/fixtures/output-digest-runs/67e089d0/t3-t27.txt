@@ -1,0 +1,7 @@
+87 lines truncated due to per-tool context limit.
+at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-run-store.test.ts:168:28)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)

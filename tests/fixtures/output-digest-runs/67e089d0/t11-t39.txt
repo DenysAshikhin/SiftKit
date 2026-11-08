@@ -1,0 +1,7 @@
+15 lines truncated due to per-tool context limit.
+src/lib/process-tree.ts(61,49): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/lib/process-tree.ts(165,32): error TS2591: Cannot find name 'Buffer'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/lib/process-tree.ts(216,50): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/lib/process-tree.ts(225,38): error TS2591: Cannot find name 'Buffer'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/repo-search/engine/repo-paths.ts(1,42): error TS2307: Cannot find module 'node:fs' or its corresponding type declarations.
+src/repo-search/engine/repo-paths.ts(2,56): error TS2307: Cannot find module 'node:path' or its corresponding type declarations.

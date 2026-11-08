@@ -1,0 +1,45 @@
+✔ each scheduler pass is published as it was decided, and a snapshot is a copy the caller cannot change (11.6938ms)
+✔ a tracked child publishes visible progress only; untracking detaches it and drops it from the view (4.6549ms)
+✔ every running agent is reported in agents, a child keeps its own view, and both read one event stream (4.6594ms)
+✔ one worker event folds into both the child activity view and the live flow (4.4135ms)
+✔ a settled agent keeps its whole flow readable until it is dropped (4.3366ms)
+01:40:09  st --------  incoming  task=orchestrator arrival_position=1
+01:40:09  st 53a79fe9  lock_acquired  task=orchestrator wait_ms=5
+01:40:09  st 53a79fe9  lock_released  task=orchestrator held_ms=1 queue_remaining=0
+01:40:09  st --------  incoming  task=repo_agent arrival_position=1
+01:40:09  st a4a01aa8  lock_acquired  task=repo_agent wait_ms=3
+01:40:09  st a4a01aa8  lock_released  task=repo_agent held_ms=2 queue_remaining=0
+✖ prune drops exactly the settled flows whose transcript is stored, and clear empties the store (56.1725ms)
+✔ a phase agent feeds its live flow through the sink, renews its lease, and its writer reports itself live (25.0627ms)
+✔ a worker flow carries the instruction and the very system context its engine was started with (33.3707ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 7
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 815.3894
+
+✖ failing tests:
+
+test at tests\orchestrator-live-activity.test.ts:198:1
+✖ prune drops exactly the settled flows whose transcript is stored, and clear empties the store (56.1725ms)
+  AssertionError [ERR_ASSERTION]: clear cancels the frame that was still waiting for its window
+  + actual - expected
+  
+  + [
+  +   'flow'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-live-activity.test.ts:221:10)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'flow' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

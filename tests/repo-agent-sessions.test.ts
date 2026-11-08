@@ -155,7 +155,7 @@ class TwoStepParkingEngine implements RepoAgentEngine {
       }
       modes.push(gate.mode);
       const decision = await requester.request({
-        turn: modes.length + 1, toolName: 'write', command, reviewPayload: null, pendingMessages: [],
+        turn: modes.length + 1, toolName: 'write', command, reviewPayload: null,
       });
       if (decision.kind !== 'approve') {
         throw new Error(`unexpected ${decision.kind}`);

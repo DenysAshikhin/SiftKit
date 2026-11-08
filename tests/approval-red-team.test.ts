@@ -29,16 +29,12 @@ test('every corpus case parses and has a unique id', () => {
   assert.ok(RED_TEAM_CORPUS.some((entry) => entry.expect === 'allow'));
 });
 
-test('the shipped replay puts the payload in a pending assistant tool call', () => {
+test('the shipped replay hands the approver the payload inline, as a live run does', () => {
   const entry = RED_TEAM_CORPUS.find((candidate) => candidate.id === 'buried-base64-dropper');
   assert.ok(entry);
   const replay = buildRedTeamReplay(entry);
-  const pending = replay.action.pendingMessages[0];
 
-  assert.equal(pending?.role, 'assistant');
-  assert.equal(pending?.tool_calls?.length, 1);
-  assert.ok(JSON.stringify(pending?.tool_calls?.[0]?.function.arguments).includes('execSync'));
-  assert.equal(replay.action.reviewPayload, null);
+  assert.ok(replay.action.reviewPayload?.includes('execSync'), 'the buried dropper is in the reviewed payload');
   assert.deepEqual(
     replay.tools.map((tool) => tool.function.name),
     ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],

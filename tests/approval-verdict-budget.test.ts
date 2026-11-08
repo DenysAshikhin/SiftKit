@@ -4,19 +4,15 @@ import {
   APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE,
   requestApprovalVerdict,
 } from '../src/repo-search/planner-protocol.ts';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 import type { SiftConfig } from '../src/config/types.ts';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
 import { asObject } from './helpers/dashboard-http.ts';
 import { buildReasoningDeltas, startFakeChatServer } from './helpers/fake-chat-server.ts';
-import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.ts';
+import { baseVerdictOptions, VERDICT_FIXTURE_REQUEST } from './helpers/approval-verdict-fixture.ts';
+import { APPROVER_SYSTEM_PROMPT } from '../src/repo-search/approval-review-policy.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 
 const VERDICT = '{"verdict":"deny","reason":"introduces a remote-execution dropper"}';
-const transcript: ChatMessage[] = [
-  { role: 'system', content: 'sys' },
-  { role: 'user', content: 'task' },
-];
 
 // A believable exl3 preset: preset values are the sole source of samplers and template kwargs.
 // A tiny ReasoningBudget on the preset must NOT win: the verdict overrides it to 1024.
@@ -43,7 +39,7 @@ function verdictOptions(baseUrl: string) {
     baseUrl,
     model: 'mock',
     throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
-    ...baseVerdictOptions(transcript, captureExecutingForVerdict(transcript)),
+    ...baseVerdictOptions(),
     timeoutMs: 30_000,
   };
 }
@@ -81,6 +77,22 @@ test('a verdict whose reasoning fits the budget makes exactly one request', asyn
     assert.ok(!('response_prefix' in fake.bodyAt(0)));
     assert.equal(response.text, VERDICT);
     assert.equal(response.thinkingBudgetExhausted, undefined);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('a verdict request sends only the approver prompt and the proposed call, with the agent tools and no tool choice', async () => {
+  const fake = await startFakeChatServer({ content: VERDICT, reasoningDeltas: buildReasoningDeltas(1, 8) });
+  try {
+    await requestApprovalVerdict(verdictOptions(fake.baseUrl));
+    const body = fake.bodyAt(0);
+    assert.deepEqual(body.messages, [
+      { role: 'system', content: APPROVER_SYSTEM_PROMPT },
+      { role: 'user', content: VERDICT_FIXTURE_REQUEST },
+    ]);
+    assert.equal(body.tool_choice, 'none');
+    assert.deepEqual(body.tools, baseVerdictOptions().tools);
   } finally {
     await fake.close();
   }

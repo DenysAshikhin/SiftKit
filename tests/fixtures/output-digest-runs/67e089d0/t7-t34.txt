@@ -1,0 +1,14 @@
+✔ prune drops only a finished flow whose transcript is already stored (0.1538ms)
+✔ a subscriber gets the whole flow first, then one whole turn per window with its latest state, then the finished flow (0.5766ms)
+✔ detaching a subscriber stops its frames (0.1985ms)
+✔ two subscribers of one agent each get their own copy of the same frames (0.2049ms)
+✔ subscribing to a settled flow answers the whole flow and the finished frame with nothing left pending (0.1237ms)
+✔ an agent with no live flow has no stream (0.05ms)
+ℹ tests 68
+ℹ suites 0
+ℹ pass 68
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 566.6269

@@ -1,7 +1,5 @@
 import type { SiftConfig } from '../config/index.ts';
-import { estimateTokenCount } from '../lib/token-estimate.ts';
 import { ProgressWriter } from '../lib/progress-writer.ts';
-import { renderWirePrompt } from './wire-prompt.ts';
 import { z } from '../lib/zod.ts';
 import type { RepoSearchProgressEvent } from './types.ts';
 import { InferenceToolDefinitionsSchema, type InferenceToolDefinition } from '../llm-protocol/types.ts';
@@ -9,40 +7,33 @@ import { ApprovalVerdictSchema } from './approval-verdict.ts';
 import {
   isApprovalExemptReadOnlyTool,
   type ApprovalDecision,
-  type HumanApprovalRequestInput,
-  type HumanApprovalRequester,
+  type ApprovalRequestInput,
+  type ApprovalRequester,
 } from './engine/approval-gate.ts';
 import {
   LlmApprovalGate,
   type ApprovalVerdictRequester,
 } from './engine/llm-approval-gate.ts';
 import {
-  captureExecutingPlannerRequest,
-  buildApprovalVerdictPromptMessages,
+  buildApprovalVerdictMessages,
   requestApprovalVerdict,
-  serializeProtocolMessages,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
 } from './planner-protocol.ts';
 import { PlannerChatMessageSchema, type ChatMessage } from './planner-chat-message.ts';
 
-/**
- * A replayed transcript is planner history read back from a probe payload, so it is validated with
- * the planner message schema itself rather than a second description of the same shape. The internal
- * image-path key is not part of a replay payload.
- */
+/** A submitted verdict message, validated with the planner message schema itself; the internal image-path key is never part of one. */
 export const ReplayMessageSchema = PlannerChatMessageSchema.omit({ imagePathKey: true });
 
-export const AutoApprovalActionSchema = z.object({
+export const AutoApprovalActionSchema = z.strictObject({
   turn: z.number().int().positive(),
   toolName: z.string().min(1),
   command: z.string().min(1),
   reviewPayload: z.string().nullable(),
-  pendingMessages: z.array(ReplayMessageSchema).default([]),
 });
 
-export const AutoApprovalReplayPayloadSchema = z.object({
-  messages: z.array(ReplayMessageSchema).min(1),
+/** One proposed call and the agent's tool definitions: everything the isolated approver is shown. */
+export const AutoApprovalReplayPayloadSchema = z.strictObject({
   tools: InferenceToolDefinitionsSchema.min(1),
   action: AutoApprovalActionSchema,
 });
@@ -64,12 +55,7 @@ export const AutoApprovalProbeResultSchema = z.object({
 export type AutoApprovalProbeResult = z.infer<typeof AutoApprovalProbeResultSchema>;
 
 export type ApprovalVerdictModelClient = {
-  request(
-    messages: ChatMessage[],
-    pendingMessages: ChatMessage[],
-    question: string,
-    tools: readonly InferenceToolDefinition[],
-  ): Promise<PlannerActionResponse>;
+  request(reviewRequest: string, tools: readonly InferenceToolDefinition[]): Promise<PlannerActionResponse>;
 };
 
 export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictModelClient {
@@ -91,12 +77,7 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     this.options = options;
   }
 
-  request(
-    messages: ChatMessage[],
-    pendingMessages: ChatMessage[],
-    question: string,
-    tools: readonly InferenceToolDefinition[],
-  ): Promise<PlannerActionResponse> {
+  request(reviewRequest: string, tools: readonly InferenceToolDefinition[]): Promise<PlannerActionResponse> {
     const { thinking, ...request } = this.options;
     return requestApprovalVerdict({
       ...request,
@@ -109,23 +90,9 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
         model: this.options.model,
         presetId: null,
       },
-      transcriptMessages: messages,
-      pendingMessages,
-      question,
-      // Replay reconstructs the executing planner request from the persisted
-      // messages the live run submitted, with the configured thinking flags. The
-      // live prompt measurement is not persisted with them, so a replay prices the
-      // reconstructed prompt locally instead.
-      executing: captureExecutingPlannerRequest(
-        serializeProtocolMessages(messages, thinking.reasoningContentEnabled),
-        thinking,
-        tools,
-        estimateTokenCount(this.options.config, renderWirePrompt({
-          messages,
-          tools,
-          includeReasoningContent: thinking.reasoningContentEnabled,
-        }).text),
-      ),
+      reviewRequest,
+      tools,
+      flags: thinking,
       logger: null,
     });
   }
@@ -134,35 +101,22 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
 class ReplayVerdictRequester implements ApprovalVerdictRequester {
   submittedMessages: ChatMessage[] = [];
 
-  private readonly messages: ChatMessage[];
   private readonly tools: readonly InferenceToolDefinition[];
   private readonly modelClient: ApprovalVerdictModelClient;
 
-  constructor(
-    messages: ChatMessage[],
-    tools: readonly InferenceToolDefinition[],
-    modelClient: ApprovalVerdictModelClient,
-  ) {
-    this.messages = messages;
+  constructor(tools: readonly InferenceToolDefinition[], modelClient: ApprovalVerdictModelClient) {
     this.tools = tools;
     this.modelClient = modelClient;
   }
 
-  requestApprovalVerdict(
-    question: string,
-    pendingMessages: ChatMessage[],
-  ): Promise<PlannerActionResponse> {
-    this.submittedMessages = buildApprovalVerdictPromptMessages(
-      this.messages,
-      pendingMessages,
-      question,
-    );
-    return this.modelClient.request(this.messages, pendingMessages, question, this.tools);
+  requestApprovalVerdict(reviewRequest: string): Promise<PlannerActionResponse> {
+    this.submittedMessages = buildApprovalVerdictMessages(reviewRequest);
+    return this.modelClient.request(reviewRequest, this.tools);
   }
 }
 
-class FailClosedHumanGate implements HumanApprovalRequester {
-  request(_input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
+class FailClosedHumanGate implements ApprovalRequester {
+  request(_input: ApprovalRequestInput): Promise<ApprovalDecision> {
     return Promise.resolve({
       kind: 'abort',
       reason: 'Approval verdict probe reached the human gate; failing closed.',
@@ -210,7 +164,7 @@ export class AutoApprovalVerdictProbe {
         + 'consulted for it, so there is no verdict to probe.',
       );
     }
-    const requester = new ReplayVerdictRequester(payload.messages, payload.tools, this.modelClient);
+    const requester = new ReplayVerdictRequester(payload.tools, this.modelClient);
     const progressWriter = new ProbeProgressWriter();
     const gate = new LlmApprovalGate({
       requestId: 'auto-approval-verdict-probe',

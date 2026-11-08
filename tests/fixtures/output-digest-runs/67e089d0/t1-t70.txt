@@ -1,0 +1,51 @@
+36 lines omitted from validation command output.
+✔ every phase builder returns only its phase text (0.194ms)
+✔ both evidence reviews state the shared answer guidance once (0.123ms)
+✔ attempt review lists only the task baseline beyond the run context (0.0905ms)
+✔ drift review forbids answering not_required (0.0974ms)
+✔ final verification feeds back the problems that rejected its previous review (0.0872ms)
+✔ check approval and final verification state the goal once, via the saved plan (0.1645ms)
+✔ every phase label maps to a wire-safe json_schema name (0.4773ms)
+✔ plan preparation opens with the run block before any plan exists (0.175ms)
+✔ a completed worker with independently passing checks and verified evidence passes (3.4225ms)
+✔ a worker claim cannot pass a failing, missing, or timed-out check (2.0819ms)
+✔ evidence checks need a passing review whose anchors resolve to the cited lines (2.5527ms)
+✔ a rendered plan states every task scope, step, check, and acceptance criterion (1.6448ms)
+ℹ tests 41
+ℹ suites 0
+ℹ pass 40
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 657.0355
+
+✖ failing tests:
+
+test at tests\orchestrator-live-activity.test.ts:46:1
+✖ each scheduler pass is published as it was decided, and a snapshot is a copy the caller cannot change (12.7252ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+  +   agents: [],
+      children: [],
+      runId: '00000000-0000-4000-8000-000000000001',
+      schedule: {
+        claims: [
+          {
+  
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-live-activity.test.ts:51:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { runId: '00000000-0000-4000-8000-000000000001', schedule: { claims: [Array], models: [Array], writerUsed: true, waits: [] }, children: [], agents: [] },
+    expected: { runId: '00000000-0000-4000-8000-000000000001', schedule: { claims: [Array], models: [Array], writerUsed: true, waits: [] }, children: [] },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+SERVER_TESTS_EXIT=1

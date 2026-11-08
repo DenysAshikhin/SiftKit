@@ -1,0 +1,44 @@
+lint=0
+typecheck=0
+0
+ M .gitignore
+ M dashboard/tests/chat-tab.test.tsx
+ M dashboard/tests/orchestrator-run-panel.test.tsx
+ M dashboard/tests/orchestrator-view.test.ts
+ M dashboard/tests/use-orchestrator-run.test.tsx
+ M packages/contracts/src/orchestrator.ts
+ M src/orchestrator/live-activity.ts
+ M src/orchestrator/phase-runner.ts
+ M src/orchestrator/prompts.ts
+ M src/orchestrator/run-store.ts
+ M src/orchestrator/run.ts
+ M src/orchestrator/verification.ts
+ M src/orchestrator/workers.ts
+ M src/preset-system-context.ts
+ M src/state/runtime-db.ts
+ M src/status-server/orchestrator-runs.ts
+ M src/status-server/routes/core.ts
+ M src/status-server/routes/orchestrator.ts
+ M src/status-server/routes/repo-agent.ts
+ M tests/contracts-orchestrator.test.ts
+ M tests/helpers/empty-preset-system-context.ts
+ M tests/orchestrator-live-activity.test.ts
+ M tests/orchestrator-prompts.test.ts
+ M tests/orchestrator-run-store.test.ts
+ M tests/orchestrator-runs.test.ts
+ M tests/orchestrator-verification.test.ts
+ M tests/preset-system-context.test.ts
+ M tests/preset-system-prompt.test.ts
+ M tests/process/chat-overflow.test.ts
+ M tests/process/orchestrator-chat-sessions.test.ts
+ M tests/process/orchestrator-run.e2e.test.ts
+ M tests/repo-search-prompts.test.ts
+ M tests/runtime-db-schema-orchestrator-session-links.test.ts
+ M tests/summary-prompt-composition.test.ts
+?? src/orchestrator/agent-flow.ts
+?? src/orchestrator/live-flows.ts
+?? src/state/schema-upgrades/orchestrator-phase-runs.ts
+?? tests/orchestrator-agent-flow.test.ts
+?? tests/orchestrator-live-flows.test.ts
+?? tests/process/orchestrator-agents.test.ts
+?? tests/runtime-db-schema-orchestrator-phase-runs.test.ts

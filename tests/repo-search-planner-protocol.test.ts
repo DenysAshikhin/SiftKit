@@ -739,7 +739,7 @@ test('derived planner requests reject every cache-contract divergence before log
         model: 'test-model',
         timeoutMs: 5_000,
         maxTokens: 128,
-        stage: 'approval_verdict',
+        stage: 'terminal_synthesis',
         toolChoice: 'none',
         responseSchema: null,
         cachePrefix,
@@ -748,23 +748,23 @@ test('derived planner requests reject every cache-contract divergence before log
       const cases: Array<{ options: PlannerDerivedRequestOptions; error: RegExp }> = [
         {
           options: { ...common, messages: [{ role: 'user', content: 'different' }], ...flags, tools },
-          error: /approval_verdict prompt-cache contract violated: message 0 diverged/u,
+          error: /terminal_synthesis prompt-cache contract violated: message 0 diverged/u,
         },
         {
           options: { ...common, messages, ...flags, tools: [] },
-          error: /approval_verdict prompt-cache contract violated: tools diverged/u,
+          error: /terminal_synthesis prompt-cache contract violated: tools diverged/u,
         },
         {
           options: { ...common, messages, ...flags, thinkingEnabled: false, tools },
-          error: /approval_verdict prompt-cache contract violated: thinkingEnabled diverged/u,
+          error: /terminal_synthesis prompt-cache contract violated: thinkingEnabled diverged/u,
         },
         {
           options: { ...common, messages, ...flags, reasoningContentEnabled: false, tools },
-          error: /approval_verdict prompt-cache contract violated: reasoningContentEnabled diverged/u,
+          error: /terminal_synthesis prompt-cache contract violated: reasoningContentEnabled diverged/u,
         },
         {
           options: { ...common, messages, ...flags, preserveThinking: false, tools },
-          error: /approval_verdict prompt-cache contract violated: preserveThinking diverged/u,
+          error: /terminal_synthesis prompt-cache contract violated: preserveThinking diverged/u,
         },
       ];
 
@@ -790,19 +790,13 @@ test('requestApprovalVerdict uses the dedicated non-thinking operation cap', asy
       config,
       baseUrl,
       model: 'test-model',
-      transcriptMessages: [],
-      pendingMessages: [],
-      question: 'ok?',
-      executing: captureExecutingPlannerRequest(
-        [],
-        {
-          thinkingEnabled: false,
-          reasoningContentEnabled: false,
-          preserveThinking: false,
-        },
-        toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
-        1_000,
-      ),
+      reviewRequest: 'ok?',
+      tools: toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
+      flags: {
+        thinkingEnabled: false,
+        reasoningContentEnabled: false,
+        preserveThinking: false,
+      },
       timeoutMs: 5000,
     });
   }, '{"verdict":"approve","reason":"ok"}');
@@ -810,7 +804,7 @@ test('requestApprovalVerdict uses the dedicated non-thinking operation cap', asy
   assert.equal(captured.max_tokens, 512);
 });
 
-test('approval verdict generation shrinks to what the executing prompt leaves in the budget', async () => {
+test('an approval verdict budgets from its own short prompt, not the agent prompt that proposed the call', async () => {
   const captured = await captureChatRequestBody((baseUrl) => {
     const config = buildTestConfig({ BaseUrl: baseUrl, NumCtx: 155_000 });
     getActiveModelPreset(config).BaseUrl = baseUrl;
@@ -820,27 +814,19 @@ test('approval verdict generation shrinks to what the executing prompt leaves in
       config,
       baseUrl,
       model: 'test-model',
-      transcriptMessages: [],
-      pendingMessages: [],
-      question: 'ok?',
-      // Measured at 154,950 of a 155,000-token window: only the remainder minus the
-      // appended question is left for the verdict, well under its 512-token cap.
-      executing: captureExecutingPlannerRequest(
-        [],
-        {
-          thinkingEnabled: false,
-          reasoningContentEnabled: false,
-          preserveThinking: false,
-        },
-        toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
-        154_950,
-      ),
+      // However full the agent's window is, the verdict prompt is the approver prompt and one call.
+      reviewRequest: 'ok?',
+      tools: toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
+      flags: {
+        thinkingEnabled: false,
+        reasoningContentEnabled: false,
+        preserveThinking: false,
+      },
       timeoutMs: 5000,
     });
   }, '{"verdict":"approve","reason":"ok"}');
 
-  const maxTokens = Number(captured.max_tokens);
-  assert.ok(maxTokens >= 1 && maxTokens < 50, `max_tokens=${maxTokens}`);
+  assert.equal(captured.max_tokens, 512);
 });
 
 test('requestApprovalVerdict uses the dedicated thinking operation cap', async () => {
@@ -852,19 +838,13 @@ test('requestApprovalVerdict uses the dedicated thinking operation cap', async (
       config,
       baseUrl,
       model: 'test-model',
-      transcriptMessages: [],
-      pendingMessages: [],
-      question: 'ok?',
-      executing: captureExecutingPlannerRequest(
-        [],
-        {
-          thinkingEnabled: true,
-          reasoningContentEnabled: true,
-          preserveThinking: true,
-        },
-        toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
-        1_000,
-      ),
+      reviewRequest: 'ok?',
+      tools: toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
+      flags: {
+        thinkingEnabled: true,
+        reasoningContentEnabled: true,
+        preserveThinking: true,
+      },
       timeoutMs: 5000,
     });
   }, '{"verdict":"approve","reason":"ok"}');
@@ -872,7 +852,7 @@ test('requestApprovalVerdict uses the dedicated thinking operation cap', async (
   assert.equal(captured.max_tokens, 1_536);
 });
 
-test('approval verdicts extend the measured executing prompt without network tokenization', async () => {
+test('approval verdicts are priced without network tokenization', async () => {
   let tokenizeRequestCount = 0;
   await withServer(
     (req, res) => {
@@ -893,14 +873,9 @@ test('approval verdicts extend the measured executing prompt without network tok
         config,
         baseUrl,
         model: 'test-model',
-        transcriptMessages: [],
-        pendingMessages: [],
-        question: 'ok?',
-        executing: captureExecutingPlannerRequest([], {
-          thinkingEnabled: false,
-          reasoningContentEnabled: false,
-          preserveThinking: false,
-        }, [], 1_000),
+        reviewRequest: 'ok?',
+        tools: [],
+        flags: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
         timeoutMs: 5000,
         mockResponses: [{ content: '{"verdict":"approve","reason":"ok"}' }],
       });
@@ -1292,10 +1267,9 @@ test('every planner-protocol request audits under the operation identity stamped
         config,
         baseUrl,
         model: 'test-model',
-        transcriptMessages: [],
-        pendingMessages: [],
-        question: 'ok?',
-        executing: captureExecutingPlannerRequest([], flags, tools, 1_000),
+        reviewRequest: 'ok?',
+        tools,
+        flags,
         timeoutMs: 5000,
       });
     },

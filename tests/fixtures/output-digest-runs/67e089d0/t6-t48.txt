@@ -1,0 +1,9 @@
+The compact formatter is no longer part of core ESLint. Install it manually with `npm install -D eslint-formatter-compact`
+Get-Item : Cannot find path 'C:\tmp\rsx\siftkit-compare-single\.siftkit\orchestrator\67e089d0-80ed-4e02-a9f0-c73614341c
+13\scratch\eslint-check.txt' because it does not exist.
+At line:1 char:143
++ ... -check.txt; Get-Item .siftkit\orchestrator\67e089d0-80ed-4e02-a9f0-c7 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\tmp\rsx\sift...slint-check.txt:String) [Get-Item], ItemNotFoundExcep 
+   tion
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetItemCommand

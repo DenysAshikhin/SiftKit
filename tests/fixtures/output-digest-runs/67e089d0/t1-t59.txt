@@ -1,0 +1,28 @@
+dashboard/tests/orchestrator-run-panel.test.tsx(72,3): error TS2741: Property 'agents' is missing in type '{ runId: 
+string; children: { childRunId: string; taskId: string; waitingForModel: boolean; turn: number; maxTurns: number | 
+null; promptTokens: number; tools: { toolCallId: string; turn: number; activityKind: "command" | ... 7 more ... | 
+"image"; command: string; status: "failed" | ... 1 more ... | "succeeded"; }[];...' but required in type '{ runId: 
+string; schedule: { claims: { taskId: string; modelId: string; mutating: boolean; contextTokens: number; }[]; models: 
+{ modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { ...; }[]; } | null; children: { 
+...; }[]; agents: { ...; }[]; }'.
+dashboard/tests/orchestrator-run-panel.test.tsx(168,9): error TS2741: Property 'agents' is missing in type '{ runId: 
+string; children: { childRunId: string; taskId: string; waitingForModel: boolean; turn: number; maxTurns: number | 
+null; promptTokens: number; tools: { toolCallId: string; turn: number; activityKind: "command" | ... 7 more ... | 
+"image"; command: string; status: "failed" | ... 1 more ... | "succeeded"; }[];...' but required in type '{ runId: 
+string; schedule: { claims: { taskId: string; modelId: string; mutating: boolean; contextTokens: number; }[]; models: 
+{ modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { ...; }[]; } | null; children: { 
+...; }[]; agents: { ...; }[]; }'.
+dashboard/tests/orchestrator-view.test.ts(58,7): error TS2741: Property 'agents' is missing in type '{ runId: string; 
+schedule: { claims: { taskId: string; modelId: string; mutating: boolean; contextTokens: number; }[]; models: { 
+modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { ...; }[]; }; children: never[]; }' 
+but required in type '{ runId: string; schedule: { claims: { taskId: string; modelId: string; mutating: boolean; 
+contextTokens: number; }[]; models: { modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { 
+...; }[]; } | null; children: { ...; }[]; agents: { ...; }[]; }'.
+dashboard/tests/use-orchestrator-run.test.tsx(144,7): error TS2741: Property 'agents' is missing in type '{ runId: 
+string; schedule: null; children: never[]; }' but required in type '{ runId: string; schedule: { claims: { taskId: 
+string; modelId: string; mutating: boolean; contextTokens: number; }[]; models: { modelId: string; slots: number; 
+used: number; }[]; writerUsed: boolean; waits: { ...; }[]; } | null; children: { ...; }[]; agents: { ...; }[]; }'.
+
+
+
+EXIT=2

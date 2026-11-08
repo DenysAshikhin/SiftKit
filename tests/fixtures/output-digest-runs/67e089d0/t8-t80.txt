@@ -1,0 +1,28 @@
+> siftkit@0.1.0 typecheck
+> tsc -p .\packages\contracts\tsconfig.json && tsc -p .\tsconfig.json && tsc -p .\tsconfig.scripts.json && tsc -p .\dashboard\tsconfig.json && tsc -p .\dashboard\tsconfig.node.json && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint
+
+
+> siftkit@0.1.0 typecheck:bench
+> tsc -p .\tsconfig.bench.json
+
+
+> siftkit@0.1.0 typecheck:test
+> tsc -p .\tsconfig.test.json
+
+
+> siftkit@0.1.0 typecheck:dashboard-test
+> tsc -p .\dashboard\tsconfig.test.json
+
+
+> siftkit@0.1.0 typecheck:analysis
+> tsc -p .\tsconfig.analysis.json
+
+
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+
+C:\tmp\rsx\siftkit-compare-single\tests\orchestrator-live-activity.test.ts
+  63:71  error  Do not use any type assertions  @typescript-eslint/consistent-type-assertions
+
+✖ 1 problem (1 error, 0 warnings)

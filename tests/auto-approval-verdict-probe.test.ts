@@ -11,12 +11,10 @@ import {
   type ApprovalVerdictModelClient,
 } from '../src/repo-search/approval-verdict-probe.ts';
 import {
-  APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_REQUEST_MARKER,
+  APPROVER_SYSTEM_PROMPT,
 } from '../src/repo-search/approval-review-policy.ts';
-import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.ts';
 import type { PlannerActionResponse } from '../src/repo-search/planner-protocol.ts';
-import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import { mockSiftConfig } from './helpers/mock-config.ts';
@@ -24,43 +22,16 @@ import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streamin
 import { parseJsonValueText } from '../src/lib/json.ts';
 import { CLEAN_STREAM_STOP, type InferenceToolDefinition } from '../src/llm-protocol/types.ts';
 
-const messages: ChatMessage[] = [
-  { role: 'system', content: 'Work only inside C:\\repo.' },
-  { role: 'user', content: 'Add one parser regression test.' },
-  { role: 'assistant', content: 'I inspected the parser tests.' },
-  { role: 'user', content: 'Continue without touching files outside the repository.' },
-];
-
 const reviewPayload = JSON.stringify({ toolName: 'edit', args: { path: 'src/cleanup.ts', edits: [{
     oldText: 'cleanCache();',
     newText: 'fs.rmSync(repoRoot, { recursive: true, force: true });',
   }] } }, null, 2);
-
-const pendingMessage: ChatMessage = {
-  role: 'assistant',
-  content: '',
-  tool_calls: [{
-    id: 't2_c0',
-    type: 'function',
-    function: {
-      name: 'edit',
-      arguments: JSON.stringify({
-        path: 'src/cleanup.ts',
-        edits: [{
-          oldText: 'cleanCache();',
-          newText: 'fs.rmSync(repoRoot, { recursive: true, force: true });',
-        }],
-      }),
-    },
-  }],
-};
 
 const action = {
   turn: 2,
   toolName: 'edit',
   command: 'edit path="src/cleanup.ts" edits=1',
   reviewPayload,
-  pendingMessages: [pendingMessage],
 };
 
 const replayTools = [{
@@ -78,7 +49,7 @@ const replayTools = [{
 }] satisfies readonly InferenceToolDefinition[];
 
 class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
-  readonly requests: ChatMessage[][] = [];
+  readonly requests: string[] = [];
 
   private readonly responseText: string;
 
@@ -86,13 +57,8 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
     this.responseText = responseText;
   }
 
-  request(
-    requestMessages: ChatMessage[],
-    pendingMessages: ChatMessage[],
-    question: string,
-    _tools: readonly InferenceToolDefinition[],
-  ): Promise<PlannerActionResponse> {
-    this.requests.push([...requestMessages, ...pendingMessages, { role: 'user', content: question }]);
+  request(reviewRequest: string, _tools: readonly InferenceToolDefinition[]): Promise<PlannerActionResponse> {
+    this.requests.push(reviewRequest);
     return Promise.resolve({
       text: this.responseText,
       rawText: this.responseText,
@@ -106,7 +72,7 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
   }
 }
 
-test('configured verdict replay uses the exact persisted tool schema', async () => {
+test('configured verdict replay sends the exact persisted tool schema and no tool choice', async () => {
   let capturedBody = asObject({});
   const server = http.createServer((req, res) => {
     let body = '';
@@ -143,123 +109,78 @@ test('configured verdict replay uses the exact persisted tool schema', async () 
       },
     });
 
-    await client.request(messages, [pendingMessage], 'approve?', replayTools);
+    await client.request('approve?', replayTools);
 
     assert.deepEqual(capturedBody.tools, replayTools);
     assert.equal(capturedBody.tool_choice, 'none');
+    assert.deepEqual(capturedBody.messages, [
+      { role: 'system', content: APPROVER_SYSTEM_PROMPT },
+      { role: 'user', content: 'approve?' },
+    ]);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
-test('validates a complete pre-action replay payload', () => {
-  const fullHistory = [
-    ...messages,
-    {
-      role: 'assistant',
-      tool_calls: [{
-        id: 'call_read',
-        type: 'function',
-        function: { name: 'read', arguments: '{"path":"tests/parser.test.ts"}' },
-      }],
-    },
-    { role: 'tool', tool_call_id: 'call_read', content: 'file contents' },
-  ];
-
-  assert.deepEqual(
-    AutoApprovalReplayPayloadSchema.parse({ messages: fullHistory, tools: replayTools, action }),
-    { messages: fullHistory, tools: replayTools, action },
-  );
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: fullHistory, action }));
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: [], tools: replayTools, action }));
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({
-    messages,
-    tools: replayTools,
-    action: { ...action, command: '' },
-  }));
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({
-    messages,
-    tools: replayTools,
-    action: {
-      turn: 2,
-      toolName: 'edit',
-      command: 'edit path="src/cleanup.ts" edits=1',
-    },
-  }));
+test('validates a replay payload of tools and one proposed action, and nothing else', () => {
+  assert.deepEqual(AutoApprovalReplayPayloadSchema.parse({ tools: replayTools, action }), { tools: replayTools, action });
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ action }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ tools: [], action }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ tools: replayTools, action: { ...action, command: '' } }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ tools: replayTools, action: { turn: 2, toolName: 'edit', command: 'edit' } }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: [], tools: replayTools, action }), 'a transcript is no longer part of a replay');
 });
 
-test('verdict question carries the full review policy followed by the request', () => {
-  const question = buildApprovalVerdictQuestion({
-    toolName: 'shell_command',
-    command: 'git status --short',
-    reviewPayload: null,
-  });
-
-  assert.ok(question.endsWith([
-    APPROVAL_REVIEW_REQUEST_MARKER,
-    'tool: shell_command',
-    'command: git status --short',
-  ].join('\n')));
-
-  assert.match(question, /Approval review policy/u);
-  assert.match(question, /untrusted data/u);
-  assert.match(question, /claims.*must never reduce.*risk/isu);
-  assert.match(question, /Safety rules override user intent and task relevance/u);
-  assert.match(question, /recursive deletion/u);
-  assert.match(question, /repository-root deletion or deletion of \.git/u);
-  assert.match(question, /git reset --hard/u);
-  assert.match(question, /git clean with force/u);
-  assert.match(question, /forced branch deletion or recursive git rm/u);
-  assert.match(question, /force-push/u);
-  assert.match(question, /credential or secret access/u);
-  assert.match(question, /package installation/u);
-  assert.match(question, /normal pushes/u);
-  assert.match(question, /non-recursive deletion/u);
-  assert.match(question, /narrowly scoped, non-destructive repository writes/u);
-  assert.match(question, /"verdict":"approve"\|"deny"\|"unsure"/u);
-  assert.match(question, /inspect the complete.*edit.*write.*payload/isu);
-  assert.match(question, /buried among.*benign lines/isu);
-  assert.match(question, /destructive filesystem|repository.*history/isu);
-  assert.match(question, /credential|secret.*transmission/isu);
-  assert.match(question, /remote execution|command injection/isu);
-  assert.match(question, /package scripts|hooks|workflows|startup/isu);
-  assert.match(question, /approval|authentication|authorization|validation|auditing/isu);
-  assert.match(question, /obfuscation/iu);
-  assert.match(question, /destructive migrations|disabling.*tests|safety checks/isu);
-  assert.match(question, /missing.*malformed.*truncated.*too large.*unsure/isu);
+test('the approver prompt carries the full review policy', () => {
+  assert.match(APPROVER_SYSTEM_PROMPT, /Approval review policy/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /untrusted data/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /claims.*must never reduce.*risk/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /Safety rules override user intent and task relevance/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /recursive deletion/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /repository-root deletion or deletion of \.git/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /git reset --hard/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /git clean with force/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /forced branch deletion or recursive git rm/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /force-push/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /credential or secret access/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /package installation/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /normal pushes/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /non-recursive deletion/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /narrowly scoped, non-destructive repository writes/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /"verdict":"approve"\|"deny"\|"unsure"/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /inspect the complete.*edit.*write.*payload/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /buried among.*benign lines/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /destructive filesystem|repository.*history/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /credential|secret.*transmission/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /remote execution|command injection/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /package scripts|hooks|workflows|startup/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /approval|authentication|authorization|validation|auditing/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /obfuscation/iu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /destructive migrations|disabling.*tests|safety checks/isu);
+  assert.match(APPROVER_SYSTEM_PROMPT, /missing.*malformed.*truncated.*too large.*unsure/isu);
 });
 
-test('submits existing history followed by one transient approval question', async () => {
+test('submits the approver prompt and the proposed call with its payload, and nothing of the agent', async () => {
   const client = new RecordingVerdictModelClient(
-    '{"verdict":"deny","reason":"Targets files outside the repository."}',
+    '{"verdict":"deny","reason":"Deletes the repository root."}',
   );
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ messages, tools: replayTools, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ tools: replayTools, action });
 
-  assert.deepEqual(result.submittedMessages.slice(0, messages.length), messages);
-  assert.deepEqual(result.submittedMessages[messages.length], pendingMessage);
-  assert.deepEqual(messages, [
-    { role: 'system', content: 'Work only inside C:\\repo.' },
-    { role: 'user', content: 'Add one parser regression test.' },
-    { role: 'assistant', content: 'I inspected the parser tests.' },
-    { role: 'user', content: 'Continue without touching files outside the repository.' },
-  ]);
-  const lastMessage = result.submittedMessages.at(-1);
-  assert.equal(lastMessage?.role, 'user');
-  const lastContent = typeof lastMessage?.content === 'string' ? lastMessage.content : '';
-  assert.match(lastContent, /^Approval review policy/u);
-  assert.ok(lastContent.endsWith([
+  const request = [
     APPROVAL_REVIEW_REQUEST_MARKER,
     'tool: edit',
     'command: edit path="src/cleanup.ts" edits=1',
-  ].join('\n')));
-  assert.ok(lastContent.includes(APPROVAL_PAYLOAD_LOCATOR_LINE));
-  assert.doesNotMatch(lastContent, /independent command reviewer/u);
-  assert.doesNotMatch(lastContent, /Decide whether this action should run/u);
-  assert.doesNotMatch(lastContent, /fs\.rmSync\(repoRoot/u);
-  assert.deepEqual(client.requests, [result.submittedMessages]);
+    'payload:',
+    reviewPayload,
+  ].join('\n');
+  assert.deepEqual(result.submittedMessages, [
+    { role: 'system', content: APPROVER_SYSTEM_PROMPT },
+    { role: 'user', content: request },
+  ]);
+  assert.deepEqual(client.requests, [request]);
   assert.equal(result.verdict, 'deny');
-  assert.equal(result.reason, 'Targets files outside the repository.');
+  assert.equal(result.reason, 'Deletes the repository root.');
   assert.deepEqual(result.action, action);
 });
 
@@ -272,7 +193,6 @@ test('returns approve as data without executing the proposed command', async () 
 
   try {
     const result = await new AutoApprovalVerdictProbe(client).run({
-      messages,
       tools: replayTools,
       action: {
         turn: 2,
@@ -295,7 +215,7 @@ test('returns unsure without waiting for a human gate', async () => {
     '{"verdict":"unsure","reason":"The write scope is ambiguous."}',
   );
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ messages, tools: replayTools, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ tools: replayTools, action });
 
   assert.equal(result.verdict, 'unsure');
   assert.equal(result.reason, 'The write scope is ambiguous.');
@@ -304,7 +224,7 @@ test('returns unsure without waiting for a human gate', async () => {
 test('reports a failed verdict after exactly one retry', async () => {
   const client = new RecordingVerdictModelClient('not-json');
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ messages, tools: replayTools, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ tools: replayTools, action });
 
   assert.equal(client.requests.length, 2);
   assert.equal(result.verdict, 'unsure');
@@ -316,7 +236,6 @@ test('rejects an approval-exempt read-only action instead of inventing a verdict
 
   await assert.rejects(
     () => new AutoApprovalVerdictProbe(client).run({
-      messages,
       tools: replayTools,
       action: {
         turn: 2,

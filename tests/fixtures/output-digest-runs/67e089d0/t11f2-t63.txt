@@ -1,0 +1,6 @@
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+lint_exit=0
+tsconfig_diff_lines=0
+status_filtered_done

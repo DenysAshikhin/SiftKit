@@ -10,6 +10,7 @@ import { parseJsonValueText } from '../../lib/json.ts';
 import { applyEolStyle, detectEolStyle, readSourceText, readTextFileWithEncoding } from '../../lib/text-encoding.ts';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
 import type { ToolTranscriptAction } from '../../tool-call-messages.ts';
+import { ELIDED_ARGUMENTS_KEY } from '../../planner-protocol/native-actions.ts';
 import { spawnDirectCommand } from '../../lib/command-spawn.ts';
 import { buildAgentRunEnv } from '../../lib/agent-run-marker.ts';
 import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.ts';
@@ -35,6 +36,8 @@ export const GREP_DEFAULT_LIMIT = 100;
 export const FIND_DEFAULT_LIMIT = 1000;
 export const LS_DEFAULT_LIMIT = 500;
 export const READ_MAX_BYTES = 2_000_000;
+/** Lines a limit-less read past the end of a file shows from the file's tail. */
+export const READ_PAST_END_WINDOW_LINES = 40;
 
 export type RepoToolExecution =
   | {
@@ -115,6 +118,8 @@ export type ReadPlan = {
   lines: string[];
   hasUnread: boolean;
   noUnreadOutput: string | null;
+  /** Set when the requested offset was past the end and the read moved to the file's tail. */
+  notice: string | null;
 };
 
 type FailedPlan = { ok: false; command: string; reason: string };
@@ -356,7 +361,7 @@ export function buildRejectedTranscriptAction(options: {
   return {
     toolName: effective.toolName,
     args: {
-      elided: `rejected ${effective.toolName} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded — the tool result states why`,
+      [ELIDED_ARGUMENTS_KEY]: `rejected ${effective.toolName} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded — the tool result states why`,
     },
   };
 }
@@ -496,8 +501,10 @@ export function planRead(
     };
   }
 
-  const lines = splitSourceLines(readSourceText(resolvedPath.absolutePath));
-  if (offset > lines.length) {
+  const sourceText = readSourceText(resolvedPath.absolutePath);
+  const lines = splitSourceLines(sourceText);
+  const pastEnd = offset > lines.length;
+  if (pastEnd && sourceText === '') {
     return {
       ok: false,
       command: requestedCommand,
@@ -507,17 +514,18 @@ export function planRead(
   const displayPath = resolvedPath.relativePath;
   const pathKey = buildReadPathKey(displayPath);
   const totalEndLineExclusive = (lines.length || 0) + 1;
-  const clampedStart = offset;
+  // A past-end offset is a wrong guess at the file's length; its tail is what the model was looking for.
+  const startLine = pastEnd ? Math.max(1, lines.length - (limit ?? READ_PAST_END_WINDOW_LINES) + 1) : offset;
   const requestedEndExclusive = limit === undefined
     ? totalEndLineExclusive
-    : Math.max(clampedStart + 1, Math.min(clampedStart + limit, totalEndLineExclusive));
+    : Math.max(startLine + 1, Math.min(startLine + limit, totalEndLineExclusive));
   const state = fileReadStateByPath ? getOrCreateFileReadState(fileReadStateByPath, pathKey) : null;
   // Both modes skip lines already returned. expandReads decides only whether the window may run
   // past the requested limit to end of file.
   const returnedRanges = state?.mergedReturnedRanges ?? [];
   const hasReturnedRanges = returnedRanges.length > 0;
   const unreadRange = findContiguousUnreadRange({
-    requestedStart: clampedStart,
+    requestedStart: startLine,
     totalEnd: expandReads && hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
     returnedRanges,
   });
@@ -525,7 +533,7 @@ export function planRead(
   return {
     requestedCommand,
     commandPath,
-    requestedStartLine: clampedStart,
+    requestedStartLine: startLine,
     requestedEndLine: requestedEndExclusive - 1,
     effectiveStartLine: unreadRange.start,
     effectiveEndLineExclusive: unreadRange.end,
@@ -536,7 +544,10 @@ export function planRead(
     hasUnread: unreadRange.hasUnread,
     noUnreadOutput: unreadRange.hasUnread
       ? null
-      : `Lines ${clampedStart}-${requestedEndExclusive - 1} of ${displayPath} were already returned in this run. Read a different range, or edit/write the file to re-read it.`,
+      : `Lines ${startLine}-${requestedEndExclusive - 1} of ${displayPath} were already returned in this run. Read a different range, or edit/write the file to re-read it.`,
+    notice: pastEnd
+      ? `offset ${offset} is past the end of ${displayPath} (${lines.length} line${lines.length === 1 ? '' : 's'}); showing lines ${startLine}-${lines.length}.`
+      : null,
   };
 }
 
@@ -553,13 +564,14 @@ export function buildReadExecution(
     totalEndLineExclusive: plan.totalEndLineExclusive,
     hasUnread: plan.hasUnread,
   };
+  const noticePrefix = plan.notice === null ? '' : `${plan.notice}\n`;
   if (!plan.hasUnread) {
     return {
       ok: true,
       requestedCommand: plan.requestedCommand,
       command: plan.requestedCommand,
       exitCode: 0,
-      output: String(plan.noUnreadOutput || '').trim(),
+      output: `${noticePrefix}${String(plan.noUnreadOutput || '').trim()}`,
       toolType: toolName,
       outputUnit: 'lines',
       readFile,
@@ -580,9 +592,9 @@ export function buildReadExecution(
       plan.effectiveEndLineExclusive - plan.effectiveStartLine,
     ),
     exitCode: 0,
-    output: plan.effectiveEndLineExclusive === plan.totalEndLineExclusive
+    output: noticePrefix + (plan.effectiveEndLineExclusive === plan.totalEndLineExclusive
       ? `${numberedText}\n(end of file: ${lineCount} line${lineCount === 1 ? '' : 's'})`
-      : numberedText,
+      : numberedText),
     toolType: toolName,
     outputUnit: 'lines',
     readFile,

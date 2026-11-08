@@ -1,0 +1,27 @@
+{"ok":true,"port":11294,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-run-PCLJXV\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-live-run-PCLJXV\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+04:38:21  st --------  incoming  task=orchestrator arrival_position=1
+04:38:21  st cab7a086  lock_acquired  task=orchestrator wait_ms=9
+04:38:21  rs 7f95b19b  start  task=repo-search  prompt_chars=7715
+04:38:21  rs 7f95b19b  inventory  models=1  elapsed=0s
+04:38:21  img exl3-mai  vision_encoder_geometry_fallback  reason=preprocessor_config_missing hidden_size=1152 intermediate_size=4304 patches_per_token=4
+04:38:21  img exl3-mai  token_budget_fallback  reason=preprocessor_config_missing pixels_per_token=1024 max_pixels=2097152
+04:38:21  img exl3-mai  token_budget_resolved  source=fallback pixels_per_token=1024 max_pixels=2097152 max_image_tokens=2048 encoder_hidden_size=1152 encoder_intermediate_size=4304 encoder_patches_per_token=4 note=preprocessor_config.json_unavailable_using_default_ratio
+04:38:21  st 7f95b19b  start  task=repo-search raw_chars=7,715 prompt=7,715 chunk repo-search
+04:38:23  st 7f95b19b  complete_done  state=completed duration_ms=2
+04:38:23  rs 7f95b19b  completed  elapsed=1s  verdict=pass
+04:38:23  st cab7a086  lock_released  task=orchestrator held_ms=1268 queue_remaining=0
+04:38:23  st 7f95b19b  done  task=repo-search total_elapsed=1s output_tokens=269 thinking_tokens=264 tool_tokens=1,536
+04:38:23  st 7f95b19b  tool_stats  task=repo-search tool=git calls=48 output_chars=3816 output_tokens=1536 output_tokens_estimated=48
+04:38:23  st 7f95b19b  terminal_metadata_process_done  state=completed duration_ms=8
+04:38:23  st --------  incoming  task=repo_agent arrival_position=1
+04:38:23  st 3efcc4eb  lock_acquired  task=repo_agent wait_ms=19
+node : 
+At line:1 char:45
++ ... = "170000"; node .\src\test-runner\run-tests.ts tests/process/orchest ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Test run exceeded 170000ms and was terminated. A test is holding a handle its timed-out promise still owns; the 
+reporter output above ends at the file that hung.

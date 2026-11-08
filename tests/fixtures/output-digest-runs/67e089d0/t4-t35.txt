@@ -1,0 +1,12 @@
+> siftkit@0.1.0 typecheck
+> tsc -p .\packages\contracts\tsconfig.json && tsc -p .\tsconfig.json && tsc -p .\tsconfig.scripts.json && tsc -p .\dashboard\tsconfig.json && tsc -p .\dashboard\tsconfig.node.json && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint
+
+
+> siftkit@0.1.0 typecheck:bench
+> tsc -p .\tsconfig.bench.json
+
+
+> siftkit@0.1.0 typecheck:test
+> tsc -p .\tsconfig.test.json
+
+tests/runtime-db-schema-orchestrator-session-links.test.ts(33,82): error TS2339: Property 'request' does not exist on type '{ phaseRunIds: string[]; }'.

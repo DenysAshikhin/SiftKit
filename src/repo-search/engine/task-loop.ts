@@ -36,7 +36,6 @@ import {
   type PlannerResponseConstraint,
   type PlannerThinkingFlags,
 } from '../planner-protocol.ts';
-import type { ChatMessage } from '../planner-chat-message.ts';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../../planner-protocol/json-schema.ts';
 import {
   RepoSearchActionAdapter,
@@ -392,27 +391,22 @@ export class TaskLoop {
   }
 
   /**
-   * Ephemeral verdict call: executing planner prompt, pending assistant tool call, then one user
-   * question, never appended to the transcript. The request layer verifies the prompt byte-extends
-   * the executing planner request and throws otherwise.
+   * Isolated verdict call: the approver prompt and the proposed call, reviewed against the tool
+   * definitions and thinking flags of the planner request that proposed it; the transcript is never sent.
    */
-  async requestApprovalVerdict(
-    question: string,
-    pendingMessages: ChatMessage[],
-  ): Promise<PlannerActionResponse> {
+  async requestApprovalVerdict(reviewRequest: string): Promise<PlannerActionResponse> {
     const executing = this.executingPlannerRequest;
     if (!executing) {
-      throw new Error('approval_verdict requested before any planner request; there is no executing prompt to extend.');
+      throw new Error('approval_verdict requested before any planner request; there are no tool definitions to review against.');
     }
     const response = await requestApprovalVerdictRequest({
       config: this.options.config,
       baseUrl: this.options.baseUrl,
       model: this.options.model,
       throughputAudit: this.options.throughputAudit,
-      transcriptMessages: this.transcript.getMessages(),
-      pendingMessages,
-      question,
-      executing,
+      reviewRequest,
+      tools: executing.tools,
+      flags: executing.flags,
       timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
       mockResponses: this.options.mockResponses,
       mockResponseIndex: this.mockResponseIndex,

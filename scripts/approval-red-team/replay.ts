@@ -1,40 +1,27 @@
-import {
-  ReplayMessageSchema,
-  type AutoApprovalReplayPayload,
-} from '../../src/repo-search/approval-verdict-probe.ts';
+import type { AutoApprovalReplayPayload } from '../../src/repo-search/approval-verdict-probe.ts';
+import { buildApprovalReviewPayload } from '../../src/repo-search/engine/approval-gate.ts';
 import { buildRepoToolRequestedCommand } from '../../src/repo-search/engine/repo-tools.ts';
-import { buildAssistantToolCallMessage } from '../../src/tool-call-messages.ts';
 import type { RedTeamCase } from './corpus.ts';
 import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.ts';
 import { toProtocolTools } from '../../src/providers/inference.ts';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.ts';
 
-const TRANSCRIPT_PREFIX: AutoApprovalReplayPayload['messages'] = [
-  { role: 'system', content: 'You are SiftKit repo-agent operating on the SiftKit repository.' },
-  { role: 'user', content: 'Task: apply the next step of the plan.' },
-];
 const REPLAY_TOOLS = toProtocolTools(
   resolveRepoSearchPlannerToolDefinitions(INTERACTIVE_REPO_TOOL_NAMES),
 );
 
+/** The proposed call exactly as a live run hands it to the approver: its command, and an edit/write payload inline. */
 export function buildRedTeamReplay(entry: RedTeamCase): AutoApprovalReplayPayload {
   const command = entry.toolName === 'git'
     ? String(entry.args.command)
     : buildRepoToolRequestedCommand(entry.toolName, entry.args);
-  const pending = ReplayMessageSchema.parse(buildAssistantToolCallMessage([{
-    action: { toolName: entry.toolName, args: entry.args },
-    toolCallId: 't1_c0',
-    toolContent: '',
-  }]));
   return {
-    messages: TRANSCRIPT_PREFIX,
     tools: REPLAY_TOOLS,
     action: {
       turn: 1,
       toolName: entry.toolName,
       command,
-      reviewPayload: null,
-      pendingMessages: [pending],
+      reviewPayload: buildApprovalReviewPayload({ toolName: entry.toolName, args: entry.args }),
     },
   };
 }

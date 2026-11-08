@@ -1,0 +1,51 @@
+46 lines omitted from validation command output.
+✔ tool_start appends a running tool named for its activity kind (0.2355ms)
+✔ a tool stays running with no exit code and no output until its tool_result (0.3001ms)
+✔ approval_auto appends the decision the policy already took (0.1421ms)
+✔ approval_request appends one undecided approval, because the ask carries no verdict (2.098ms)
+✔ llm_end stamps the turn elapsedMs from its start to its end (0.1424ms)
+✔ usage sets the turn thinkingTokens from its record (0.1329ms)
+✔ events the flow does not use leave it identical (0.1352ms)
+✔ an event for a turn that is not the open one leaves the flow identical (0.2119ms)
+✔ nothing has a turn to write to before the first llm_start (0.1445ms)
+✔ a finished live flow is the flow parsed from the same run, apart from tool output snippets (4.1458ms)
+✔ the store coalesces at the 250 ms rate §2.3 sets (0.0628ms)
+✔ create marks a flow live with its prompt, and finish settles it with its final answer (0.2014ms)
+✔ creating a live flow for an agent that already has one fails loudly (0.2458ms)
+✔ the activity entries follow the child waiting-for-model rule (0.1436ms)
+✔ a lock wait is activity only and never touches the flow (0.0937ms)
+✔ an event for an agent the store never created is dropped (0.0529ms)
+✔ prune drops only a finished flow whose transcript is already stored (0.1652ms)
+✔ a subscriber gets the whole flow first, then one whole turn per window with its latest state, then the finished flow (0.6147ms)
+✔ detaching a subscriber stops its frames (0.143ms)
+✔ two subscribers of one agent each get their own copy of the same frames (0.1768ms)
+✔ subscribing to a settled flow answers the whole flow and the finished frame with nothing left pending (0.1274ms)
+✔ an agent with no live flow has no stream (0.0495ms)
+✔ the same submission and payload returns the same parent; a different payload is rejected (14.7286ms)
+✔ two reservations against one revision cannot both succeed (8.1368ms)
+✔ each purpose allows two attempts and implementation attempts never consume the correction pool (11.4301ms)
+✔ attempt results settle exactly once and must name a reserved child (8.0604ms)
+✔ committed events replay in increasing sequence from any cursor (5.8954ms)
+✔ a restart keeps both budgets; interrupted runs reject further changes (9.5516ms)
+✔ a changed plan cannot drop or rename a task that already has attempts (5.8168ms)
+✔ a malformed stored row fails loudly instead of reading as a default (5.8548ms)
+✔ a stopped run aborts its open tasks and abandons unsettled attempts; untouched tasks stay pending (9.5757ms)
+✔ a run reports the merged throughput of its own phase runs and its children, ignoring unrelated runs (7.3861ms)
+✔ shared leases overlap; an exclusive waits for them and blocks later readers until it releases (3.1843ms)
+✔ an owned exclusive lease overlaps only its own run's readers; other owners and a second exclusive wait (1.167ms)
+✔ path aliases share one repository key and an unknown root fails loudly (1.4356ms)
+✔ an aborted waiter leaves the queue without ever holding the repository (0.639ms)
+✔ startup marks every stored nonterminal parent interrupted and never redispatches it (16.0136ms)
+✔ shutdown stops scheduling, aborts live parents, waits for them, and interrupts the unsettled (7.6526ms)
+✔ subscribers receive each committed state until they detach (6.2306ms)
+✔ startup marks the running children of an interrupted parent not resumable (10.5243ms)
+✔ activity reaches only its own run's subscribers, until they detach (4.7037ms)
+ℹ tests 57
+ℹ suites 0
+ℹ pass 57
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 874.2891
+unit exit=0

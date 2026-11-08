@@ -9,7 +9,6 @@ import {
 import {
   isTreeMutatingToolName,
 } from '../planner-protocol.ts';
-import type { ChatMessage } from '../planner-chat-message.ts';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
 import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.ts';
 import type { AgentLoopToolAction } from '../../agent-loop/types.ts';
@@ -70,10 +69,7 @@ import {
   type RepoNativeToolCall,
 } from '../repo-tool-arguments.ts';
 import { getAbortError, throwIfAborted } from '../../lib/abort.ts';
-import {
-  buildPendingAssistantMessage,
-  resolveToolActionIdentity,
-} from './pending-tool-call-message.ts';
+import { resolveToolActionIdentity } from './pending-tool-call-message.ts';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
 import type { OrchestratorToolHost } from './orchestrator-tool-host.ts';
 import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.ts';
@@ -90,7 +86,6 @@ type TurnBatchState = {
   batchId: string;
   batchIndex: number;
   toolCallIds: string[];
-  pendingMessages: ChatMessage[];
   batchOutcomes: RecordedBatchOutcome[];
   /** One entry per tool result that produced an image, in batch order. */
   pendingToolImages: Array<{ outcomeIndex: number; dataUrl: string; pathKey: string; metadata: ImageMetadata }>;
@@ -237,12 +232,6 @@ export class ToolActionProcessor {
       batchId: randomUUID(),
       batchIndex: 0,
       toolCallIds: toolActions.map((action) => action.callId),
-      pendingMessages: [buildPendingAssistantMessage({
-        turn,
-        thinkingText: responseThinkingText,
-        content: responseContent,
-        toolActions,
-      })],
       batchOutcomes: [],
       pendingToolImages: [],
       pendingModeChangeUserMessages: [],
@@ -381,6 +370,7 @@ export class ToolActionProcessor {
         transcriptCommand: command,
         reason: attempt.rejectionReason,
         rejectionKind: 'budget',
+        keepArgs: false,
       });
       state.pendingForcedFinishCountdownText = attempt.countdownText;
       if (attempt.exhausted) {
@@ -411,6 +401,7 @@ export class ToolActionProcessor {
         transcriptCommand: command,
         reason,
         rejectionKind: 'budget',
+        keepArgs: false,
       });
       return 'next';
     }
@@ -443,7 +434,6 @@ export class ToolActionProcessor {
           toolName: normalizedToolName,
           args: toolAction.args,
         }),
-        pendingMessages: state.pendingMessages,
       });
       if (decision.kind === 'abort') {
         throw new Error(decision.reason);
@@ -459,6 +449,7 @@ export class ToolActionProcessor {
           transcriptCommand: command,
           reason,
           rejectionKind: 'safety',
+          keepArgs: true,
         });
         return 'next';
       }
@@ -567,6 +558,7 @@ export class ToolActionProcessor {
       reason: string;
       output?: string;
       rejectionKind: RejectionKind;
+      keepArgs: boolean;
     },
   ): void {
     const { commands } = this.deps;
@@ -593,13 +585,17 @@ export class ToolActionProcessor {
       rejectionKind: rejection.rejectionKind,
       args: rejection.rawArgs,
     });
+    const transcriptAction = {
+      toolName: rejection.toolName,
+      rawArgs: rejection.rawArgs,
+      commandToRun: rejection.transcriptCommand,
+    };
     state.batchOutcomes.push({
       call: this.callIdentity(turn, state, rejection.progressToolCallId),
-      action: buildRejectedTranscriptAction({
-        toolName: rejection.toolName,
-        rawArgs: rejection.rawArgs,
-        commandToRun: rejection.transcriptCommand,
-      }),
+      // An approval denial rejects a well-formed call; a retry needs its arguments, so they are never elided.
+      action: rejection.keepArgs
+        ? buildEffectiveTranscriptAction(transcriptAction)
+        : buildRejectedTranscriptAction(transcriptAction),
       toolCallId: this.getToolCallId(state),
       toolContent: output,
     });
@@ -785,6 +781,7 @@ export class ToolActionProcessor {
           reason: 'duplicate web tool',
           output: duplicateDecision.message,
           rejectionKind: 'duplicate',
+          keepArgs: false,
         });
         return 'next';
       }
@@ -997,8 +994,8 @@ export class ToolActionProcessor {
       output: execution.output,
       decision: runFullOutputDecision,
     });
-    // Digested before validation shaping keeps only the last lines, so the failures it drops still lead the result; `full` stays raw.
-    const digest = runFullOutputDecision.effectiveMode === 'full' ? null : digestOutput(execution.output);
+    // Digested before validation shaping keeps only the last lines, so the failures it drops still lead the result.
+    const digest = digestOutput(execution.output);
     return {
       ...execution,
       output,
@@ -1023,6 +1020,7 @@ export class ToolActionProcessor {
       transcriptCommand: nativeExecution.command,
       reason: nativeExecution.reason,
       rejectionKind: 'safety',
+      keepArgs: false,
     });
     return 'next';
   }

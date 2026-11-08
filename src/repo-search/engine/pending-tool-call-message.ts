@@ -1,6 +1,4 @@
 import type { JsonObject } from '../../lib/json-types.ts';
-import { buildAssistantToolCallMessage } from '../../tool-call-messages.ts';
-import type { ChatMessage } from '../planner-chat-message.ts';
 import {
   isRepoSearchNativeToolName,
   normalizeToolName,
@@ -18,7 +16,7 @@ export type ResolvedToolActionIdentity = {
   rawArgs: JsonObject;
 };
 
-/** Decision-independent identity shared by pending-message construction and validation. */
+/** Decision-independent identity of a proposed call, resolved before validation. */
 export function resolveToolActionIdentity(toolAction: AgentLoopToolAction): ResolvedToolActionIdentity {
   const normalizedToolName = normalizeToolName(toolAction.toolName);
   const isNativeTool = isRepoSearchNativeToolName(normalizedToolName);
@@ -29,23 +27,3 @@ export function resolveToolActionIdentity(toolAction: AgentLoopToolAction): Reso
   };
 }
 
-/** The assistant message this batch will append if every call is approved. */
-export function buildPendingAssistantMessage(options: {
-  turn: number;
-  thinkingText: string;
-  content?: string;
-  toolActions: readonly AgentLoopToolAction[];
-}): ChatMessage {
-  return buildAssistantToolCallMessage(
-    options.toolActions.map((toolAction) => {
-      const identity = resolveToolActionIdentity(toolAction);
-      return {
-        action: { toolName: identity.normalizedToolName, args: identity.rawArgs },
-        toolCallId: toolAction.callId,
-        toolContent: '',
-      };
-    }),
-    options.thinkingText,
-    options.content ?? '',
-  );
-}

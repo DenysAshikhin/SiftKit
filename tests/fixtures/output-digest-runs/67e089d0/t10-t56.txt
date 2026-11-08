@@ -1,0 +1,11 @@
+DEBUG_FRAMES [["flow",1793694221661],["turn",1793694221932],["turn",1793694222192],["turn",1793694222477],["turn",17936
+94222748],["finished",1793694222925]]
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow 
+(1760.4331ms)
+✔ a client that hangs up mid-stream stops hearing frames, and a stream opened after the agent settled answers flow 
+then finished (1294.6537ms)
+✔ the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow (203.8756ms)
+✖ failing tests:
+✖ a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow 
+(1760.4331ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:

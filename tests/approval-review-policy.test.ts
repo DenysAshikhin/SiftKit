@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_REQUEST_MARKER,
+  APPROVER_SYSTEM_PROMPT,
   buildApprovalReviewRequest,
 } from '../src/repo-search/approval-review-policy.ts';
 import { buildApprovalReviewPayload } from '../src/repo-search/engine/approval-gate.ts';
-import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.ts';
 
 test('write approval payload includes the complete path and content', () => {
   const payload = buildApprovalReviewPayload({
@@ -101,39 +100,23 @@ for (const toolName of ['read', 'grep', 'find', 'ls', 'git', 'run', 'web_search'
   });
 }
 
-test('approval request identifies the action without duplicating its payload', () => {
-  assert.equal(buildApprovalReviewRequest({
-    toolName: 'edit',
-    command: 'edit path="src/cleanup.ts" edits=0',
-  }), [
+test('an edit review request carries its payload after the command', () => {
+  const reviewPayload = buildApprovalReviewPayload({ toolName: 'write', args: { path: 'a.ts', content: 'x' } });
+  assert.equal(buildApprovalReviewRequest({ toolName: 'write', command: 'write path="a.ts"', reviewPayload }), [
     APPROVAL_REVIEW_REQUEST_MARKER,
-    'tool: edit',
-    'command: edit path="src/cleanup.ts" edits=0',
+    'tool: write',
+    'command: write path="a.ts"',
+    'payload:',
+    reviewPayload,
   ].join('\n'));
 });
 
-test('the verdict question directs the reviewer to the pending tool call', () => {
-  const input = {
-    toolName: 'write',
-    command: 'write path="a.ts" bytes=1 sha=abc',
-    reviewPayload: "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"a.ts\",\"content\":\"x\"}}",
-  };
-  const question = buildApprovalVerdictQuestion(input);
-
-  assert.ok(question.includes(APPROVAL_PAYLOAD_LOCATOR_LINE));
-  assert.equal(question.includes('"content":"x"'), false);
-});
-
-test('the verdict question forbids tool calls and allows only the verdict schema', () => {
-  const question = buildApprovalVerdictQuestion({
-    toolName: 'run',
-    command: 'run command="npm test"',
-    reviewPayload: null,
-  });
-
-  assert.match(question, /Do not call tools/u);
+test('the approver prompt names its role, forbids tool calls, and allows only the verdict schema', () => {
+  assert.match(APPROVER_SYSTEM_PROMPT, /You are not that agent/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /block of the user message/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /Do not call tools/u);
   assert.match(
-    question,
+    APPROVER_SYSTEM_PROMPT,
     /return only JSON:\n\{"verdict":"approve"\|"deny"\|"unsure","reason":"<one sentence>"\}/u,
   );
 });

@@ -4,7 +4,7 @@ Real console output, captured on Windows 11 from small scratch projects on 2026-
 
 | Directory | Tool and version | Cases |
 |---|---|---|
-| `node-test` | Node.js v26.7.0 `node --test`, spec reporter | `pass`; `fail` (assertion diff, thrown error, subtest, file that fails to load); `bad-path` (a directory passed as a test file); `noisy-e2e-fail` (a SiftKit orchestrator e2e run with server logs between results) |
+| `node-test` | Node.js v26.7.0 `node --test`, spec reporter | `pass`; `fail` (assertion diff, thrown error, subtest, file that fails to load); `bad-path` (a directory passed as a test file); `noisy-e2e-fail` (a SiftKit orchestrator e2e run with server logs between results); `tail-cut-fail` and `killed-fail` (worker results from orchestrator run 67e089d0: a summary cut by `Select-Object -Last 60`, and a run killed by its timeout before the summary) |
 | `vitest` | vitest 4.1.11 | `pass`, `fail` |
 | `jest` | jest 30.5.2 (ANSI colour codes kept) | `pass`, `fail` |
 | `pytest` | pytest 9.1.1 on Python 3.14.7 | `pass`, `fail`, `collection-error` |

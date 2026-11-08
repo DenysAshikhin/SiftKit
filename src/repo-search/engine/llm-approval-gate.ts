@@ -3,17 +3,12 @@ import { parseJsonValueText } from '../../lib/json.ts';
 import type { ProgressWriter } from '../../lib/progress-writer.ts';
 import type { RepoSearchProgressEvent } from '../types.ts';
 import type { PlannerActionResponse } from '../planner-protocol.ts';
-import type { ChatMessage } from '../planner-chat-message.ts';
-import {
-  APPROVAL_PAYLOAD_LOCATOR_LINE,
-  APPROVAL_REVIEW_POLICY_LINES,
-  buildApprovalReviewRequest,
-} from '../approval-review-policy.ts';
+import { buildApprovalReviewRequest } from '../approval-review-policy.ts';
 import {
   isApprovalExemptReadOnlyTool,
   type ApprovalDecision,
   type ApprovalRequestInput,
-  type HumanApprovalRequester,
+  type ApprovalRequester,
 } from './approval-gate.ts';
 import type { JsonLogger } from '../types.ts';
 import { ApprovalVerdictSchema, type ApprovalVerdict } from '../approval-verdict.ts';
@@ -25,37 +20,22 @@ type ApprovalVerdictAttempt =
   | { kind: 'verdict'; value: ApprovalVerdict }
   | { kind: 'failure'; reason: string };
 
-/** Narrow view of TaskLoop: issues one ephemeral, schema-constrained verdict request. */
+/** Narrow view of TaskLoop: issues one schema-constrained verdict request for a rendered review request. */
 export type ApprovalVerdictRequester = {
-  requestApprovalVerdict(
-    question: string,
-    pendingMessages: ChatMessage[],
-  ): Promise<PlannerActionResponse>;
+  requestApprovalVerdict(reviewRequest: string): Promise<PlannerActionResponse>;
 };
 
-export function buildApprovalVerdictQuestion(
-  input: Pick<ApprovalRequestInput, 'toolName' | 'command' | 'reviewPayload'>,
-): string {
-  return [
-    ...APPROVAL_REVIEW_POLICY_LINES,
-    '',
-    APPROVAL_PAYLOAD_LOCATOR_LINE,
-    '',
-    buildApprovalReviewRequest(input),
-  ].join('\n');
-}
-
 /**
- * Decorator over the human ApprovalGate: asks the model itself for an
- * approve/deny/unsure verdict via an ephemeral request (the transcript is never
- * mutated, preserving the inference prompt-cache prefix). `unsure` and verdict
- * failures fall through to the wrapped human gate. A chat run journals every
- * verdict before acting on it, so the authorization is recoverable evidence.
+ * Decorator over the human ApprovalGate: asks the model for an approve/deny/unsure
+ * verdict in a request of its own (the approver prompt and the proposed call, never
+ * the agent's conversation). `unsure` and verdict failures fall through to the
+ * wrapped human gate. A chat run journals every verdict before acting on it, so the
+ * authorization is recoverable evidence.
  */
 export class LlmApprovalGate {
   private readonly deps: {
     requestId: string;
-    humanGate: HumanApprovalRequester;
+    humanGate: ApprovalRequester;
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     logger: JsonLogger | null;
@@ -64,7 +44,7 @@ export class LlmApprovalGate {
 
   constructor(deps: {
     requestId: string;
-    humanGate: HumanApprovalRequester;
+    humanGate: ApprovalRequester;
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     logger: JsonLogger | null;
@@ -81,10 +61,7 @@ export class LlmApprovalGate {
       return { kind: 'approve' };
     }
     if (this.deps.evidenceRecorder && !input.call) throw new Error('Chat approval requires its exact proposed tool identity.');
-    const verdict = await this.requestVerdictWithRetry(
-      buildApprovalVerdictQuestion(input),
-      input.pendingMessages,
-    );
+    const verdict = await this.requestVerdictWithRetry(buildApprovalReviewRequest(input));
     if (verdict.kind === 'failure') {
       this.emitVerdict(input, 'unsure', verdict.reason);
       return this.deps.humanGate.request(input);
@@ -99,17 +76,14 @@ export class LlmApprovalGate {
     return this.deps.humanGate.request(input);
   }
 
-  private async requestVerdictWithRetry(
-    question: string,
-    pendingMessages: ChatMessage[],
-  ): Promise<ApprovalVerdictAttempt> {
+  private async requestVerdictWithRetry(reviewRequest: string): Promise<ApprovalVerdictAttempt> {
     try {
-      return await this.requestVerdictOnce(question, pendingMessages);
+      return await this.requestVerdictOnce(reviewRequest);
     } catch {
       // Inference failure or schema mismatch: retry once before escalating.
     }
     try {
-      return await this.requestVerdictOnce(question, pendingMessages);
+      return await this.requestVerdictOnce(reviewRequest);
     } catch (error) {
       // Escalate to the human gate with the cause collapsed onto one line so the
       // progress log says why.
@@ -118,11 +92,8 @@ export class LlmApprovalGate {
     }
   }
 
-  private async requestVerdictOnce(
-    question: string,
-    pendingMessages: ChatMessage[],
-  ): Promise<ApprovalVerdictAttempt> {
-    const response = await this.deps.verdictRequester.requestApprovalVerdict(question, pendingMessages);
+  private async requestVerdictOnce(reviewRequest: string): Promise<ApprovalVerdictAttempt> {
+    const response = await this.deps.verdictRequester.requestApprovalVerdict(reviewRequest);
     if (response.toolCalls.length > 0) {
       return { kind: 'failure', reason: FORBIDDEN_TOOL_CALL_REASON };
     }

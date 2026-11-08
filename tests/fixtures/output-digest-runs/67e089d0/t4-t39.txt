@@ -1,0 +1,51 @@
+92 lines omitted from validation command output.
+✔ schema-74 enum values reject {"operationMode":"orchestrator"} without changing stored data (12.6155ms)
+✔ schema-74 enum values reject {"allowedTools":["spawn_agent"]} without changing stored data (12.3302ms)
+✔ schema-74 enum values reject {"surfaces":["desktop"]} without changing stored data (14.1837ms)
+✔ fresh initialization owns run logs and idle snapshots with their current indexes (11.1535ms)
+✔ metrics reads fail on a missing current timing column without repairing it (7.8669ms)
+✔ dashboard reads fail on a missing current run column without repairing it (7.3618ms)
+✔ error recording rejects an uninitialized database without creating schema (0.8015ms)
+✔ retention rejects missing canonical tables and rolls back preceding deletes (5.8353ms)
+✔ history deletion preview rejects a missing required auxiliary table (5.1255ms)
+✔ fresh creation bootstraps the current schema and marker (13.8695ms)
+✔ fresh bootstrap creates every current bootstrap-owned table (7.529ms)
+✔ fresh schema carries current backend, web-search, timeline, and assistant fields (5.8992ms)
+✔ opening a current database preserves stored values and device identity (5.903ms)
+✔ historical and future schema markers are rejected without changing their contents (3.2542ms)
+✔ a version 66 database upgrades in place, adding the pending-message table and keeping chat and log rows (16.2489ms)
+✔ schema version access performs no writes (0.3185ms)
+✔ invalid missing marker rejects without changing database bytes or caching the handle (2.5748ms)
+✔ invalid empty marker rejects without changing database bytes or caching the handle (2.0151ms)
+✔ invalid multiple marker rejects without changing database bytes or caching the handle (1.9411ms)
+✔ invalid wrong id marker rejects without changing database bytes or caching the handle (1.9556ms)
+✔ invalid fractional marker rejects without changing database bytes or caching the handle (1.8646ms)
+✔ invalid text marker rejects without changing database bytes or caching the handle (1.8142ms)
+✔ invalid nonnumeric text marker rejects without changing database bytes or caching the handle (1.777ms)
+✔ invalid missing version column marker rejects without changing database bytes or caching the handle (2.1045ms)
+✔ invalid view marker rejects without changing database bytes or caching the handle (2.1924ms)
+✔ schema version accessor rejects an empty database without writing a marker table (0.2433ms)
+✔ current inference and benchmark streams enforce constraints and foreign keys (4.6876ms)
+✔ the seeded marker-67 fixture really rejects a stopped tool row (10.6647ms)
+✔ a stale marker-67 chat_messages CHECK is rebuilt without losing any column value (19.2493ms)
+✔ a marker-67 database that already accepts stopped converges without rewriting rows (17.0772ms)
+✔ a row the canonical definition rejects aborts the rebuild and leaves marker 67 intact (13.5118ms)
+✔ marker-67 migrates the historical tool_call_limit rename without losing values (17.9932ms)
+✔ marker-67 refuses conflicting historical and current tool limits atomically (11.5544ms)
+✔ an unknown legacy chat_messages column is rejected instead of silently dropped (9.2911ms)
+✔ the marker-67 upgrade adds the chat journal with its identity and active-run constraints (15.5551ms)
+✔ the marker-68 upgrade retires repo-agent history repair markers and keeps every other metadata row (12.6185ms)
+✔ the marker-69 upgrade moves projection checkpoints onto run rows, backfills tool states, and drops the unused context cache (12.723ms)
+✔ the marker-70 upgrade accepts approval reviews and both historical queue layouts (18.4589ms)
+ℹ tests 130
+ℹ suites 0
+ℹ pass 130
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1408.2261
+SUITE1=0
+SUITE2=0
+TYPECHECK=0
+LINT=0

@@ -269,6 +269,13 @@ test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, 
   assert.doesNotMatch(prompt, /Minimum 5 tool-call turns/u);
 });
 
+test('buildAgentSystemPrompt keeps the agent out of node_modules unless the task asks', () => {
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
+
+  assert.ok(prompt.includes('- Do not read, search, or edit anything under node_modules, including through `run`, unless the task explicitly asks for it.'));
+  assert.doesNotMatch(prompt, /`dashboard\/node_modules`/u);
+});
+
 test('buildAgentSystemPrompt excludes the approval-review policy', () => {
   const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
 

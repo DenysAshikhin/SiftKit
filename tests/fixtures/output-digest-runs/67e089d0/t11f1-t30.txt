@@ -1,0 +1,12 @@
+18 lines truncated due to per-tool context limit.
+Property 'required' is incompatible with index signature.
+    Type 'readonly ["status"]' is not assignable to type 'JSONType'.
+      The type 'readonly ["status"]' is 'readonly' and cannot be assigned to the mutable type 'JSONType[]'.
+dashboard/tests/prompt-parts.test.ts(106,5): error TS2345: Argument of type '{ readonly type: "object"; readonly required: readonly ["status"]; }' is not assignable to parameter of type 'Record<string, JSONType>'.
+  Property 'required' is incompatible with index signature.
+    Type 'readonly ["status"]' is not assignable to type 'JSONType'.
+      The type 'readonly ["status"]' is 'readonly' and cannot be assigned to the mutable type 'JSONType[]'.
+src/lib/powershell.ts(100,5): error TS2379: Argument of type '{ env: { [x: string]: string; } | undefined; cwd?: string; windowsHide?: boolean; abortSignal?: AbortSignal; timeoutMs?: number; stdinData?: string; }' is not assignable to parameter of type 'CapturedCommandOptions' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Types of property 'env' are incompatible.
+    Type '{ [x: string]: string; } | undefined' is not assignable to type 'Record<string, string>'.
+      Type 'undefined' is not assignable to type 'Record<string, string>'.

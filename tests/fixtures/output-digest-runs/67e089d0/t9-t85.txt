@@ -1,0 +1,10 @@
+74 lines truncated due to per-tool context limit.
+"path": [],
+      "message": "Invalid input: expected array, received object"
+    }
+  ]
+      at readAgents (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents.test.ts:106:49)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents.test.ts:232:18)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)

@@ -1,0 +1,25 @@
+dashboard/tests/orchestrator-view.test.ts(320,44): error TS2322: Type '{ runId: string; label: string; taskId: null; attempt: null; }' is not assignable to type '{ runId: string; label: "plan preparation" | "task review" | "drift review" | "final verification" | "approval decision"; taskId: string | null; attempt: number | null; }'.
+  Types of property 'label' are incompatible.
+    Type 'string' is not assignable to type '"plan preparation" | "task review" | "drift review" | "final verification" | "approval decision"'.
+dashboard/tests/orchestrator-view.test.ts(324,90): error TS2322: Type '{ runId: string; label: string; taskId: null; attempt: null; }' is not assignable to type '{ runId: string; label: "plan preparation" | "task review" | "drift review" | "final verification" | "approval decision"; taskId: string | null; attempt: number | null; }'.
+  Types of property 'label' are incompatible.
+    Type 'string' is not assignable to type '"plan preparation" | "task review" | "drift review" | "final verification" | "approval decision"'.
+dashboard/tests/orchestrator-view.test.ts(325,60): error TS2322: Type '{ runId: string; label: string; taskId: null; attempt: null; }' is not assignable to type '{ runId: string; label: "plan preparation" | "task review" | "drift review" | "final verification" | "approval decision"; taskId: string | null; attempt: number | null; }'.
+  Types of property 'label' are incompatible.
+    Type 'string' is not assignable to type '"plan preparation" | "task review" | "drift review" | "final verification" | "approval decision"'.
+dashboard/tests/prompt-parts.test.ts(32,25): error TS2322: Type '{ readonly kind: "evidence"; readonly instruction: "Confirm the board renders."; readonly paths: readonly ["src/a.ts"]; }' is not assignable to type '{ kind: "command"; command: string; cwd: string; expectedExitCode: 0; } | { kind: "evidence"; instruction: string; paths: string[]; }'.
+  Type '{ readonly kind: "evidence"; readonly instruction: "Confirm the board renders."; readonly paths: readonly ["src/a.ts"]; }' is not assignable to type '{ kind: "evidence"; instruction: string; paths: string[]; }'.
+    Types of property 'paths' are incompatible.
+      The type 'readonly ["src/a.ts"]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.
+dashboard/tests/prompt-parts.test.ts(52,5): error TS2345: Argument of type '{ readonly type: "object"; readonly required: readonly ["status"]; }' is not assignable to parameter of type 'Record<string, JSONType>'.
+  Property 'required' is incompatible with index signature.
+    Type 'readonly ["status"]' is not assignable to type 'JSONType'.
+      The type 'readonly ["status"]' is 'readonly' and cannot be assigned to the mutable type 'JSONType[]'.
+dashboard/tests/prompt-parts.test.ts(106,5): error TS2345: Argument of type '{ readonly type: "object"; readonly required: readonly ["status"]; }' is not assignable to parameter of type 'Record<string, JSONType>'.
+  Property 'required' is incompatible with index signature.
+    Type 'readonly ["status"]' is not assignable to type 'JSONType'.
+      The type 'readonly ["status"]' is 'readonly' and cannot be assigned to the mutable type 'JSONType[]'.
+src/lib/powershell.ts(100,5): error TS2379: Argument of type '{ env: { [x: string]: string; } | undefined; cwd?: string; windowsHide?: boolean; abortSignal?: AbortSignal; timeoutMs?: number; stdinData?: string; }' is not assignable to parameter of type 'CapturedCommandOptions' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Types of property 'env' are incompatible.
+    Type '{ [x: string]: string; } | undefined' is not assignable to type 'Record<string, string>'.
+      Type 'undefined' is not assignable to type 'Record<string, string>'.

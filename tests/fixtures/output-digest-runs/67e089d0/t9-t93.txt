@@ -1,0 +1,15 @@
+74 lines truncated due to per-tool context limit.
+undefined !== 200
+  
+      at readAgents (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents.test.ts:106:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents.test.ts:234:18)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

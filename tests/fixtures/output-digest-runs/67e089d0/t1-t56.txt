@@ -1,0 +1,31 @@
+> siftkit@0.1.0 typecheck
+> tsc -p .\packages\contracts\tsconfig.json && tsc -p .\tsconfig.json && tsc -p .\tsconfig.scripts.json && tsc -p 
+.\dashboard\tsconfig.json && tsc -p .\dashboard\tsconfig.node.json && npm run typecheck:bench && npm run 
+typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint
+> siftkit@0.1.0 typecheck:bench
+> tsc -p .\tsconfig.bench.json
+> siftkit@0.1.0 typecheck:test
+> tsc -p .\tsconfig.test.json
+tests/orchestrator-runs.test.ts(57,5): error TS2741: Property 'agents' is missing in type '{ runId: string; schedule: 
+null; children: never[]; }' but required in type '{ runId: string; schedule: { claims: { taskId: string; modelId: 
+string; mutating: boolean; contextTokens: number; }[]; models: { modelId: string; slots: number; used: number; }[]; 
+writerUsed: boolean; waits: { ...; }[]; } | null; children: { ...; }[]; agents: { ...; }[]; }'.
+tests/orchestrator-runs.test.ts(206,28): error TS2345: Argument of type '{ runId: 
+`${string}-${string}-${string}-${string}-${string}`; schedule: null; children: never[]; }' is not assignable to 
+parameter of type '{ runId: string; schedule: { claims: { taskId: string; modelId: string; mutating: boolean; 
+contextTokens: number; }[]; models: { modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { 
+...; }[]; } | null; children: { ...; }[]; agents: { ...; }[]; }'.
+tests/orchestrator-runs.test.ts(207,28): error TS2345: Argument of type '{ runId: 
+`${string}-${string}-${string}-${string}-${string}`; schedule: null; children: never[]; }' is not assignable to 
+parameter of type '{ runId: string; schedule: { claims: { taskId: string; modelId: string; mutating: boolean; 
+contextTokens: number; }[]; models: { modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { 
+...; }[]; } | null; children: { ...; }[]; agents: { ...; }[]; }'.
+tests/orchestrator-runs.test.ts(209,28): error TS2345: Argument of type '{ runId: 
+`${string}-${string}-${string}-${string}-${string}`; schedule: null; children: never[]; }' is not assignable to 
+parameter of type '{ runId: string; schedule: { claims: { taskId: string; modelId: string; mutating: boolean; 
+contextTokens: number; }[]; models: { modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { 
+...; }[]; } | null; children: { ...; }[]; agents: { ...; }[]; }'.
+
+
+
+EXIT=2

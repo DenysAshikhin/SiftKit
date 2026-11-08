@@ -8,7 +8,7 @@ import {
   DEFAULT_DECISION_TIMEOUT_MS,
   buildApprovalTimeoutMessage,
   type ApprovalDecision,
-  type HumanApprovalRequester,
+  type ApprovalRequester,
 } from '../src/repo-search/engine/approval-gate.ts';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.ts';
 
@@ -27,7 +27,7 @@ class FailingWriter extends CollectingWriter {
 test('request emits approval_request and resolves with the submitted decision', async () => {
   const writer = new CollectingWriter();
   const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
-  const humanGate: HumanApprovalRequester = gate;
+  const humanGate: ApprovalRequester = gate;
   const pending = humanGate.request({
     turn: 2,
     toolName: 'write',

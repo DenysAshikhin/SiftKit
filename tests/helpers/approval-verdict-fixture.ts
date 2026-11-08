@@ -1,11 +1,8 @@
 import {
-  captureExecutingPlannerRequest,
   resolveRepoSearchPlannerToolDefinitions,
-  serializeProtocolMessages,
-  type ExecutingPlannerRequest,
   type PlannerThinkingFlags,
 } from '../../src/repo-search/planner-protocol.ts';
-import type { ChatMessage } from '../../src/repo-search/planner-chat-message.ts';
+import { buildApprovalReviewRequest } from '../../src/repo-search/approval-review-policy.ts';
 import { toProtocolTools } from '../../src/providers/inference.ts';
 
 export const THINKING_ON_FLAGS = {
@@ -14,24 +11,18 @@ export const THINKING_ON_FLAGS = {
   preserveThinking: true,
 } satisfies PlannerThinkingFlags;
 
-/** A small measured prompt: the fixture exercises verdict wiring, not budget exhaustion. */
-const VERDICT_FIXTURE_PROMPT_TOKENS = 1_000;
+/** A proposed edit with its payload inline, as the gate renders it for the approver. */
+export const VERDICT_FIXTURE_REQUEST = buildApprovalReviewRequest({
+  toolName: 'edit',
+  command: 'edit path="src/a.ts" edits=1 sha="0123456789"',
+  reviewPayload: JSON.stringify({ toolName: 'edit', args: { path: 'src/a.ts', edits: [{ oldText: 'a', newText: 'b' }] } }, null, 2),
+});
 
-/** The executing planner snapshot a verdict must extend: serialized transcript, flags, full tool set. */
-export function captureExecutingForVerdict(
-  messages: ChatMessage[],
-  flags: PlannerThinkingFlags = THINKING_ON_FLAGS,
-): ExecutingPlannerRequest {
-  return captureExecutingPlannerRequest(
-    serializeProtocolMessages(messages, flags.reasoningContentEnabled),
+/** The request-bound half of a verdict call; callers add config, endpoint, and timing. */
+export function baseVerdictOptions(flags: PlannerThinkingFlags = THINKING_ON_FLAGS) {
+  return {
+    reviewRequest: VERDICT_FIXTURE_REQUEST,
+    tools: toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
     flags,
-    toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
-    VERDICT_FIXTURE_PROMPT_TOKENS,
-  );
-}
-
-/** The transcript-bound half of a verdict request; callers add config, endpoint, and timing. */
-export function baseVerdictOptions(transcriptMessages: ChatMessage[], executing: ExecutingPlannerRequest) {
-  const pendingMessages: ChatMessage[] = [];
-  return { transcriptMessages, pendingMessages, question: 'approve?', executing };
+  };
 }

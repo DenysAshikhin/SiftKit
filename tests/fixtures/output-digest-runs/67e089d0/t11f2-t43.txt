@@ -1,0 +1,15 @@
+06:44:45  st ee586bce  done  task=repo-search total_elapsed=0s output_tokens=74 thinking_tokens=0 tool_tokens=0
+06:44:45  st ee586bce  terminal_metadata_process_done  state=completed duration_ms=7
+✔ the two agent endpoints report every agent of a finished run, in start order, from its state and its run logs (1210.5193ms)
+{"ok":true,"port":41312,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-unflushed-Z3WlgM\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-orchestrator-agents-unflushed-Z3WlgM\\.siftkit\\runtime.sqlite","startupWarning":null}
+warning: in the working copy of 'src/app.ts', LF will be replaced by CRLF the next time Git touches it
+✔ an unflushed agent answers §2.1 with null fields last, and an agent with no transcript and no live flow is a 409 (209.06ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2166.7401
+EXIT:0

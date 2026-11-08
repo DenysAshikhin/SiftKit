@@ -1,0 +1,17 @@
+✔ a parent prompt is the run block, then the phase, then the answer JSON schema (0.7668ms)
+✔ every phase builder returns only its phase text (0.1489ms)
+✔ both evidence reviews state the shared answer guidance once (0.1097ms)
+✔ attempt review lists only the task baseline beyond the run context (0.0823ms)
+✔ drift review forbids answering not_required (0.0877ms)
+✔ final verification feeds back the problems that rejected its previous review (0.0797ms)
+✔ check approval and final verification state the goal once, via the saved plan (0.1333ms)
+✔ every phase label maps to a wire-safe json_schema name (0.4372ms)
+✔ plan preparation opens with the run block before any plan exists (0.1739ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 545.0187

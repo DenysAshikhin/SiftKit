@@ -1,0 +1,22 @@
+8 lines truncated due to per-tool context limit.
+> siftkit@0.1.0 typecheck
+> tsc -p .\packages\contracts\tsconfig.json && tsc -p .\tsconfig.json && tsc -p .\tsconfig.scripts.json && tsc -p .\dashboard\tsconfig.json && tsc -p .\dashboard\tsconfig.node.json && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint
+> siftkit@0.1.0 typecheck:bench
+> tsc -p .\tsconfig.bench.json
+> siftkit@0.1.0 typecheck:test
+> tsc -p .\tsconfig.test.json
+tests/orchestrator-runs.test.ts(37,7): error TS2420: Class 'FakeLiveRun' incorrectly implements interface 'OrchestratorLiveRun'.
+  Property 'agentFlow' is missing in type 'FakeLiveRun' but required in type 'OrchestratorLiveRun'.
+tests/orchestrator-runs.test.ts(158,21): error TS2345: Argument of type 'FakeLiveRun' is not assignable to parameter of type 'OrchestratorLiveRun'.
+  Property 'agentFlow' is missing in type 'FakeLiveRun' but required in type 'OrchestratorLiveRun'.
+tests/orchestrator-runs.test.ts(159,21): error TS2345: Argument of type 'FakeLiveRun' is not assignable to parameter of type 'OrchestratorLiveRun'.
+  Property 'agentFlow' is missing in type 'FakeLiveRun' but required in type 'OrchestratorLiveRun'.
+tests/orchestrator-runs.test.ts(160,41): error TS2345: Argument of type 'FakeLiveRun' is not assignable to parameter of type 'OrchestratorLiveRun'.
+  Property 'agentFlow' is missing in type 'FakeLiveRun' but required in type 'OrchestratorLiveRun'.
+tests/orchestrator-runs.test.ts(167,41): error TS2345: Argument of type 'FakeLiveRun' is not assignable to parameter of type 'OrchestratorLiveRun'.
+  Property 'agentFlow' is missing in type 'FakeLiveRun' but required in type 'OrchestratorLiveRun'.
+tests/process/orchestrator-agents.test.ts(94,68): error TS2552: Cannot find name 'OrchestratorRunState'. Did you mean 'OrchestratorRunStore'?
+tests/process/orchestrator-agents.test.ts(142,41): error TS7006: Parameter 'phaseRun' implicitly has an 'any' type.
+tests/process/orchestrator-agents.test.ts(143,40): error TS7006: Parameter 'attempt' implicitly has an 'any' type.
+tests/process/orchestrator-agents.test.ts(149,30): error TS7006: Parameter 'phaseRun' implicitly has an 'any' type.
+tests/process/orchestrator-agents.test.ts(149,83): error TS7006: Parameter 'attempt' implicitly has an 'any' type.

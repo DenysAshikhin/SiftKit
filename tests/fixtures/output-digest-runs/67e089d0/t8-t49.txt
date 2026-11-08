@@ -1,0 +1,18 @@
+✔ each scheduler pass is published as it was decided, and a snapshot is a copy the caller cannot change (11.5007ms)
+✔ a tracked child publishes visible progress only; untracking detaches it and drops it from the view (4.568ms)
+✖ every running agent is reported in agents, a child keeps its own view, and both read one event stream (4.733ms)
+✖ one worker event folds into both the child activity view and the live flow (4.4847ms)
+✖ a settled agent keeps its whole flow readable until it is dropped (4.2375ms)
+✖ prune drops exactly the settled flows whose transcript is stored, and clear empties the store (4.351ms)
+✖ a phase agent feeds its live flow through the sink, renews its lease, and its writer reports itself live (20.1758ms)
+✖ a worker flow carries the instruction and the very system context its engine was started with (32.1621ms)
+✖ failing tests:
+✖ every running agent is reported in agents, a child keeps its own view, and both read one event stream (4.733ms)
+✖ one worker event folds into both the child activity view and the live flow (4.4847ms)
+✖ a settled agent keeps its whole flow readable until it is dropped (4.2375ms)
+✖ prune drops exactly the settled flows whose transcript is stored, and clear empties the store (4.351ms)
+  TypeError: flows.clear is not a function
+✖ a phase agent feeds its live flow through the sink, renews its lease, and its writer reports itself live (20.1758ms)
+  TypeError: start.prompt.system is not iterable
+✖ a worker flow carries the instruction and the very system context its engine was started with (32.1621ms)
+  TypeError: Cannot read properties of undefined (reading 'settled')

@@ -1,0 +1,51 @@
+44 lines omitted from validation command output.
+01:47:08  rs fb514ae2  completed  elapsed=0s  verdict=pass
+01:47:08  st 81d6b349  lock_released  task=dashboard_plan_stream held_ms=152 queue_remaining=0
+01:47:08  st --------  incoming  task=dashboard_plan_stream arrival_position=1
+01:47:08  st a4320a4c  lock_acquired  task=dashboard_plan_stream wait_ms=2
+01:47:08  rs c8b2ca4c  start  task=plan  prompt_chars=1309
+01:47:08  st c8b2ca4c  start  task=plan raw_chars=1,309 prompt=1,309 chunk repo-search
+01:47:08  st fb514ae2  drain_wait  state=completed wait_ms=1000 active=true q=1 model_q=0
+01:47:08  rs c8b2ca4c  inventory  models=1  elapsed=0s
+01:47:08  st c8b2ca4c  complete_done  state=completed duration_ms=0
+01:47:08  rs c8b2ca4c  completed  elapsed=0s  verdict=pass
+01:47:08  st a4320a4c  lock_released  task=dashboard_plan_stream held_ms=185 queue_remaining=0
+01:47:08  st fb514ae2  done  task=plan total_elapsed=0s output_tokens=10 thinking_tokens=10 tool_tokens=0
+01:47:08  st fb514ae2  terminal_metadata_process_done  state=completed duration_ms=3
+{"ok":true,"port":49187,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\chat-token-successor-yib6c0\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\chat-token-successor-yib6c0\\.siftkit\\runtime.sqlite","startupWarning":null}
+01:47:08  st --------  incoming  task=dashboard_plan_stream arrival_position=1
+01:47:08  st 894f41cc  lock_acquired  task=dashboard_plan_stream wait_ms=2
+01:47:08  rs a0759d38  start  task=plan  prompt_chars=1308
+01:47:08  st a0759d38  start  task=plan raw_chars=1,308 prompt=1,308 chunk repo-search
+01:47:08  rs a0759d38  inventory  models=1  elapsed=0s
+01:47:08  plan a0759d38  command  t1/3  prompt=10tok  thinking-total=10  elapsed=0s  read path="package.json" offset=1
+01:47:08  st a0759d38  complete_done  state=failed duration_ms=0
+01:47:08  rs a0759d38  failed  elapsed=0s  error="provider request failed stage=planner_action method=POST url=http://127.0.0.1:49186/v1/chat/completions error=This operation was aborted"
+01:47:08  st 894f41cc  lock_released  task=dashboard_plan_stream held_ms=283 queue_remaining=0
+01:47:08  st --------  incoming  task=dashboard_plan_stream arrival_position=1
+01:47:08  st ec4e73be  lock_acquired  task=dashboard_plan_stream wait_ms=3
+01:47:08  rs 1609c6f0  start  task=plan  prompt_chars=1309
+01:47:08  st 1609c6f0  start  task=plan raw_chars=1,309 prompt=1,309 chunk repo-search
+01:47:08  st a0759d38  drain_wait  state=failed wait_ms=1000 active=true q=1 model_q=0
+01:47:08  rs 1609c6f0  inventory  models=1  elapsed=0s
+01:47:09  st 1609c6f0  complete_done  state=completed duration_ms=0
+01:47:09  rs 1609c6f0  completed  elapsed=0s  verdict=pass
+01:47:09  st ec4e73be  lock_released  task=dashboard_plan_stream held_ms=177 queue_remaining=0
+01:47:09  st a0759d38  failed  task=plan raw_chars=1,308 prompt=1,308 chunk repo-search elapsed=0s error=provider request failed stage=planner_action method=POST url=http://127.0.0.1:49186/v1/chat/completions error=This operation was aborted
+01:47:09  st a0759d38  terminal_metadata_process_done  state=failed duration_ms=2
+{"ok":true,"port":49216,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-chat-compaction-ui-e2e-kmohrc\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-chat-compaction-ui-e2e-kmohrc\\.siftkit\\runtime.sqlite","startupWarning":null}
+01:47:09  st --------  incoming  task=dashboard_chat_stream arrival_position=1
+01:47:09  st a5d7b3d9  lock_acquired  task=dashboard_chat_stream wait_ms=2
+01:47:09  rs 01708bf3  start  task=chat  prompt_chars=12017
+01:47:09  rs 01708bf3  inventory  models=1  elapsed=0s
+01:47:09  st 01708bf3  start  task=chat raw_chars=12,017 prompt=12,017 chunk repo-search
+01:47:09  st 01708bf3  complete_done  state=completed duration_ms=0
+01:47:09  rs 01708bf3  completed  elapsed=0s  verdict=pass
+01:47:09  st a5d7b3d9  lock_released  task=dashboard_chat_stream held_ms=26 queue_remaining=0
+01:47:09  st 01708bf3  done  task=chat total_elapsed=0s output_tokens=29 thinking_tokens=0 tool_tokens=0
+01:47:09  st 01708bf3  terminal_metadata_process_done  state=completed duration_ms=2
+
+ Test Files  87 passed (87)
+      Tests  666 passed (666)
+   Start at  01:46:57
+   Duration  12.24s (transform 12.01s, setup 20.76s, import 125.89s, tests 21.57s, environment 8ms)

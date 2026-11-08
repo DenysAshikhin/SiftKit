@@ -1,0 +1,12 @@
+58 lines truncated due to per-tool context limit.
+Error: Task 'inspect' is not in the saved plan.
+      at file:///C:/tmp/rsx/siftkit-compare-single/src/orchestrator/run-store.ts:143:72
+      at file:///C:/tmp/rsx/siftkit-compare-single/src/orchestrator/run-store.ts:208:33
+      at sqliteTransaction (C:\tmp\rsx\siftkit-compare-single\node_modules\better-sqlite3\lib\methods\transaction.js:65:24)
+      at OrchestratorRunStore.mutate (file:///C:/tmp/rsx/siftkit-compare-single/src/orchestrator/run-store.ts:216:7)
+      at OrchestratorRunStore.reserveAttempt (file:///C:/tmp/rsx/siftkit-compare-single/src/orchestrator/run-store.ts:142:24)
+      at reserveAttempt (file:///C:/tmp/rsx/siftkit-compare-single/tests/runtime-db-schema-orchestrator-phase-runs.test.ts:65:16)
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/runtime-db-schema-orchestrator-phase-runs.test.ts:328:22)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)

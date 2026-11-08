@@ -36,6 +36,26 @@ const EXPECTED: Record<string, ToolDigest[]> = {
       ['while a child awaits a decision, code refuses a check, a second dispatch, and a plan change, and decide resumes it', 'C:/Users/denys/Documents/GitHub/SiftKit/tests/process/zz-fit-demo.e2e.test.ts:459:10', ['AssertionError [ERR_ASSERTION]: the refused dispatch started no child', '1 !== 2']],
     ]),
   ],
+  'node-test/killed-fail.txt': [
+    digest('node:test', true, [['pass seen', 0], ['fail seen', 3]], [
+      ['a running phase agent streams its whole flow, then whole turns as it thinks and calls tools, then the finished flow', null, []],
+      ['a client that hangs up mid-stream stops hearing frames, and a stream opened after the agent settled answers flow then finished', null, []],
+      ["the live stream answers 404 for an agent that is not the run's and 409 when the agent has no live flow", null, []],
+    ]),
+  ],
+  'node-test/tail-cut-fail.txt': [
+    digest('node:test', true, [['pass seen', 0], ['fail seen', 1]], [
+      ['two subscribers of one agent each get their own copy of the same frames', 'C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-live-flows.test.ts:581:10', [
+        'AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:', '+ actual - expected', '... Skipped lines', '  [', '    {',
+        '      flow: {', "        agentRunId: '3f2b1c9a-7d4e-4a5b-9c8d-1e2f3a4b5c6d',", '        finalOutput: null,', '...', '    {', '+     flow: {',
+        "+       agentRunId: '3f2b1c9a-7d4e-4a5b-9c8d-1e2f3a4b5c6d',", '+       finalOutput: null,', '+       finishedAtUtc: null,', '+       live: true,',
+        "+       model: 'qwen3-32b',", '+       prompt: {', '+         system: [', "+           'You are the orchestrator parent.'", '+         ],',
+        "+         user: 'Implement task t1 from the plan.'", '+       },', "+       startedAtUtc: '2026-10-23T10:00:00.000Z',", '+       throughput: null,',
+        '+       turns: []', '+     },', "+     kind: 'flow'", '+   },', '+   {', "      kind: 'turn',", '      turn: {', '        approvals: [],',
+        '        elapsedMs: null,', '        progress: null,',
+      ]],
+    ]),
+  ],
   'node-test/pass.txt': [
     digest('node:test', false, [['tests', 5], ['pass', 4], ['fail', 0], ['cancelled', 0], ['skipped', 1], ['todo', 0]], []),
   ],
@@ -198,6 +218,27 @@ for (const [fixture, expected] of Object.entries(EXPECTED)) {
 
 test('every captured fixture has an exact expectation', () => {
   assert.deepEqual(listDigestFixtures(), Object.keys(EXPECTED).sort());
+});
+
+test('two node:test runs in one output sum their counts, keep every failure, and fail when either run failed', () => {
+  const combined = `${readDigestFixture('node-test/fail.txt')}\n=== second suite ===\n${readDigestFixture('node-test/pass.txt')}`;
+  const [fail] = EXPECTED['node-test/fail.txt'] ?? [];
+  assert.ok(fail);
+  assert.deepEqual(digestToolOutput(combined), [
+    digest('node:test', true, [['tests', 12], ['pass', 6], ['fail', 5], ['cancelled', 0], ['skipped', 1], ['todo', 0], ['runs', 2]],
+      fail.failures.map((failure) => [failure.name, failure.location, failure.message])),
+  ]);
+});
+
+test('a passing run after a failing one still reports the failure', () => {
+  const combined = `${readDigestFixture('node-test/pass.txt')}\n${readDigestFixture('node-test/fail.txt')}`;
+  const [only] = digestToolOutput(combined);
+  assert.equal(only?.failed, true);
+  assert.deepEqual(only?.counts.find((count) => count.label === 'runs'), { label: 'runs', value: 2 });
+});
+
+test('passing node:test lines without a summary give no verdict', () => {
+  assert.deepEqual(digestToolOutput('✔ one (1.2ms)\n✔ two (0.4ms)'), []);
 });
 
 test('tsc output followed by eslint output yields a digest for each, in order', () => {

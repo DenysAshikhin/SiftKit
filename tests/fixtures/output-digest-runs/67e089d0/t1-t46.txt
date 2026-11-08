@@ -1,0 +1,10 @@
+src/orchestrator/live-activity.ts(44,5): error TS2741: Property 'agents' is missing in type '{ runId: string; 
+schedule: { claims: { taskId: string; modelId: string; mutating: boolean; contextTokens: number; }[]; models: { 
+modelId: string; slots: number; used: number; }[]; writerUsed: boolean; waits: { ...; }[]; } | null; children: { ...; 
+}[]; }' but required in type '{ runId: string; schedule: { claims: { taskId: string; modelId: string; mutating: 
+boolean; contextTokens: number; }[]; models: { modelId: string; slots: number; used: number; }[]; writerUsed: boolean; 
+waits: { ...; }[]; } | null; children: { ...; }[]; agents: { ...; }[]; }'.
+
+
+
+EXIT=2

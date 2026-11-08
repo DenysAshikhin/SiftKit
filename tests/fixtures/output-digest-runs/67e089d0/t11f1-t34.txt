@@ -1,0 +1,25 @@
+powershell.ts:102: env: options.env ? { ...toStringRecord(process.env), ...options.env } : undefined,
+captured-command.ts:48: * Drops the undefined-valued entries `process.env` is typed with.
+captured-command.ts:51: * `process.env` through, and its `string | undefined` values do not fit without this.
+captured-command.ts:84: // A child that exits without reading breaks the pipe; that must not crash this process.
+src/lib/captured-command.ts(13,23): error TS2307: Cannot find module 'node:child_process' or its corresponding type declarations.
+src/lib/captured-command.ts(94,24): error TS2503: Cannot find namespace 'NodeJS'.
+src/lib/captured-command.ts(95,22): error TS2503: Cannot find namespace 'NodeJS'.
+src/lib/captured-command.ts(158,23): error TS7006: Parameter 'code' implicitly has an 'any' type.
+src/lib/captured-command.ts(164,24): error TS7006: Parameter 'code' implicitly has an 'any' type.
+src/lib/powershell.ts(7,69): error TS2307: Cannot find module 'node:child_process' or its corresponding type declarations.
+src/lib/powershell.ts(55,14): error TS2304: Cannot find name 'BufferEncoding'.
+src/lib/powershell.ts(100,5): error TS2379: Argument of type '{ env: { [x: string]: string; } | undefined; cwd?: string; windowsHide?: boolean; abortSignal?: AbortSignal; timeoutMs?: number; stdinData?: string; }' is not assignable to parameter of type 'CapturedCommandOptions' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Types of property 'env' are incompatible.
+    Type '{ [x: string]: string; } | undefined' is not assignable to type 'Record<string, string>'.
+      Type 'undefined' is not assignable to type 'Record<string, string>'.
+src/lib/powershell.ts(102,46): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/lib/process-tree.ts(12,27): error TS2307: Cannot find module 'node:child_process' or its corresponding type declarations.
+src/lib/process-tree.ts(13,39): error TS2307: Cannot find module 'node:child_process' or its corresponding type declarations.
+src/lib/process-tree.ts(61,23): error TS2503: Cannot find namespace 'NodeJS'.
+src/lib/process-tree.ts(61,49): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/lib/process-tree.ts(165,32): error TS2591: Cannot find name 'Buffer'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/lib/process-tree.ts(216,50): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/lib/process-tree.ts(225,38): error TS2591: Cannot find name 'Buffer'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+src/repo-search/engine/repo-paths.ts(1,42): error TS2307: Cannot find module 'node:fs' or its corresponding type declarations.
+src/repo-search/engine/repo-paths.ts(2,56): error TS2307: Cannot find module 'node:path' or its corresponding type declarations.

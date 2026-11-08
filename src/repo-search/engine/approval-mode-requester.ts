@@ -2,7 +2,6 @@ import type {
   ApprovalDecision,
   ApprovalRequestInput,
   ApprovalRequester,
-  HumanApprovalRequester,
   LiveApprovalMode,
 } from './approval-gate.ts';
 
@@ -12,12 +11,12 @@ import type {
  */
 export class ModeSwitchedApprovalRequester implements ApprovalRequester {
   private readonly liveMode: LiveApprovalMode;
-  private readonly humanGate: HumanApprovalRequester;
+  private readonly humanGate: ApprovalRequester;
   private readonly llmGate: ApprovalRequester;
 
   constructor(
     liveMode: LiveApprovalMode,
-    humanGate: HumanApprovalRequester,
+    humanGate: ApprovalRequester,
     llmGate: ApprovalRequester,
   ) {
     this.liveMode = liveMode;

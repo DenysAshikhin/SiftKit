@@ -1,0 +1,18 @@
+8 lines truncated due to per-tool context limit.
+> siftkit@0.1.0 typecheck
+> tsc -p .\packages\contracts\tsconfig.json && tsc -p .\tsconfig.json && tsc -p .\tsconfig.scripts.json && tsc -p .\dashboard\tsconfig.json && tsc -p .\dashboard\tsconfig.node.json && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint
+> siftkit@0.1.0 typecheck:bench
+> tsc -p .\tsconfig.bench.json
+> siftkit@0.1.0 typecheck:test
+> tsc -p .\tsconfig.test.json
+tests/orchestrator-verification.test.ts(12,27): error TS2305: Module '"../src/orchestrator/verification.ts"' has no exported member 'findReviewCriteriaProblems'.
+tests/orchestrator-verification.test.ts(12,55): error TS2305: Module '"../src/orchestrator/verification.ts"' has no exported member 'formatAttemptFailure'.
+tests/orchestrator-verification.test.ts(62,47): error TS2339: Property 'problems' does not exist on type 'AttemptEvaluation'.
+tests/orchestrator-verification.test.ts(63,121): error TS2339: Property 'problems' does not exist on type 'AttemptEvaluation'.
+tests/orchestrator-verification.test.ts(64,72): error TS2339: Property 'problems' does not exist on type 'AttemptEvaluation'.
+tests/orchestrator-verification.test.ts(65,53): error TS2339: Property 'problems' does not exist on type 'AttemptEvaluation'.
+tests/orchestrator-verification.test.ts(66,61): error TS2339: Property 'problems' does not exist on type 'AttemptEvaluation'.
+tests/orchestrator-verification.test.ts(72,116): error TS2339: Property 'problems' does not exist on type 'AttemptEvaluation'.
+tests/orchestrator-verification.test.ts(73,53): error TS2339: Property 'problems' does not exist on type 'AttemptEvaluation'.
+tests/orchestrator-verification.test.ts(152,31): error TS2353: Object literal may only specify known properties, and 'startedAt' does not exist in type '{ taskId: string; purpose: "implementation" | "drift_fix"; attempt: number; childRunId: string; workerStatus: "completed" | "failed" | "aborted" | "approval_timeout"; workerOutput: string; ... 5 more ...; changeDigest: string | null; }'.
+tests/orchestrator-verification.test.ts(168,62): error TS2339: Property 'problems' does not exist on type '{ taskId: string; purpose: "implementation" | "drift_fix"; attempt: number; childRunId: string; workerStatus: "completed" | "failed" | "aborted" | "approval_timeout"; workerOutput: string; ... 5 more ...; changeDigest: string | null; }'.

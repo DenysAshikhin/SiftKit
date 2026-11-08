@@ -1,0 +1,21 @@
+36 lines truncated due to per-tool context limit.
+✖ a phase agent feeds its live flow through the sink, renews its lease, and its writer reports itself live (17.0825ms)
+  TypeError: start.prompt.system is not iterable
+      at OrchestratorLiveFlows.create (file:///C:/tmp/rsx/siftkit-compare-single/src/orchestrator/live-flows.ts:192:71)
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-live-activity.test.ts:299:9)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)
+test at tests\orchestrator-live-activity.test.ts:320:1
+✖ a worker flow carries the instruction and the very system context its engine was started with (34.8178ms)
+  TypeError: Cannot read properties of undefined (reading 'settled')
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/orchestrator-live-activity.test.ts:345:25)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)

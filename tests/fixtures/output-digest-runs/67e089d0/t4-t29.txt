@@ -1,0 +1,16 @@
+167 lines truncated due to per-tool context limit.
+"phaseRunIds"
+      ],
+      "message": "Invalid input: expected array, received undefined"
+    }
+  ]
+      at Object.upgradeOrchestratorPhaseRuns [as apply] (file:///C:/tmp/rsx/siftkit-compare-single/src/state/schema-upgrades/orchestrator-phase-runs.ts:95:40)
+      at file:///C:/tmp/rsx/siftkit-compare-single/src/state/runtime-db.ts:257:16
+      at sqliteTransaction (C:\tmp\rsx\siftkit-compare-single\node_modules\better-sqlite3\lib\methods\transaction.js:65:24)
+      at getRuntimeDatabase (file:///C:/tmp/rsx/siftkit-compare-single/src/state/runtime-db.ts:266:7)
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/runtime-db-schema-orchestrator-session-links.test.ts:56:20)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)

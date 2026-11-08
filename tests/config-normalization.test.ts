@@ -605,3 +605,12 @@ test('the default model preset ships ReasoningEffort xhigh', () => {
   const [preset] = getDefaultConfig().Server.ModelPresets.Presets;
   assert.equal(preset.ReasoningEffort, 'xhigh');
 });
+
+test('ReviewerSlot defaults to false when omitted from a persisted preset, and schema accepts true', () => {
+  const config = defaultConfigObject();
+  delete activePresetObject(config).ReviewerSlot;
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).ReviewerSlot, false);
+
+  activePresetObject(config).ReviewerSlot = true;
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).ReviewerSlot, true);
+});

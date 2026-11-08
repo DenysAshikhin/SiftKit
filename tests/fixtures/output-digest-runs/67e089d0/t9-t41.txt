@@ -1,0 +1,9 @@
+68 lines truncated due to per-tool context limit.
+test at tests\process\orchestrator-agents.test.ts:208:1
+✖ an unflushed agent answers §2.1 with null fields last, and an agent with no transcript and no live flow is a 409 (231.9597ms)
+  RangeError: Too few parameter values were provided
+      at seedAgentRunLog (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents.test.ts:124:6)
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents.test.ts:225:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)

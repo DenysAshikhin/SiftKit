@@ -1,0 +1,24 @@
+44 lines truncated due to per-tool context limit.
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2214.0885
+✖ failing tests:
+test at tests\process\orchestrator-agents.test.ts:139:1
+✖ the two agent endpoints report every agent of a finished run, in start order, from its state and its run logs (1196.6625ms)
+  AssertionError [ERR_ASSERTION]: the 404 names the agent it rejected
+      at TestContext.<anonymous> (file:///C:/tmp/rsx/siftkit-compare-single/tests/process/orchestrator-agents.test.ts:199:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '[object Object]',
+    expected: /5fabd135-780f-45d2-98d7-4625ab95516c/u,
+    operator: 'match',
+    diff: 'simple'
+  }

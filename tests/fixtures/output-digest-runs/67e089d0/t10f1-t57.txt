@@ -1,0 +1,12 @@
+> tsc -p .\tsconfig.analysis.json
+
+
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+EXIT_TYPECHECK=0
+
+> siftkit@0.1.0 lint
+> eslint . --cache --cache-location .eslintcache
+
+EXIT_LINT=0

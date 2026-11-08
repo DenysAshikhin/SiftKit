@@ -19,6 +19,7 @@ import {
 } from '../lib/provider-helpers.ts';
 import { buildInferenceJsonSchemaResponseFormat } from '../providers/structured-output-schema.ts';
 import { ApprovalVerdictSchema } from './approval-verdict.ts';
+import { APPROVER_SYSTEM_PROMPT } from './approval-review-policy.ts';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
 import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.ts';
@@ -364,12 +365,12 @@ type PlannerRequestBase = PlannerThinkingFlags & {
 } & PlannerResponseConstraint;
 
 export type PlannerRootRequestOptions = PlannerRequestBase & {
-  stage: 'planner_action' | 'context_compaction';
+  stage: 'planner_action' | 'context_compaction' | 'approval_verdict';
   cachePrefix?: never;
 };
 
 export type PlannerDerivedRequestOptions = PlannerRequestBase & {
-  stage: Exclude<PlannerRequestStage, 'planner_action'>;
+  stage: Exclude<PlannerRequestStage, 'planner_action' | 'approval_verdict'>;
   cachePrefix: ExecutingPlannerRequest;
 };
 
@@ -406,8 +407,8 @@ export function toProtocolChatMessages(messages: readonly ChatMessage[]): Infere
 
 /**
  * The single serialization path from a transcript to protocol messages. Every
- * request that must share a prompt-cache prefix (planner_action and
- * approval_verdict) is built through this function with the same flags.
+ * request that must share a prompt-cache prefix (planner_action and the requests
+ * derived from it) is built through this function with the same flags.
  */
 export function serializeProtocolMessages(
   messages: readonly ChatMessage[],
@@ -481,11 +482,11 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   const requestStage = options.stage;
   const cachePrefix = 'cachePrefix' in options ? options.cachePrefix : undefined;
   if (cachePrefix) {
-    if (requestStage === 'planner_action') {
-      throw new Error('planner_action prompt-cache contract violated: root request received a cache prefix');
+    if (requestStage === 'planner_action' || requestStage === 'approval_verdict') {
+      throw new Error(`${requestStage} prompt-cache contract violated: root request received a cache prefix`);
     }
     assertPromptCacheExtension({ ...options, stage: requestStage, cachePrefix });
-  } else if (requestStage !== 'planner_action' && requestStage !== 'context_compaction') {
+  } else if (requestStage !== 'planner_action' && requestStage !== 'context_compaction' && requestStage !== 'approval_verdict') {
     throw new Error(`${requestStage} prompt-cache contract violated: cache prefix missing`);
   }
   if (options.abortSignal?.aborted) {
@@ -633,18 +634,12 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   };
 }
 
-/**
- * Snapshot of the serialized prompt an in-flight planner request was sent with.
- * An approval verdict may only be requested as an extension of this prompt —
- * anything else re-prefills the whole context and breaks the prompt cache.
- */
 /** The verdict is a two-field JSON object; a non-thinking planner needs only answer headroom. */
 const APPROVAL_VERDICT_MAX_TOKENS = 512;
 /**
  * The verdict reasons under a fixed budget: 1024 tokens matches unbounded-thinking safety recall
  * on the red-team corpus while capping a runaway verdict that would otherwise spend 25-65 s. When
- * exceeded, the exl3 client closes the think block with a response_prefix continuation and answers,
- * so the shared planner prompt prefix stays cached. See
+ * exceeded, the exl3 client closes the think block with a response_prefix continuation and answers. See
  * docs/superpowers/plans/2026-09-02-bounded-thinking-approval-verdict.md.
  */
 const APPROVAL_VERDICT_REASONING_BUDGET_TOKENS = 1024;
@@ -656,13 +651,9 @@ const APPROVAL_VERDICT_CONTINUATION_MIN_TOKENS = 256;
 export const APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE =
   'Thinking budget reached. Output the approval verdict JSON now.';
 
-/** Executing transcript, pending assistant tool call, then the transient verdict question. */
-export function buildApprovalVerdictPromptMessages(
-  transcriptMessages: readonly ChatMessage[],
-  pendingMessages: readonly ChatMessage[],
-  question: string,
-): ChatMessage[] {
-  return [...transcriptMessages, ...pendingMessages, { role: 'user', content: question }];
+/** The approver sees only its own prompt and the proposed call. */
+export function buildApprovalVerdictMessages(reviewRequest: string): ChatMessage[] {
+  return [{ role: 'system', content: APPROVER_SYSTEM_PROMPT }, { role: 'user', content: reviewRequest }];
 }
 
 export function appendPlannerInstruction(
@@ -680,10 +671,10 @@ export async function requestApprovalVerdict(options: {
   baseUrl: string;
   model: string;
   throughputAudit: ThroughputAuditOperation;
-  transcriptMessages: readonly ChatMessage[];
-  pendingMessages: readonly ChatMessage[];
-  question: string;
-  executing: ExecutingPlannerRequest;
+  reviewRequest: string;
+  /** The agent's tool definitions, byte-identical across verdicts so the approver's own prefix stays cached. */
+  tools: readonly InferenceToolDefinition[];
+  flags: Readonly<PlannerThinkingFlags>;
   timeoutMs: number;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
@@ -691,24 +682,12 @@ export async function requestApprovalVerdict(options: {
   logger?: JsonLogger | null;
   activityObserver?: InferenceActivityObserver;
 }): Promise<PlannerActionResponse> {
-  const verdictMessages = buildApprovalVerdictPromptMessages(
-    options.transcriptMessages,
-    options.pendingMessages,
-    options.question,
-  );
   const serializedMessages = serializeProtocolMessages(
-    verdictMessages,
-    options.executing.flags.reasoningContentEnabled,
+    buildApprovalVerdictMessages(options.reviewRequest),
+    options.flags.reasoningContentEnabled,
   );
-  // A verdict extends an executing planner prompt whose size is already measured, so only
-  // the appended messages need pricing. Estimating that short tail keeps an approval
-  // decision off the tokenize round trip without re-counting the whole prompt.
-  const promptTokenCount = options.executing.promptTokenCount + estimateTokenCount(
-    options.config,
-    serializedMessages.slice(options.executing.serializedMessageJson.length)
-      .map((message) => JSON.stringify(message))
-      .join(''),
-  );
+  // The verdict prompt is short, so an estimate keeps it off the tokenize round trip.
+  const promptTokenCount = estimateTokenCount(options.config, JSON.stringify(serializedMessages) + JSON.stringify(options.tools));
   return requestRepoSearchPlannerProtocolAction({
     config: options.config,
     baseUrl: options.baseUrl,
@@ -719,18 +698,14 @@ export async function requestApprovalVerdict(options: {
     maxTokens: resolveGenerationTokenLimit({
       totalContextTokens: getConfiguredEngineNumCtx(options.config),
       promptTokenCount,
-      operationMaxTokens: options.executing.flags.thinkingEnabled
+      operationMaxTokens: options.flags.thinkingEnabled
         ? APPROVAL_VERDICT_THINKING_MAX_TOKENS
         : APPROVAL_VERDICT_MAX_TOKENS,
     }),
-    // The thinking flags mirror the executing planner request: they feed the
-    // server-side chat_template_kwargs, and any difference re-renders (and so
-    // re-prefills) the shared prompt prefix. Thinking is bounded, not disabled:
-    // the budget caps reasoning at APPROVAL_VERDICT_REASONING_BUDGET_TOKENS, and
-    // the exl3 client closes the think block with a response_prefix continuation
-    // that byte-extends this same prefix, so the cache survives.
-    ...options.executing.flags,
-    ...(options.executing.flags.thinkingEnabled
+    // Thinking follows the agent's setting but is bounded: the budget caps reasoning at
+    // APPROVAL_VERDICT_REASONING_BUDGET_TOKENS before the JSON is forced.
+    ...options.flags,
+    ...(options.flags.thinkingEnabled
       ? {
         reasoningBudgetTokens: APPROVAL_VERDICT_REASONING_BUDGET_TOKENS,
         reasoningBudgetMessage: APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE,
@@ -742,11 +717,10 @@ export async function requestApprovalVerdict(options: {
     abortSignal: options.abortSignal,
     logger: options.logger,
     activityObserver: options.activityObserver,
-    cachePrefix: options.executing,
     stage: 'approval_verdict',
     responseSchema: buildPlannerJsonSchema(ApprovalVerdictSchema),
     responseSchemaName: 'siftkit_approval_verdict',
-    tools: options.executing.tools,
+    tools: options.tools,
     toolChoice: 'none',
   });
 }
