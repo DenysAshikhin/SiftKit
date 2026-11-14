@@ -405,7 +405,7 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
 export function launchEngineVariables(spec: EngineLaunchSpec | undefined): Record<string, string> {
   if (!spec) throw new Error('The fake engine was never launched.');
   return Object.fromEntries(Object.entries(spec.environment).flatMap(([key, value]) => (
-    value !== undefined && /^(?:TABBY_|EXL3_|PYTORCH_)/u.test(key) ? [[key, value]] : []
+    value !== undefined && /^(?:TABBY_|EXL3_|PYTORCH_|PYTHONUTF8$)/u.test(key) ? [[key, value]] : []
   )));
 }
 

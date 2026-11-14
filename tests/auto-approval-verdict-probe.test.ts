@@ -93,7 +93,7 @@ test('configured verdict replay sends the exact persisted tool schema and no too
       Server: {
         ModelPresets: {
           ActivePresetId: 'default',
-          Presets: [{ id: 'default', VisionEnabled: true, Reasoning: 'off', IdleAction: 'unload' }],
+          Presets: [{ id: 'default', VisionEnabled: true, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0 }],
         },
       },
     });

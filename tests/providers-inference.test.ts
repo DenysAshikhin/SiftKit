@@ -39,7 +39,7 @@ test('getInferenceProviderStatus returns unreachable when server is down', async
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: DEAD_BASE_URL, NumCtx: 10000, IdleAction: 'unload' as const }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: DEAD_BASE_URL, NumCtx: 10000, IdleAction: 'unload' as const, SparseDraftHead: 0 }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
@@ -88,7 +88,7 @@ test('countInferenceTokens respects a bounded transient retry timeout', { timeou
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: `http://127.0.0.1:${address.port}`, NumCtx: 10000, IdleAction: 'unload' as const }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: `http://127.0.0.1:${address.port}`, NumCtx: 10000, IdleAction: 'unload' as const, SparseDraftHead: 0 }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },

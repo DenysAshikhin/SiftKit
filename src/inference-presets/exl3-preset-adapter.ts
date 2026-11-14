@@ -26,26 +26,31 @@ export const Exl3LoadRequestSchema = z.object({
 });
 export type Exl3LoadRequest = z.infer<typeof Exl3LoadRequestSchema>;
 
+/** TabbyAPI parses its numeric env overrides as plain integers, so a fraction or blank must not launch. */
+const NonNegativeIntegerEnv = z.string().regex(/^\d+$/u);
+
 const Exl3BaseLaunchEnvironmentSchema = z.object({
   TABBY_MODEL_MODEL_DIR: z.string(),
   TABBY_MODEL_MODEL_NAME: z.string(),
-  TABBY_MODEL_MAX_SEQ_LEN: z.string(),
-  TABBY_MODEL_CACHE_SIZE: z.string(),
+  TABBY_MODEL_MAX_SEQ_LEN: NonNegativeIntegerEnv,
+  TABBY_MODEL_CACHE_SIZE: NonNegativeIntegerEnv,
   TABBY_MODEL_CACHE_MODE: z.string(),
-  TABBY_MODEL_MAX_BATCH_SIZE: z.string(),
-  TABBY_MODEL_CHUNK_SIZE: z.string(),
+  TABBY_MODEL_MAX_BATCH_SIZE: NonNegativeIntegerEnv,
+  TABBY_MODEL_CHUNK_SIZE: NonNegativeIntegerEnv,
   /** MB of pinned host RAM for exllamav3's second-tier K/V cache; '0' disables. */
-  TABBY_MEMORY_SYSMEM_KV_CACHE: z.string(),
+  TABBY_MEMORY_SYSMEM_KV_CACHE: NonNegativeIntegerEnv,
   /** MB of host RAM for recurrent (linear-attention) states; one state per concurrent slot. */
-  TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: z.string(),
+  TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: NonNegativeIntegerEnv,
   TABBY_DRAFT_MODEL_DRAFT_MODE: z.enum(['disabled', 'mtp']),
-  TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: z.string(),
+  TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: NonNegativeIntegerEnv,
   /** Omitted when speculation is off: the preset owns no draft cache, so config.yml keeps its value. */
   TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string().optional(),
   /** Per-job draft windows adapted from the acceptance EMA, capped by DRAFT_NUM_TOKENS. */
   TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: z.enum(['true', 'false']),
   /** Prompt-lookup draft length; Tabby applies it with or without a draft mode, '0' disables. */
-  TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: z.string(),
+  TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: NonNegativeIntegerEnv,
+  /** Omitted when speculation is off: Tabby ignores a sparse head without a drafter. '0' keeps the full head. */
+  TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD: NonNegativeIntegerEnv.optional(),
   TABBY_MODEL_VISION: z.enum(['true', 'false']),
   /** Pins the vision tower in host RAM and streams it per request; Tabby ignores it while vision is off. */
   TABBY_MODEL_VISION_OFFLOAD: z.enum(['true', 'false']),
@@ -55,7 +60,7 @@ const Exl3BaseLaunchEnvironmentSchema = z.object({
    * GPU expert compute. Higher frees more VRAM. `0` leaves every expert on the GPU. Non-MoE
    * models and layers that fail exllamav3's eligibility probes ignore it.
    */
-  TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: z.string(),
+  TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: NonNegativeIntegerEnv,
   /** `NgramRam`; the tradeoff is stated once in the dashboard help text for the field. */
   TABBY_MODEL_NGRAM_RAM: z.enum(['true', 'false']),
   /**
@@ -69,13 +74,15 @@ const Exl3BaseLaunchEnvironmentSchema = z.object({
   PYTORCH_CUDA_ALLOC_CONF: z.literal('backend:native,expandable_segments:True'),
   /** cudaMallocAsync cannot use expandable segments, so Tabby must not install it. */
   TABBY_MEMORY_CUDA_MALLOC_ASYNC: z.literal('false'),
+  /** UTF-8 stdio: on a cp1252 pipe, rich's box-drawn tracebacks fail to encode and loguru drops the record. */
+  PYTHONUTF8: z.literal('1'),
 });
 
 // The disk tier is all three variables or none; a partial set must not parse.
 const Exl3DiskCacheEnvironment = {
   /** Disk tier behind the RAM tier; omitted unless the preset sets DiskCacheDir. Size is in MiB. */
-  TABBY_MEMORY_DISK_CACHE_DIR: z.string(), TABBY_MEMORY_DISK_CACHE_SIZE: z.string(),
-  TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL: z.string(),
+  TABBY_MEMORY_DISK_CACHE_DIR: z.string(), TABBY_MEMORY_DISK_CACHE_SIZE: NonNegativeIntegerEnv,
+  TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL: NonNegativeIntegerEnv,
 };
 const Exl3NoDiskCacheEnvironment = {
   TABBY_MEMORY_DISK_CACHE_DIR: z.undefined().optional(), TABBY_MEMORY_DISK_CACHE_SIZE: z.undefined().optional(),
@@ -177,6 +184,7 @@ export class Exl3PresetAdapter {
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
       TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: envFlag(preset.SpeculativeEnabled && preset.SpeculativeDynamic),
       TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: String(preset.HybridDraftTokens),
+      ...(preset.SpeculativeEnabled ? { TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD: String(preset.SparseDraftHead) } : {}),
       TABBY_MODEL_VISION: envFlag(preset.VisionEnabled),
       TABBY_MODEL_VISION_OFFLOAD: envFlag(preset.VisionOffload),
       TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: String(preset.NcpuMoe),
@@ -184,6 +192,7 @@ export class Exl3PresetAdapter {
       PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
       PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
       TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
+      PYTHONUTF8: '1',
     });
   }
 

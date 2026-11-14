@@ -3,26 +3,13 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
-import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
+import { MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
+import { modelPresetsSectionProps } from './model-presets-section-props.ts';
 import type { DashboardModelRuntimePreset } from '../src/types.ts';
 import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 
-type ModelPresetsSectionProps = React.ComponentProps<typeof ModelPresetsSection>;
-
 function render(preset: DashboardModelRuntimePreset, runtimeStatus: InferenceRuntimeDashboardStatus | null = null): string {
-  const config = JSON.parse(JSON.stringify(DASHBOARD_CONFIG));
-  config.Server.ModelPresets.Presets = [preset];
-  config.Server.ModelPresets.ActivePresetId = preset.id;
-  const props: ModelPresetsSectionProps = {
-    dashboardConfig: config,
-    selectedModelPreset: preset,
-    settingsActionBusy: false,
-    settingsPathPickerBusyTarget: null,
-    modelPresetActions: MODEL_PRESET_ACTIONS,
-    runtimeStatus,
-    modelProfileStatus: { state: 'no-path' },
-  };
-  return renderToStaticMarkup(React.createElement(ModelPresetsSection, props));
+  return renderToStaticMarkup(React.createElement(ModelPresetsSection, modelPresetsSectionProps(preset, MODEL_PRESET_ACTIONS, runtimeStatus)));
 }
 
 test('renders a toolbar with preset selector, active pill and add/delete but no backend control', () => {

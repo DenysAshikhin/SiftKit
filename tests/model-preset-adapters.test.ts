@@ -77,6 +77,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
     TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: '5',
+    TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD: '0',
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
@@ -84,6 +85,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
     PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
     TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
+    PYTHONUTF8: '1',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -126,6 +128,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
     PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
     TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
+    PYTHONUTF8: '1',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
@@ -265,6 +268,35 @@ test('the model preset schema rejects a negative HybridDraftTokens', () => {
     () => createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', HybridDraftTokens: -1 }),
     /HybridDraftTokens/u,
   );
+});
+
+test('EXL3 adapter ships SparseDraftHead only while MTP speculation is on', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', KvCacheQuantization: 'f16' as const };
+
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, SparseDraftHead: 8192 })).TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD, '8192');
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, SparseDraftHead: 0 })).TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD, '0');
+  // Tabby ignores the sparse head without a drafter; shipping it would only force relaunches for a no-op.
+  assert.equal('TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD' in adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: false, SparseDraftHead: 8192 })), false);
+});
+
+test('the model preset schema accepts SparseDraftHead 0 and 8192 and rejects -1 as too small', () => {
+  const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' };
+  assert.equal(createModelPreset({ ...base, SparseDraftHead: 0 }).SparseDraftHead, 0);
+  assert.equal(createModelPreset({ ...base, SparseDraftHead: 8192 }).SparseDraftHead, 8192);
+
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  assert.ok(preset);
+  const result = ModelRuntimePresetSchema.safeParse({ ...preset, ...base, SparseDraftHead: -1 });
+  assert.equal(result.success, false);
+  assert.deepEqual(result.error?.issues.map((issue) => [issue.code, issue.path]), [['too_small', ['SparseDraftHead']]]);
+});
+
+test('EXL3 adapter refuses a launch value TabbyAPI cannot read as a non-negative integer', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const preset = createModelPreset({ ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', CacheRam: 2048.5 });
+
+  assert.throws(() => adapter.buildLaunchEnvironment(preset), /TABBY_MEMORY_SYSMEM_KV_CACHE/u);
 });
 
 test('EXL3 adapter maps NcpuMoe onto TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS', () => {
@@ -408,6 +440,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   SpeculativeDraftMax: MANAGED_ONLY,
   SpeculativeDynamic: MANAGED_ONLY,
   HybridDraftTokens: MANAGED_ONLY,
+  SparseDraftHead: MANAGED_ONLY,
   ReasoningBudget: ALWAYS,
   ReasoningBudgetMessage: ALWAYS,
   StartupTimeoutMs: ALWAYS,

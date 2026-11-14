@@ -142,24 +142,21 @@ test('PUT /config round-trips an enabled NgramRam', async () => {
   }
 });
 
-test('PUT /config round-trips HybridDraftTokens', async () => {
-  const { server, close } = await startServerWithRuntime('siftkit-config-hybrid-draft-');
+test('PUT /config round-trips the draft settings HybridDraftTokens and SparseDraftHead', async () => {
+  const { server, close } = await startServerWithRuntime('siftkit-config-draft-settings-');
   try {
     const config = await readConfigBody(server.baseUrl);
-    const presets = asObjectArray(asObject(asObject(config.Server).ModelPresets).Presets);
-    const activePreset = presets[0];
+    const activePreset = asObjectArray(asObject(asObject(config.Server).ModelPresets).Presets)[0];
     assert.ok(activePreset, 'expected at least one model preset');
-    assert.equal(activePreset.HybridDraftTokens, 5, 'HybridDraftTokens must default to 5');
+    assert.deepEqual([activePreset.HybridDraftTokens, activePreset.SparseDraftHead], [5, 0], 'draft settings must start at their defaults');
     activePreset.HybridDraftTokens = 8;
+    activePreset.SparseDraftHead = 8192;
 
-    const saved = await requestJson(`${server.baseUrl}/config`, {
-      method: 'PUT',
-      body: JSON.stringify(config),
-    });
+    const saved = await requestJson(`${server.baseUrl}/config`, { method: 'PUT', body: JSON.stringify(config) });
     assert.equal(saved.statusCode, 200);
 
-    const persisted = asObjectArray(asObject(asObject((await readConfigBody(server.baseUrl)).Server).ModelPresets).Presets);
-    assert.equal(persisted[0]?.HybridDraftTokens, 8, 'HybridDraftTokens must persist as 8');
+    const persisted = asObjectArray(asObject(asObject((await readConfigBody(server.baseUrl)).Server).ModelPresets).Presets)[0];
+    assert.deepEqual([persisted?.HybridDraftTokens, persisted?.SparseDraftHead], [8, 8192], 'both draft settings must persist');
   } finally {
     await close();
   }

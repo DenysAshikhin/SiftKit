@@ -27,6 +27,7 @@ export const POLICY_MODE_OPTIONS = ['conservative', 'aggressive'] as const;
 export const VISION_OFFLOAD_LABEL = 'Keep vision weights in RAM';
 export const NGRAM_RAM_LABEL = 'Keep n-gram table in RAM';
 export const HYBRID_DRAFT_TOKENS_LABEL = 'Hybrid draft tokens';
+export const SPARSE_DRAFT_HEAD_LABEL = 'Sparse draft head';
 
 export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'general',
@@ -151,6 +152,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'SpeculativeDraftMax', layout: 'quarter', helpText: 'Maximum draft-model token count used by EXL3 speculative decoding.' },
       { label: 'SpeculativeDynamic', layout: 'quarter', helpText: 'Adapts each job\'s draft window from its acceptance rate, using SpeculativeDraftMax as the ceiling.' },
       { label: HYBRID_DRAFT_TOKENS_LABEL, layout: 'quarter', helpText: 'When the reply repeats a passage of its context verbatim (edits, quoted text, tool arguments), drafts this many tokens of the earlier continuation in one verification pass (`TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS`). Works with or without speculative decoding; 0 turns it off.' },
+      { label: SPARSE_DRAFT_HEAD_LABEL, layout: 'quarter', helpText: 'MTP drafts through a sparse LM head of this many most-frequent vocabulary columns (`TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD`), e.g. 4096 or 8192; exllamav3 clamps a larger value to the vocabulary size. Verification keeps the full head, so output is unchanged; only draft latency moves. 0 keeps the full head.' },
       { label: 'ReasoningBudget', layout: 'quarter', helpText: 'When reasoning is enabled, SiftKit stops the stream at this token budget and continues with the budget message closed into the think block.' },
       { label: 'ReasoningBudgetMessage', layout: 'full', helpText: 'The message injected when the reasoning budget is exhausted.' },
       { label: 'StartupTimeoutMs', layout: 'quarter', helpText: 'Maximum time allowed for managed engine startup before the attempt is treated as failed.' },

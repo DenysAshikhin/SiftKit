@@ -5,36 +5,15 @@ import React from 'react';
 import { fireEvent, render, screen, cleanup } from './react-test-environment.ts';
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
 import { NGRAM_RAM_LABEL } from '../src/settings-sections.ts';
-import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
-import type { DashboardModelRuntimePreset } from '../src/types.ts';
-
-type ModelPresetsSectionProps = React.ComponentProps<typeof ModelPresetsSection>;
-
-function sectionProps(
-  overrides: Partial<DashboardModelRuntimePreset> = {},
-  modelPresetActions: ModelPresetsSectionProps['modelPresetActions'] = MODEL_PRESET_ACTIONS,
-): ModelPresetsSectionProps {
-  const preset = { ...MANAGED_PRESET, Backend: 'exl3' as const, ...overrides };
-  const dashboardConfig = JSON.parse(JSON.stringify(DASHBOARD_CONFIG));
-  dashboardConfig.Server.ModelPresets.Presets = [preset];
-  dashboardConfig.Server.ModelPresets.ActivePresetId = preset.id;
-  return {
-    dashboardConfig,
-    selectedModelPreset: preset,
-    settingsActionBusy: false,
-    settingsPathPickerBusyTarget: null,
-    modelPresetActions,
-    runtimeStatus: null,
-    modelProfileStatus: { state: 'no-path' },
-  };
-}
+import { MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
+import { modelPresetsSectionProps } from './model-presets-section-props.ts';
 
 test('the n-gram RAM toggle reflects the preset value', () => {
-  render(<ModelPresetsSection {...sectionProps({ NgramRam: false })} />);
+  render(<ModelPresetsSection {...modelPresetsSectionProps({ ...MANAGED_PRESET, NgramRam: false })} />);
   assert.equal(screen.getByLabelText<HTMLInputElement>(NGRAM_RAM_LABEL).checked, false);
 
   cleanup();
-  render(<ModelPresetsSection {...sectionProps({ NgramRam: true })} />);
+  render(<ModelPresetsSection {...modelPresetsSectionProps({ ...MANAGED_PRESET, NgramRam: true })} />);
   assert.equal(screen.getByLabelText<HTMLInputElement>(NGRAM_RAM_LABEL).checked, true);
 });
 
@@ -42,8 +21,8 @@ test('toggling the n-gram RAM control writes the preset field', () => {
   const calls: Array<[string, boolean]> = [];
   render(
     <ModelPresetsSection
-      {...sectionProps(
-        { NgramRam: false },
+      {...modelPresetsSectionProps(
+        { ...MANAGED_PRESET, NgramRam: false },
         { ...MODEL_PRESET_ACTIONS, setBoolean: (field, value) => calls.push([field, value]) },
       )}
     />,
@@ -56,7 +35,7 @@ test('toggling the n-gram RAM control writes the preset field', () => {
 
 /** Managed-only fields stay visible but inert: the section wraps them in a disabled fieldset. */
 test('the n-gram RAM toggle is inert for external inference servers', () => {
-  render(<ModelPresetsSection {...sectionProps({ ExternalServerEnabled: true })} />);
+  render(<ModelPresetsSection {...modelPresetsSectionProps({ ...MANAGED_PRESET, ExternalServerEnabled: true })} />);
 
   const enclosure = screen.getByLabelText(NGRAM_RAM_LABEL).closest('fieldset');
   assert.equal(enclosure?.disabled, true);

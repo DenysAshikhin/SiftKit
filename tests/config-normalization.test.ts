@@ -461,13 +461,20 @@ test('NgramRam defaults to false when omitted from a persisted preset', () => {
   assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).NgramRam, false);
 });
 
-test('HybridDraftTokens defaults to 5 and schema accepts 0 to turn it off', () => {
-  assert.equal(activePreset(normalizeConfig(getDefaultConfig())).HybridDraftTokens, 5);
+const DRAFT_FIELD_CASES = [
+  { field: 'HybridDraftTokens', fresh: 5, persisted: 0 },
+  { field: 'SparseDraftHead', fresh: 0, persisted: 8192 },
+] as const;
 
-  const config = defaultConfigObject();
-  activePresetObject(config).HybridDraftTokens = 0;
-  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).HybridDraftTokens, 0);
-});
+for (const { field, fresh, persisted } of DRAFT_FIELD_CASES) {
+  test(`${field} is ${String(fresh)} on a fresh config and keeps a persisted ${String(persisted)}`, () => {
+    assert.equal(activePreset(normalizeConfig(getDefaultConfig()))[field], fresh);
+
+    const config = defaultConfigObject();
+    activePresetObject(config)[field] = persisted;
+    assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config)))[field], persisted);
+  });
+}
 
 test('HybridDraftTokens defaults to 5 when omitted from a persisted preset', () => {
   const config = defaultConfigObject();
@@ -481,6 +488,19 @@ test('HybridDraftTokens falls back to 5 for a negative or fractional persisted v
     const config = defaultConfigObject();
     activePresetObject(config).HybridDraftTokens = invalid;
     assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).HybridDraftTokens, 5, String(invalid));
+  }
+});
+
+/** Stored presets gain SparseDraftHead in the 90 -> 91 upgrade, so a missing or bad value is corrupt config. */
+test('SparseDraftHead missing, negative, fractional or textual fails loudly', () => {
+  const config = defaultConfigObject();
+  delete activePresetObject(config).SparseDraftHead;
+  assert.throws(() => normalizeConfig(JsonValueSchema.parse(config)), /Invalid SparseDraftHead 'undefined'/u);
+
+  for (const invalid of [-1, 2.5, '8192']) {
+    const bad = defaultConfigObject();
+    activePresetObject(bad).SparseDraftHead = invalid;
+    assert.throws(() => normalizeConfig(JsonValueSchema.parse(bad)), new RegExp(`Invalid SparseDraftHead '${String(invalid)}'`, 'u'), String(invalid));
   }
 });
 
@@ -543,7 +563,7 @@ test('VisionMaxImagePixels rejects a negative value', () => {
 
 test('a stored preset without ReasoningEffort defaults to xhigh', () => {
   const preset = normalizeModelRuntimePresetRecord(
-    { id: 'legacy', label: 'Legacy', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload' },
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0 },
     'legacy',
     'Legacy',
   );
@@ -553,14 +573,14 @@ test('a stored preset without ReasoningEffort defaults to xhigh', () => {
 
 test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid one', () => {
   const low = normalizeModelRuntimePresetRecord(
-    { id: 'low', label: 'Low', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ReasoningEffort: 'low' },
+    { id: 'low', label: 'Low', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, ReasoningEffort: 'low' },
     'low',
     'Low',
   );
   assert.equal(low.ReasoningEffort, 'low');
 
   const medium = normalizeModelRuntimePresetRecord(
-    { id: 'medium', label: 'Medium', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ReasoningEffort: 'medium' },
+    { id: 'medium', label: 'Medium', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, ReasoningEffort: 'medium' },
     'medium',
     'Medium',
   );
@@ -569,7 +589,7 @@ test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid
   // 'extreme' is not a level any template distinguishes, so it normalizes rather than throwing,
   // matching how KvCacheQuantization and SpeculativeType treat unrecognized values.
   const bogus = normalizeModelRuntimePresetRecord(
-    { id: 'bogus', label: 'Bogus', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ReasoningEffort: 'extreme' },
+    { id: 'bogus', label: 'Bogus', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, ReasoningEffort: 'extreme' },
     'bogus',
     'Bogus',
   );
@@ -578,7 +598,7 @@ test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid
 
 test('a stored preset without disk-cache fields reads back with the disk tier off and default sizes', () => {
   const legacy = normalizeModelRuntimePresetRecord(
-    { id: 'legacy', label: 'Legacy', Backend: 'exl3', IdleAction: 'unload' },
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0 },
     'legacy',
     'Legacy',
   );
@@ -587,14 +607,14 @@ test('a stored preset without disk-cache fields reads back with the disk tier of
   assert.equal(legacy.DiskCacheCheckpointInterval, 2048);
 
   const padded = normalizeModelRuntimePresetRecord(
-    { id: 'disk', label: 'Disk', Backend: 'exl3', IdleAction: 'unload', DiskCacheDir: '  D:\\cache  ' },
+    { id: 'disk', label: 'Disk', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, DiskCacheDir: '  D:\\cache  ' },
     'disk',
     'Disk',
   );
   assert.equal(padded.DiskCacheDir, 'D:\\cache');
 
   const explicit = normalizeModelRuntimePresetRecord(
-    { id: 'spaced', label: 'Spaced', Backend: 'exl3', IdleAction: 'unload', DiskCacheCheckpointInterval: 4096 },
+    { id: 'spaced', label: 'Spaced', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, DiskCacheCheckpointInterval: 4096 },
     'spaced',
     'Spaced',
   );

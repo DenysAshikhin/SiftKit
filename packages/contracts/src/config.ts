@@ -72,6 +72,8 @@ const ModelPresetSettingsShape = {
   SpeculativeEnabled: z.boolean(), SpeculativeDraftMax: z.number(), SpeculativeDynamic: z.boolean(),
   /** Prompt-lookup draft length; independent of SpeculativeEnabled. 0 turns it off. */
   HybridDraftTokens: z.number().int().nonnegative(),
+  /** MTP drafts through a sparse LM head of this many most-frequent vocabulary columns; exllamav3 clamps it to the vocabulary. 0 keeps the full head. */
+  SparseDraftHead: z.number().int().nonnegative(),
   ReasoningBudget: z.number(),
   ReasoningBudgetMessage: z.string().nullable(), StartupTimeoutMs: z.number(), HealthcheckTimeoutMs: z.number(),
   HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), IdleAction: ModelIdleActionSchema,
@@ -86,7 +88,7 @@ export const ModelPresetFieldSchema = z.enum([
   'CacheRecurrentRam', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
-  'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'HybridDraftTokens', 'ReasoningBudget',
+  'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'HybridDraftTokens', 'SparseDraftHead', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
   'SleepIdleSeconds', 'IdleAction', 'VisionEnabled', 'VisionOffload', 'VisionImageRetention',
   'VisionMaxImagePixels', 'UnlockAllSettings',

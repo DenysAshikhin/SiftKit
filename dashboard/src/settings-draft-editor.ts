@@ -60,6 +60,7 @@ export type ModelIntegerField =
   | 'TopK'
   | 'SpeculativeDraftMax'
   | 'HybridDraftTokens'
+  | 'SparseDraftHead'
   | 'ReasoningBudget'
   | 'StartupTimeoutMs'
   | 'HealthcheckTimeoutMs'

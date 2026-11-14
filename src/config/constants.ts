@@ -48,6 +48,8 @@ export const SIFT_DEFAULT_VISION_OFFLOAD = false;
 export const SIFT_DEFAULT_NGRAM_RAM = false;
 /** Prompt-lookup drafts of 5 tokens over MTP 3, agentic transcripts: +2% mean decode (-1.5% code, +4.6% curl). */
 export const SIFT_DEFAULT_HYBRID_DRAFT_TOKENS = 5;
+/** A 4096-column sparse draft head measured flat-to-slower on Flash-Next (2026-10-29), so the full head stays default. */
+export const SIFT_DEFAULT_SPARSE_DRAFT_HEAD = 0;
 /** New presets do not feed the assistant until the user opts them in (§6.3). */
 export const SIFT_DEFAULT_ASSISTANT_MEMORY = false;
 /** Images kept live in context. -1 is unbounded; 0 refuses images on every path. */

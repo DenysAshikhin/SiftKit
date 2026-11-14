@@ -243,6 +243,7 @@ test('managed Tabby launches with the complete preset environment', async () => 
         TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
         TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
         TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS: '5',
+        TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD: '0',
         TABBY_MODEL_VISION: 'false',
         TABBY_MODEL_VISION_OFFLOAD: 'false',
         TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
@@ -250,6 +251,7 @@ test('managed Tabby launches with the complete preset environment', async () => 
         PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
         PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
         TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
+        PYTHONUTF8: '1',
     });
     assert.equal(fixture.launcher.loadRequestCount, 0);
   });
@@ -293,6 +295,32 @@ test('managed Tabby restarts for changed settings and after an explicit unload',
     assert.equal(fixture.runtime.getModelState(), 'ready');
     assert.equal(fixture.launcher.launches.length, 3);
     assert.equal(fixture.launcher.loadRequestCount, 0);
+  });
+});
+
+test('managed Tabby relaunches with the sparse draft head when SparseDraftHead changes under MTP', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-sparse-head');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+    await fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, SparseDraftHead: 8192 });
+
+    assert.equal(fixture.runtime.getModelState(), 'ready');
+    assert.deepEqual(fixture.launcher.launches.map((launch) => launchEngineVariables(launch).TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD), ['0', '8192']);
+  });
+});
+
+test('managed Tabby keeps the resident engine when SparseDraftHead changes with speculation off', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-sparse-head-off');
+    const withoutMtp = { ...fixture.exl3Preset, SpeculativeEnabled: false };
+    await fixture.runtime.ensurePresetReady(withoutMtp);
+
+    await fixture.runtime.ensurePresetReady({ ...withoutMtp, SparseDraftHead: 8192 });
+
+    assert.equal(fixture.runtime.getModelState(), 'ready');
+    assert.equal(fixture.launcher.launches.length, 1);
+    assert.equal(launchEngineVariables(fixture.launcher.launches[0]).TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD, undefined);
   });
 });
 

@@ -42,7 +42,6 @@ test('the 89 to 90 upgrade gives every stored check result a null digest', (t) =
   t.after(closeAllRuntimeDatabases);
   const { dbPath, runId } = seedSchema89([STORED_CHECK]);
   const database = getRuntimeDatabase(dbPath);
-  assert.equal(CURRENT_SCHEMA_VERSION, 90);
   assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
   assert.deepEqual(new OrchestratorRunStore(database).read(runId).attempts[0]?.result?.checks, [{ ...STORED_CHECK, digest: null }]);
 });

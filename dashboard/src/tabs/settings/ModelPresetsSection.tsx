@@ -5,9 +5,9 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups.ts';
 import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.tsx';
-import { HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL } from '../../settings-sections.ts';
+import { HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL, SPARSE_DRAFT_HEAD_LABEL } from '../../settings-sections.ts';
 import { getModelPresetAssignments } from '../../model-runtime-presets.ts';
-import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema } from '@siftkit/contracts';
+import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema, type ModelProfile } from '@siftkit/contracts';
 import {
   getMlaKvCacheEquivalent,
   getReasoningEffortOptions,
@@ -19,6 +19,7 @@ import type {
 } from '../../types.ts';
 import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 import type { ModelPresetSettingsActions } from '../../settings-action-groups.ts';
+import type { ModelIntegerField } from '../../settings-draft-editor.ts';
 import {
   getIdentifiedProfile,
   isModelPresetPickerBusy,
@@ -26,7 +27,7 @@ import {
   type SettingsPathPickerBusyTarget,
 } from '../../settings-flow.ts';
 
-type ModelPresetsSectionProps = {
+export type ModelPresetsSectionProps = {
   dashboardConfig: DashboardConfig | null;
   selectedModelPreset: DashboardModelRuntimePreset | null;
   settingsActionBusy: boolean;
@@ -61,6 +62,27 @@ function ModelPresetGroup({ id, open, summary, onToggle, children }: {
       </summary>
       <div className="gbody"><div className="fgrid flat">{children}</div></div>
     </details>
+  );
+}
+
+/** A labelled non-negative integer preset field. */
+function PresetIntegerControl({ preset, profile, field, label, modelPresetActions }: {
+  preset: DashboardModelRuntimePreset;
+  profile: ModelProfile | null;
+  field: ModelIntegerField;
+  label: string;
+  modelPresetActions: ModelPresetSettingsActions;
+}) {
+  return (
+    <ModelPresetControl preset={preset} profile={profile} field={field} label={label}>
+      <input
+        type="number"
+        min={0}
+        aria-label={label}
+        value={preset[field]}
+        onChange={(event) => modelPresetActions.setInteger(field, parseIntegerInput(event.target.value, preset[field]))}
+      />
+    </ModelPresetControl>
   );
 }
 
@@ -338,27 +360,20 @@ export function ModelPresetsSection({
             </label>
           </ModelPresetControl>
           {preset.SpeculativeEnabled ? (
-            <ModelPresetControl preset={preset} profile={profile} field="SpeculativeDraftMax" label="SpeculativeDraftMax">
-              <input type="number" value={preset.SpeculativeDraftMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMax', parseIntegerInput(event.target.value, preset.SpeculativeDraftMax))} />
-            </ModelPresetControl>
+            <>
+              <ModelPresetControl preset={preset} profile={profile} field="SpeculativeDraftMax" label="SpeculativeDraftMax">
+                <input type="number" value={preset.SpeculativeDraftMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMax', parseIntegerInput(event.target.value, preset.SpeculativeDraftMax))} />
+              </ModelPresetControl>
+              <ModelPresetControl preset={preset} profile={profile} field="SpeculativeDynamic" label="SpeculativeDynamic">
+                <label className="settings-live-toggle-control">
+                  <input type="checkbox" checked={preset.SpeculativeDynamic} onChange={(event) => modelPresetActions.setBoolean('SpeculativeDynamic', event.target.checked)} />
+                  <span>{preset.SpeculativeDynamic ? 'Enabled' : 'Disabled'}</span>
+                </label>
+              </ModelPresetControl>
+              <PresetIntegerControl preset={preset} profile={profile} field="SparseDraftHead" label={SPARSE_DRAFT_HEAD_LABEL} modelPresetActions={modelPresetActions} />
+            </>
           ) : null}
-          {preset.SpeculativeEnabled ? (
-            <ModelPresetControl preset={preset} profile={profile} field="SpeculativeDynamic" label="SpeculativeDynamic">
-              <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.SpeculativeDynamic} onChange={(event) => modelPresetActions.setBoolean('SpeculativeDynamic', event.target.checked)} />
-                <span>{preset.SpeculativeDynamic ? 'Enabled' : 'Disabled'}</span>
-              </label>
-            </ModelPresetControl>
-          ) : null}
-          <ModelPresetControl preset={preset} profile={profile} field="HybridDraftTokens" label={HYBRID_DRAFT_TOKENS_LABEL}>
-            <input
-              type="number"
-              min={0}
-              aria-label={HYBRID_DRAFT_TOKENS_LABEL}
-              value={preset.HybridDraftTokens}
-              onChange={(event) => modelPresetActions.setInteger('HybridDraftTokens', parseIntegerInput(event.target.value, preset.HybridDraftTokens))}
-            />
-          </ModelPresetControl>
+          <PresetIntegerControl preset={preset} profile={profile} field="HybridDraftTokens" label={HYBRID_DRAFT_TOKENS_LABEL} modelPresetActions={modelPresetActions} />
         </>
       ))}
 

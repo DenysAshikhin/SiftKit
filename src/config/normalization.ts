@@ -242,6 +242,15 @@ function getModelIdleAction(value: JsonValue): ModelIdleAction {
   return parsed.data;
 }
 
+// Stored presets gain SparseDraftHead in the 90 -> 91 upgrade, so a missing or bad value is corrupt config.
+function getSparseDraftHead(value: JsonValue): number {
+  const parsed = ModelPresetSettingsSchema.shape.SparseDraftHead.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`Invalid SparseDraftHead '${String(value)}'; expected a non-negative integer (0 keeps the full draft head).`);
+  }
+  return parsed.data;
+}
+
 function getFiniteNonNegativeInteger(value: JsonValue, fallback: number): number {
   const text = String(value ?? '').trim();
   if (!text) {
@@ -521,6 +530,7 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     SpeculativeDraftMax: getSpeculativeInteger(input.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16)),
     SpeculativeDynamic: getBooleanWithDefault(input.SpeculativeDynamic, defaults.SpeculativeDynamic),
     HybridDraftTokens: getFiniteNonNegativeInteger(input.HybridDraftTokens, defaults.HybridDraftTokens),
+    SparseDraftHead: getSparseDraftHead(input.SparseDraftHead),
     ReasoningBudget: getFinitePositiveInteger(input.ReasoningBudget, Number(defaults.ReasoningBudget ?? SIFT_DEFAULT_ENGINE_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(input.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)
