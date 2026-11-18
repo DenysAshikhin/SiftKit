@@ -12,12 +12,14 @@ const PYTHON_EXCEPTION_LINE = /^[A-Za-z_][\w.]*(?:Error|Exception): .+/u;
 // TabbyAPI starts every log record with `HH:MM:SS.mmm LEVEL:`; other lines continue the open record.
 const LOG_RECORD_START = /^\d{2}:\d{2}:\d{2}\.\d{3} [A-Z]+:/u;
 const ERROR_RECORD_START = /^\d{2}:\d{2}:\d{2}\.\d{3} (?:ERROR|CRITICAL):\s*(.*)$/u;
+// winloop raises this when TabbyAPI writes a reply to a client that already hung up: a disconnect, not an engine fault.
+const CLIENT_DISCONNECT_EXCEPTION = /^RuntimeError: Cannot call write\(\) when UVStream is clos(?:ed|ing)$/u;
 // Exception-group tracebacks prefix their lines with `|` and `+`.
 const TRACEBACK_PREFIX = /^[\s|+]*/u;
 const EXIT_DETAIL_LINES = 40;
 
 type EngineStreamKind = 'engine_stdout' | 'engine_stderr';
-type OpenErrorRecord = { message: string; lines: string[]; exception: string | null };
+type OpenErrorRecord = { message: string; lines: string[]; exception: string | null; clientDisconnect: boolean };
 
 /** Tracks startup facts, engine errors, and unrequested exits directly from TabbyAPI streams. */
 export class TabbyRunRecorder extends InferenceRunRecorder {
@@ -100,7 +102,7 @@ export class TabbyRunRecorder extends InferenceRunRecorder {
 
   private observeEngineLine(streamKind: EngineStreamKind, line: string): void {
     const exceptionCandidate = line.replace(TRACEBACK_PREFIX, '');
-    const isException = PYTHON_EXCEPTION_LINE.test(exceptionCandidate);
+    const isException = PYTHON_EXCEPTION_LINE.test(exceptionCandidate) && !CLIENT_DISCONNECT_EXCEPTION.test(exceptionCandidate);
     if (streamKind === 'engine_stderr') {
       if (isException) this.lastEngineErrorLine = exceptionCandidate;
       this.recentStderrLines.push(line);
@@ -109,19 +111,21 @@ export class TabbyRunRecorder extends InferenceRunRecorder {
     if (LOG_RECORD_START.test(line)) {
       this.closeErrorRecord(streamKind);
       const errorStart = ERROR_RECORD_START.exec(line);
-      if (errorStart !== null) this.openRecordByStream.set(streamKind, { message: (errorStart[1] ?? '').trim(), lines: [line], exception: null });
+      if (errorStart !== null) this.openRecordByStream.set(streamKind, { message: (errorStart[1] ?? '').trim(), lines: [line], exception: null, clientDisconnect: false });
       return;
     }
     const record = this.openRecordByStream.get(streamKind);
     if (record === undefined) return;
     record.lines.push(line);
     if (isException) record.exception = exceptionCandidate;
+    if (CLIENT_DISCONNECT_EXCEPTION.test(exceptionCandidate)) record.clientDisconnect = true;
   }
 
   private closeErrorRecord(streamKind: EngineStreamKind): void {
     const record = this.openRecordByStream.get(streamKind);
     if (record === undefined) return;
     this.openRecordByStream.delete(streamKind);
+    if (record.clientDisconnect) return;
     this.recordEngineEvent({
       kind: 'engine_error', inferenceRunId: this.runId, runId: null, turn: null,
       summary: record.exception === null ? record.message : `${record.message} — ${record.exception}`,

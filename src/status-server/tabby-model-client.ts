@@ -89,7 +89,7 @@ export class TabbyModelClient {
     if (!packets.some((packet) => packet.status === 'finished' && packet.module === packet.modules)) {
       throw new Error('Tabby model load ended without a terminal finished event.');
     }
-    await this.verifyResident(baseUrl, request, timeoutMs);
+    assertResidentMatches(await this.getResidentModel(baseUrl, timeoutMs), request);
   }
 
   async unload(baseUrl: string, timeoutMs: number): Promise<void> {
@@ -118,27 +118,26 @@ export class TabbyModelClient {
     }
     return TabbyModelCardSchema.parse(await response.json());
   }
+}
 
-  /** Proves the server is serving exactly what the preset asked for, not a clamped or stale variant. */
-  async verifyResident(baseUrl: string, request: Exl3LoadRequest, timeoutMs: number): Promise<void> {
-    const card = await this.getResidentModel(baseUrl, timeoutMs);
-    if (card === null || card.id !== request.model_name) {
-      throw new Error(
-        `Tabby model '${request.model_name}' is not resident (resident=${card === null ? 'none' : card.id}).`,
-      );
-    }
-    if (card.parameters === null || card.parameters === undefined) {
-      throw new Error(`Tabby model '${card.id}' reports no applied parameters.`);
-    }
-    const divergences = [
-      { field: 'max_seq_len', expected: request.max_seq_len, applied: card.parameters.max_seq_len },
-      { field: 'cache_size', expected: request.cache_size, applied: card.parameters.cache_size },
-      { field: 'chunk_size', expected: request.chunk_size, applied: card.parameters.chunk_size },
-    ].filter((entry) => entry.expected !== entry.applied);
-    if (divergences.length > 0) {
-      throw new Error(`Tabby model '${card.id}' diverges from the preset: ${divergences
-        .map((entry) => `${entry.field} expected ${entry.expected} but Tabby applied ${entry.applied}`)
-        .join('; ')}.`);
-    }
+/** Proves the server is serving exactly what the preset asked for, not a clamped or stale variant. */
+export function assertResidentMatches(card: TabbyModelCard | null, request: Exl3LoadRequest): void {
+  if (card === null || card.id !== request.model_name) {
+    throw new Error(
+      `Tabby model '${request.model_name}' is not resident (resident=${card === null ? 'none' : card.id}).`,
+    );
+  }
+  if (card.parameters === null || card.parameters === undefined) {
+    throw new Error(`Tabby model '${card.id}' reports no applied parameters.`);
+  }
+  const divergences = [
+    { field: 'max_seq_len', expected: request.max_seq_len, applied: card.parameters.max_seq_len },
+    { field: 'cache_size', expected: request.cache_size, applied: card.parameters.cache_size },
+    { field: 'chunk_size', expected: request.chunk_size, applied: card.parameters.chunk_size },
+  ].filter((entry) => entry.expected !== entry.applied);
+  if (divergences.length > 0) {
+    throw new Error(`Tabby model '${card.id}' diverges from the preset: ${divergences
+      .map((entry) => `${entry.field} expected ${entry.expected} but Tabby applied ${entry.applied}`)
+      .join('; ')}.`);
   }
 }

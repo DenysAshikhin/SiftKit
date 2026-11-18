@@ -253,6 +253,7 @@ test('managed Tabby launches with the complete preset environment', async () => 
         PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
         TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
         PYTHONUTF8: '1',
+        TABBY_LOG_CONSOLE_WIDTH: '4096',
     });
     assert.equal(fixture.launcher.loadRequestCount, 0);
   });
@@ -336,6 +337,49 @@ test('managed Tabby rejects a startup-loaded model whose applied context diverge
       SpeculativeEnabled: false,
       NumCtx: 150_000,
     }), /max_seq_len expected 150000 but Tabby applied 84992/u);
+    assert.equal(fixture.runtime.getModelState(), 'failed');
+  });
+});
+
+test('managed Tabby waits out model probes an engine busy with a cold first generation answers too late', async () => {
+  await withTempEnv(async (root) => {
+    // Probe 1 is a startup poll that times out and is retried; probe 3 is the one-shot residency check, answered late.
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-busy-probes', {}, {
+      ...DEFAULT_FAKE_OPTIONS,
+      modelProbeDelaysMs: [600, 0, 600],
+    });
+    await fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, HealthcheckTimeoutMs: 200 });
+
+    assert.equal(fixture.runtime.getModelState(), 'ready');
+    assert.equal(fixture.launcher.launches.length, 1);
+    assert.ok(fixture.launcher.modelProbeCount >= 3, `expected the stalled poll retried, got ${fixture.launcher.modelProbeCount}`);
+  });
+});
+
+test('managed Tabby still fails at the startup deadline when the engine never answers its model probe', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-hung-probes', {}, {
+      ...DEFAULT_FAKE_OPTIONS,
+      modelProbeDelaysMs: Array.from({ length: 50 }, () => 1_000),
+    });
+    await assert.rejects(
+      fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, HealthcheckTimeoutMs: 100, StartupTimeoutMs: 500 }),
+      /Timed out waiting for the TabbyAPI process/u,
+    );
+    assert.equal(fixture.runtime.getProcessState(), 'failed');
+  });
+});
+
+test('managed Tabby fails the residency check at the startup deadline when the engine stops answering after ready', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-hung-residency', {}, {
+      ...DEFAULT_FAKE_OPTIONS,
+      modelProbeDelaysMs: [0, ...Array.from({ length: 50 }, () => 1_000)],
+    });
+    await assert.rejects(
+      fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, HealthcheckTimeoutMs: 100, StartupTimeoutMs: 500 }),
+      /The operation was aborted due to timeout/u,
+    );
     assert.equal(fixture.runtime.getModelState(), 'failed');
   });
 });
@@ -492,72 +536,100 @@ test('managed Tabby names the engine exception even when stderr drains after the
   });
 });
 
-test('external EXL3 preset does not launch the configured managed Tabby process', async () => {
-  await withTempEnv(async (root) => {
-    const fakeTabby = writeFakeEngineHost(root, { port: 0 });
-    const model = new FakeTabbyModelState();
-    const server = http.createServer((request, response) => {
-      if (request.url === '/v1/models') {
-        response.setHeader('content-type', 'application/json');
-        response.end('{"data":[]}');
-        return;
-      }
-      if (request.url === '/v1/model' && request.method === 'GET') {
-        model.respondCurrentModel(response);
-        return;
-      }
-      if (request.url === '/v1/model/load' && request.method === 'POST') {
-        let body = '';
-        request.setEncoding('utf8');
-        request.on('data', (chunk) => { body += chunk; });
-        request.on('end', () => {
-          model.applyLoad(body);
-          response.writeHead(200, { 'content-type': 'text/event-stream' });
-          response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
-        });
-        return;
-      }
-      if (request.url === '/v1/model/unload' && request.method === 'POST') {
+/** Runs `fn` against an external TabbyAPI stand-in whose model replies arrive after `replyDelayMs`, like a busy engine. */
+async function withExternalTabby(
+  root: string,
+  replyDelayMs: number,
+  fn: (runtime: ManagedTabbyRuntime, preset: ReturnType<typeof externalPresetFor>, launcher: ReturnType<typeof writeFakeEngineHost>['launcher']) => Promise<void>,
+): Promise<void> {
+  const fakeTabby = writeFakeEngineHost(root, { port: 0 });
+  const model = new FakeTabbyModelState();
+  const server = http.createServer((request, response) => {
+    if (request.url === '/v1/models') {
+      response.setHeader('content-type', 'application/json');
+      response.end('{"data":[]}');
+      return;
+    }
+    if (request.url === '/v1/model' && request.method === 'GET') {
+      setTimeout(() => model.respondCurrentModel(response), replyDelayMs);
+      return;
+    }
+    if (request.url === '/v1/model/load' && request.method === 'POST') {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk) => { body += chunk; });
+      request.on('end', () => {
+        model.applyLoad(body);
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
+      });
+      return;
+    }
+    if (request.url === '/v1/model/unload' && request.method === 'POST') {
+      setTimeout(() => {
         model.clear();
         response.statusCode = 200;
         response.end();
-        return;
-      }
-      response.statusCode = 404;
-      response.end();
-    });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    const externalPreset = {
-      ...preset,
-      id: 'external-exl3',
-      Backend: 'exl3' as const,
-      ExternalServerEnabled: true,
-      BaseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`,
-      Model: 'model-a',
-      ModelPath: path.join(root, 'model-a'),
-    };
-    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
-    const runtime = new ManagedTabbyRuntime({
-      Managed: true,
-      WorkingDirectory: root,
-      PythonPath: fakeTabby.pythonPath,
-      Entrypoint: 'must-not-launch.py',
-      ModelRoot: root,
-      AdminApiKey: '',
-      ShutdownTimeoutMs: 2_000,
-      Environment: {},
-    }, flushQueue, fakeTabby.host);
-    try {
-      await runtime.ensurePresetReady(externalPreset);
-      assert.deepEqual(fakeTabby.launcher.launches, []);
-    } finally {
-      await runtime.unloadPreset();
-      await runtime.stopProcess();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      await flushQueue.close();
+      }, replyDelayMs);
+      return;
     }
+    response.statusCode = 404;
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
+  const runtime = new ManagedTabbyRuntime({
+    Managed: true,
+    WorkingDirectory: root,
+    PythonPath: fakeTabby.pythonPath,
+    Entrypoint: 'must-not-launch.py',
+    ModelRoot: root,
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 2_000,
+    Environment: {},
+  }, flushQueue, fakeTabby.host);
+  try {
+    await fn(runtime, externalPresetFor(root, `http://127.0.0.1:${getAddressInfo(server).port}`), fakeTabby.launcher);
+  } finally {
+    await runtime.stopProcess();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await flushQueue.close();
+  }
+}
+
+function externalPresetFor(root: string, baseUrl: string) {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  return {
+    ...preset,
+    id: 'external-exl3',
+    Backend: 'exl3' as const,
+    ExternalServerEnabled: true,
+    BaseUrl: baseUrl,
+    Model: 'model-a',
+    ModelPath: path.join(root, 'model-a'),
+  };
+}
+
+test('external EXL3 preset does not launch the configured managed Tabby process', async () => {
+  await withTempEnv(async (root) => {
+    await withExternalTabby(root, 0, async (runtime, preset, launcher) => {
+      await runtime.ensurePresetReady(preset);
+      assert.deepEqual(launcher.launches, []);
+      await runtime.unloadPreset();
+    });
+  });
+});
+
+test('external EXL3 preset loads and unloads on an engine too busy to answer within the healthcheck timeout', async () => {
+  await withTempEnv(async (root) => {
+    await withExternalTabby(root, 400, async (runtime, preset) => {
+      const busyPreset = { ...preset, HealthcheckTimeoutMs: 100 };
+      await runtime.ensurePresetReady(busyPreset);
+      assert.equal(runtime.getModelState(), 'ready');
+      await runtime.unloadPreset();
+      assert.equal(runtime.getModelState(), 'unloaded');
+    });
   });
 });
 

@@ -100,9 +100,17 @@ const ASGI_ERROR = [
   '23:19:36.937 ERROR:    Exception in ASGI application\n',
   '  + Exception Group Traceback (most recent call last):\n',
   '  |   File "C:\\tabby\\endpoints.py", line 9, in stream\n',
-  '  | RuntimeError: Cannot call write() when UVStream is closed\n',
+  '  | RuntimeError: CUDA error: an illegal memory access was encountered\n',
   '  +------------------------------------\n',
   '23:19:37.002 INFO:     #1313 chat/completions (stream): 10 tokens generated\n',
+].join('');
+
+/** The record TabbyAPI logs when it writes a reply to a client that already hung up. */
+const clientDisconnectError = (state: 'closing' | 'closed') => [
+  '12:49:12.791 ERROR:    Exception in ASGI application\n',
+  '                         File "winloop/handles/stream.pyx", line 703, in winloop.loop.UVStream.write\n',
+  `                       RuntimeError: Cannot call write() when UVStream is ${state}\n`,
+  '12:49:12.861 INFO:     #2 chat/completions: 1 tokens generated\n',
 ].join('');
 
 const engineEvents = () => listEngineEvents(getRuntimeDatabase(), 20);
@@ -114,10 +122,19 @@ test('an engine ERROR record split across chunks becomes one engine_error event'
 
     const events = engineEvents();
     assert.deepEqual(events.map((event) => [event.kind, event.inferenceRunId, event.summary]), [[
-      'engine_error', recorder.runId, 'Exception in ASGI application — RuntimeError: Cannot call write() when UVStream is closed',
+      'engine_error', recorder.runId, 'Exception in ASGI application — RuntimeError: CUDA error: an illegal memory access was encountered',
     ]]);
     assert.match(events[0]?.detail ?? '', /endpoints\.py/u);
     assert.doesNotMatch(events[0]?.detail ?? '', /tokens generated/u);
+  });
+});
+
+test('a reply written to a client that already hung up is not an engine error', async () => {
+  await withTabbyRecorder((recorder, { stdout, stderr }) => {
+    stdout.write(clientDisconnectError('closing'));
+    stderr.write(clientDisconnectError('closed'));
+    assert.deepEqual(engineEvents(), []);
+    assert.equal(recorder.lastEngineError(), null);
   });
 });
 

@@ -87,6 +87,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
     TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
     PYTHONUTF8: '1',
+    TABBY_LOG_CONSOLE_WIDTH: '4096',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -130,6 +131,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
     TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
     PYTHONUTF8: '1',
+    TABBY_LOG_CONSOLE_WIDTH: '4096',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });

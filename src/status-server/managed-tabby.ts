@@ -11,7 +11,7 @@ import { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.ts';
 import type { EngineProcess, ManagedEngineHost } from './engine-process.ts';
 import { serverLogger } from './server-logger.ts';
-import { TabbyModelClient } from './tabby-model-client.ts';
+import { assertResidentMatches, TabbyModelClient, type TabbyModelCard } from './tabby-model-client.ts';
 import { TabbyRunRecorder } from './tabby-run-recorder.ts';
 
 const STARTUP_LOG_POLL_INTERVAL_MS = 25;
@@ -169,7 +169,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     }
     this.transitionModelTo('unloading');
     try {
-      await this.client.unload(getBaseUrl(preset), preset.HealthcheckTimeoutMs);
+      await this.client.unload(getBaseUrl(preset), this.engine.ShutdownTimeoutMs);
       this.residentResidencyKey = null;
       this.transitionModelTo('unloaded');
     } catch (error) {
@@ -343,8 +343,8 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       if (this.startupError) throw this.startupError;
       const processReady = await this.client.isProcessReady(baseUrl, preset.HealthcheckTimeoutMs);
       if (processReady) {
-        const modelReady = expectedModel === null
-          || (await this.client.getResidentModel(baseUrl, preset.HealthcheckTimeoutMs))?.id === expectedModel;
+        const card = expectedModel === null ? null : await this.probeResidentModel(preset);
+        const modelReady = expectedModel === null || (card !== 'busy' && card?.id === expectedModel);
         if (modelReady) {
           this.processBaseUrl = baseUrl;
           this.processManaged = this.shouldManage(preset);
@@ -365,7 +365,8 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     try {
       const request = this.adapter.buildLoadRequest(preset);
       if (this.shouldManage(preset)) {
-        await this.client.verifyResident(getBaseUrl(preset), request, preset.HealthcheckTimeoutMs);
+        // A one-shot check gets the load budget: a busy engine answers late, and an abandoned probe only adds load.
+        assertResidentMatches(await this.client.getResidentModel(getBaseUrl(preset), preset.StartupTimeoutMs), request);
         if (preset.SpeculativeEnabled) await this.assertDraftingActive(preset);
       } else {
         await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
@@ -374,6 +375,16 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       this.transitionModelTo('ready');
     } catch (error) {
       this.transitionModelTo('failed');
+      throw error;
+    }
+  }
+
+  /** Polls the resident card, or 'busy' when the probe times out: a cold first generation blocks the engine's HTTP loop for seconds. */
+  private async probeResidentModel(preset: ModelRuntimePreset): Promise<TabbyModelCard | null | 'busy'> {
+    try {
+      return await this.client.getResidentModel(getBaseUrl(preset), preset.HealthcheckTimeoutMs);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'TimeoutError') return 'busy';
       throw error;
     }
   }

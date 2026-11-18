@@ -3,7 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 
 import { JsonValueSchema, type JsonValue } from '../src/lib/json-types.ts';
-import { TabbyModelClient } from '../src/status-server/tabby-model-client.ts';
+import { assertResidentMatches, TabbyModelClient } from '../src/status-server/tabby-model-client.ts';
 import { getAddressInfo } from './helpers/dashboard-http.ts';
 import { FakeTabbyModelState } from './helpers/tabby-fake.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
@@ -208,10 +208,8 @@ test('Tabby model client rejects a resident model whose applied parameters diver
       new TabbyModelClient('').load(baseUrl, request, LOCAL_SERVER_TIMEOUT_MS),
       /max_seq_len expected 150000 but Tabby applied 84992.*cache_size expected 150016 but Tabby applied 84992/su,
     );
-    await assert.rejects(
-      new TabbyModelClient('').verifyResident(baseUrl, request, LOCAL_SERVER_TIMEOUT_MS),
-      /max_seq_len expected 150000 but Tabby applied 84992/u,
-    );
+    const card = await new TabbyModelClient('').getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS);
+    assert.throws(() => assertResidentMatches(card, request), /max_seq_len expected 150000 but Tabby applied 84992/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -225,16 +223,14 @@ test('Tabby model client rejects a resident model that reports no applied parame
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   try {
-    await assert.rejects(
-      new TabbyModelClient('').verifyResident(baseUrl, {
-        model_name: 'model-a',
-        max_seq_len: 8192,
-        cache_size: 8192,
-        cache_mode: 'FP16',
-        chunk_size: 512,
-      }, LOCAL_SERVER_TIMEOUT_MS),
-      /reports no applied parameters/u,
-    );
+    const card = await new TabbyModelClient('').getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS);
+    assert.throws(() => assertResidentMatches(card, {
+      model_name: 'model-a',
+      max_seq_len: 8192,
+      cache_size: 8192,
+      cache_mode: 'FP16',
+      chunk_size: 512,
+    }), /reports no applied parameters/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

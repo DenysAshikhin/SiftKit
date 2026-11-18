@@ -17,6 +17,8 @@ export type FakeTabbyOptions = {
   modelId?: string;
   /** `GET /v1/model` answers "no model loaded" this many times before reporting the card. */
   initialUnloadedModelProbeCount?: number;
+  /** `GET /v1/model` answers its nth probe after the nth delay, like an engine whose HTTP loop a cold first generation blocks. */
+  modelProbeDelaysMs?: number[];
   tokenizeCharsPerToken?: number;
   /** `POST /v1/token/encode` fails with 500. */
   rejectTokenize?: boolean;
@@ -313,6 +315,8 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
     }
     if (request.method === 'GET' && url === '/v1/model') {
       this.modelProbeCount += 1;
+      const probeDelayMs = this.options.modelProbeDelaysMs?.[this.modelProbeCount - 1] ?? 0;
+      if (probeDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, probeDelayMs));
       if (probeReportsCard() && card.current) {
         sendJson(response, 200, card.current);
         return;

@@ -77,6 +77,8 @@ const Exl3BaseLaunchEnvironmentSchema = z.object({
   TABBY_MEMORY_CUDA_MALLOC_ASYNC: z.literal('false'),
   /** UTF-8 stdio: on a cp1252 pipe, rich's box-drawn tracebacks fail to encode and loguru drops the record. */
   PYTHONUTF8: z.literal('1'),
+  /** Unwrapped engine log lines, so stored logs and the recorder see whole records and exception lines. */
+  TABBY_LOG_CONSOLE_WIDTH: z.literal('4096'),
 });
 
 // The disk tier is all three variables or none; a partial set must not parse.
@@ -195,6 +197,7 @@ export class Exl3PresetAdapter {
       PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
       TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
       PYTHONUTF8: '1',
+      TABBY_LOG_CONSOLE_WIDTH: '4096',
     });
   }
 
