@@ -13,6 +13,7 @@ import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-ed
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { normalizeConfigObject } from '../src/config/normalization.ts';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): DashboardModelRuntimePreset {
   const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
@@ -137,7 +138,7 @@ test('model preset defaults MaintainPerStepThinking on when reasoning is enabled
     Reasoning: 'on',
     ReasoningContent: true,
     PreserveThinking: true,
-    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+    IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
   });
 
   const preset = config.Server.ModelPresets.Presets[0];
@@ -153,7 +154,7 @@ test('model preset honors explicit MaintainPerStepThinking false when reasoning 
     ReasoningContent: true,
     PreserveThinking: true,
     MaintainPerStepThinking: false,
-    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+    IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
@@ -165,7 +166,7 @@ test('model preset disables MaintainPerStepThinking when reasoning is disabled',
     label: 'Thinking Off',
     Reasoning: 'off',
     MaintainPerStepThinking: true,
-    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+    IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);

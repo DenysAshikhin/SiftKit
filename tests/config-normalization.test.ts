@@ -15,6 +15,7 @@ import {
   REMOVED_BACKEND_ENGINE_CONFIG_KEY,
   REMOVED_BACKEND_ID,
 } from './helpers/legacy-backend-fixtures.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
   const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
@@ -581,7 +582,7 @@ test('VisionMaxImagePixels rejects a negative value', () => {
 
 test('a stored preset without ReasoningEffort defaults to xhigh', () => {
   const preset = normalizeModelRuntimePresetRecord(
-    { id: 'legacy', label: 'Legacy', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS },
     'legacy',
     'Legacy',
   );
@@ -591,14 +592,14 @@ test('a stored preset without ReasoningEffort defaults to xhigh', () => {
 
 test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid one', () => {
   const low = normalizeModelRuntimePresetRecord(
-    { id: 'low', label: 'Low', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ReasoningEffort: 'low' },
+    { id: 'low', label: 'Low', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS, ReasoningEffort: 'low' },
     'low',
     'Low',
   );
   assert.equal(low.ReasoningEffort, 'low');
 
   const medium = normalizeModelRuntimePresetRecord(
-    { id: 'medium', label: 'Medium', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ReasoningEffort: 'medium' },
+    { id: 'medium', label: 'Medium', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS, ReasoningEffort: 'medium' },
     'medium',
     'Medium',
   );
@@ -607,7 +608,7 @@ test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid
   // 'extreme' is not a level any template distinguishes, so it normalizes rather than throwing,
   // matching how KvCacheQuantization and SpeculativeType treat unrecognized values.
   const bogus = normalizeModelRuntimePresetRecord(
-    { id: 'bogus', label: 'Bogus', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ReasoningEffort: 'extreme' },
+    { id: 'bogus', label: 'Bogus', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS, ReasoningEffort: 'extreme' },
     'bogus',
     'Bogus',
   );
@@ -616,7 +617,7 @@ test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid
 
 test('a stored preset without disk-cache fields reads back with the disk tier off and default sizes', () => {
   const legacy = normalizeModelRuntimePresetRecord(
-    { id: 'legacy', label: 'Legacy', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS },
     'legacy',
     'Legacy',
   );
@@ -625,14 +626,14 @@ test('a stored preset without disk-cache fields reads back with the disk tier of
   assert.equal(legacy.DiskCacheCheckpointInterval, 2048);
 
   const padded = normalizeModelRuntimePresetRecord(
-    { id: 'disk', label: 'Disk', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, DiskCacheDir: '  D:\\cache  ' },
+    { id: 'disk', label: 'Disk', Backend: 'exl3', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS, DiskCacheDir: '  D:\\cache  ' },
     'disk',
     'Disk',
   );
   assert.equal(padded.DiskCacheDir, 'D:\\cache');
 
   const explicit = normalizeModelRuntimePresetRecord(
-    { id: 'spaced', label: 'Spaced', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, DiskCacheCheckpointInterval: 4096 },
+    { id: 'spaced', label: 'Spaced', Backend: 'exl3', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS, DiskCacheCheckpointInterval: 4096 },
     'spaced',
     'Spaced',
   );

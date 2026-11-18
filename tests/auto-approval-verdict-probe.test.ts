@@ -21,6 +21,7 @@ import { mockSiftConfig } from './helpers/mock-config.ts';
 import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.ts';
 import { parseJsonValueText } from '../src/lib/json.ts';
 import { CLEAN_STREAM_STOP, type InferenceToolDefinition } from '../src/llm-protocol/types.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 const reviewPayload = JSON.stringify({ toolName: 'edit', args: { path: 'src/cleanup.ts', edits: [{
     oldText: 'cleanCache();',
@@ -93,7 +94,7 @@ test('configured verdict replay sends the exact persisted tool schema and no too
       Server: {
         ModelPresets: {
           ActivePresetId: 'default',
-          Presets: [{ id: 'default', VisionEnabled: true, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+          Presets: [{ id: 'default', VisionEnabled: true, Reasoning: 'off', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }],
         },
       },
     });

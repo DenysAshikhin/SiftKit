@@ -15,6 +15,7 @@ import {
 } from '../../src/lib/json-types.ts';
 import type { Exl3EngineConfig, InferenceConfig, SiftConfig } from '../../src/config/types.ts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.ts';
+import { UPGRADED_PRESET_FIELDS } from './stored-preset-fields.ts';
 
 // Chat-request view types are derived from runtime schemas so the JSON catchall
 // (tests read arbitrary keys like cache_prompt/id_slot/max_tokens off captured
@@ -119,7 +120,7 @@ export function getDefaultConfig(): SiftConfig {
           PresencePenalty: 0.0,
           RepetitionPenalty: 1.0,
           Reasoning: 'off',
-          IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+          IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
         }], {}),
       },
       Engines: { Exl3: getTestExl3Engine() },

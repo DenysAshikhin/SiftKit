@@ -2,6 +2,7 @@ import { parseJsonValueText } from '../../lib/json.ts';
 import { JsonValueSchema } from '../../lib/json-types.ts';
 import { z } from '../../lib/zod.ts';
 import type { RuntimeDatabase } from '../database-handle.ts';
+import { withMissingFields } from './stored-model-presets.ts';
 
 const SnapshotRowsSchema = z.array(z.object({ id: z.string(), model_preset_json: z.string().nullable() }));
 // Pins only what this step needs from a schema-92 snapshot: an object.
@@ -17,6 +18,6 @@ export function upgradeChatSessionPresetSnapshots(database: RuntimeDatabase): vo
     if (row.model_preset_json === null) continue;
     const parsed = Stored92SnapshotSchema.safeParse(parseJsonValueText(row.model_preset_json));
     if (!parsed.success) throw new Error(`Chat session ${row.id} model preset snapshot is unreadable: ${parsed.error.message}`);
-    update.run(JSON.stringify({ ...ADDED_FIELDS, ...parsed.data }), row.id);
+    update.run(JSON.stringify(withMissingFields(parsed.data, ADDED_FIELDS)), row.id);
   }
 }

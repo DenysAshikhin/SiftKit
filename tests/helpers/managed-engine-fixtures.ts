@@ -6,6 +6,7 @@ import { buildTabbyUsage } from './streaming-client.ts';
 import type { ManagedEngineHost } from '../../src/status-server/engine-process.ts';
 import type { FakeTabbyLauncher, FakeTabbyOptions } from './in-process-tabby.ts';
 import { writeFakeEngineHost, writeFakeExl3Venv } from './tabby-fake.ts';
+import { writeFakeModelConfig } from './fake-model-config.ts';
 
 export interface ManagedEngineLauncherOptions {
   /** `GET /v1/model` answers "no model loaded" this many times before reporting the resident card. */
@@ -79,7 +80,7 @@ export function writeManagedEngineLauncher(
     : 4;
 
   fs.mkdirSync(modelPath, { recursive: true });
-  fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'], num_hidden_layers: 2, num_attention_heads: 4, num_key_value_heads: 2, hidden_size: 256 }), 'utf8');
+  writeFakeModelConfig(modelPath);
   fs.writeFileSync(probeShimPath, `
 if (/exllamav3/u.test(String(process.argv[1] || ''))) {
   process.stdout.write(JSON.stringify({ packageDirectory: ${JSON.stringify(packageDirectory)} }) + '\\n');
@@ -321,7 +322,7 @@ export function writeManagedEngineHost(
   const modelRoot = path.join(tempRoot, 'models');
   const modelPath = path.join(modelRoot, modelId);
   fs.mkdirSync(modelPath, { recursive: true });
-  fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'], num_hidden_layers: 2, num_attention_heads: 4, num_key_value_heads: 2, hidden_size: 256 }), 'utf8');
+  writeFakeModelConfig(modelPath);
   return {
     baseUrl: fake.launcher.baseUrl,
     modelId,

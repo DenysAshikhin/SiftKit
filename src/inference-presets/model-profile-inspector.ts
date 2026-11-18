@@ -4,16 +4,18 @@ import { z } from 'zod';
 import { ReasoningEffortSchema, type CacheGeometry, type ModelProfile, type ReasoningEffort } from '@siftkit/contracts';
 import { parseJsonValueText } from '../lib/json.ts';
 
+// Hugging Face configs write null for an unset dimension, which must read as absent, not fail the profile.
+const OptionalDimension = z.number().nullish().transform((value) => value ?? undefined);
 const TextConfigSchema = z.object({
   n_routed_experts: z.number().optional(), num_experts: z.number().optional(), num_local_experts: z.number().optional(),
   layer_types: z.array(z.string()).optional(),
   num_nextn_predict_layers: z.number().optional(), mtp_num_hidden_layers: z.number().optional(),
   ngram_size: z.number().optional(), kv_lora_rank: z.number().optional(),
-  num_hidden_layers: z.number().optional(), num_attention_heads: z.number().optional(),
-  num_key_value_heads: z.number().optional(), hidden_size: z.number().optional(), head_dim: z.number().optional(),
-  linear_num_key_heads: z.number().optional(), linear_num_value_heads: z.number().optional(),
-  linear_key_head_dim: z.number().optional(), linear_value_head_dim: z.number().optional(),
-  linear_conv_kernel_dim: z.number().optional(),
+  num_hidden_layers: OptionalDimension, num_attention_heads: OptionalDimension,
+  num_key_value_heads: OptionalDimension, hidden_size: OptionalDimension, head_dim: OptionalDimension,
+  linear_num_key_heads: OptionalDimension, linear_num_value_heads: OptionalDimension,
+  linear_key_head_dim: OptionalDimension, linear_value_head_dim: OptionalDimension,
+  linear_conv_kernel_dim: OptionalDimension,
 });
 const ModelConfigSchema = TextConfigSchema.extend({
   architectures: z.array(z.string()).nonempty(),
@@ -78,7 +80,7 @@ function linearLayerSnapshotBytes(dims: z.infer<typeof LinearDimsSchema>): numbe
   return qkvDim * dims.linear_conv_kernel_dim * 2 + dims.linear_num_value_heads * dims.linear_key_head_dim * dims.linear_value_head_dim * 2;
 }
 
-function readCacheGeometry(text: TextConfig): CacheGeometry | string {
+function deriveCacheGeometry(text: TextConfig): CacheGeometry | string {
   if (isPositive(text.kv_lora_rank)) return 'MLA attention (kv_lora_rank) is not modelled';
   const unknownType = text.layer_types?.find((type) => !KNOWN_LAYER_TYPES.has(type));
   if (unknownType !== undefined) return `layer type '${unknownType}' is not modelled`;
@@ -103,10 +105,20 @@ function readCacheGeometry(text: TextConfig): CacheGeometry | string {
   };
 }
 
-export function inspectModelDirectory(modelDirectory: string): ModelProfile {
+function readModelConfig(modelDirectory: string): z.infer<typeof ModelConfigSchema> {
   const configPath = join(modelDirectory, 'config.json');
   if (!existsSync(configPath)) throw new Error(`${modelDirectory} has no config.json`);
-  const config = readJsonFile(configPath, ModelConfigSchema);
+  return readJsonFile(configPath, ModelConfigSchema);
+}
+
+/** The model's cache geometry from config.json alone, or why there is none; launch reads only this. */
+export function readModelCacheGeometry(modelDirectory: string): CacheGeometry | string {
+  const config = readModelConfig(modelDirectory);
+  return deriveCacheGeometry(config.text_config ?? config);
+}
+
+export function inspectModelDirectory(modelDirectory: string): ModelProfile {
+  const config = readModelConfig(modelDirectory);
   const text = config.text_config ?? config;
   const generationPath = join(modelDirectory, 'generation_config.json');
   const generation = existsSync(generationPath) ? readJsonFile(generationPath, GenerationConfigSchema) : {};
@@ -123,6 +135,6 @@ export function inspectModelDirectory(modelDirectory: string): ModelProfile {
     sampling: {
       temperature: generation.temperature ?? null, topP: generation.top_p ?? null, topK: generation.top_k ?? null,
     },
-    cacheGeometry: readCacheGeometry(text),
+    cacheGeometry: deriveCacheGeometry(text),
   };
 }

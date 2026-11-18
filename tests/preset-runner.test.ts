@@ -9,6 +9,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
 import { currentModelTarget } from './helpers/chat-run-recorder.ts';
 import { mockConfig, withTempEnv } from './_runtime-helpers.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 class CapturingEngineService extends StatusEngineService {
   readonly repoSearchRequests: RepoSearchExecutionRequest[] = [];
@@ -40,7 +41,7 @@ function buildCliChatConfig(reasoning: 'on' | 'off'): SiftConfig {
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', label: 'Default', Model: 'test-model', Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+        Presets: [{ id: 'default', label: 'Default', Model: 'test-model', Reasoning: reasoning, IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }],
       },
     },
   });

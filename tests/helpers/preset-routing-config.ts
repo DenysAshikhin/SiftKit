@@ -5,6 +5,7 @@ import { ModelRuntimePresetSchema, SiftConfigSchema } from '@siftkit/contracts';
 import { getDefaultConfigObject } from '../../src/config/defaults.ts';
 import type { SiftConfig } from '../../src/config/types.ts';
 import { createManagedTempDir } from './temp-dirs.ts';
+import { writeFakeModelConfig } from './fake-model-config.ts';
 
 /** The three validated model profile IDs used by preset routing tests. */
 export const PRESET_ROUTING_MODEL_A = 'model-a';
@@ -22,8 +23,7 @@ export function createPresetRoutingConfig(): SiftConfig {
   const presets = [PRESET_ROUTING_MODEL_A, PRESET_ROUTING_MODEL_B, PRESET_ROUTING_MODEL_C].map((id) => {
     const modelPath = path.join(modelRoot, id);
     fs.mkdirSync(modelPath, { recursive: true });
-    // A small dense geometry, so default presets can size their RAM tiers.
-    fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'], num_hidden_layers: 2, num_attention_heads: 4, num_key_value_heads: 2, hidden_size: 256 }));
+    writeFakeModelConfig(modelPath);
     return ModelRuntimePresetSchema.parse({
       ...template,
       id,

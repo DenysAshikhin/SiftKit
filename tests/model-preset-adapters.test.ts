@@ -377,12 +377,12 @@ test('EXL3 cache compatibility resolves model and draft modes together', () => {
     getExl3CacheModes('q8_0/q4_0'),
     getExl3CacheModes('q8_0/q5_0'),
   ], [
-    { cache: 'FP16', draft: 'FP16' },
-    { cache: '8,8', draft: 'Q8' },
-    { cache: '4,4', draft: 'Q4' },
-    { cache: '5,5', draft: null },
-    { cache: '8,4', draft: 'Q8' },
-    { cache: '8,5', draft: 'Q8' },
+    { cache: { mode: 'FP16', bits: null }, draft: { mode: 'FP16', bits: null } },
+    { cache: { mode: '8,8', bits: [8, 8] }, draft: { mode: 'Q8', bits: [8, 8] } },
+    { cache: { mode: '4,4', bits: [4, 4] }, draft: { mode: 'Q4', bits: [4, 4] } },
+    { cache: { mode: '5,5', bits: [5, 5] }, draft: null },
+    { cache: { mode: '8,4', bits: [8, 4] }, draft: { mode: 'Q8', bits: [8, 8] } },
+    { cache: { mode: '8,5', bits: [8, 5] }, draft: { mode: 'Q8', bits: [8, 8] } },
   ]);
 });
 

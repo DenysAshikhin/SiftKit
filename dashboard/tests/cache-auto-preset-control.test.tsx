@@ -6,11 +6,10 @@ import { fireEvent, render, screen } from './react-test-environment.ts';
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection.tsx';
 import { CACHE_AUTO_LABEL, CACHE_CONTEXTS_LABEL } from '../src/settings-sections.ts';
 import type { ModelProfileStatus } from '../src/settings-flow.ts';
-import { GLM_PROFILE, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
+import { FLASH_NEXT_GEOMETRY, GLM_PROFILE, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.ts';
 import { modelPresetsSectionProps } from './model-presets-section-props.ts';
 
-const FLASH_NEXT_PROFILE = { ...GLM_PROFILE, recurrent: true, mla: false,
-  cacheGeometry: { attentionLayers: 12, kvTokenDim: 512, mtpLayers: 1, recurrentSnapshotBytes: 59_572_224 } };
+const FLASH_NEXT_PROFILE = { ...GLM_PROFILE, recurrent: true, mla: false, cacheGeometry: FLASH_NEXT_GEOMETRY };
 const AUTO_PRESET = { ...MANAGED_PRESET, CacheAuto: true, CacheContexts: 1.5, NumCtx: 200_000, SpeculativeEnabled: true };
 const identified: ModelProfileStatus = { state: 'identified', presetId: MANAGED_PRESET.id, profile: FLASH_NEXT_PROFILE };
 
@@ -30,6 +29,7 @@ test('with Auto on and no geometry, the form shows why it cannot size', () => {
   const noGeometry: ModelProfileStatus = { ...identified, profile: { ...FLASH_NEXT_PROFILE, cacheGeometry: 'config.json has no head_dim' } };
   render(<ModelPresetsSection {...modelPresetsSectionProps(AUTO_PRESET, MODEL_PRESET_ACTIONS, null, noGeometry)} />);
   assert.equal(screen.getAllByText('Cannot auto-size: config.json has no head_dim').length, 2);
+  assert.deepEqual([input('CacheRam').disabled, input('CacheRam').value], [true, ''], 'the unused manual value is not shown');
 });
 
 test('with Auto off, the RAM inputs edit the manual values and the contexts input is hidden', () => {

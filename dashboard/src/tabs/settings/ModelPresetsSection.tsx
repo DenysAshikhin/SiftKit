@@ -12,7 +12,7 @@ import {
   getMlaKvCacheEquivalent,
   getReasoningEffortOptions,
 } from '../../../../src/inference-presets/preset-compatibility.ts';
-import { resolveProfileCacheSizes, type CacheTierSizes } from '../../../../src/inference-presets/cache-sizing.ts';
+import { resolveCacheTierSizes, type CacheTierSizes } from '../../../../src/inference-presets/cache-sizing.ts';
 import { ModelProfileBanner } from './ModelProfileBanner.tsx';
 import type {
   DashboardConfig,
@@ -98,7 +98,7 @@ function CacheRamControl({ preset, profile, field, sizes, modelPresetActions }: 
   const computed = sizes === null || typeof sizes === 'string' ? null : (field === 'CacheRam' ? sizes.cacheRamMiB : sizes.recurrentRamMiB);
   return (
     <ModelPresetControl preset={preset} profile={profile} field={field} label={field}>
-      <input type="number" min={0} aria-label={field} disabled={sizes !== null} value={computed ?? preset[field]}
+      <input type="number" min={0} aria-label={field} disabled={sizes !== null} value={sizes === null ? preset[field] : computed ?? ''}
         onChange={(event) => modelPresetActions.setInteger(field, parseIntegerInput(event.target.value, preset[field]))} />
       {typeof sizes === 'string' ? <span className="hint">Cannot auto-size: {sizes}</span> : null}
       {computed === null ? null : <span className="hint">≈ {(computed / 1024).toFixed(1)} GiB</span>}
@@ -128,7 +128,7 @@ export function ModelPresetsSection({
   }
   const preset = selectedModelPreset;
   const profile = getIdentifiedProfile(modelProfileStatus);
-  const autoCacheSizes = preset.CacheAuto ? resolveProfileCacheSizes(preset, profile) : null;
+  const autoCacheSizes = preset.CacheAuto ? resolveCacheTierSizes(preset, profile?.cacheGeometry ?? 'the model has not been profiled') : null;
   const assignments = getModelPresetAssignments(dashboardConfig, preset.id);
   const runtimeStatusMatchesPreset = runtimeStatus !== null
     && dashboardConfig.Server.ModelPresets.ActivePresetId === preset.id

@@ -54,7 +54,7 @@ type PresetOverrides = Partial<ModelRuntimePreset>;
 
 function buildTestConfig(preset: PresetOverrides = {}): SiftConfig {
   return mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }] } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset, IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }] } },
   });
 }
 
@@ -1111,6 +1111,7 @@ import {
 } from '../src/repo-search/planner-protocol.ts';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 test('interactive tool names extend the exposed surface with write, edit, run', () => {
   assert.deepEqual(

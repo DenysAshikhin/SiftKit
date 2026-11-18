@@ -20,6 +20,7 @@ import { EnvBackup } from './helpers/env-backup.ts';
 import { writeSseResult } from './helpers/sse-http.ts';
 import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 export type Dict = JsonObject;
 
@@ -560,7 +561,7 @@ export async function withTestEnvAndServer(
     Model: 'mock-model',
     BaseUrl: stub.baseUrl,
     NumCtx: 128000,
-    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+    IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
   }], {}).map((preset) => JsonObjectSchema.parse(JSON.parse(JSON.stringify(preset))));
 
   try {

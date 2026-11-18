@@ -32,6 +32,7 @@ import {
 } from '../src/summary/artifacts.ts';
 import { getStatusArtifactUri } from '../src/state/status-artifacts.ts';
 import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 interface PlannerDebugEvent {
   kind?: string;
@@ -913,7 +914,7 @@ function createPlannerConfig(reasoning: 'on' | 'off'): JsonObject {
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', NumCtx: PLANNER_NUM_CTX, Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+        Presets: [{ id: 'default', NumCtx: PLANNER_NUM_CTX, Reasoning: reasoning, IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }],
       },
     },
   };

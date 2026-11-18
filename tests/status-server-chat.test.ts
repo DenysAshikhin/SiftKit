@@ -35,6 +35,7 @@ import {
   ImageMetadataSchema,
   PersistedChatTranscriptMessageSchema,
 } from '@siftkit/contracts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 const PartialChatMessageSchema = z.looseObject({
   id: z.string(),
@@ -105,7 +106,7 @@ function createConfig(overrides: JsonObject = {}): SiftConfig {
           ReasoningContent: true,
           PreserveThinking: true,
           MaintainPerStepThinking: true,
-          IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+          IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
         }],
       },
     },
@@ -123,7 +124,7 @@ function createNoThinkingReplayConfig(): SiftConfig {
           Reasoning: 'off',
           ReasoningContent: false,
           PreserveThinking: false,
-          IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+          IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
         }],
       },
     },
@@ -776,7 +777,7 @@ test('buildChatHistoryMessages omits retained thinking when preserve thinking is
           ReasoningContent: true,
           PreserveThinking: false,
           MaintainPerStepThinking: true,
-          IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+          IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
         }],
       },
     },

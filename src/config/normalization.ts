@@ -242,25 +242,10 @@ function getModelIdleAction(value: JsonValue): ModelIdleAction {
   return parsed.data;
 }
 
-// Stored presets gain SparseDraftHead in the 90 -> 91 upgrade, so a missing or bad value is corrupt config.
-function getSparseDraftHead(value: JsonValue): number {
-  const parsed = ModelPresetSettingsSchema.shape.SparseDraftHead.safeParse(value);
-  if (!parsed.success) {
-    throw new Error(`Invalid SparseDraftHead '${String(value)}'; expected a non-negative integer (0 keeps the full draft head).`);
-  }
-  return parsed.data;
-}
-
-// Stored presets gain CacheAuto and CacheContexts in the 91 -> 92 upgrade, so a missing or bad value is corrupt config.
-function getCacheAuto(value: JsonValue): boolean {
-  const parsed = ModelPresetSettingsSchema.shape.CacheAuto.safeParse(value);
-  if (!parsed.success) throw new Error(`Invalid CacheAuto '${String(value)}'; expected true or false.`);
-  return parsed.data;
-}
-
-function getCacheContexts(value: JsonValue): number {
-  const parsed = ModelPresetSettingsSchema.shape.CacheContexts.safeParse(value);
-  if (!parsed.success) throw new Error(`Invalid CacheContexts '${String(value)}'; expected a number above 0 (full contexts kept in RAM).`);
+// A schema upgrade gave every stored preset this field (SparseDraftHead in 91, CacheAuto/CacheContexts in 92), so a missing or bad value is corrupt config.
+function getUpgradedPresetField<Schema extends z.ZodType>(schema: Schema, field: string, value: JsonValue, expected: string): z.output<Schema> {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new Error(`Invalid ${field} '${String(value)}'; expected ${expected}.`);
   return parsed.data;
 }
 
@@ -510,8 +495,9 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
       input.CacheRecurrentRam,
       Number(defaults.CacheRecurrentRam ?? SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM),
     ),
-    CacheAuto: getCacheAuto(input.CacheAuto),
-    CacheContexts: getCacheContexts(input.CacheContexts),
+    CacheAuto: getUpgradedPresetField(ModelPresetSettingsSchema.shape.CacheAuto, 'CacheAuto', input.CacheAuto, 'true or false'),
+    CacheContexts: getUpgradedPresetField(ModelPresetSettingsSchema.shape.CacheContexts, 'CacheContexts', input.CacheContexts,
+      'a number above 0 (full contexts kept in RAM)'),
     DiskCacheDir: getNullableTrimmedString(input.DiskCacheDir),
     DiskCacheSizeMiB: getFinitePositiveInteger(
       input.DiskCacheSizeMiB,
@@ -545,7 +531,8 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     SpeculativeDraftMax: getSpeculativeInteger(input.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16)),
     SpeculativeDynamic: getBooleanWithDefault(input.SpeculativeDynamic, defaults.SpeculativeDynamic),
     HybridDraftTokens: getFiniteNonNegativeInteger(input.HybridDraftTokens, defaults.HybridDraftTokens),
-    SparseDraftHead: getSparseDraftHead(input.SparseDraftHead),
+    SparseDraftHead: getUpgradedPresetField(ModelPresetSettingsSchema.shape.SparseDraftHead, 'SparseDraftHead', input.SparseDraftHead,
+      'a non-negative integer (0 keeps the full draft head)'),
     ReasoningBudget: getFinitePositiveInteger(input.ReasoningBudget, Number(defaults.ReasoningBudget ?? SIFT_DEFAULT_ENGINE_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(input.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)

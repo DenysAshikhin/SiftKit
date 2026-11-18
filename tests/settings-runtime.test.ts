@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../dashboard/src/settings-runtime.ts';
 import { mockConfig } from './_runtime-helpers.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 test('deriveRuntimeModelId returns the model directory name from a Windows path', () => {
   assert.equal(
@@ -36,7 +37,7 @@ test('syncDerivedSettingsFields uses the active managed preset model when presen
             Model: 'Managed Model',
             BaseUrl: 'http://127.0.0.1:8080',
             ModelPath: 'D:\\models\\managed-exl3',
-            IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+            IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
           },
         ],
       },

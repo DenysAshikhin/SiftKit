@@ -190,9 +190,8 @@ function requireModelPresetId(value: string): string {
 }
 
 /**
- * A snapshot is stored preset JSON, so it is read through the same normalization as the
- * config's preset list: a field added to the preset contract after the row was written
- * resolves to its current default, while a field this repo removed still fails loudly.
+ * A snapshot is stored preset JSON, read through the config's preset normalization: a field a schema
+ * upgrade added must already be in the row (the upgrade fills it), and a removed field fails loudly.
  */
 function parseModelPresetSnapshot(sessionId: string, modelPresetId: string, raw: string | null): ModelRuntimePreset {
   if (typeof raw !== 'string' || !raw.trim()) {

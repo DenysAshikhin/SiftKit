@@ -39,6 +39,7 @@ import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-resp
 import { parseJsonValueText } from '../src/lib/json.ts';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
@@ -78,7 +79,7 @@ function modelPresetReasoning(reasoning: 'on' | 'off', presetFields: Partial<Mod
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ...presetFields }],
+        Presets: [{ id: 'default', Reasoning: reasoning, IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS, ...presetFields }],
       },
     },
   };
@@ -2142,7 +2143,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
               ReasoningContent: true,
               PreserveThinking: true,
               MaintainPerStepThinking: false,
-              IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+              IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
             }],
           },
         },

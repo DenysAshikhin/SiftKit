@@ -8,6 +8,7 @@ import {
   getConfiguredReasoning,
 } from '../src/config/index.ts';
 import { mockSiftConfig } from './helpers/mock-config.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 // The getters read the active preset, so an overlay must land on that preset.
 test('overlayActivePreset writes NumCtx and Reasoning onto the active preset', () => {
@@ -15,7 +16,7 @@ test('overlayActivePreset writes NumCtx and Reasoning onto the active preset', (
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
-        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }],
       },
     },
   });
@@ -33,7 +34,7 @@ test('overlayActivePreset leaves preset fields it does not overlay untouched', (
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
-        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', BaseUrl: 'http://127.0.0.1:9999', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', BaseUrl: 'http://127.0.0.1:9999', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }],
       },
     },
   });
@@ -51,8 +52,8 @@ test('overlays follow the active preset id rather than the first preset', () => 
       ModelPresets: {
         ActivePresetId: 'other',
         Presets: [
-          { id: 'active', label: 'active', Model: 'preset-model', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
-          { id: 'other', label: 'other', Model: 'other-model', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
+          { id: 'active', label: 'active', Model: 'preset-model', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS },
+          { id: 'other', label: 'other', Model: 'other-model', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS },
         ],
       },
     },

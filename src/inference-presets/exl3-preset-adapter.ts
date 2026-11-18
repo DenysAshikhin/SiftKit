@@ -7,8 +7,8 @@ import {
   type Exl3CacheModes,
   type PresetRequestDefaults,
 } from './preset-compatibility.ts';
-import { inspectModelDirectory, readTemplateThinking } from './model-profile-inspector.ts';
-import { resolveProfileCacheSizes, type CacheTierSizes } from './cache-sizing.ts';
+import { inspectModelDirectory, readModelCacheGeometry, readTemplateThinking } from './model-profile-inspector.ts';
+import { resolveCacheTierSizes, type CacheTierSizes } from './cache-sizing.ts';
 
 /** A profile with no ModelPath declares no loading identity, e.g. a model already served externally. */
 export class MissingModelPathError extends Error {
@@ -155,14 +155,14 @@ export class Exl3PresetAdapter {
       model_name: this.getRelativeModelPath(preset).replaceAll('\\', '/'),
       max_seq_len: preset.NumCtx,
       cache_size: Math.ceil(preset.NumCtx / 256) * 256,
-      cache_mode: this.getCacheModes(preset).cache,
+      cache_mode: this.getCacheModes(preset).cache.mode,
       chunk_size: preset.UBatchSize,
     };
   }
 
   buildLaunchEnvironment(preset: ModelRuntimePreset): Exl3LaunchEnvironment {
     const request = this.buildLoadRequest(preset);
-    const draftCacheMode = preset.SpeculativeEnabled ? this.getCacheModes(preset).draft : null;
+    const draftCacheMode = preset.SpeculativeEnabled ? this.getCacheModes(preset).draft?.mode ?? null : null;
     const cacheSizes = this.getCacheTierSizes(preset);
     return Exl3LaunchEnvironmentSchema.parse({
       TABBY_MODEL_MODEL_DIR: win32.resolve(this.modelRoot),
@@ -207,7 +207,7 @@ export class Exl3PresetAdapter {
   private getCacheTierSizes(preset: ModelRuntimePreset): CacheTierSizes {
     if (!preset.CacheAuto) return { cacheRamMiB: preset.CacheRam, recurrentRamMiB: preset.CacheRecurrentRam };
     const modelDirectory = win32.resolve(this.modelRoot, this.getRelativeModelPath(preset));
-    const sizes = resolveProfileCacheSizes(preset, inspectModelDirectory(modelDirectory));
+    const sizes = resolveCacheTierSizes(preset, readModelCacheGeometry(modelDirectory));
     if (typeof sizes === 'string') throw new Error(`preset=${preset.id} backend=exl3 CacheAuto cannot size ${modelDirectory}: ${sizes}`);
     return sizes;
   }

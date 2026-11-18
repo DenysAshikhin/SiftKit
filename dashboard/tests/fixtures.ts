@@ -81,6 +81,9 @@ export const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   async testBaseUrl() {},
 };
 
+/** Qwen3.8 Flash-Next's cache geometry: 12 attention layers, 2 KV heads × 256, one MTP layer, 36 gated-delta-net layers. */
+export const FLASH_NEXT_GEOMETRY = { attentionLayers: 12, kvTokenDim: 512, mtpLayers: 1, recurrentSnapshotBytes: 59_572_224 };
+
 /** GLM-5.3-Flash-3.00bpw-hq as the inspector profiles the shipped model directory. */
 export const GLM_PROFILE: ModelProfile = {
   name: 'GLM-5.3-Flash-3.00bpw-hq', architecture: 'Glm5NextForConditionalGeneration',

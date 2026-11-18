@@ -15,6 +15,7 @@ import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/s
 import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.ts';
 import { withTestEnvAndServer } from './_test-helpers.ts';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 // Execution posts run status; these tests assert on scorecard and progress events only.
 const isolatedRuntime = new IsolatedRuntime();
@@ -382,7 +383,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     availableModels: ['mock'],
     config: mockSiftConfig({
       Presets: CONTEXT_FREE_PRESETS,
-      Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }] } },
+      Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }] } },
     }),
     mockResponses: [{ content: "Hello" }],
   });

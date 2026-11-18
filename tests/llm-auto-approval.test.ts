@@ -39,6 +39,7 @@ import { ApprovalGateHarness } from './helpers/approval-gate-harness.ts';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 const RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
@@ -472,7 +473,7 @@ test('auto mode over HTTP reviews each write in its own request, skips the exemp
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',
-            Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 32_000, Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, MaintainPerStepThinking: true, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+            Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 32_000, Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, MaintainPerStepThinking: true, IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }],
           },
         },
       }),

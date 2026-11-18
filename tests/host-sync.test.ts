@@ -18,6 +18,7 @@ import { getPlannerPromptBudget } from '../src/summary.ts';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
 import { mockConfig } from './_runtime-helpers.ts';
 import type { JsonValue } from '../src/lib/json-types.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 function makeClientConfig(options: {
   externalServer: boolean;
@@ -41,7 +42,7 @@ function makeClientConfig(options: {
             BaseUrl: options.baseUrl,
             NumCtx: options.localNumCtx,
             Reasoning: 'on',
-            IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+            IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
             ...options.presetFields,
           },
         ],

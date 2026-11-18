@@ -155,6 +155,11 @@ test('a dense model with sliding-window layers counts every layer as full attent
   { attentionLayers: 3, kvTokenDim: 1024, mtpLayers: 0, recurrentSnapshotBytes: 0 });
 });
 
+test('a null config key reads as absent instead of breaking the whole profile', () => {
+  assert.deepEqual(geometryOf({ architectures: ['MistralForCausalLM'], num_hidden_layers: 2, num_attention_heads: 8, num_key_value_heads: 2, hidden_size: 1024, head_dim: null }),
+    { attentionLayers: 2, kvTokenDim: 256, mtpLayers: 0, recurrentSnapshotBytes: 0 });
+});
+
 test('cache geometry names why it cannot be derived', () => {
   assert.equal(geometryOf({ architectures: ['Fake'] }), 'config.json has no num_hidden_layers');
   assert.equal(geometryOf({ architectures: ['DeepseekV3ForCausalLM'], num_hidden_layers: 2, kv_lora_rank: 512 }),

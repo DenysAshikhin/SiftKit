@@ -24,6 +24,7 @@ import {
 } from './_runtime-helpers.ts';
 import { resetHostEngineSettingsCacheForTests } from '../src/config/index.ts';
 import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 // Index-signature view of the dynamic JsonObject status posts these tests read:
 // named optional fields stay precisely typed while the index keeps it a
@@ -984,7 +985,7 @@ test('summary requests use the host model and only an explicit operation cap', a
               Model: null,
               ExternalServerEnabled: true,
               BaseUrl: stubBaseUrl,
-              IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+              IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
             }],
             },
           },

@@ -21,6 +21,7 @@ import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-prof
 import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.ts';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 const CHAT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('chat');
 const REPO_SEARCH_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
@@ -510,7 +511,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
       config: mockSiftConfig({
-        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }] } },
+        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS }] } },
       }),
       mockResponses: [{ content: "hi" }],
       mockCommandResults: {},

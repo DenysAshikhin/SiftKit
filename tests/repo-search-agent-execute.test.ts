@@ -17,6 +17,7 @@ import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.ts';
 import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 // Execution posts run status; these tests assert on progress events only.
 const isolatedRuntime = new IsolatedRuntime();
@@ -75,7 +76,7 @@ test('repo-agent resumes after compacting recoverable reasoning history', async 
               ReasoningContent: true,
               PreserveThinking: true,
               MaintainPerStepThinking: true,
-              IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+              IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
             }],
           },
         },
@@ -120,7 +121,7 @@ test('compaction clears the invalid-response streak, so the first slip after it 
               ReasoningContent: true,
               PreserveThinking: true,
               MaintainPerStepThinking: true,
-              IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
+              IdleAction: 'unload', ...UPGRADED_PRESET_FIELDS,
             }],
           },
         },

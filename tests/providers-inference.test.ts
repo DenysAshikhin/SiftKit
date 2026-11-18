@@ -14,6 +14,7 @@ import { withTestEnvAndServer, TEST_THROUGHPUT_AUDIT } from './_test-helpers.ts'
 import { getAddressInfo } from './helpers/dashboard-http.ts';
 import { mockSiftConfig } from './helpers/mock-config.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { UPGRADED_PRESET_FIELDS } from './helpers/stored-preset-fields.ts';
 
 test('listInferenceModels returns model list from server', async () => {
   await withTestEnvAndServer(async () => {
@@ -39,7 +40,7 @@ test('getInferenceProviderStatus returns unreachable when server is down', async
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: DEAD_BASE_URL, NumCtx: 10000, IdleAction: 'unload' as const, SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: DEAD_BASE_URL, NumCtx: 10000, IdleAction: 'unload' as const, ...UPGRADED_PRESET_FIELDS }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
@@ -88,7 +89,7 @@ test('countInferenceTokens respects a bounded transient retry timeout', { timeou
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: `http://127.0.0.1:${address.port}`, NumCtx: 10000, IdleAction: 'unload' as const, SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: `http://127.0.0.1:${address.port}`, NumCtx: 10000, IdleAction: 'unload' as const, ...UPGRADED_PRESET_FIELDS }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },

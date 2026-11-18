@@ -55,21 +55,32 @@ export function buildPresetRequestDefaults(preset: ModelRuntimePreset): PresetRe
   };
 }
 
+/** One exllamav3 K/V cache layout: its TabbyAPI mode name and its K and V bits (null for FP16). */
+export interface Exl3KvLayout {
+  mode: string;
+  bits: readonly [number, number] | null;
+}
+
 export interface Exl3CacheModes {
   /** TabbyAPI `cache_mode`. */
-  cache: string;
+  cache: Exl3KvLayout;
   /** TabbyAPI `draft_cache_mode`; null when EXL3 has no draft equivalent for the quantization. */
-  draft: string | null;
+  draft: Exl3KvLayout | null;
 }
+
+const FP16: Exl3KvLayout = { mode: 'FP16', bits: null };
+const DRAFT_Q8: Exl3KvLayout = { mode: 'Q8', bits: [8, 8] };
+const DRAFT_Q4: Exl3KvLayout = { mode: 'Q4', bits: [4, 4] };
+const quantized = (k: number, v: number): Exl3KvLayout => ({ mode: `${k},${v}`, bits: [k, v] });
 
 export function getExl3CacheModes(value: ModelKvCacheQuantization): Exl3CacheModes {
   switch (value) {
-    case 'f16': return { cache: 'FP16', draft: 'FP16' };
-    case 'q8_0': return { cache: '8,8', draft: 'Q8' };
-    case 'q4_0': return { cache: '4,4', draft: 'Q4' };
-    case 'q5_0': return { cache: '5,5', draft: null };
-    case 'q8_0/q4_0': return { cache: '8,4', draft: 'Q8' };
-    case 'q8_0/q5_0': return { cache: '8,5', draft: 'Q8' };
+    case 'f16': return { cache: FP16, draft: FP16 };
+    case 'q8_0': return { cache: quantized(8, 8), draft: DRAFT_Q8 };
+    case 'q4_0': return { cache: quantized(4, 4), draft: DRAFT_Q4 };
+    case 'q5_0': return { cache: quantized(5, 5), draft: null };
+    case 'q8_0/q4_0': return { cache: quantized(8, 4), draft: DRAFT_Q8 };
+    case 'q8_0/q5_0': return { cache: quantized(8, 5), draft: DRAFT_Q8 };
   }
 }
 
