@@ -65,6 +65,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
   const harness = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: ESCALATION_DECISION_TIMEOUT_MS });
   const gate = new LlmApprovalGate({
     requestId: 'run-1',
+    repoRoot: 'R',
     humanGate: harness.gate,
     verdictRequester: {
       // What the real reviewer returns when the model answers with anything but a verdict.
@@ -325,6 +326,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
   let verdictAttempts = 0;
   const gate = new LlmApprovalGate({
     requestId: 'run-1',
+    repoRoot: 'R',
     humanGate,
     verdictRequester: {
       requestApprovalVerdict: () => {
@@ -551,6 +553,7 @@ test('auto mode journals the reviewer verdict before it authorizes the tool', as
   const call = { toolCallId: 'call_w', displayToolCallId: 'tc_0', batchId: 'batch-1', turn: 1, indexInBatch: 0 };
   const gate = new LlmApprovalGate({
     requestId: 'run-1',
+    repoRoot: 'R',
     humanGate: harness.gate,
     verdictRequester: {
       requestApprovalVerdict: () => Promise.resolve({
@@ -577,7 +580,7 @@ test('auto mode refuses to review a chat tool that has no proposed identity to j
   const writer = new UnansweringWriter();
   const harness = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS });
   const gate = new LlmApprovalGate({
-    requestId: 'run-1', humanGate: harness.gate, progressWriter: writer, logger: null,
+    requestId: 'run-1', repoRoot: 'R', humanGate: harness.gate, progressWriter: writer, logger: null,
     verdictRequester: { requestApprovalVerdict: () => Promise.reject(new Error('never asked')) },
     evidenceRecorder: { recordApprovalReviewed: () => { throw new Error('never journaled'); } },
   });

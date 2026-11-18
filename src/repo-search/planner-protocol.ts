@@ -104,12 +104,12 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   }),
   find: buildRepoToolDefinition({
     toolName: 'find',
-    description: 'Find files by glob pattern. Returns matching paths relative to the search directory. A `**/` segment spans zero or more directories, so `**/name.md` also matches `name.md` sitting directly in the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).',
+    description: 'Find files by glob pattern. Returns matching paths relative to the search directory. A `**/` segment spans zero or more directories, so `**/name.md` also matches `name.md` sitting directly in the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000). Each path ends with its line count, or (binary) or a byte size for files read cannot open.',
     exampleArgs: { pattern: '**/*.test.ts', path: '.' },
   }),
   ls: buildRepoToolDefinition({
     toolName: 'ls',
-    description: "List directory contents one level deep. Entries are sorted alphabetically with a '/' suffix on directories, dotfiles included. Output is capped at limit entries (default 500).",
+    description: "List directory contents one level deep. Entries are sorted alphabetically with a '/' suffix on directories, dotfiles included. Output is capped at limit entries (default 500). Files end with their line count; directories do not.",
     exampleArgs: { path: 'src' },
   }),
   write: buildRepoToolDefinition({
@@ -187,8 +187,8 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   }),
   record_review: buildRepoToolDefinition({
     toolName: 'record_review',
-    description: 'Record your review of the latest settled attempt of a task: every acceptance criterion by index with code evidence, and findings for anything wrong. A pass completes the task; a fail leaves it for a fix.',
-    exampleArgs: { taskId: 'greeting', verdict: 'pass', criteria: [{ index: 0, met: true, evidence: [{ path: 'src/greeting.ts', line: 1, snippet: 'export const greeting' }] }], findings: [] },
+    description: 'Record your review of the latest settled attempt of a task: every acceptance criterion by index with evidence, and findings for anything wrong. Evidence is code ({path, line, snippet}, the snippet one line copied exactly as read shows it) or a command that passed ({command}: a check of the attempt, or your run_check since the report). A pass completes the task and carries no findings; a fail leaves it for a fix.',
+    exampleArgs: { taskId: 'greeting', verdict: 'pass', criteria: [{ index: 0, met: true, evidence: [{ path: 'src/greeting.ts', line: 1, snippet: 'export const greeting' }] }, { index: 1, met: true, evidence: [{ command: 'npm test' }] }], findings: [] },
   }),
 };
 

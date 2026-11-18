@@ -42,6 +42,7 @@ import { PresetCatalog } from '../preset-catalog.ts';
 import { PresetSystemContextBuilder } from '../preset-system-context.ts';
 import type { OrchestratorToolHost, OrchestratorToolOutcome } from '../repo-search/engine/orchestrator-tool-host.ts';
 import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
+import { findPathsOutsideRepo } from '../repo-search/engine/shell-command-policy.ts';
 import type { SubmissionGate, SubmissionVerdict } from '../repo-search/engine/submission-gate.ts';
 import { taskPassed } from '../repo-search/engine/task-loop-support.ts';
 import type { OrchestratorToolCall } from '../repo-search/repo-tool-arguments.ts';
@@ -164,6 +165,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
   private settledReport: { result: OrchestratorAttemptResult; diffstat: DiffstatEntry[] } | null = null;
   /** Reports handed to the parent and not yet reviewed, by task; the digest repeats them after a compaction. */
   private readonly awaitingReview = new Map<string, string>();
+  /** run_check commands that passed since the latest child started: review evidence for the tree as it is now. */
+  private passedRunChecks: string[] = [];
   private childFailure: Error | null = null;
   /** Wakes the parent's wait for its child; replaced by each wait. */
   private wakeWaiter: (() => void) | null = null;
@@ -284,7 +287,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const systemContext = new PresetSystemContextBuilder(this.request.repoRoot).build(preset);
     const suppliedPlan = this.request.planPath === null ? null : readSuppliedPlan(this.request.repoRoot, this.request.planPath);
     const prompt = buildOrchestratorPrompt({
-      task: this.request.task, suppliedPlan, workers: this.workers, approval: this.request.approval,
+      repoRoot: this.request.repoRoot, task: this.request.task, suppliedPlan, workers: this.workers, approval: this.request.approval,
       preexistingDirtyPaths: [...(await captureWorkspace(this.request.repoRoot)).keys()],
     });
     const parentRunId = randomUUID();
@@ -473,6 +476,11 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     if (task === undefined) return this.refuse([`Task '${args.taskId}' is not in the saved plan.`]);
     const problem = dispatchProblem({ taskStates: this.state.tasks, attempts: this.state.attempts, request: { task, purpose: args.purpose } });
     if (problem !== null) return this.refuse([problem]);
+    const outside = findPathsOutsideRepo(args.instruction, this.request.repoRoot);
+    if (outside.length > 0) {
+      return this.refuse([`The instruction names ${outside.join(', ')}, outside the repository root ${this.request.repoRoot}; `
+        + 'a child works only in this repository, so name repository-relative paths.']);
+    }
     this.activity.setSchedule(describeSchedule(this.workers, plan, this.state.tasks));
     await this.startChild(task, { kind: args.purpose, planPath, planHash, task, instruction: args.instruction });
     return this.waitForChild();
@@ -483,8 +491,11 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const attempt = this.ctx.orchestratorRunStore.reserveAttempt(this.runId, this.state.revision, task.id, work);
     this.publish(this.ctx.orchestratorRunStore.read(this.runId));
     this.setTaskStatus(task.id, 'running');
+    // The child changes the tree, so a check that passed before it proves nothing about its work.
+    this.passedRunChecks = [];
     const baseline = await captureWorkspace(this.request.repoRoot);
-    const instruction = buildChildInstruction({ work, attempt: attempt.attempt, scratchPath: orchestratorScratchDir(this.runId),
+    const instruction = buildChildInstruction({ work, attempt: attempt.attempt, repoRoot: this.request.repoRoot,
+      scratchPath: orchestratorScratchDir(this.runId),
       preexistingDirtyPaths: [...baseline.keys()] });
     const submission = new WorkerSubmission(this);
     const session = startOrchestratorChild(this.ctx, this.config, {
@@ -692,7 +703,9 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const [result] = await this.runOwnedChecks([check]);
     if (result === undefined) throw new Error('A check run returned no result.');
     const status = !result.executed ? 'not run' : result.timedOut ? 'timed out' : `exit ${result.exitCode ?? 'unknown'}`;
-    return { ok: orchestratorCheckFailure(result) === null, output: `${status}\n${renderCheckOutput(result, COMMAND_OUTPUT_CHARS)}` };
+    const ok = orchestratorCheckFailure(result) === null;
+    if (ok) this.passedRunChecks.push(args.command);
+    return { ok, output: `${status}\n${renderCheckOutput(result, COMMAND_OUTPUT_CHARS)}` };
   }
 
   private recordReview(args: OrchestratorRecordReviewArgs): OrchestratorToolOutcome {
@@ -703,7 +716,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const attempt = this.state.attempts.filter((entry) => entry.taskId === args.taskId && entry.result !== null).at(-1);
     const result = attempt?.result ?? null;
     if (attempt === undefined || result === null) return this.refuse([`Task '${args.taskId}' has no settled attempt.`]);
-    const problems = findReviewProblems({ repoRoot: this.request.repoRoot, task, result, review: args });
+    const problems = findReviewProblems({ repoRoot: this.request.repoRoot, task, result, passedRunChecks: this.passedRunChecks, review: args });
     if (problems.length > 0) return this.refuse(problems);
     const exhausted = OrchestratorChildPurposeSchema.options.every((purpose) =>
       this.state.attempts.filter((entry) => entry.taskId === args.taskId && entry.purpose === purpose).length >= ORCHESTRATOR_MAX_ATTEMPTS);

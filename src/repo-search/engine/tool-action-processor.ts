@@ -69,7 +69,8 @@ import {
   type RepoNativeToolCall,
 } from '../repo-tool-arguments.ts';
 import { getAbortError, throwIfAborted } from '../../lib/abort.ts';
-import { resolveToolActionIdentity } from './pending-tool-call-message.ts';
+import { resolveToolActionIdentity } from './tool-call-identity.ts';
+import { findShellCommandProblem } from './shell-command-policy.ts';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
 import type { OrchestratorToolHost } from './orchestrator-tool-host.ts';
 import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.ts';
@@ -402,6 +403,22 @@ export class ToolActionProcessor {
         reason,
         rejectionKind: 'budget',
         keepArgs: false,
+      });
+      return 'next';
+    }
+
+    const commandProblem = findShellCommandProblem(nativeCall, this.deps.repoRoot);
+    if (commandProblem !== null) {
+      counters.safetyRejects += 1;
+      this.recordRejectedToolCall(turn, state, {
+        progressToolCallId,
+        toolName: normalizedToolName,
+        rawArgs: toolAction.args,
+        recordedCommand: command,
+        transcriptCommand: command,
+        reason: commandProblem,
+        rejectionKind: 'safety',
+        keepArgs: true,
       });
       return 'next';
     }

@@ -381,6 +381,7 @@ export class TaskLoop {
       options.approvalGate,
       new LlmApprovalGate({
         requestId: options.approvalGate.getRequestId(),
+        repoRoot: options.repoRoot,
         humanGate: options.approvalGate,
         verdictRequester: this,
         progressWriter: options.progressWriter ?? new SilentProgressWriter(),

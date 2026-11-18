@@ -100,15 +100,21 @@ for (const toolName of ['read', 'grep', 'find', 'ls', 'git', 'run', 'web_search'
   });
 }
 
-test('an edit review request carries its payload after the command', () => {
+test('an edit review request names the repository root and carries its payload after the command', () => {
   const reviewPayload = buildApprovalReviewPayload({ toolName: 'write', args: { path: 'a.ts', content: 'x' } });
-  assert.equal(buildApprovalReviewRequest({ toolName: 'write', command: 'write path="a.ts"', reviewPayload }), [
+  assert.equal(buildApprovalReviewRequest({ repoRoot: 'C:\\work\\repo', toolName: 'write', command: 'write path="a.ts"', reviewPayload }), [
     APPROVAL_REVIEW_REQUEST_MARKER,
+    'repository root: C:\\work\\repo',
     'tool: write',
     'command: write path="a.ts"',
     'payload:',
     reviewPayload,
   ].join('\n'));
+});
+
+test('the approver approves the repository\'s own checks and denies effects outside the repository root', () => {
+  assert.match(APPROVER_SYSTEM_PROMPT, /Approve the repository's own test, build, lint, and typecheck commands/u);
+  assert.match(APPROVER_SYSTEM_PROMPT, /- writes, deletions, or directory changes outside the repository root named in the request/u);
 });
 
 test('the approver prompt names its role, forbids tool calls, and allows only the verdict schema', () => {

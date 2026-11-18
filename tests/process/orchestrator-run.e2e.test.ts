@@ -545,7 +545,9 @@ test('a final verification that fails on every finish fails the run after the la
 test('run_check leads its result with the digest of the whole check output', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-check-digest-');
   const { engine } = context;
-  const command = `Get-Content -Raw -Encoding UTF8 '${digestFixturePath('pytest/fail.txt')}'; exit 1`;
+  // A check reads only inside its repository, so the fixture output is copied in first.
+  fs.copyFileSync(digestFixturePath('pytest/fail.txt'), path.join(context.repo, 'pytest-fail.txt'));
+  const command = 'Get-Content -Raw -Encoding UTF8 pytest-fail.txt; exit 1';
   engine.parent.push([savePlan(), tool('run_check', { command, cwd: '.' }), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'), COMPLETE]);
   engine.children.push(WRITER);
 

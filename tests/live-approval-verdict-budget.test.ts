@@ -61,6 +61,7 @@ test('a budgeted isolated verdict answers in JSON and leaves the agent prefix ca
     throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config, baseUrl, model,
     reviewRequest: buildApprovalReviewRequest({
+      repoRoot: 'R',
       toolName: 'write',
       command: 'write path="src/probe.ts"',
       reviewPayload: JSON.stringify({ toolName: 'write', args: { path: 'src/probe.ts', content: 'export const ok = true;' } }),

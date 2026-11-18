@@ -9,6 +9,7 @@ import { JsonObjectSchema } from '../src/lib/json-types.ts';
 import { HANDOFF_REPORT_MAX_CHARS } from '../src/orchestrator/handoff.ts';
 import { buildChildInstruction, buildOrchestratorPrompt, type OrchestratorBrief } from '../src/orchestrator/prompts.ts';
 import { makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { UNFILTERED_CHECK_OUTPUT_RULE } from '../src/output-digest/types.ts';
 
 const config = getDefaultConfigObject();
 const model = config.Server.ModelPresets.Presets[0];
@@ -19,7 +20,7 @@ const task = makeOrchestratorTask({ id: 'greeting', title: 'Add greeting', write
 function brief(overrides: Partial<OrchestratorBrief> = {}): OrchestratorBrief {
   assert.ok(model && worker);
   return { task: 'Add a greeting module.', suppliedPlan: null, workers: [{ preset: worker, model }],
-    preexistingDirtyPaths: ['README.md'], approval: 'auto', ...overrides };
+    repoRoot: 'C:/work/repo', preexistingDirtyPaths: ['README.md'], approval: 'auto', ...overrides };
 }
 
 function work(kind: OrchestratorChildWork['kind']): OrchestratorChildWork {
@@ -46,6 +47,19 @@ test('the orchestrator prompt states the task, the workers, the run baseline, an
   assert.match(prompt, /\{"status":"blocked","reason":"why"\}/u);
 });
 
+test('the orchestrator prompt names the repository root and forbids naming any other repository path', () => {
+  assert.ok(buildOrchestratorPrompt(brief()).includes('Repository root: C:/work/repo. You, run_check, and every child already work there: '
+    + 'write repository-relative paths in instructions and never name another repository path.'));
+});
+
+test('the orchestrator reviews with verbatim one-line snippets or passed commands, and a pass carries no notes', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  for (const rule of ['the snippet one line copied\n   exactly as read shows it, with no comment, "...", or paraphrase',
+    'a command that passed ({command}: a check of the\n   attempt, or your run_check since the report)', 'A pass carries no findings; leave out notes that need no fix.']) {
+    assert.ok(prompt.includes(rule), rule);
+  }
+});
+
 test('the orchestrator prompt carries the planning rules that keep tasks small and fully verified', () => {
   const prompt = buildOrchestratorPrompt(brief());
   for (const rule of ['at most about 6 write', 'Steps are test-first', 'every test suite its change can affect',
@@ -64,6 +78,12 @@ test('the orchestrator explores the code and runs checks itself, and plans only 
   for (const gone of ['survey', 'Survey', 'read-only', 'Leave code exploration to subagents', 'never to read files or search code']) {
     assert.equal(prompt.includes(gone), false, gone);
   }
+});
+
+test('the orchestrator sizes files with find and ls and runs checks without tail pipelines', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  assert.ok(prompt.includes('find and ls report each file\'s line count; use them to size files, not run_check.'));
+  assert.ok(prompt.includes(UNFILTERED_CHECK_OUTPUT_RULE));
 });
 
 test('the orchestrator adds implementation tasks in small batches in dependency order', () => {
@@ -93,8 +113,9 @@ test('each approval mode tells the orchestrator who answers escalations', () => 
 });
 
 test('a child instruction names its task, the orchestrator instruction, scope, steps, checks, and criteria by index', () => {
-  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1,
+  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1, repoRoot: 'C:/work/repo',
     scratchPath: 'C:/scratch', preexistingDirtyPaths: ['README.md'] });
+  assert.ok(instruction.includes('Repository root: C:/work/repo. Your tools and shell already run there; keep every command and path inside it.'), instruction);
   assert.ok(instruction.startsWith("Implement ONLY task 'greeting' — Add greeting — from plan .siftkit/orchestrator/r/plan.md"), instruction);
   assert.match(instruction, /implementation attempt 1 of 2\./u);
   assert.ok(instruction.includes('Instruction from the orchestrator:\nExport greet() from src/greeting.ts.'));
@@ -107,14 +128,14 @@ test('a child instruction names its task, the orchestrator instruction, scope, s
 });
 
 test('a fix instruction says fix, and a clean tree mentions no prior changes', () => {
-  const instruction = buildChildInstruction({ work: work('fix'), attempt: 2, scratchPath: 'C:/scratch', preexistingDirtyPaths: [] });
+  const instruction = buildChildInstruction({ work: work('fix'), attempt: 2, repoRoot: 'C:/work/repo', scratchPath: 'C:/scratch', preexistingDirtyPaths: [] });
   assert.ok(instruction.startsWith("Fix ONLY task 'greeting'"), instruction);
   assert.match(instruction, /fix attempt 2 of 2\./u);
   assert.doesNotMatch(instruction, /already had uncommitted changes/u);
 });
 
 test('each child ends with the report template, which names the report schema fields', () => {
-  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1, scratchPath: 's', preexistingDirtyPaths: [] });
+  const instruction = buildChildInstruction({ work: work('implementation'), attempt: 1, repoRoot: 'C:/work/repo', scratchPath: 's', preexistingDirtyPaths: [] });
   assert.match(instruction, /Use TDD where behavior changes\./u);
   assert.deepEqual(Object.keys(JsonObjectSchema.parse(parseJsonValueText(reportTemplate(instruction)))),
     Object.keys(OrchestratorHandoffReportSchema.shape));

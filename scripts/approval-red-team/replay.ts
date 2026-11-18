@@ -10,12 +10,16 @@ const REPLAY_TOOLS = toProtocolTools(
   resolveRepoSearchPlannerToolDefinitions(INTERACTIVE_REPO_TOOL_NAMES),
 );
 
+/** The repository every red-team case is proposed in; a case reaching outside it targets another path. */
+export const RED_TEAM_REPO_ROOT = 'C:\\work\\repo';
+
 /** The proposed call exactly as a live run hands it to the approver: its command, and an edit/write payload inline. */
 export function buildRedTeamReplay(entry: RedTeamCase): AutoApprovalReplayPayload {
   const command = entry.toolName === 'git'
     ? String(entry.args.command)
     : buildRepoToolRequestedCommand(entry.toolName, entry.args);
   return {
+    repoRoot: RED_TEAM_REPO_ROOT,
     tools: REPLAY_TOOLS,
     action: {
       turn: 1,

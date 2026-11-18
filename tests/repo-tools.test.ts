@@ -20,6 +20,7 @@ import {
   RunFullOutputGate,
 } from '../src/repo-search/engine/validation-command-output-policy.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { READ_MAX_BYTES } from '../src/lib/source-lines.ts';
 import { makeContext, makeRepo, nativeCall } from './helpers/repo-tools-fixtures.ts';
 import { makeRepoToolContext } from './helpers/repo-tool-context.ts';
 import { rasterBuffer } from './helpers/image-fixtures.ts';
@@ -301,14 +302,14 @@ test('find matches a recursive glob and honours the ignore policy', async () => 
   const root = makeRepo();
   const result = await executeRepoTool(nativeCall('find', { pattern: '**/*.ts' }), makeContext(root));
   assert.ok(result.ok);
-  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts']);
+  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts (5 lines)', 'src/nested/b.ts (1 line)']);
 });
 
 test('find scopes to a subdirectory and caps at limit', async () => {
   const root = makeRepo();
   const scoped = await executeRepoTool(nativeCall('find', { pattern: '*.ts', path: 'src/nested' }), makeContext(root));
   assert.ok(scoped.ok);
-  assert.equal(scoped.output, 'b.ts');
+  assert.equal(scoped.output, 'b.ts (1 line)');
   const capped = await executeRepoTool(nativeCall('find', { pattern: '**/*', limit: 1 }), makeContext(root));
   assert.ok(capped.ok);
   assert.equal(capped.output.split('\n').filter((line) => !/limit/u.test(line)).length, 1);
@@ -326,7 +327,7 @@ test('find matches a search-root file through a leading **/ segment', async () =
   fs.writeFileSync(path.join(root, 'architecture_overview.md'), 'notes\n', 'utf8');
   const result = await executeRepoTool(nativeCall('find', { pattern: '**/architecture_overview.md' }), makeContext(root));
   assert.ok(result.ok);
-  assert.equal(result.output, 'architecture_overview.md');
+  assert.equal(result.output, 'architecture_overview.md (1 line)');
 });
 
 test('find with a leading **/ returns root-level and nested matches together', async () => {
@@ -334,35 +335,35 @@ test('find with a leading **/ returns root-level and nested matches together', a
   fs.writeFileSync(path.join(root, 'root.ts'), 'alpha root\n', 'utf8');
   const result = await executeRepoTool(nativeCall('find', { pattern: '**/*.ts' }), makeContext(root));
   assert.ok(result.ok);
-  assert.deepEqual(result.output.split('\n').sort(), ['root.ts', 'src/a.ts', 'src/nested/b.ts']);
+  assert.deepEqual(result.output.split('\n').sort(), ['root.ts (1 line)', 'src/a.ts (5 lines)', 'src/nested/b.ts (1 line)']);
 });
 
 test('find with a mid-pattern **/ spans zero directories as well as many', async () => {
   const root = makeRepo();
   const result = await executeRepoTool(nativeCall('find', { pattern: 'src/**/*.ts' }), makeContext(root));
   assert.ok(result.ok);
-  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts']);
+  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts (5 lines)', 'src/nested/b.ts (1 line)']);
 });
 
 test('find treats a trailing ** as a cross-separator wildcard', async () => {
   const root = makeRepo();
   const result = await executeRepoTool(nativeCall('find', { pattern: 'src/**' }), makeContext(root));
   assert.ok(result.ok);
-  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts', 'src/notes.md']);
+  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts (5 lines)', 'src/nested/b.ts (1 line)', 'src/notes.md (1 line)']);
 });
 
 test('find matches a slash-free pattern against the basename at any depth', async () => {
   const root = makeRepo();
   const result = await executeRepoTool(nativeCall('find', { pattern: 'b.ts' }), makeContext(root));
   assert.ok(result.ok);
-  assert.equal(result.output, 'src/nested/b.ts');
+  assert.equal(result.output, 'src/nested/b.ts (1 line)');
 });
 
 test('find treats ? as a single non-separator character', async () => {
   const root = makeRepo();
   const single = await executeRepoTool(nativeCall('find', { pattern: 'src/?.ts' }), makeContext(root));
   assert.ok(single.ok);
-  assert.equal(single.output, 'src/a.ts');
+  assert.equal(single.output, 'src/a.ts (5 lines)');
 });
 
 test('find escapes a literal . in a glob instead of compiling it to any-character', async () => {
@@ -371,7 +372,7 @@ test('find escapes a literal . in a glob instead of compiling it to any-characte
   fs.writeFileSync(path.join(root, 'notesXmd'), 'decoy\n', 'utf8');
   const result = await executeRepoTool(nativeCall('find', { pattern: '**/notes.md' }), makeContext(root));
   assert.ok(result.ok);
-  assert.equal(result.output, 'src/notes.md');
+  assert.equal(result.output, 'src/notes.md (1 line)');
 });
 
 test('find applies the ignore policy relative to the repository root when scoped into a parent of an ignored path', async () => {
@@ -389,12 +390,12 @@ test('find keeps files whose search-relative path only looks like an ignored pat
   fs.writeFileSync(path.join(root, 'sub', 'eval', 'results', 'keep.ts'), 'keep\n', 'utf8');
   const scoped = await executeRepoTool(nativeCall('find', { pattern: '**/*.ts', path: 'sub' }), makeContext(root));
   assert.ok(scoped.ok);
-  assert.equal(scoped.output, 'eval/results/keep.ts');
+  assert.equal(scoped.output, 'eval/results/keep.ts (1 line)');
   const fromRoot = await executeRepoTool(nativeCall('find', { pattern: '**/*.ts' }), makeContext(root));
   assert.ok(fromRoot.ok);
   assert.deepEqual(
     fromRoot.output.split('\n').sort(),
-    ['src/a.ts', 'src/nested/b.ts', 'sub/eval/results/keep.ts'],
+    ['src/a.ts (5 lines)', 'src/nested/b.ts (1 line)', 'sub/eval/results/keep.ts (1 line)'],
   );
 });
 
@@ -411,14 +412,27 @@ test('find and ls order the same names the same way', async () => {
   assert.deepEqual(found.output.split('\n'), listed.output.split('\n'));
 });
 
+test('find and ls mark binary and oversized files instead of counting them', async () => {
+  const root = makeRepo();
+  fs.mkdirSync(path.join(root, 'assets'));
+  fs.writeFileSync(path.join(root, 'assets', 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00, 0x00, 0x0d, 0x49]));
+  fs.writeFileSync(path.join(root, 'assets', 'big.log'), Buffer.alloc(READ_MAX_BYTES + 1, 0x61));
+  const found = await executeRepoTool(nativeCall('find', { pattern: '*', path: 'assets' }), makeContext(root));
+  const listed = await executeRepoTool(nativeCall('ls', { path: 'assets' }), makeContext(root));
+  const expected = [`big.log (${(READ_MAX_BYTES + 1).toLocaleString('en-US')} bytes; too large to read)`, 'logo.png (binary)'];
+  assert.ok(found.ok && listed.ok);
+  assert.deepEqual(found.output.split('\n'), expected);
+  assert.deepEqual(listed.output.split('\n'), expected);
+});
+
 test('an omitted limit still falls back to the tool default', async () => {
   const root = makeRepo();
   const found = await executeRepoTool(nativeCall('find', { pattern: '**/*.ts' }), makeContext(root));
   assert.ok(found.ok);
-  assert.deepEqual(found.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts']);
+  assert.deepEqual(found.output.split('\n').sort(), ['src/a.ts (5 lines)', 'src/nested/b.ts (1 line)']);
   const listed = await executeRepoTool(nativeCall('ls', {}), makeContext(root));
   assert.ok(listed.ok);
-  assert.deepEqual(listed.output.split('\n'), ['.dotfile', 'src/']);
+  assert.deepEqual(listed.output.split('\n'), ['.dotfile (1 line)', 'src/']);
 });
 
 test('read refuses to follow an in-repo symlink that resolves outside the repository root', async () => {
@@ -491,14 +505,14 @@ test('ls lists one level with a slash suffix on directories and includes dotfile
   const root = makeRepo();
   const result = await executeRepoTool(nativeCall('ls', {}), makeContext(root));
   assert.ok(result.ok);
-  assert.deepEqual(result.output.split('\n'), ['.dotfile', 'src/']);
+  assert.deepEqual(result.output.split('\n'), ['.dotfile (1 line)', 'src/']);
 });
 
 test('ls does not recurse and rejects a non-directory', async () => {
   const root = makeRepo();
   const scoped = await executeRepoTool(nativeCall('ls', { path: 'src' }), makeContext(root));
   assert.ok(scoped.ok);
-  assert.deepEqual(scoped.output.split('\n'), ['a.ts', 'nested/', 'notes.md']);
+  assert.deepEqual(scoped.output.split('\n'), ['a.ts (5 lines)', 'nested/', 'notes.md (1 line)']);
   const file = await executeRepoTool(nativeCall('ls', { path: 'src/a.ts' }), makeContext(root));
   assert.ok(!file.ok);
   assert.match(file.reason, /readable directory/u);
@@ -528,6 +542,44 @@ test('write re-applies CRLF when overwriting a uniformly CRLF file, and writes n
   const fresh = await executeRepoTool(nativeCall('write', { path: 'src/fresh.ts', content: 'a\nb\n' }), makeContext(root));
   assert.ok(fresh.ok);
   assert.equal(fs.readFileSync(path.join(root, 'src', 'fresh.ts'), 'utf8'), 'a\nb\n');
+});
+
+test('write reports the byte size and the line count it left the file with', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(nativeCall('write', { path: 'gen/new.ts', content: 'a\nb\nc\n' }), makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.output, 'Wrote 6 bytes to gen/new.ts (3 lines).');
+});
+
+test('edit reports where each new text now sits and the new file length', async () => {
+  const root = makeRepo();
+  // src/a.ts: line1 / alpha / line3 / alpha / line5
+  const replaced = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'line5', newText: 'five\nsix\nseven' }, { oldText: 'line1', newText: 'first' }],
+  }), makeContext(root));
+  assert.ok(replaced.ok, replaced.ok ? '' : replaced.reason);
+  assert.equal(replaced.output, 'Applied 2 edit(s) to src/a.ts: lines 1, 5-7; file now 7 lines.');
+  const widened = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts', edits: [{ oldText: 'six', newText: 'six\nsix and a half' }],
+  }), makeContext(root));
+  assert.ok(widened.ok, widened.ok ? '' : widened.reason);
+  assert.equal(widened.output, 'Applied 1 edit(s) to src/a.ts: lines 6-7; file now 8 lines.');
+  const removed = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts', edits: [{ oldText: 'line3\n', newText: '' }],
+  }), makeContext(root));
+  assert.ok(removed.ok, removed.ok ? '' : removed.reason);
+  assert.equal(removed.output, 'Applied 1 edit(s) to src/a.ts: line 3 (removed); file now 7 lines.');
+  const removedLast = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts', edits: [{ oldText: '\nseven\n', newText: '\n' }],
+  }), makeContext(root));
+  assert.ok(removedLast.ok, removedLast.ok ? '' : removedLast.reason);
+  assert.equal(removedLast.output, 'Applied 1 edit(s) to src/a.ts: line 6; file now 6 lines.');
+  const truncated = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts', edits: [{ oldText: 'six and a half\n', newText: '' }],
+  }), makeContext(root));
+  assert.ok(truncated.ok, truncated.ok ? '' : truncated.reason);
+  assert.equal(truncated.output, 'Applied 1 edit(s) to src/a.ts: line 5 (removed); file now 5 lines.');
 });
 
 test('write rejects paths outside the repository root', async () => {
@@ -745,6 +797,31 @@ test('a read past the end without a limit returns at most the past-end window', 
   assert.match(execution.output, /^offset 101 is past the end of long\.txt \(100 lines\); showing lines 61-100\.\n61: l61\n/u);
 });
 
+test('a past-end notice names the lines the read actually shows when some were already returned', () => {
+  const root = makeRepo();
+  const partly = planRead({ path: 'src/a.ts', offset: 9, limit: 3 }, root, buildIgnorePolicy(root), stateWithReturnedRange('src/a.ts', 5, 6), false);
+  assert.ok(!isFailedReadPlan(partly));
+  const partlyRead = buildReadExecution('read', partly);
+  assert.ok(partlyRead.ok);
+  assert.equal(partlyRead.output, 'offset 9 is past the end of src/a.ts (5 lines); showing lines 3-4.\n3: line3\n4: alpha');
+  const fully = planRead({ path: 'src/a.ts', offset: 9, limit: 3 }, root, buildIgnorePolicy(root), stateWithReturnedRange('src/a.ts', 3, 6), false);
+  assert.ok(!isFailedReadPlan(fully));
+  const fullyRead = buildReadExecution('read', fully);
+  assert.ok(fullyRead.ok);
+  assert.equal(
+    fullyRead.output,
+    'offset 9 is past the end of src/a.ts (5 lines).\nLines 3-5 of src/a.ts were already returned in this run. Read a different range, or edit/write the file to re-read it.',
+  );
+});
+
+test('read refuses a file that find and ls call binary', () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'blob.dat'), Buffer.from([0x00, 0x01, 0x02, 0x00, 0x03, 0x04, 0x05, 0x06, 0x07]));
+  const plan = planRead({ path: 'blob.dat', offset: 1 }, root, buildIgnorePolicy(root));
+  assert.ok(isFailedReadPlan(plan));
+  assert.equal(plan.reason, 'blob.dat is a binary file; read shows text files only');
+});
+
 test('a read at the last line keeps no past-end notice', () => {
   const root = makeRepo();
   const plan = planRead({ path: 'src/a.ts', offset: 5 }, root, buildIgnorePolicy(root));
@@ -754,12 +831,16 @@ test('a read at the last line keeps no past-end notice', () => {
   assert.equal(execution.output, '5: line5\n(end of file: 5 lines)');
 });
 
-test('planRead rejects an offset past the end of an empty file', () => {
+test('a read of an empty file says it is empty at any offset', () => {
   const root = makeRepo();
   fs.writeFileSync(path.join(root, 'empty.txt'), '', 'utf8');
-  const plan = planRead({ path: 'empty.txt', offset: 2 }, root, buildIgnorePolicy(root));
-  assert.ok(isFailedReadPlan(plan));
-  assert.match(plan.reason, /past the end of empty\.txt/u);
+  for (const offset of [1, 2]) {
+    const plan = planRead({ path: 'empty.txt', offset }, root, buildIgnorePolicy(root));
+    assert.ok(!isFailedReadPlan(plan));
+    const execution = buildReadExecution('read', plan);
+    assert.ok(execution.ok);
+    assert.equal(execution.output, 'empty.txt is empty (0 lines).');
+  }
 });
 
 test('planRead rejects a file larger than READ_MAX_BYTES', () => {

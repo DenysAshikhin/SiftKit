@@ -10,6 +10,7 @@ import {
 } from '../../src/repo-search/engine/repo-tools.ts';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../../src/repo-search/engine/runtime-profile.ts';
 import { makeContext, makeRepo, nativeCall } from '../helpers/repo-tools-fixtures.ts';
+import { LINE_COUNT_FIXTURES, writeLineCountFixtures } from '../helpers/line-count-fixtures.ts';
 import { fingerprintToolCall } from '../../src/tool-loop-governor.ts';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
@@ -30,12 +31,29 @@ function writeNoisyFailingTest(root: string): void {
   );
 }
 
+test('grep numbers a file\'s last line with the count find reports', async () => {
+  const root = makeRepo();
+  const directory = writeLineCountFixtures(root);
+  const grepped = await executeRepoTool(nativeCall('grep', { pattern: '.', path: directory }), makeContext(root));
+  assert.ok(grepped.ok, grepped.ok ? '' : grepped.reason);
+  // A blank last line cannot match '.', so those fixtures are checked by the other tools only.
+  for (const fixture of LINE_COUNT_FIXTURES.filter((entry) => !entry.lastLineBlank)) {
+    const lineNumbers: number[] = [];
+    for (const entry of grepped.output.split('\n')) {
+      const match = /^(.+?):(\d+):/u.exec(entry);
+      if (match !== null && match[1] === `${directory}/${fixture.name}`) lineNumbers.push(Number(match[2]));
+    }
+    assert.equal(Math.max(...lineNumbers), fixture.lines, `grep ${fixture.name}:\n${grepped.output}`);
+  }
+});
+
 test('grep finds matches with file:line anchors and respects the ignore policy', async () => {
   const root = makeRepo();
   const result = await executeRepoTool(nativeCall('grep', { pattern: 'alpha' }), makeContext(root));
   assert.ok(result.ok, `grep failed: ${result.ok ? '' : result.reason}`);
-  assert.match(result.output, /src[\\/]a\.ts:2:alpha/u);
-  assert.match(result.output, /src[\\/]nested[\\/]b\.ts:1:alpha nested/u);
+  // Paths use '/' on every platform, as find, ls, and read print them.
+  assert.match(result.output, /^src\/a\.ts:2:alpha$/mu);
+  assert.match(result.output, /^src\/nested\/b\.ts:1:alpha nested$/mu);
   assert.doesNotMatch(result.output, /node_modules/u);
 });
 
@@ -159,7 +177,7 @@ test('grep excludes ignored root-relative paths as exact files and case-insensit
   const result = await executeRepoTool(nativeCall('grep', { pattern: 'alpha' }), makeContext(root));
 
   assert.ok(result.ok);
-  assert.match(result.output, /src[\\/]a\.ts/u);
+  assert.match(result.output, /src\/a\.ts/u);
   assert.ok(!result.output.includes('tmp-find'), `exact ignored path leaked: ${result.output}`);
   assert.ok(!result.output.includes('leak.ts'), `case-variant ignored descendant leaked: ${result.output}`);
 });

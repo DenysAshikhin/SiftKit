@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   buildBatchToolCallId,
   resolveToolActionIdentity,
-} from '../src/repo-search/engine/pending-tool-call-message.ts';
+} from '../src/repo-search/engine/tool-call-identity.ts';
 import type { AgentLoopToolAction } from '../src/agent-loop/types.ts';
 
 test('tool-call ids depend only on turn and batch index', () => {

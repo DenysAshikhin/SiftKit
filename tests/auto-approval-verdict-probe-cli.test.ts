@@ -82,6 +82,7 @@ test('sends the approver prompt and the proposed call to the approval endpoint a
     const replayRoot = join(tempRoot, 'replays');
     const payloadPath = join(replayRoot, 'deny.json');
     const payload = {
+      repoRoot: tempRoot,
       tools: replayTools,
       action: {
         turn: 2,

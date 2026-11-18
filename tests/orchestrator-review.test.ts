@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { OrchestratorAttemptResultSchema, type OrchestratorRecordReviewArgs } from '@siftkit/contracts';
+import { OrchestratorAttemptResultSchema, type OrchestratorCheckResult, type OrchestratorRecordReviewArgs } from '@siftkit/contracts';
 import { findReviewProblems } from '../src/orchestrator/review.ts';
 import { makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
@@ -14,18 +14,23 @@ const MET = [
   { index: 1, met: true, evidence: [{ path: 'README.md', line: 1, snippet: '# Title' }] },
 ];
 
-function result(passed: boolean) {
+function commandCheck(command: string, exitCode: number): OrchestratorCheckResult {
+  return { check: { kind: 'command', command, cwd: '.', expectedExitCode: 0 }, executed: true, exitCode, timedOut: false, output: '', digest: null };
+}
+
+function result(passed: boolean, checks: OrchestratorCheckResult[] = []) {
   return OrchestratorAttemptResultSchema.parse({
     taskId: TASK.id, purpose: 'implementation', attempt: 1, childRunId: '00000000-0000-4000-8000-000000000002',
     workerStatus: 'completed', workerOutput: '', report: null, outcome: passed ? 'passed' : 'checks_failed', submissions: 1,
-    passed, checks: [], findings: [], changedPaths: [], changeDigest: null,
+    passed, checks, findings: [], changedPaths: [], changeDigest: null,
   });
 }
 
-function problems(review: Partial<OrchestratorRecordReviewArgs>, passed = true): string[] {
+function problems(review: Partial<OrchestratorRecordReviewArgs>, passed = true,
+  context: { checks?: OrchestratorCheckResult[]; passedRunChecks?: string[] } = {}): string[] {
   const repoRoot = createManagedTempDir('siftkit-review-');
   fs.writeFileSync(path.join(repoRoot, 'README.md'), '# Title\nnpm install\n');
-  return findReviewProblems({ repoRoot, task: TASK, result: result(passed),
+  return findReviewProblems({ repoRoot, task: TASK, result: result(passed, context.checks), passedRunChecks: context.passedRunChecks ?? [],
     review: { taskId: TASK.id, verdict: 'pass', criteria: MET, findings: [], ...review } });
 }
 
@@ -33,11 +38,12 @@ test('a pass with every criterion met by resolving evidence on a passing attempt
   assert.deepEqual(problems({}), []);
 });
 
-test('every acceptance criterion is judged exactly once', () => {
+test('every acceptance criterion is judged exactly once, and an unknown index names the criteria there are', () => {
   const [first, second] = MET;
   assert.ok(first && second);
   assert.deepEqual(problems({ criteria: [first] }), ['Judge every acceptance criterion; missing index 1.']);
-  assert.deepEqual(problems({ criteria: [first, second, { ...first, index: 2 }] }), ["Task 'inspect' has no acceptance criterion 2."]);
+  assert.deepEqual(problems({ criteria: [first, second, { ...first, index: 2 }] }),
+    ["Task 'inspect' has acceptance criteria 0-1 only; there is no criterion 2."]);
   assert.deepEqual(problems({ criteria: [first, second, first] }), ['Judge each criterion once; repeated index 0.']);
 });
 
@@ -46,8 +52,10 @@ test('a pass needs passing checks, every criterion met with evidence, and no fin
   assert.ok(first && second);
   assert.deepEqual(problems({}, false), ['Attempt 1 did not pass its checks (checks_failed); it cannot pass review.']);
   assert.deepEqual(problems({ criteria: [first, { ...second, met: false }] }), ['A pass needs every criterion met.']);
-  assert.deepEqual(problems({ criteria: [first, { ...second, evidence: [] }] }), ['A pass needs code evidence for every criterion.']);
-  assert.deepEqual(problems({ findings: [{ path: 'README.md', line: 1, issue: 'Terse.' }] }), ['A pass cannot carry findings; record a fail.']);
+  assert.deepEqual(problems({ criteria: [first, { ...second, evidence: [] }] }),
+    ['A pass needs evidence for every criterion: code at a line, or a command that passed.']);
+  assert.deepEqual(problems({ findings: [{ path: 'README.md', line: 1, issue: 'Terse.' }] }),
+    ['A pass cannot carry findings: record a fail if they must be fixed, or leave them out.']);
 });
 
 test('a fail names an unmet criterion or a finding', () => {
@@ -58,11 +66,22 @@ test('a fail names an unmet criterion or a finding', () => {
   assert.deepEqual(problems({ verdict: 'fail', findings: [{ path: 'README.md', line: 2, issue: 'Wrong flag.' }] }, false), []);
 });
 
-test('every evidence snippet and finding citation must hold in the current code', () => {
+test('a snippet that does not hold shows the cited line, and a finding citation must hold', () => {
   const [first, second] = MET;
   assert.ok(first && second);
-  assert.deepEqual(problems({ criteria: [first, { ...second, evidence: [{ path: 'README.md', line: 2, snippet: 'yarn add' }] }] }),
-    ['Evidence: README.md:2 does not contain the cited snippet.']);
+  assert.deepEqual(problems({ criteria: [first, { ...second, evidence: [{ path: 'README.md', line: 2, snippet: 'npm install // the command' }] }] }),
+    ['Evidence: README.md:2 does not contain the cited snippet; line 2 is `npm install`. Cite one line exactly as read shows it.']);
   assert.deepEqual(problems({ verdict: 'fail', findings: [{ path: 'docs/missing.md', line: 1, issue: 'Gone.' }] }),
     ['Finding: docs/missing.md is not a file in the repository.']);
+});
+
+test('command evidence holds only for a command that passed: an attempt check or a run_check since the report', () => {
+  const [first, second] = MET;
+  assert.ok(first && second);
+  const lint = { ...second, evidence: [{ command: 'npm run lint' }] };
+  assert.deepEqual(problems({ criteria: [first, lint] }, true, { checks: [commandCheck('npm run lint', 0)] }), []);
+  assert.deepEqual(problems({ criteria: [first, lint] }, true, { passedRunChecks: ['npm  run   lint'] }), []);
+  const unproven = ['Evidence: `npm run lint` has not passed since this attempt was reported; run it with run_check, or cite code.'];
+  assert.deepEqual(problems({ criteria: [first, lint] }, true, { checks: [commandCheck('npm run lint', 1)] }), unproven);
+  assert.deepEqual(problems({ criteria: [first, lint] }), unproven);
 });

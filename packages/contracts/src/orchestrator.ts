@@ -66,6 +66,13 @@ export const OrchestratorCodeEvidenceSchema = z.object({
 }).strict();
 export type OrchestratorCodeEvidence = z.infer<typeof OrchestratorCodeEvidenceSchema>;
 
+/** A claim proven by a command that passed: an attempt check, or the orchestrator's run_check since the report. */
+export const OrchestratorCommandEvidenceSchema = z.object({ command: z.string().trim().min(1) }).strict();
+export type OrchestratorCommandEvidence = z.infer<typeof OrchestratorCommandEvidenceSchema>;
+
+export const OrchestratorCriterionEvidenceSchema = z.union([OrchestratorCodeEvidenceSchema, OrchestratorCommandEvidenceSchema]);
+export type OrchestratorCriterionEvidence = z.infer<typeof OrchestratorCriterionEvidenceSchema>;
+
 /** One fresh child's assignment: the plan task, and the orchestrator's own instruction for this attempt. */
 export const OrchestratorChildWorkSchema = z.object({
   kind: OrchestratorChildPurposeSchema, planPath: z.string().min(1), planHash: z.string().min(1),
@@ -195,7 +202,7 @@ export type OrchestratorReviewFinding = z.infer<typeof OrchestratorReviewFinding
 export const OrchestratorReviewRecordSchema = z.object({
   attempt: OrchestratorAttemptNumberSchema, purpose: OrchestratorChildPurposeSchema, verdict: z.enum(['pass', 'fail']),
   criteria: z.array(z.object({
-    index: ReportIndexSchema, met: z.boolean(), evidence: z.array(OrchestratorCodeEvidenceSchema),
+    index: ReportIndexSchema, met: z.boolean(), evidence: z.array(OrchestratorCriterionEvidenceSchema),
   }).strict()),
   findings: z.array(OrchestratorReviewFindingSchema),
 }).strict();

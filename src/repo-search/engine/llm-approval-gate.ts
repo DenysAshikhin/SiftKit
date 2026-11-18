@@ -35,6 +35,7 @@ export type ApprovalVerdictRequester = {
 export class LlmApprovalGate {
   private readonly deps: {
     requestId: string;
+    repoRoot: string;
     humanGate: ApprovalRequester;
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
@@ -44,6 +45,7 @@ export class LlmApprovalGate {
 
   constructor(deps: {
     requestId: string;
+    repoRoot: string;
     humanGate: ApprovalRequester;
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
@@ -61,7 +63,7 @@ export class LlmApprovalGate {
       return { kind: 'approve' };
     }
     if (this.deps.evidenceRecorder && !input.call) throw new Error('Chat approval requires its exact proposed tool identity.');
-    const verdict = await this.requestVerdictWithRetry(buildApprovalReviewRequest(input));
+    const verdict = await this.requestVerdictWithRetry(buildApprovalReviewRequest({ ...input, repoRoot: this.deps.repoRoot }));
     if (verdict.kind === 'failure') {
       this.emitVerdict(input, 'unsure', verdict.reason);
       return this.deps.humanGate.request(input);

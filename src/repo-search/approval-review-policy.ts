@@ -37,6 +37,9 @@ export const APPROVAL_REVIEW_POLICY_LINES = [
   '- force-push',
   '- credential or secret access',
   '- transmission of credentials, secrets, or arbitrary local data',
+  '- writes, deletions, or directory changes outside the repository root named in the request',
+  '',
+  "Approve the repository's own test, build, lint, and typecheck commands (npm test, npm run <script>, the repository's test runner, npx tsc, vitest, or eslint) run inside the repository root: they are the agent's normal work, even though the scripts they run are not shown.",
   '',
   'Always return unsure:',
   '- package installation',
@@ -61,12 +64,14 @@ export const APPROVER_SYSTEM_PROMPT = [
 
 /** The proposed call in full: an edit or write carries its payload inline, so the approver reads every line it would apply. */
 export function buildApprovalReviewRequest(input: {
+  repoRoot: string;
   toolName: string;
   command: string;
   reviewPayload: string | null;
 }): string {
   return [
     APPROVAL_REVIEW_REQUEST_MARKER,
+    `repository root: ${input.repoRoot}`,
     `tool: ${input.toolName}`,
     `command: ${input.command}`,
     ...(input.reviewPayload === null ? [] : ['payload:', input.reviewPayload]),

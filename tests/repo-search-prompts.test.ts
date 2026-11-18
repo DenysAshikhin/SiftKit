@@ -16,7 +16,7 @@ import {
 import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.ts';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.ts';
 import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.ts';
-import { DIGEST_TOOLS } from '../src/output-digest/types.ts';
+import { DIGEST_TOOLS, UNFILTERED_CHECK_OUTPUT_RULE } from '../src/output-digest/types.ts';
 import {
   PresetSystemContextBuilder,
   type PresetSystemContext,
@@ -269,6 +269,13 @@ test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, 
   assert.doesNotMatch(prompt, /Minimum 5 tool-call turns/u);
 });
 
+test('buildAgentSystemPrompt says find and ls report line counts', () => {
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
+
+  assert.ok(prompt.includes('- find: locate files by glob, each with its line count.'));
+  assert.ok(prompt.includes('- ls: list a directory one level deep, with each file\'s line count.'));
+});
+
 test('buildAgentSystemPrompt keeps the agent out of node_modules unless the task asks', () => {
   const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
 
@@ -306,7 +313,7 @@ test('buildAgentSystemPrompt says recognised test output leads with a digest, an
   const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
   assert.doesNotMatch(prompt, /PowerShell syntax \([^)]*(?:-Last|-Tail)/u, 'trimming idioms are not offered as the syntax to use');
   assert.match(prompt, /starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message/u);
-  assert.match(prompt, /Do not cut test output yourself with `Select-Object -Last` or `Get-Content -Tail`, and do not filter it with `Select-String`/u);
+  assert.ok(prompt.includes(UNFILTERED_CHECK_OUTPUT_RULE), 'the shared unfiltered-output rule is stated');
   assert.doesNotMatch(prompt, /Select-String '\^\(✖\|ℹ\)'/u, 'the interim result-line filter is gone');
 });
 

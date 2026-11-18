@@ -7,7 +7,7 @@ import { estimateTokenCount } from '../../lib/token-estimate.ts';
 import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
 import { buildReadPathKey, getOrCreateFileReadState, type FileReadState } from './read-overlap.ts';
 import { parseJsonValueText } from '../../lib/json.ts';
-import { applyEolStyle, detectEolStyle, readSourceText, readTextFileWithEncoding } from '../../lib/text-encoding.ts';
+import { applyEolStyle, detectEolStyle, readTextFileWithEncoding, toLfText } from '../../lib/text-encoding.ts';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
 import type { ToolTranscriptAction } from '../../tool-call-messages.ts';
 import { ELIDED_ARGUMENTS_KEY } from '../../planner-protocol/native-actions.ts';
@@ -31,11 +31,11 @@ import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/con
 import { isImagePath } from '../../llm-protocol/image-attachments.ts';
 import { executeImageRead, executeImageShow } from './image-read.ts';
 import { isRepoRelativePathIgnored, resolveRepoScopedPath, toPosixPath } from './repo-paths.ts';
+import { describeFileLines, formatFileLines, formatLineCount, READ_MAX_BYTES, splitSourceLines } from '../../lib/source-lines.ts';
 
 export const GREP_DEFAULT_LIMIT = 100;
 export const FIND_DEFAULT_LIMIT = 1000;
 export const LS_DEFAULT_LIMIT = 500;
-export const READ_MAX_BYTES = 2_000_000;
 /** Lines a limit-less read past the end of a file shows from the file's tail. */
 export const READ_PAST_END_WINDOW_LINES = 40;
 
@@ -118,8 +118,8 @@ export type ReadPlan = {
   lines: string[];
   hasUnread: boolean;
   noUnreadOutput: string | null;
-  /** Set when the requested offset was past the end and the read moved to the file's tail. */
-  notice: string | null;
+  /** The requested offset when it was past the end and the read moved to the file's tail. */
+  pastEndOffset: number | null;
 };
 
 type FailedPlan = { ok: false; command: string; reason: string };
@@ -338,9 +338,9 @@ export function buildEffectiveTranscriptAction(options: {
 }
 
 /**
- * Serialized-argument size above which a rejected call's arguments are dropped. A rejected call
- * has no downstream value, but its arguments are re-sent on every later turn; small payloads are
- * cheaper to keep than to describe.
+ * Serialized-argument size above which a refused call's arguments are dropped: they are re-sent on
+ * every later turn, and small payloads are cheaper to keep than to describe. Approval denials keep
+ * theirs, since the model retries those calls.
  */
 export const REJECTED_ARGS_ELISION_LIMIT = 512;
 
@@ -452,12 +452,6 @@ function listFilesRecursive(
 // read
 // ---------------------------------------------------------------------------
 
-/** A trailing newline terminates the last line; it does not start an empty one after it. */
-function splitSourceLines(text: string): string[] {
-  const lines = text.split('\n');
-  return lines.length > 1 && lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines;
-}
-
 function formatNumberedTextBlock(lines: string[], startLine: number): string {
   return lines.map((line, index) => `${startLine + index}: ${line}`).join('\n');
 }
@@ -489,31 +483,26 @@ export function planRead(
   if (!existsSync(resolvedPath.absolutePath)) {
     return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
   }
-  const fileStat = statSync(resolvedPath.absolutePath);
-  if (!fileStat.isFile()) {
+  if (!statSync(resolvedPath.absolutePath).isFile()) {
     return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
   }
-  if (fileStat.size > READ_MAX_BYTES) {
+  const fileLines = describeFileLines(resolvedPath.absolutePath);
+  if (fileLines.kind === 'too_large') {
     return {
       ok: false,
       command: requestedCommand,
-      reason: `file is ${fileStat.size} bytes; read supports files up to ${READ_MAX_BYTES} bytes — use grep to extract the lines you need`,
-    };
-  }
-
-  const sourceText = readSourceText(resolvedPath.absolutePath);
-  const lines = splitSourceLines(sourceText);
-  const pastEnd = offset > lines.length;
-  if (pastEnd && sourceText === '') {
-    return {
-      ok: false,
-      command: requestedCommand,
-      reason: `offset ${offset} is past the end of ${resolvedPath.relativePath} (${lines.length} line${lines.length === 1 ? '' : 's'})`,
+      reason: `file is ${fileLines.bytes} bytes; read supports files up to ${READ_MAX_BYTES} bytes — use grep to extract the lines you need`,
     };
   }
   const displayPath = resolvedPath.relativePath;
+  if (fileLines.kind === 'binary') {
+    return { ok: false, command: requestedCommand, reason: `${displayPath} is a binary file; read shows text files only` };
+  }
+
+  const { lines } = fileLines;
   const pathKey = buildReadPathKey(displayPath);
-  const totalEndLineExclusive = (lines.length || 0) + 1;
+  const pastEnd = lines.length > 0 && offset > lines.length;
+  const totalEndLineExclusive = lines.length + 1;
   // A past-end offset is a wrong guess at the file's length; its tail is what the model was looking for.
   const startLine = pastEnd ? Math.max(1, lines.length - (limit ?? READ_PAST_END_WINDOW_LINES) + 1) : offset;
   const requestedEndExclusive = limit === undefined
@@ -524,11 +513,14 @@ export function planRead(
   // past the requested limit to end of file.
   const returnedRanges = state?.mergedReturnedRanges ?? [];
   const hasReturnedRanges = returnedRanges.length > 0;
-  const unreadRange = findContiguousUnreadRange({
-    requestedStart: startLine,
-    totalEnd: expandReads && hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
-    returnedRanges,
-  });
+  // An empty file has nothing to return at any offset.
+  const unreadRange = lines.length === 0
+    ? { start: 1, end: 1, hasUnread: false }
+    : findContiguousUnreadRange({
+      requestedStart: startLine,
+      totalEnd: expandReads && hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
+      returnedRanges,
+    });
 
   return {
     requestedCommand,
@@ -544,11 +536,18 @@ export function planRead(
     hasUnread: unreadRange.hasUnread,
     noUnreadOutput: unreadRange.hasUnread
       ? null
-      : `Lines ${startLine}-${requestedEndExclusive - 1} of ${displayPath} were already returned in this run. Read a different range, or edit/write the file to re-read it.`,
-    notice: pastEnd
-      ? `offset ${offset} is past the end of ${displayPath} (${lines.length} line${lines.length === 1 ? '' : 's'}); showing lines ${startLine}-${lines.length}.`
-      : null,
+      : lines.length === 0
+        ? `${displayPath} is empty (0 lines).`
+        : `Lines ${startLine}-${requestedEndExclusive - 1} of ${displayPath} were already returned in this run. Read a different range, or edit/write the file to re-read it.`,
+    pastEndOffset: pastEnd ? offset : null,
   };
+}
+
+/** Says the offset was past the end, naming only the lines this read actually returns. */
+function describePastEnd(plan: ReadPlan, offset: number): string {
+  const lineCount = plan.totalEndLineExclusive - 1;
+  const shown = plan.hasUnread ? `; showing lines ${plan.effectiveStartLine}-${plan.effectiveEndLineExclusive - 1}` : '';
+  return `offset ${offset} is past the end of ${plan.displayPath} (${formatLineCount(lineCount)})${shown}.`;
 }
 
 export function buildReadExecution(
@@ -564,7 +563,7 @@ export function buildReadExecution(
     totalEndLineExclusive: plan.totalEndLineExclusive,
     hasUnread: plan.hasUnread,
   };
-  const noticePrefix = plan.notice === null ? '' : `${plan.notice}\n`;
+  const noticePrefix = plan.pastEndOffset === null ? '' : `${describePastEnd(plan, plan.pastEndOffset)}\n`;
   if (!plan.hasUnread) {
     return {
       ok: true,
@@ -593,7 +592,7 @@ export function buildReadExecution(
     ),
     exitCode: 0,
     output: noticePrefix + (plan.effectiveEndLineExclusive === plan.totalEndLineExclusive
-      ? `${numberedText}\n(end of file: ${lineCount} line${lineCount === 1 ? '' : 's'})`
+      ? `${numberedText}\n(end of file: ${formatLineCount(lineCount)})`
       : numberedText),
     toolType: toolName,
     outputUnit: 'lines',
@@ -616,7 +615,8 @@ function buildGrepArgs(
   searchPath: string,
   contextLines: PositiveInteger | undefined,
 ): string[] {
-  const argv = ['--no-ignore', '--line-number', '--with-filename', '--color', 'never'];
+  // '/' separators on every platform, so grep paths match the ones find, ls, and read print.
+  const argv = ['--no-ignore', '--line-number', '--with-filename', '--color', 'never', '--path-separator', '/'];
   argv.push(readBoolean(args.ignoreCase, true) ? '--ignore-case' : '--case-sensitive');
   if (readBoolean(args.literal, false)) {
     argv.push('--fixed-strings');
@@ -697,7 +697,11 @@ async function executeGrep(args: GrepToolArgs, context: RepoToolContext): Promis
   if (result.exitCode >= 2) {
     return failure('grep', command, `rg failed: ${result.output || `exit ${result.exitCode}`}`);
   }
-  const matchLines = result.stdout.split('\n').map((line) => line.replace(/\r$/u, '')).filter(Boolean);
+  // A root search prints paths as './src/a.ts'; the prefix goes so they match find, ls, and read.
+  const matchLines = result.stdout.split('\n')
+    .map((line) => line.replace(/\r$/u, ''))
+    .map((line) => (searchPath === '.' && line.startsWith('./') ? line.slice(2) : line))
+    .filter(Boolean);
   if (matchLines.length === 0) {
     return {
       ok: true, requestedCommand: command, command, exitCode: 0,
@@ -711,6 +715,11 @@ async function executeGrep(args: GrepToolArgs, context: RepoToolContext): Promis
 // ---------------------------------------------------------------------------
 // find
 // ---------------------------------------------------------------------------
+
+/** A `find`/`ls` entry: the name as listed, then the file's line count. */
+function labelListedFile(directory: string, name: string): string {
+  return `${name} ${formatFileLines(describeFileLines(join(directory, name)))}`;
+}
 
 function executeFind(args: FindToolArgs, context: RepoToolContext): RepoToolExecution {
   const command = buildRepoToolRequestedCommand('find', args);
@@ -738,11 +747,12 @@ function executeFind(args: FindToolArgs, context: RepoToolContext): RepoToolExec
     .sort(compareDisplayNames);
   const limit = args.limit ?? FIND_DEFAULT_LIMIT;
   const truncated = filtered.length > limit;
+  const shown = filtered.slice(0, limit).map((searchRelativePath) => labelListedFile(resolvedPath.absolutePath, searchRelativePath));
   const output = filtered.length === 0
     ? 'No files matched.'
     : truncated
-      ? `${filtered.slice(0, limit).join('\n')}\n... ${filtered.length - limit} more files beyond limit=${limit}; narrow the pattern or path.`
-      : filtered.join('\n');
+      ? `${shown.join('\n')}\n... ${filtered.length - limit} more files beyond limit=${limit}; narrow the pattern or path.`
+      : shown.join('\n');
   return { ok: true, requestedCommand: command, command, exitCode: 0, output, toolType: 'find', outputUnit: 'files' };
 }
 
@@ -764,22 +774,23 @@ function executeLs(args: LsToolArgs, context: RepoToolContext): RepoToolExecutio
   }
 
   const basePath = resolvedPath.relativePath;
-  const entries: string[] = [];
+  const entries: { name: string; isFile: boolean }[] = [];
   for (const entry of readdirSync(resolvedPath.absolutePath, { withFileTypes: true })) {
     const entryRelativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
     if (isRepoRelativePathIgnored(entryRelativePath, context.ignorePolicy)) {
       continue;
     }
-    entries.push(entry.isDirectory() ? `${entry.name}/` : entry.name);
+    entries.push({ name: entry.isDirectory() ? `${entry.name}/` : entry.name, isFile: entry.isFile() });
   }
-  entries.sort(compareDisplayNames);
+  entries.sort((left, right) => compareDisplayNames(left.name, right.name));
   const limit = args.limit ?? LS_DEFAULT_LIMIT;
   const truncated = entries.length > limit;
+  const shown = entries.slice(0, limit).map((entry) => (entry.isFile ? labelListedFile(resolvedPath.absolutePath, entry.name) : entry.name));
   const output = entries.length === 0
     ? 'Directory is empty.'
     : truncated
-      ? `${entries.slice(0, limit).join('\n')}\n... ${entries.length - limit} more entries beyond limit=${limit}.`
-      : entries.join('\n');
+      ? `${shown.join('\n')}\n... ${entries.length - limit} more entries beyond limit=${limit}.`
+      : shown.join('\n');
   return { ok: true, requestedCommand: command, command, exitCode: 0, output, toolType: 'ls', outputUnit: 'files' };
 }
 
@@ -809,7 +820,7 @@ function executeWrite(args: WriteToolArgs, context: RepoToolContext): RepoToolEx
   writeFileSync(resolvedPath.absolutePath, finalContent, 'utf8');
   return {
     ok: true, requestedCommand: command, command, exitCode: 0,
-    output: `Wrote ${Buffer.byteLength(finalContent, 'utf8')} bytes to ${resolvedPath.relativePath}.`,
+    output: `Wrote ${Buffer.byteLength(finalContent, 'utf8')} bytes to ${resolvedPath.relativePath} (${formatLineCount(splitSourceLines(args.content).length)}).`,
     toolType: 'write', outputUnit: 'lines',
     mutatedPath: resolvedPath.relativePath,
   };
@@ -876,6 +887,19 @@ function resolveEdits(originalText: string, rawEdits: EditToolArgs['edits']): Re
   return ordered;
 }
 
+/** Where each edit's new text now sits, in file order, and the file's new length. */
+function describePlacedEdits(updatedText: string, placed: readonly { start: number; length: number }[]): string {
+  const totalLines = splitSourceLines(updatedText).length;
+  const ranges = placed.map(({ start, length }) => {
+    // A removal names the line its gap sits on, which is one past the end after removing the last line.
+    const first = Math.min(lineNumberAt(updatedText, start), Math.max(totalLines, 1));
+    return { first, last: length === 0 ? first : lineNumberAt(updatedText, start + length - 1), removed: length === 0 };
+  });
+  const label = ranges.length === 1 && ranges[0].first === ranges[0].last ? 'line' : 'lines';
+  const text = ranges.map(({ first, last, removed }) => (removed ? `${first} (removed)` : first === last ? `${first}` : `${first}-${last}`));
+  return `${label} ${text.join(', ')}; file now ${formatLineCount(totalLines)}`;
+}
+
 function executeEdit(args: EditToolArgs, context: RepoToolContext): RepoToolExecution {
   const command = buildRepoToolRequestedCommand('edit', args);
   const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path);
@@ -891,24 +915,27 @@ function executeEdit(args: EditToolArgs, context: RepoToolContext): RepoToolExec
 
   const rawText = readTextFileWithEncoding(resolvedPath.absolutePath);
   const eolStyle = detectEolStyle(rawText);
-  // The model matches against LF (readSourceText contract); the on-disk style is
+  // The model matches against LF (the read contract); the on-disk style is
   // re-applied on write-back so an edit never rewrites unrelated line endings.
-  const originalText = rawText.replace(/\r\n/gu, '\n');
+  const originalText = toLfText(rawText);
   const resolved = resolveEdits(originalText, args.edits);
   if (typeof resolved === 'string') {
     return failure('edit', command, resolved);
   }
   let updatedText = '';
   let cursor = 0;
+  const placed: { start: number; length: number }[] = [];
   for (const edit of resolved) {
-    updatedText += originalText.slice(cursor, edit.start) + edit.newText;
+    updatedText += originalText.slice(cursor, edit.start);
+    placed.push({ start: updatedText.length, length: edit.newText.length });
+    updatedText += edit.newText;
     cursor = edit.end;
   }
   updatedText += originalText.slice(cursor);
   writeFileSync(resolvedPath.absolutePath, applyEolStyle(updatedText, eolStyle), 'utf8');
   return {
     ok: true, requestedCommand: command, command, exitCode: 0,
-    output: `Applied ${resolved.length} edit(s) to ${resolvedPath.relativePath}.`,
+    output: `Applied ${resolved.length} edit(s) to ${resolvedPath.relativePath}: ${describePlacedEdits(updatedText, placed)}.`,
     toolType: 'edit', outputUnit: 'lines',
     mutatedPath: resolvedPath.relativePath,
   };

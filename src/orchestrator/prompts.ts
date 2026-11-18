@@ -8,6 +8,7 @@ import {
 } from '@siftkit/contracts';
 
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
+import { UNFILTERED_CHECK_OUTPUT_RULE } from '../output-digest/types.ts';
 import { renderReportInstruction } from './handoff.ts';
 import type { PlanWorker } from './scheduler.ts';
 
@@ -33,6 +34,7 @@ const APPROVAL_RULES: Record<ApprovalMode, string> = {
 
 /** What the orchestrator is told once, at the start of its one conversation. */
 export type OrchestratorBrief = {
+  repoRoot: string;
   task: string | null;
   suppliedPlan: { path: string; markdown: string } | null;
   workers: readonly PlanWorker[];
@@ -44,6 +46,8 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
   return [
     'You run this orchestrator job from start to finish in this one conversation. You read the code, plan, verify, and review;',
     'repo-agent subagents make every change. Everything you learn stays with you across tasks: use it in later instructions.',
+    `Repository root: ${brief.repoRoot}. You, run_check, and every child already work there: `
+      + 'write repository-relative paths in instructions and never name another repository path.',
     `Requested task: ${brief.task ?? '(none; execute the supplied plan)'}`,
     ...(brief.suppliedPlan === null ? ['Supplied plan: none.']
       : [`Supplied plan (${brief.suppliedPlan.path}):`, '<<<PLAN', brief.suppliedPlan.markdown, 'PLAN>>>']),
@@ -75,7 +79,9 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
     '4. Review every reported task with record_review. A report gives the child\'s status, where it departed from the plan,',
     '   the gate\'s last check results, and what changed as line counts, not the code: read the changed code yourself, and use',
     '   run_check for any test or command the review needs.',
-    '   Judge each acceptance criterion by index with exact code evidence (path, line, and the code at that line). Record a',
+    '   Judge each acceptance criterion by index with evidence: code ({path, line, snippet}, the snippet one line copied',
+    '   exactly as read shows it, with no comment, "...", or paraphrase) or a command that passed ({command}: a check of the',
+    '   attempt, or your run_check since the report). A pass carries no findings; leave out notes that need no fix. Record a',
     '   finding for every real defect: a missed requirement, an incomplete refactor, a special-case patch, a leftover shim or',
     '   parallel path, duplicated logic, unsafe type or IO handling, a missing test, a weakened or silenced test.',
     '   Judge every deviation and host finding against that list: a change to a test outside the task (an allowlist or',
@@ -90,6 +96,8 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
     '   completed, finish with only {"status":"blocked","reason":"why"}.',
     'Use run_check to run tests, typecheck, lint, or a command that reproduces a problem; never to change files, install',
     'packages, or commit: that is a child\'s work. Read and search code with your read tools, not run_check.',
+    'find and ls report each file\'s line count; use them to size files, not run_check.',
+    UNFILTERED_CHECK_OUTPUT_RULE,
     APPROVAL_RULES[brief.approval],
   ].join('\n');
 }
@@ -98,6 +106,7 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
 export function buildChildInstruction(input: {
   work: OrchestratorChildWork;
   attempt: number;
+  repoRoot: string;
   scratchPath: string;
   preexistingDirtyPaths: readonly string[];
 }): string {
@@ -105,6 +114,7 @@ export function buildChildInstruction(input: {
   return [
     `${input.work.kind === 'fix' ? 'Fix' : 'Implement'} ONLY task '${task.id}' — ${task.title} — from plan ${input.work.planPath}`
       + ` (hash ${input.work.planHash}); ${input.work.kind} attempt ${input.attempt} of ${ORCHESTRATOR_MAX_ATTEMPTS}.`,
+    `Repository root: ${input.repoRoot}. Your tools and shell already run there; keep every command and path inside it.`,
     'Instruction from the orchestrator:', input.work.instruction,
     `Read: ${task.readPaths.join(', ') || '(as needed)'}`,
     `Expected to change: ${task.writePaths.join(', ')}`,

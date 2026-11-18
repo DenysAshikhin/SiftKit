@@ -82,19 +82,19 @@ test('requestApprovalVerdict consumes one mock response and advances the index',
 });
 
 test('a verdict request is the approver system prompt and one user message holding the whole proposed call', () => {
-  const request = buildApprovalReviewRequest({ toolName: 'edit', command: 'edit path="a.ts" edits=1 sha="0"', reviewPayload: '{"toolName":"edit"}' });
+  const request = buildApprovalReviewRequest({ repoRoot: 'R', toolName: 'edit', command: 'edit path="a.ts" edits=1 sha="0"', reviewPayload: '{"toolName":"edit"}' });
   assert.deepEqual(buildApprovalVerdictMessages(request), [
     { role: 'system', content: APPROVER_SYSTEM_PROMPT },
     { role: 'user', content: request },
   ]);
-  assert.equal(request, '<APPROVAL_REVIEW_REQUEST>\ntool: edit\ncommand: edit path="a.ts" edits=1 sha="0"\npayload:\n{"toolName":"edit"}');
+  assert.equal(request, '<APPROVAL_REVIEW_REQUEST>\nrepository root: R\ntool: edit\ncommand: edit path="a.ts" edits=1 sha="0"\npayload:\n{"toolName":"edit"}');
   assert.match(APPROVER_SYSTEM_PROMPT, /^You review one proposed tool call for a coding agent\. You are not that agent/u);
 });
 
 test('a run or git call reaches the approver with no payload section', () => {
   assert.equal(
-    buildApprovalReviewRequest({ toolName: 'run', command: 'run command="npm test"', reviewPayload: null }),
-    '<APPROVAL_REVIEW_REQUEST>\ntool: run\ncommand: run command="npm test"',
+    buildApprovalReviewRequest({ repoRoot: 'R', toolName: 'run', command: 'run command="npm test"', reviewPayload: null }),
+    '<APPROVAL_REVIEW_REQUEST>\nrepository root: R\ntool: run\ncommand: run command="npm test"',
   );
 });
 

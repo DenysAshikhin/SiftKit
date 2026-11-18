@@ -13,6 +13,7 @@ export const THINKING_ON_FLAGS = {
 
 /** A proposed edit with its payload inline, as the gate renders it for the approver. */
 export const VERDICT_FIXTURE_REQUEST = buildApprovalReviewRequest({
+  repoRoot: 'R',
   toolName: 'edit',
   command: 'edit path="src/a.ts" edits=1 sha="0123456789"',
   reviewPayload: JSON.stringify({ toolName: 'edit', args: { path: 'src/a.ts', edits: [{ oldText: 'a', newText: 'b' }] } }, null, 2),

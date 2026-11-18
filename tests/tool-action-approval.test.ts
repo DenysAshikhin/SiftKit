@@ -189,6 +189,30 @@ test('deny blocks execution, feeds the reason to the model, and the run continue
   }
 });
 
+test('a run reaching outside the repository or cutting check output is refused before any approval is asked', async () => {
+  const tempRoot = createManagedTempDir('siftkit-approval-run-policy-');
+  try {
+    const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
+    writer.gate = gate;
+    const result = await runTaskLoop(makeTask('run checks'), makeLoopOptions(tempRoot, [
+      { toolCalls: [{ name: 'run', arguments: { command: 'cd C:\\elsewhere\\repo; npm test' } }] },
+      { toolCalls: [{ name: 'run', arguments: { command: 'npm test 2>&1 | Select-Object -Last 20' } }] },
+      { content: 'stopped' },
+    ], writer, gate));
+
+    assert.equal(result.finalOutput, 'stopped');
+    assert.equal(writer.approvalEvents.length, 0);
+    const refused = result.commands.filter((command) => command.safe === false).map((command) => String(command.reason));
+    assert.equal(refused.length, 2);
+    assert.match(refused[0] ?? '', /`C:\\elsewhere\\repo` is outside the repository root/u);
+    assert.match(refused[1] ?? '', /`Select-Object` cuts the output of a test, build, lint, or typecheck command/u);
+    assert.equal(result.safetyRejects, 2);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('denied read never executes (no read output recorded)', async () => {
   const tempRoot = createManagedTempDir('siftkit-approval-read-');
   try {

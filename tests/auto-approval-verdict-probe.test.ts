@@ -122,13 +122,14 @@ test('configured verdict replay sends the exact persisted tool schema and no too
   }
 });
 
-test('validates a replay payload of tools and one proposed action, and nothing else', () => {
-  assert.deepEqual(AutoApprovalReplayPayloadSchema.parse({ tools: replayTools, action }), { tools: replayTools, action });
+test('validates a replay payload of the repository root, tools, and one proposed action, and nothing else', () => {
+  assert.deepEqual(AutoApprovalReplayPayloadSchema.parse({ repoRoot: 'R', tools: replayTools, action }), { repoRoot: 'R', tools: replayTools, action });
   assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ action }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ tools: replayTools, action }), 'a replay names the repository root');
   assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ tools: [], action }));
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ tools: replayTools, action: { ...action, command: '' } }));
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ tools: replayTools, action: { turn: 2, toolName: 'edit', command: 'edit' } }));
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: [], tools: replayTools, action }), 'a transcript is no longer part of a replay');
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ repoRoot: 'R', tools: replayTools, action: { ...action, command: '' } }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ repoRoot: 'R', tools: replayTools, action: { turn: 2, toolName: 'edit', command: 'edit' } }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: [], repoRoot: 'R', tools: replayTools, action }), 'a transcript is no longer part of a replay');
 });
 
 test('the approver prompt carries the full review policy', () => {
@@ -160,15 +161,16 @@ test('the approver prompt carries the full review policy', () => {
   assert.match(APPROVER_SYSTEM_PROMPT, /missing.*malformed.*truncated.*too large.*unsure/isu);
 });
 
-test('submits the approver prompt and the proposed call with its payload, and nothing of the agent', async () => {
+test('submits the approver prompt and the proposed call with its repository root and payload, and nothing of the agent', async () => {
   const client = new RecordingVerdictModelClient(
     '{"verdict":"deny","reason":"Deletes the repository root."}',
   );
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ tools: replayTools, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ repoRoot: 'R', tools: replayTools, action });
 
   const request = [
     APPROVAL_REVIEW_REQUEST_MARKER,
+    'repository root: R',
     'tool: edit',
     'command: edit path="src/cleanup.ts" edits=1',
     'payload:',
@@ -193,6 +195,7 @@ test('returns approve as data without executing the proposed command', async () 
 
   try {
     const result = await new AutoApprovalVerdictProbe(client).run({
+      repoRoot: 'R',
       tools: replayTools,
       action: {
         turn: 2,
@@ -215,7 +218,7 @@ test('returns unsure without waiting for a human gate', async () => {
     '{"verdict":"unsure","reason":"The write scope is ambiguous."}',
   );
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ tools: replayTools, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ repoRoot: 'R', tools: replayTools, action });
 
   assert.equal(result.verdict, 'unsure');
   assert.equal(result.reason, 'The write scope is ambiguous.');
@@ -224,7 +227,7 @@ test('returns unsure without waiting for a human gate', async () => {
 test('reports a failed verdict after exactly one retry', async () => {
   const client = new RecordingVerdictModelClient('not-json');
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ tools: replayTools, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ repoRoot: 'R', tools: replayTools, action });
 
   assert.equal(client.requests.length, 2);
   assert.equal(result.verdict, 'unsure');
@@ -236,6 +239,7 @@ test('rejects an approval-exempt read-only action instead of inventing a verdict
 
   await assert.rejects(
     () => new AutoApprovalVerdictProbe(client).run({
+      repoRoot: 'R',
       tools: replayTools,
       action: {
         turn: 2,

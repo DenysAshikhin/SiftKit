@@ -75,13 +75,16 @@ export function readTextFileWithEncoding(filePath: string): string {
 }
 
 /**
- * Reads a text file and normalizes CRLF to LF. This is the single source-text
- * normalization point: `read`, `edit`, and any future consumer must go through
- * it so the model always sees — and matches against — LF, regardless of the
- * working tree's on-disk line endings.
+ * Normalizes CRLF to LF: the single source-text normalization point. `read`, `edit`, and line
+ * counts go through it, so the model sees and matches against LF whatever the on-disk endings.
  */
-export function readSourceText(filePath: string): string {
-  return readTextFileWithEncoding(filePath).replace(/\r\n/gu, '\n');
+export function toLfText(text: string): string {
+  return text.replace(/\r\n/gu, '\n');
+}
+
+/** Decodes source bytes (UTF-8 or UTF-16) and normalizes them to LF. */
+export function decodeSourceText(buffer: Buffer): string {
+  return toLfText(decodeTextBuffer(buffer));
 }
 
 export type SourceEolStyle = 'lf' | 'crlf';

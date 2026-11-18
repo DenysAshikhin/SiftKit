@@ -34,6 +34,7 @@ export const AutoApprovalActionSchema = z.strictObject({
 
 /** One proposed call and the agent's tool definitions: everything the isolated approver is shown. */
 export const AutoApprovalReplayPayloadSchema = z.strictObject({
+  repoRoot: z.string().min(1),
   tools: InferenceToolDefinitionsSchema.min(1),
   action: AutoApprovalActionSchema,
 });
@@ -168,6 +169,7 @@ export class AutoApprovalVerdictProbe {
     const progressWriter = new ProbeProgressWriter();
     const gate = new LlmApprovalGate({
       requestId: 'auto-approval-verdict-probe',
+      repoRoot: payload.repoRoot,
       humanGate: new FailClosedHumanGate(),
       verdictRequester: requester,
       progressWriter,

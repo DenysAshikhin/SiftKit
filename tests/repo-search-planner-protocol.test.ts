@@ -152,6 +152,20 @@ test('the text-only read description is byte-identical to the historical string'
   );
 });
 
+test('the find and ls descriptions say every file comes with its line count', () => {
+  const description = (name: string) => TOOL_DEFINITIONS.find((definition) => definition.function.name === name)?.function.description ?? '';
+  assert.ok(description('find').includes('Each path ends with its line count, or (binary) or a byte size for files read cannot open.'));
+  assert.ok(description('ls').includes('Files end with their line count; directories do not.'));
+});
+
+test('the record_review description offers code or passed-command evidence and keeps findings off a pass', () => {
+  const [recordReview] = resolveRepoSearchPlannerToolDefinitions(['record_review']);
+  const description = recordReview?.function.description ?? '';
+  assert.ok(description.includes('the snippet one line copied exactly as read shows it'), description);
+  assert.ok(description.includes('a command that passed ({command}: a check of the attempt, or your run_check since the report)'), description);
+  assert.ok(description.includes('A pass completes the task and carries no findings'), description);
+});
+
 test('TOOL_DEFINITIONS keeps the text-only read description', () => {
   assert.equal(readDescription(TOOL_DEFINITIONS), TEXT_ONLY_READ_DESCRIPTION);
 });
