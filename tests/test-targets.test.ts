@@ -25,6 +25,11 @@ test('resolveTestTargets preserves explicit test paths', () => {
   assert.deepEqual(resolveTestTargets(process.cwd(), ['.\\tests\\mock-repo-search-loop.test.ts']), [target('mock-repo-search-loop.test.ts')]);
 });
 
+test('runner options come before every target, since node ignores options that follow a test file', () => {
+  assert.deepEqual(resolveTestTargets(process.cwd(), ['mock-repo-search-loop.test.ts', '--test-name-pattern', 'auto-accepts', '--test-reporter=spec']),
+    ['--test-name-pattern', 'auto-accepts', '--test-reporter=spec', target('mock-repo-search-loop.test.ts')]);
+});
+
 test('resolveTestTargets preserves option values while still resolving later positional targets', () => {
   const resolved = resolveTestTargets(process.cwd(), ['--test-name-pattern', 'runTaskLoop auto-accepts', 'mock-repo-search-loop.test.ts']);
   assert.deepEqual(resolved, ['--test-name-pattern', 'runTaskLoop auto-accepts', target('mock-repo-search-loop.test.ts')]);
@@ -70,6 +75,21 @@ test('process option resolves every tests/process test and is not forwarded to n
   assert.equal(args.includes(target('process', 'run-tests-watchdog.test.ts')), true);
   assert.equal(args.includes(target('config.test.ts')), false);
   assert.equal(args.includes('--process'), false);
+});
+
+test('a suite option with name filters runs only that suite\'s matching files, not the whole suite', () => {
+  const processRepoTools = [target('process', 'repo-tools.test.ts')];
+  assert.deepEqual(resolveTestTargets(process.cwd(), ['--process', 'repo-tools']), processRepoTools);
+  assert.deepEqual(resolveTestTargets(process.cwd(), ['repo-tools', '--process']), processRepoTools);
+  assert.deepEqual(resolveTestTargets(process.cwd(), ['--process', 'tests/process/repo-tools.test.ts']), processRepoTools);
+  assert.deepEqual(
+    resolveTestTargets(process.cwd(), ['--process', 'orchestrator-run.e2e', '--test-name-pattern', 'CLI starts a run']),
+    ['--test-name-pattern', 'CLI starts a run', target('process', 'orchestrator-run.e2e.test.ts')],
+  );
+  const scoped = resolveTestTargets(process.cwd(), ['--process', 'orchestrator']);
+  assert.ok(scoped.length > 0 && scoped.every((entry) => entry.startsWith(target('process', 'orchestrator'))), scoped.join('\n'));
+  assert.throws(() => resolveTestTargets(process.cwd(), ['--process', 'cli starts a run']), /No process test file matches cli starts a run\./u);
+  assert.throws(() => resolveTestTargets(process.cwd(), ['--process', 'tests/repo-tools.test.ts']), /No process test file matches tests\/repo-tools\.test\.ts\./u);
 });
 
 test('default runs exclude the opt-in process suite', () => {

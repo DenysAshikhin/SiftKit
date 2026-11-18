@@ -47,25 +47,49 @@ function sortedTargets(entries: TestEntry[]): string[] {
   return entries.map((entry) => toPlatformPath(entry.source)).sort((left, right) => left.localeCompare(right));
 }
 
-function resolveSingleTestTarget(tests: TestEntry[], rawValue: string): string[] {
+/** `scopeLabel` names the suites a filter was limited to, so a miss says where it looked. */
+function resolveSingleTestTarget(tests: TestEntry[], rawValue: string, scopeLabel: string): string[] {
   if (!rawValue) {
     throw new Error('A test target cannot be empty.');
   }
+  const noMatch = new Error(`No ${scopeLabel}test file matches ${rawValue}.`);
   if (hasPathSeparator(rawValue)) {
     const sourcePath = path.normalize(rawValue).split(path.sep).join('/').replace(/^\.\//u, '');
     const matched = tests.find((entry) => entry.source === sourcePath);
     if (matched) {
       return [toPlatformPath(matched.source)];
     }
-    throw new Error(`No test file matches ${rawValue}.`);
+    throw noMatch;
   }
   // A basename can exist in more than one suite; an exact name selects every such file.
   const exactTargets = tests.filter((entry) => path.posix.basename(entry.source) === rawValue);
   const matchingTargets = exactTargets.length > 0 ? exactTargets : tests.filter((entry) => path.posix.basename(entry.source).includes(rawValue));
   if (matchingTargets.length === 0) {
-    throw new Error(`No test file matches ${rawValue}.`);
+    throw noMatch;
   }
   return sortedTargets(matchingTargets);
+}
+
+type ClassifiedArgument = { kind: 'pass'; arg: string } | { kind: 'suite'; suite: TestSuite } | { kind: 'target'; arg: string };
+
+function classifyArguments(rawArgs: string[]): ClassifiedArgument[] {
+  const classified: ClassifiedArgument[] = [];
+  let nextArgumentIsOptionValue = false;
+  for (const rawArg of rawArgs) {
+    if (rawArg === DASHBOARD_OPTION) {
+      throw new Error('Dashboard tests run on Vitest: npm run test:dashboard');
+    }
+    const suite = nextArgumentIsOptionValue ? undefined : SUITE_OPTIONS.get(rawArg);
+    if (suite) {
+      classified.push({ kind: 'suite', suite });
+    } else if (nextArgumentIsOptionValue || rawArg.startsWith('-')) {
+      classified.push({ kind: 'pass', arg: rawArg });
+    } else {
+      classified.push({ kind: 'target', arg: rawArg });
+    }
+    nextArgumentIsOptionValue = !nextArgumentIsOptionValue && TEST_RUNNER_OPTIONS_WITH_VALUES.has(rawArg);
+  }
+  return classified;
 }
 
 function getDefaultTestTargets(tests: TestEntry[]): string[] {
@@ -74,40 +98,21 @@ function getDefaultTestTargets(tests: TestEntry[]): string[] {
 
 function resolveTestArguments(repoRoot: string, rawArgs: string[]) {
   const tests = listTestEntries(repoRoot);
-  const resolvedArgs: string[] = [];
-  let targetCount = 0;
-  let nextArgumentIsOptionValue = false;
-  for (const rawArg of rawArgs) {
-    if (rawArg === DASHBOARD_OPTION) {
-      throw new Error('Dashboard tests run on Vitest: npm run test:dashboard');
-    }
-    if (nextArgumentIsOptionValue) {
-      resolvedArgs.push(rawArg);
-      nextArgumentIsOptionValue = false;
-      continue;
-    }
-    if (TEST_RUNNER_OPTIONS_WITH_VALUES.has(rawArg)) {
-      resolvedArgs.push(rawArg);
-      nextArgumentIsOptionValue = true;
-      continue;
-    }
-    const suite = SUITE_OPTIONS.get(rawArg);
-    if (suite) {
-      const suiteTargets = sortedTargets(tests.filter((entry) => entry.suite === suite));
-      resolvedArgs.push(...suiteTargets);
-      targetCount += suiteTargets.length;
-      continue;
-    }
-    if (rawArg.startsWith('-')) {
-      resolvedArgs.push(rawArg);
-      continue;
-    }
-    const targets = resolveSingleTestTarget(tests, rawArg);
-    resolvedArgs.push(...targets);
-    targetCount += targets.length;
-  }
+  const classified = classifyArguments(rawArgs);
+  const suites = new Set(classified.flatMap((entry) => (entry.kind === 'suite' ? [entry.suite] : [])));
+  const hasNamedTargets = classified.some((entry) => entry.kind === 'target');
+  // A suite option alone runs the whole suite; with name filters it limits them to that suite.
+  const scope = suites.size === 0 ? tests : tests.filter((entry) => suites.has(entry.suite));
+  const scopeLabel = suites.size === 0 ? '' : `${[...suites].join(' or ')} `;
+  // Node ignores runner options that follow a test file, so every option goes before the targets.
+  const runnerArgs = classified.flatMap((entry) => (entry.kind === 'pass' ? [entry.arg] : []));
+  const targets = classified.flatMap((entry) => {
+    if (entry.kind === 'pass') return [];
+    if (entry.kind === 'target') return resolveSingleTestTarget(scope, entry.arg, scopeLabel);
+    return hasNamedTargets ? [] : sortedTargets(tests.filter((test) => test.suite === entry.suite));
+  });
   const serialTargets = new Set(sortedTargets(tests.filter((entry) => entry.suite === SERIAL_SUITE)));
-  return { args: resolvedArgs, targetCount, tests, serial: resolvedArgs.some((arg) => serialTargets.has(arg)) };
+  return { args: [...runnerArgs, ...targets], targetCount: targets.length, tests, serial: targets.some((arg) => serialTargets.has(arg)) };
 }
 
 export function resolveTestTargets(repoRoot: string, rawArgs: string[]): string[] {
