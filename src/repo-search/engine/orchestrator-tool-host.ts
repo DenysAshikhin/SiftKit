@@ -8,4 +8,6 @@ export interface OrchestratorToolHost {
   execute(call: OrchestratorToolCall): Promise<OrchestratorToolOutcome>;
   /** The run's state as text: what replaces the parent's transcript when it outgrows the context. */
   contextDigest(): string;
+  /** Whether save_plan has stored a plan; until then the digest holds nothing exploration found. */
+  planSaved(): boolean;
 }

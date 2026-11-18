@@ -35,6 +35,10 @@ class RecordingHost implements OrchestratorToolHost {
   contextDigest(): string {
     return `RUN STATE after ${this.calls.length} host calls`;
   }
+
+  planSaved(): boolean {
+    return this.calls.some((call) => call.toolName === 'save_plan');
+  }
 }
 
 function run(host: OrchestratorToolHost, mockResponses: Parameters<typeof runTaskLoop>[1]['mockResponses']) {
@@ -82,7 +86,9 @@ test('a repeated orchestrator call reaches the host each time, because its answe
 });
 
 test('a host failure ends the run instead of reaching the model', async () => {
-  const host: OrchestratorToolHost = { execute: () => Promise.reject(new Error('repository gate lost')), contextDigest: () => '' };
+  const host: OrchestratorToolHost = {
+    execute: () => Promise.reject(new Error('repository gate lost')), contextDigest: () => '', planSaved: () => false,
+  };
   await assert.rejects(run(host, [{ toolCalls: [{ name: 'dispatch', arguments: DISPATCH }] }, { content: 'done' }]), /repository gate lost/u);
 });
 
@@ -108,6 +114,31 @@ test('an overflowing orchestrator transcript is rebuilt from the host digest wit
   assert.match(firstRequest, /RUN STATE after 0 host calls/u);
   assert.match(firstRequest, /Orchestrate the greeting\./u);
   assert.doesNotMatch(firstRequest, /HHHH/u);
+});
+
+// Real case (run 83af8466): the orchestrator explored to its compaction limit with no plan saved, so the
+// run-state rebuild had nothing to keep and 62 turns of exploration were lost.
+test('an orchestrator with no plan past three quarters of its context may only save its plan, then explores again', async () => {
+  const host = new RecordingHost(() => ({ ok: true, output: 'Plan saved.' }));
+  const [savePlan] = resolveRepoSearchPlannerToolDefinitions(['save_plan']);
+  if (savePlan === undefined) assert.fail('save_plan has no definition.');
+  const loggedEvents: JsonObject[] = [];
+  const read = { toolCalls: [{ name: 'read', arguments: { path: 'README.md' } }] };
+  await runTaskLoop({ id: 'orchestrator', question: 'Orchestrate the greeting.' }, {
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION, ...MOCK_LOOP_DEFAULTS, plannerToolDefinitions: TOOLS,
+    runtimeProfile: new RepoSearchRuntimeProfile('orchestrator'), maxTurns: 5, minToolCallsBeforeFinish: 0,
+    // 312k characters is about 78k tokens: past the 75k deadline of a 100k window, short of its compaction point.
+    totalContextTokens: 100_000, historyMessages: [{ role: 'assistant', content: 'H'.repeat(312_000) }],
+    mockCommandResults: {}, orchestratorTools: host,
+    mockResponses: [read, { toolCalls: [{ name: 'save_plan', arguments: savePlan.exampleArgs }] }, read, { content: 'done' }, { content: 'done' }],
+    logger: { path: 'memory', write(event: Record<string, JsonSerializable>) { loggedEvents.push(parseLoggedEvent(event)); } },
+  });
+  assert.equal(loggedEvents.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 0);
+  assert.deepEqual(host.calls.map((call) => call.toolName), ['save_plan']);
+  const reads = loggedEvents.filter((event) => event.kind === 'turn_command_result' && event.toolName === 'read');
+  assert.equal(reads.length, 2);
+  assert.match(String(reads[0]?.rejectionReason), /^Plan deadline: the prompt is [\d,]+ of 100,000 context tokens and no plan is saved\./u);
+  assert.doesNotMatch(String(reads[1]?.rejectionReason), /Plan deadline/u, 'once the plan is saved, exploring is allowed again');
 });
 
 test('only a run with a host is offered the orchestrator tools', () => {

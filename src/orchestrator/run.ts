@@ -428,6 +428,10 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     });
   }
 
+  planSaved(): boolean {
+    return this.state.plan !== null;
+  }
+
   private refuse(problems: readonly string[]): OrchestratorToolOutcome {
     return { ok: false, output: ['Not done:', ...problems.map((problem) => `- ${problem}`)].join('\n') };
   }

@@ -89,6 +89,7 @@ class LazyConversation {
         return outcome;
       },
       contextDigest: () => host.contextDigest(),
+      planSaved: () => host.planSaved(),
     };
   }
 

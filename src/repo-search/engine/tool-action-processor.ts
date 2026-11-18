@@ -60,6 +60,7 @@ import { ToolStatsRecorder } from './tool-stats.ts';
 import { TranscriptManager } from './transcript-manager.ts';
 import { TurnBudget, type AvailableToolResultCapacity } from './turn-budget.ts';
 import { requestsFullOutput } from './validation-command-output-policy.ts';
+import { formatInteger } from '../../lib/text-format.ts';
 import {
   RepoNativeToolCallSchema,
   isOrchestratorToolCall,
@@ -382,6 +383,22 @@ export class ToolActionProcessor {
       return 'next';
     }
 
+    const planDeadline = this.findPlanDeadline(normalizedToolName, promptTokenCount);
+    if (planDeadline !== null) {
+      counters.rejectedCalls += 1;
+      this.recordRejectedToolCall(turn, state, {
+        progressToolCallId,
+        toolName: normalizedToolName,
+        rawArgs: toolAction.args,
+        recordedCommand: command,
+        transcriptCommand: command,
+        reason: planDeadline,
+        rejectionKind: 'budget',
+        keepArgs: false,
+      });
+      return 'next';
+    }
+
     // Capacity is settled before anything observes the request: the full-output gate,
     // duplicate screening, approval and execution all assume the result can be inserted.
     const capacity = this.deps.budget.resolveToolResultCapacity({
@@ -519,6 +536,16 @@ export class ToolActionProcessor {
     const nativeCall = nativeCallResult.data;
     const command = buildNativeToolRequestedCommand(nativeCall);
     return { normalizedToolName, nativeCall, activity: getToolActivity(nativeCall), command };
+  }
+
+  /** Why an orchestrator past its plan deadline may not run this tool: only save_plan is accepted until a plan exists. */
+  private findPlanDeadline(toolName: string, promptTokenCount: number): string | null {
+    const host = this.deps.orchestratorTools;
+    const { budget } = this.deps;
+    if (host === null || toolName === 'save_plan' || promptTokenCount < budget.planDeadlineTokens || host.planSaved()) return null;
+    return `Plan deadline: the prompt is ${formatInteger(promptTokenCount)} of ${formatInteger(budget.totalContextTokens)} context tokens `
+      + 'and no plan is saved. Exploring has stopped, because compacting before a plan exists would drop everything you found: '
+      + 'call save_plan now with what you know, then refine it with update_tasks.';
   }
 
   private beginRun(nativeCall: RepoNativeToolCall | null): RunOutputDecision | null {

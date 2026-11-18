@@ -19,6 +19,10 @@ export const OUTPUT_TAIL_CAP_TOKENS = 1_024;
 // run fails loudly instead of emitting a stub that silently loses the conversation.
 export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 
+// An orchestrator's compaction keeps only its run state, so past this share of its window with no plan
+// saved it may only call save_plan: 150k of 200k leaves room to write the plan before compaction.
+const ORCHESTRATOR_PLAN_DEADLINE_SHARE = 0.75;
+
 /**
  * Splits a compaction generation ceiling into a thinking cap and an output share.
  * The output share is a floor internal to the response reserve, not a cap: it
@@ -68,6 +72,10 @@ export class TurnBudget {
     this.compactionReserveTokens = context.compactionReserveTokens;
     this.maxPromptTokens = context.maxPromptTokens;
     this.maxTurns = Math.max(1, options.maxTurns);
+  }
+
+  get planDeadlineTokens(): number {
+    return Math.floor(this.totalContextTokens * ORCHESTRATOR_PLAN_DEADLINE_SHARE);
   }
 
   perToolCapTokens(completedCommandCount: number, batchCommandCount: number): number {
