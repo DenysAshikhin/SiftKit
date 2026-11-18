@@ -28,6 +28,9 @@ export const SIFT_DEFAULT_NUM_CTX = 128_000;
 export const SIFT_DEFAULT_STATUS_PORT = 4765;
 /** Port the managed TabbyAPI listens on; the test runner guards it against live-instance access. */
 export const SIFT_DEFAULT_ENGINE_PORT = 8098;
+/** This machine's TabbyAPI checkout and exl3 runtime; the test runner forbids starting either. */
+export const SIFT_DEFAULT_EXL3_WORKING_DIRECTORY = 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI';
+export const SIFT_DEFAULT_EXL3_PYTHON_PATH = 'C:\\AI\\exl3\\prod-20260924\\venv-runtime\\Scripts\\python.exe';
 export const SIFT_DEFAULT_ENGINE_BASE_URL = `http://127.0.0.1:${SIFT_DEFAULT_ENGINE_PORT}`;
 /** Prompt ingestion chunk size (TabbyAPI `chunk_size`). */
 export const SIFT_DEFAULT_ENGINE_UBATCH_SIZE = 512;

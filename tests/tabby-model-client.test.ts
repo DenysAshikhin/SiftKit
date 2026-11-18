@@ -8,6 +8,9 @@ import { getAddressInfo } from './helpers/dashboard-http.ts';
 import { FakeTabbyModelState } from './helpers/tabby-fake.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
+// The fake servers answer at once; the budget only has to outlast a loaded, concurrent suite run.
+const LOCAL_SERVER_TIMEOUT_MS = 30_000;
+
 test('Tabby model client loads and unloads through validated lifecycle packets', async () => {
   const model = new FakeTabbyModelState();
   const loadBodies: JsonValue[] = [];
@@ -48,15 +51,15 @@ test('Tabby model client loads and unloads through validated lifecycle packets',
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   const client = new TabbyModelClient('admin-secret');
   try {
-    assert.equal(await client.isProcessReady(baseUrl, 1_000), true);
+    assert.equal(await client.isProcessReady(baseUrl, LOCAL_SERVER_TIMEOUT_MS), true);
     await client.load(baseUrl, {
       model_name: 'model-a',
       max_seq_len: 8192,
       cache_size: 8192,
       cache_mode: 'FP16',
       chunk_size: 512,
-    }, 1_000);
-    assert.deepEqual(await client.getResidentModel(baseUrl, 1_000), {
+    }, LOCAL_SERVER_TIMEOUT_MS);
+    assert.deepEqual(await client.getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS), {
       id: 'model-a',
       parameters: { max_seq_len: 8192, cache_size: 8192, chunk_size: 512 },
     });
@@ -67,8 +70,8 @@ test('Tabby model client loads and unloads through validated lifecycle packets',
       cache_mode: 'FP16',
       chunk_size: 512,
     }]);
-    await client.unload(baseUrl, 1_000);
-    assert.equal(await client.getResidentModel(baseUrl, 1_000), null);
+    await client.unload(baseUrl, LOCAL_SERVER_TIMEOUT_MS);
+    assert.equal(await client.getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS), null);
     assert.ok(authorizations.length > 0);
     assert.ok(authorizations.every((authorization) => authorization === 'Bearer admin-secret'));
   } finally {
@@ -92,8 +95,8 @@ test('Tabby model client omits authorization when no admin key is configured', a
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   const client = new TabbyModelClient('');
   try {
-    assert.equal(await client.isProcessReady(baseUrl, 1_000), true);
-    assert.equal(await client.getResidentModel(baseUrl, 1_000), null);
+    assert.equal(await client.isProcessReady(baseUrl, LOCAL_SERVER_TIMEOUT_MS), true);
+    assert.equal(await client.getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS), null);
     assert.deepEqual(authorizations, [null, null]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -125,11 +128,11 @@ test('Tabby model client propagates operation-specific authorization failures', 
   const client = new TabbyModelClient('admin-secret');
   try {
     await assert.rejects(
-      client.isProcessReady(baseUrl, 1_000),
+      client.isProcessReady(baseUrl, LOCAL_SERVER_TIMEOUT_MS),
       /Tabby process readiness probe failed with HTTP 401: readiness denied/u,
     );
     await assert.rejects(
-      client.getResidentModel(baseUrl, 1_000),
+      client.getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS),
       /Tabby current-model probe failed with HTTP 403: probe denied/u,
     );
     await assert.rejects(
@@ -139,11 +142,11 @@ test('Tabby model client propagates operation-specific authorization failures', 
         cache_size: 8192,
         cache_mode: 'FP16',
         chunk_size: 512,
-      }, 1_000),
+      }, LOCAL_SERVER_TIMEOUT_MS),
       /Tabby model load failed with HTTP 401: load denied/u,
     );
     await assert.rejects(
-      client.unload(baseUrl, 1_000),
+      client.unload(baseUrl, LOCAL_SERVER_TIMEOUT_MS),
       /Tabby model unload failed with HTTP 403: unload denied/u,
     );
   } finally {
@@ -174,7 +177,7 @@ test('Tabby model client rejects successful load when the model is not resident'
       cache_size: 8192,
       cache_mode: 'FP16',
       chunk_size: 512,
-    }, 1_000), /model 'model-a' is not resident \(resident=none\)/u);
+    }, LOCAL_SERVER_TIMEOUT_MS), /model 'model-a' is not resident \(resident=none\)/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -202,11 +205,11 @@ test('Tabby model client rejects a resident model whose applied parameters diver
   };
   try {
     await assert.rejects(
-      new TabbyModelClient('').load(baseUrl, request, 1_000),
+      new TabbyModelClient('').load(baseUrl, request, LOCAL_SERVER_TIMEOUT_MS),
       /max_seq_len expected 150000 but Tabby applied 84992.*cache_size expected 150016 but Tabby applied 84992/su,
     );
     await assert.rejects(
-      new TabbyModelClient('').verifyResident(baseUrl, request, 1_000),
+      new TabbyModelClient('').verifyResident(baseUrl, request, LOCAL_SERVER_TIMEOUT_MS),
       /max_seq_len expected 150000 but Tabby applied 84992/u,
     );
   } finally {
@@ -229,7 +232,7 @@ test('Tabby model client rejects a resident model that reports no applied parame
         cache_size: 8192,
         cache_mode: 'FP16',
         chunk_size: 512,
-      }, 1_000),
+      }, LOCAL_SERVER_TIMEOUT_MS),
       /reports no applied parameters/u,
     );
   } finally {
@@ -246,7 +249,7 @@ test('Tabby model client rejects a malformed upstream model response', async () 
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   try {
     await assert.rejects(
-      new TabbyModelClient('').getResidentModel(baseUrl, 1_000),
+      new TabbyModelClient('').getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS),
       /Invalid input|expected string/u,
     );
   } finally {
@@ -268,7 +271,7 @@ test('Tabby model client rejects successful unload when a model remains resident
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   try {
     await assert.rejects(
-      new TabbyModelClient('').unload(baseUrl, 1_000),
+      new TabbyModelClient('').unload(baseUrl, LOCAL_SERVER_TIMEOUT_MS),
       /unload completed but 'model-a' is still resident/u,
     );
   } finally {
@@ -295,7 +298,7 @@ test('Tabby model client rejects a load stream without terminal completion', asy
       cache_size: 8192,
       cache_mode: 'FP16',
       chunk_size: 512,
-    }, 1_000), /without a terminal finished event/u);
+    }, LOCAL_SERVER_TIMEOUT_MS), /without a terminal finished event/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

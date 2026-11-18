@@ -97,17 +97,6 @@ test('managed engine readiness cleanup releases its worker and every failed engi
   const childEnv = toStringRecord(process.env);
   delete childEnv.NODE_TEST_CONTEXT;
   childEnv.SIFTKIT_FAKE_MANAGED_PID_HISTORY_PATH = pidHistoryPath;
-  const failedTaskkillPreload = `data:text/javascript,${encodeURIComponent([
-    "import { createRequire, syncBuiltinESMExports } from 'node:module';",
-    "const require = createRequire(process.cwd() + '/package.json');",
-    "const childProcess = require('node:child_process');",
-    'const originalSpawnSync = childProcess.spawnSync;',
-    "childProcess.spawnSync = (file, args, options) => String(file).toLowerCase() === 'taskkill'",
-    "  ? { status: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), pid: 0, signal: null, output: [] }",
-    '  : originalSpawnSync(file, args, options);',
-    'syncBuiltinESMExports();',
-  ].join('\n'))}`;
-  childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS ?? ''} --import=${failedTaskkillPreload}`.trim();
   const result = await spawnDirectCommand(
     process.execPath,
     [

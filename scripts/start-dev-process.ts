@@ -1,7 +1,8 @@
-import { spawnSync, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 
 import { raiseProcessTreePriority } from '../src/lib/process-priority.ts';
+import { terminateProcessTree, type TerminateProcessTreeOptions } from '../src/lib/process-tree.ts';
 import { SHUTDOWN_FORCED_EXIT_TIMEOUT_MS } from '../src/status-server/shutdown-budget.ts';
 import { SHUTDOWN_MESSAGE } from '../src/status-server/shutdown-message.ts';
 
@@ -14,13 +15,6 @@ type KillableChild = {
   kill(signal?: NodeJS.Signals | number): boolean;
 };
 
-type StopChildProcessTreeOptions = {
-  platform?: NodeJS.Platform;
-  // Only the taskkill invocation's `.status` is read, so accept any spawnSync-shaped impl
-  // (the real spawnSync and narrow test stubs both satisfy this).
-  spawnSync?: (command: string, args: string[], options: { stdio: 'ignore'; windowsHide: boolean }) => { status: number | null };
-};
-
 /** Raises a started child and the processes it started so far to High, reporting what it could not raise. */
 export function raiseChildTreePriority(child: ChildProcess, name: string): void {
   if (child.pid === undefined) return;
@@ -28,27 +22,16 @@ export function raiseChildTreePriority(child: ChildProcess, name: string): void 
   if (problem !== null) process.stderr.write(`[start-dev] ${name}: ${problem}\n`);
 }
 
+/** Windows kills the child's verified process tree; elsewhere the child gets SIGINT and stops its own. */
 export function stopChildProcessTree(
   child: KillableChild | null,
-  options: StopChildProcessTreeOptions = {},
+  options: TerminateProcessTreeOptions = {},
 ): boolean {
   if (!child || child.killed) {
     return false;
   }
-  const platform = options.platform || process.platform;
-  const spawnSyncImpl = options.spawnSync || spawnSync;
-  if (platform === 'win32' && Number.isFinite(Number(child.pid)) && Number(child.pid) > 0) {
-    try {
-      const result = spawnSyncImpl('taskkill', ['/PID', String(Math.trunc(Number(child.pid))), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      if ((result.status ?? 1) === 0) {
-        return true;
-      }
-    } catch {
-      // Fall back to direct signal below.
-    }
+  if ((options.processObject ?? process).platform === 'win32' && child.pid !== undefined) {
+    return terminateProcessTree(child.pid, options);
   }
   try {
     return child.kill('SIGINT');

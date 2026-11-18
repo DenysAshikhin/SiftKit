@@ -8,7 +8,12 @@ import { pathToFileURL } from 'node:url';
 
 import { z } from 'zod';
 
-import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.ts';
+import {
+  SIFT_DEFAULT_ENGINE_PORT,
+  SIFT_DEFAULT_EXL3_PYTHON_PATH,
+  SIFT_DEFAULT_EXL3_WORKING_DIRECTORY,
+  SIFT_DEFAULT_STATUS_PORT,
+} from '../../src/config/constants.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 // The guard's only job is to fail loudly, so its own failure mode is silence: if the
@@ -50,6 +55,7 @@ function buildChildEnv(options: ChildEnvOptions): NodeJS.ProcessEnv {
     NODE_OPTIONS: `--import ${guardUrl}`,
     SIFTKIT_GUARD_STATUS_PORT: String(options.statusPort ?? SIFT_DEFAULT_STATUS_PORT),
     SIFTKIT_GUARD_ENGINE_PORT: String(SIFT_DEFAULT_ENGINE_PORT),
+    SIFTKIT_GUARD_ENGINE_PATHS: [SIFT_DEFAULT_EXL3_PYTHON_PATH, SIFT_DEFAULT_EXL3_WORKING_DIRECTORY].join(path.delimiter),
   };
   if (options.omitStatusPort) {
     delete childEnv.SIFTKIT_GUARD_STATUS_PORT;
@@ -227,6 +233,28 @@ test('guard passes through a request with no target and reports no violation', (
   assert.doesNotMatch(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });
 
+test('guard fails a request to a host outside this machine despite a swallowed throw', () => {
+  // .invalid never resolves, so an unguarded run reaches nothing either.
+  const result = runGuardedChild(
+    "await fetch('https://siftkit-guard-probe.invalid/v1').catch(() => {});",
+    { preloadGuard: true },
+  );
+
+  assertChildFinished(result);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /external host siftkit-guard-probe\.invalid/u);
+});
+
+test('guard leaves localhost requests alone', () => {
+  const result = runGuardedChild(
+    "await fetch('http://localhost:1/health').catch(() => {});",
+    { preloadGuard: true },
+  );
+
+  assertChildFinished(result);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('guard refuses to load unguarded when the port env is missing', () => {
   const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT, 'http'), {
     preloadGuard: true,
@@ -295,6 +323,34 @@ test('a perf-suite test file may start child processes too', () => {
   assertChildFinished(result);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'perf-ok');
+});
+
+// --version starts and exits at once, so an unguarded run starts nothing that outlives the probe.
+function buildSwallowedEngineSpawnSource(file: string, cwd: string | null): string {
+  return [
+    "import { spawnSync } from 'node:child_process';",
+    `try { spawnSync(${JSON.stringify(file)}, ['--version'], ${cwd === null ? '{}' : `{ cwd: ${JSON.stringify(cwd)} }`}); } catch {}`,
+  ].join('\n');
+}
+
+test('no test process may start the real engine, even one allowed to spawn', () => {
+  for (const [file, cwd] of [[SIFT_DEFAULT_EXL3_PYTHON_PATH, null], [process.execPath, SIFT_DEFAULT_EXL3_WORKING_DIRECTORY]] as const) {
+    const result = runGuardedChild(buildSwallowedEngineSpawnSource(file, cwd), {
+      preloadGuard: true, testContext: 'default-suite', suiteDirectory: 'process',
+    });
+
+    assertChildFinished(result);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /REAL ENGINE STARTED/u);
+  }
+});
+
+test('the suite guards the default engine paths for every child it spawns', () => {
+  const result = runGuardedChild(buildSwallowedEngineSpawnSource(SIFT_DEFAULT_EXL3_PYTHON_PATH, null));
+
+  assertChildFinished(result);
+  assert.equal(result.status, 1, 'A child of the suite started the real engine; check SIFTKIT_GUARD_ENGINE_PATHS in buildGuardEnv.');
+  assert.match(result.stderr, /REAL ENGINE STARTED/u);
 });
 
 // Hermetic files keep runtime databases in memory; process-suite files share real files with their children.

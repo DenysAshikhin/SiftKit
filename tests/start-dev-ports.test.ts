@@ -8,6 +8,7 @@ import { isBackendReadyStatusCode } from '../scripts/start-dev-health.ts';
 import { buildStartupPortChecks, getStatusServerPort, waitForPortListening } from '../scripts/start-dev-ports.ts';
 import { stopChildProcessTree } from '../scripts/start-dev-process.ts';
 import { readPackageJson } from './helpers/package-json.ts';
+import { makeProcessObject, makeSpawnSyncImpl, STALE_PARENT_SNAPSHOT } from './helpers/process-tree-stubs.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 test('start-dev preflights both status and dashboard ports before spawning services', () => {
@@ -48,33 +49,27 @@ test('start-dev waits for successful backend health, not degraded startup health
   assert.equal(isBackendReadyStatusCode(503), false);
 });
 
-test('start-dev shutdown kills child process trees on Windows', () => {
-  const spawnCalls: Array<{ command: string; args: string[] }> = [];
-  let fallbackKillCalled = false;
+test('start-dev shutdown kills child process trees on Windows, skipping stale-parent processes', () => {
+  const killedPids: number[] = [];
+  let childKillCalled = false;
   const stopped = stopChildProcessTree(
     {
       pid: 1234,
       killed: false,
       kill() {
-        fallbackKillCalled = true;
+        childKillCalled = true;
         return true;
       },
     },
     {
-      platform: 'win32',
-      spawnSync(command: string, args: string[]) {
-        spawnCalls.push({ command, args });
-        return { status: 0 };
-      },
+      processObject: makeProcessObject('win32', (pid) => { killedPids.push(pid); }),
+      spawnSyncImpl: makeSpawnSyncImpl(() => ({ status: 0, stdout: STALE_PARENT_SNAPSHOT })),
     },
   );
 
   assert.equal(stopped, true);
-  assert.deepEqual(spawnCalls, [{
-    command: 'taskkill',
-    args: ['/PID', '1234', '/T', '/F'],
-  }]);
-  assert.equal(fallbackKillCalled, false);
+  assert.deepEqual(killedPids, [1400, 1300, 1234]);
+  assert.equal(childKillCalled, false);
 });
 
 test('stable status script starts the full stable dev stack', () => {

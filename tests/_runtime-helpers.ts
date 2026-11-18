@@ -1383,7 +1383,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
   ]).catch(async (error) => {
     if (child.exitCode === null && !child.killed) {
       if (process.platform === 'win32' && child.pid) {
-        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+        terminateProcessTree(child.pid);
       } else {
         child.kill('SIGTERM');
       }
@@ -1450,7 +1450,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
         return;
       }
       if (child.exitCode === null && !child.killed && process.platform === 'win32' && child.pid) {
-        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+        terminateProcessTree(child.pid);
       } else if (child.exitCode === null && !child.killed) {
         child.kill('SIGTERM');
       }

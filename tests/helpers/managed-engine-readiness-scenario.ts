@@ -42,7 +42,7 @@ export function writeManagedEngineReadinessTestConfig(
     HealthcheckIntervalMs: 20,
   }];
   server.ModelPresets.ActivePresetId = 'default';
-  // A short shutdown budget keeps the failed-launch cleanup path fast when taskkill is denied.
+  // A short shutdown budget keeps the failed-launch cleanup path fast.
   server.Engines.Exl3 = { ...managed.engine, ShutdownTimeoutMs: 1_000 };
   writeConfig(getConfigPath(), config);
 }

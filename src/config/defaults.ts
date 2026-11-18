@@ -2,6 +2,8 @@ import {
   SIFTKIT_VERSION,
   SIFT_DEFAULT_ENGINE_BASE_URL,
   SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM,
+  SIFT_DEFAULT_EXL3_PYTHON_PATH,
+  SIFT_DEFAULT_EXL3_WORKING_DIRECTORY,
   SIFT_DEFAULT_CACHE_AUTO,
   SIFT_DEFAULT_CACHE_CONTEXTS,
   SIFT_DEFAULT_EXL3_DISK_CACHE_SIZE_MIB,
@@ -153,8 +155,8 @@ export function getDefaultConfigObject(): SiftConfig {
       Engines: {
         Exl3: {
           Managed: true,
-          WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
-          PythonPath: 'C:\\AI\\exl3\\prod-20260924\\venv-runtime\\Scripts\\python.exe',
+          WorkingDirectory: SIFT_DEFAULT_EXL3_WORKING_DIRECTORY,
+          PythonPath: SIFT_DEFAULT_EXL3_PYTHON_PATH,
           Entrypoint: 'main.py',
           ModelRoot: 'D:\\personal\\models\\elx3',
           AdminApiKey: '',

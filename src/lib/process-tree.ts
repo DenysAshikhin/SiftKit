@@ -6,8 +6,9 @@
  * capturing output waits forever on a `'close'` that cannot arrive. Killing the tree is the only
  * termination that actually ends a command.
  *
- * `taskkill /T /F` is the primary Windows path. When it is denied, a bounded Toolhelp32 snapshot
- * supplies the descendant graph so every descendant is terminated deepest-first before the root.
+ * On Windows a bounded Toolhelp32 snapshot supplies the descendant graph, and every descendant is
+ * terminated deepest-first before the root. Windows never clears a dead parent's id and reuses ids,
+ * so a child counts only when it started after its parent; `taskkill /T` skips that check.
  */
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
@@ -19,6 +20,8 @@ const ProcessErrorSchema = z.object({ code: z.string() });
 const WindowsProcessEntrySchema = z.object({
   ProcessId: z.number().int().positive(),
   ParentProcessId: z.number().int().nonnegative(),
+  // Milliseconds since 1601; null when the process cannot be opened to read it.
+  CreatedMs: z.number().int().nonnegative().nullable(),
 });
 const WindowsProcessSnapshotSchema = z.array(WindowsProcessEntrySchema);
 
@@ -31,25 +34,27 @@ export type TerminateProcessTreeOptions = {
 
 /**
  * Orders the descendants reachable from `rootPid` deepest-first (each child after its own
- * descendants). `rootPid` itself is never included, entries outside the root's descendant graph
- * are never traversed, and the visited set makes parent/child cycles terminate.
+ * descendants). `rootPid` itself is never included, and a child counts only when both creation
+ * times are known and it started no earlier than its parent, which excludes stale parent ids.
  */
 export function orderDescendantProcessIds(rootPid: number, entries: readonly WindowsProcessEntry[]): number[] {
-  const childrenByParent = new Map<number, number[]>();
+  const createdMsByPid = new Map(entries.map((entry) => [entry.ProcessId, entry.CreatedMs]));
+  const childrenByParent = new Map<number, WindowsProcessEntry[]>();
   for (const entry of entries) {
     const children = childrenByParent.get(entry.ParentProcessId) ?? [];
-    children.push(entry.ProcessId);
+    children.push(entry);
     childrenByParent.set(entry.ParentProcessId, children);
   }
   const ordered: number[] = [];
   const visited = new Set<number>([rootPid]);
   const visit = (pid: number): void => {
-    for (const childPid of childrenByParent.get(pid) ?? []) {
-      if (!visited.has(childPid)) {
-        visited.add(childPid);
-        visit(childPid);
-        ordered.push(childPid);
-      }
+    const parentCreatedMs = createdMsByPid.get(pid) ?? null;
+    if (parentCreatedMs === null) return;
+    for (const child of childrenByParent.get(pid) ?? []) {
+      if (child.CreatedMs === null || child.CreatedMs < parentCreatedMs || visited.has(child.ProcessId)) continue;
+      visited.add(child.ProcessId);
+      visit(child.ProcessId);
+      ordered.push(child.ProcessId);
     }
   };
   visit(rootPid);
@@ -82,7 +87,7 @@ export function isProcessAlive(
 const TOOLHELP_SNAPSHOT_TIMEOUT_MS = 5_000;
 
 /**
- * Bounded Toolhelp32 snapshot helper: enumerates every process as `{ ProcessId, ParentProcessId }`
+ * Bounded Toolhelp32 snapshot helper: enumerates every process as `{ ProcessId, ParentProcessId, CreatedMs }`
  * and emits the list as a compact JSON array. It performs no termination itself.
  */
 const TOOLHELP_SNAPSHOT_COMMAND = `$toolhelpSource = @'
@@ -93,6 +98,14 @@ using System.Runtime.InteropServices;
 public static class SiftKitProcessSnapshot
 {
     private const uint TH32CS_SNAPPROCESS = 2;
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    public sealed class Row
+    {
+        public uint ProcessId;
+        public uint ParentProcessId;
+        public long CreatedMs;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct PROCESSENTRY32W
@@ -125,9 +138,35 @@ public static class SiftKitProcessSnapshot
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(IntPtr hObject);
 
-    public static List<KeyValuePair<uint, uint>> EnumerateProcesses()
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessTimes(IntPtr hProcess, out long creation, out long exit, out long kernel, out long user);
+
+    // FILETIME ticks are 100 ns; -1 when the process cannot be opened.
+    private static long CreatedMs(uint processId)
     {
-        var processes = new List<KeyValuePair<uint, uint>>();
+        IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+        if (handle == IntPtr.Zero)
+        {
+            return -1;
+        }
+        try
+        {
+            long creation, exit, kernel, user;
+            return GetProcessTimes(handle, out creation, out exit, out kernel, out user) ? creation / 10000 : -1;
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
+    public static List<Row> EnumerateProcesses()
+    {
+        var processes = new List<Row>();
         IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == new IntPtr(-1))
         {
@@ -141,7 +180,7 @@ public static class SiftKitProcessSnapshot
             {
                 do
                 {
-                    processes.Add(new KeyValuePair<uint, uint>(entry.th32ProcessID, entry.th32ParentProcessID));
+                    processes.Add(new Row { ProcessId = entry.th32ProcessID, ParentProcessId = entry.th32ParentProcessID, CreatedMs = CreatedMs(entry.th32ProcessID) });
                 }
                 while (Process32NextW(snapshot, ref entry));
             }
@@ -156,8 +195,8 @@ public static class SiftKitProcessSnapshot
 '@
 Add-Type -TypeDefinition $toolhelpSource -Language CSharp | Out-Null
 $processes = [SiftKitProcessSnapshot]::EnumerateProcesses() |
-    Where-Object { $_.Key -gt 0 } |
-    ForEach-Object { [pscustomobject]@{ ProcessId = [int]$_.Key; ParentProcessId = [int]$_.Value } }
+    Where-Object { $_.ProcessId -gt 0 } |
+    ForEach-Object { [pscustomobject]@{ ProcessId = [int]$_.ProcessId; ParentProcessId = [int]$_.ParentProcessId; CreatedMs = $(if ($_.CreatedMs -ge 0) { $_.CreatedMs } else { $null }) } }
 ConvertTo-Json -Compress @($processes)
 `;
 
@@ -188,28 +227,21 @@ export function listWindowsDescendantPids(rootPid: number, spawnSyncImpl: typeof
   }
 }
 
-function terminateWindowsFallback(
+function terminateWindowsTree(
   rootPid: number,
   processObject: NonNullable<TerminateProcessTreeOptions['processObject']>,
   spawnSyncImpl: typeof spawnSync,
 ): boolean {
   let terminated = false;
   // Without a snapshot only the root is left to terminate
-  for (const descendantPid of listWindowsDescendantPids(rootPid, spawnSyncImpl) ?? []) {
+  for (const pid of [...(listWindowsDescendantPids(rootPid, spawnSyncImpl) ?? []), rootPid]) {
     try {
-      if (processObject.kill(descendantPid, 'SIGTERM')) {
+      if (processObject.kill(pid, 'SIGTERM')) {
         terminated = true;
       }
     } catch {
-      // The descendant already exited; keep terminating the rest of the tree.
+      // The process already exited; keep terminating the rest of the tree.
     }
-  }
-  try {
-    if (processObject.kill(rootPid, 'SIGTERM')) {
-      terminated = true;
-    }
-  } catch {
-    // The root already exited.
   }
   return terminated;
 }
@@ -223,18 +255,7 @@ export function terminateProcessTree(pid: number | string, options: TerminatePro
   }
   const rootPid = Math.trunc(numericPid);
   if (processObject.platform === 'win32') {
-    try {
-      const result: SpawnSyncReturns<Buffer> = spawnSyncImpl('taskkill', ['/PID', String(rootPid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      if ((result?.status ?? 1) === 0) {
-        return true;
-      }
-    } catch {
-      // taskkill is unavailable; the Toolhelp fallback below still terminates the tree.
-    }
-    return terminateWindowsFallback(rootPid, processObject, spawnSyncImpl);
+    return terminateWindowsTree(rootPid, processObject, spawnSyncImpl);
   }
   try {
     processObject.kill(rootPid, 'SIGTERM');
