@@ -79,7 +79,7 @@ export function writeManagedEngineLauncher(
     : 4;
 
   fs.mkdirSync(modelPath, { recursive: true });
-  fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'] }), 'utf8');
+  fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'], num_hidden_layers: 2, num_attention_heads: 4, num_key_value_heads: 2, hidden_size: 256 }), 'utf8');
   fs.writeFileSync(probeShimPath, `
 if (/exllamav3/u.test(String(process.argv[1] || ''))) {
   process.stdout.write(JSON.stringify({ packageDirectory: ${JSON.stringify(packageDirectory)} }) + '\\n');
@@ -321,7 +321,7 @@ export function writeManagedEngineHost(
   const modelRoot = path.join(tempRoot, 'models');
   const modelPath = path.join(modelRoot, modelId);
   fs.mkdirSync(modelPath, { recursive: true });
-  fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'] }), 'utf8');
+  fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'], num_hidden_layers: 2, num_attention_heads: 4, num_key_value_heads: 2, hidden_size: 256 }), 'utf8');
   return {
     baseUrl: fake.launcher.baseUrl,
     modelId,

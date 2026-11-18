@@ -119,7 +119,7 @@ export function getDefaultConfig(): SiftConfig {
           PresencePenalty: 0.0,
           RepetitionPenalty: 1.0,
           Reasoning: 'off',
-          IdleAction: 'unload', SparseDraftHead: 0,
+          IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
         }], {}),
       },
       Engines: { Exl3: getTestExl3Engine() },

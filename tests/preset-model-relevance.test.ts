@@ -16,6 +16,7 @@ const BARE_PROFILE: ModelProfile = {
   moe: false, recurrent: false, mtp: false, vision: false, ngram: false, mla: false,
   reasoningEfforts: [], thinkingToggle: true, preserveThinking: true,
   sampling: { temperature: null, topP: null, topK: null },
+  cacheGeometry: { attentionLayers: 32, kvTokenDim: 1024, mtpLayers: 0, recurrentSnapshotBytes: 0 },
 };
 
 function createPreset(overrides: { ExternalServerEnabled?: boolean; UnlockAllSettings?: boolean } = {}) {

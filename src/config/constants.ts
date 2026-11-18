@@ -34,6 +34,10 @@ export const SIFT_DEFAULT_ENGINE_UBATCH_SIZE = 512;
 export const SIFT_DEFAULT_ENGINE_CACHE_RAM = 8192;
 /** MB of host RAM exllamav3 reserves for recurrent (linear-attention) states; mirrors TabbyAPI's own default. */
 export const SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM = 4096;
+/** New presets size their RAM tiers from the model. */
+export const SIFT_DEFAULT_CACHE_AUTO = true;
+/** One conversation plus headroom; two alternating conversations want 1.5. */
+export const SIFT_DEFAULT_CACHE_CONTEXTS = 1.1;
 export const SIFT_DEFAULT_EXL3_DISK_CACHE_SIZE_MIB = 51_200;
 /** Orchestrator phases share a ~2k-token prefix and a hybrid model resumes only from a stored checkpoint. */
 export const SIFT_DEFAULT_EXL3_DISK_CACHE_CHECKPOINT_INTERVAL = 2_048;

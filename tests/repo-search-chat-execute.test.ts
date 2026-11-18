@@ -382,7 +382,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     availableModels: ['mock'],
     config: mockSiftConfig({
       Presets: CONTEXT_FREE_PRESETS,
-      Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0 }] } },
+      Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }] } },
     }),
     mockResponses: [{ content: "Hello" }],
   });

@@ -504,6 +504,24 @@ test('SparseDraftHead missing, negative, fractional or textual fails loudly', ()
   }
 });
 
+/** Stored presets gain CacheAuto and CacheContexts in the 91 -> 92 upgrade, so a missing or bad value is corrupt config. */
+test('CacheAuto and CacheContexts are kept, and missing or invalid values fail loudly', () => {
+  assert.deepEqual([activePreset(normalizeConfig(getDefaultConfig())).CacheAuto, activePreset(normalizeConfig(getDefaultConfig())).CacheContexts], [true, 1.1]);
+  const kept = defaultConfigObject();
+  Object.assign(activePresetObject(kept), { CacheAuto: false, CacheContexts: 1.5 });
+  const normalized = activePreset(normalizeConfig(JsonValueSchema.parse(kept)));
+  assert.deepEqual([normalized.CacheAuto, normalized.CacheContexts], [false, 1.5]);
+
+  const missing = defaultConfigObject();
+  delete activePresetObject(missing).CacheAuto;
+  assert.throws(() => normalizeConfig(JsonValueSchema.parse(missing)), /Invalid CacheAuto 'undefined'/u);
+  for (const invalid of [0, -1, '1.5']) {
+    const bad = defaultConfigObject();
+    activePresetObject(bad).CacheContexts = invalid;
+    assert.throws(() => normalizeConfig(JsonValueSchema.parse(bad)), new RegExp(`Invalid CacheContexts '${String(invalid)}'`, 'u'), String(invalid));
+  }
+});
+
 test('VisionImageRetention defaults to 8 when omitted from a persisted preset', () => {
   const config = defaultConfigObject();
   delete activePresetObject(config).VisionImageRetention;
@@ -563,7 +581,7 @@ test('VisionMaxImagePixels rejects a negative value', () => {
 
 test('a stored preset without ReasoningEffort defaults to xhigh', () => {
   const preset = normalizeModelRuntimePresetRecord(
-    { id: 'legacy', label: 'Legacy', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0 },
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
     'legacy',
     'Legacy',
   );
@@ -573,14 +591,14 @@ test('a stored preset without ReasoningEffort defaults to xhigh', () => {
 
 test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid one', () => {
   const low = normalizeModelRuntimePresetRecord(
-    { id: 'low', label: 'Low', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, ReasoningEffort: 'low' },
+    { id: 'low', label: 'Low', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ReasoningEffort: 'low' },
     'low',
     'Low',
   );
   assert.equal(low.ReasoningEffort, 'low');
 
   const medium = normalizeModelRuntimePresetRecord(
-    { id: 'medium', label: 'Medium', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, ReasoningEffort: 'medium' },
+    { id: 'medium', label: 'Medium', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ReasoningEffort: 'medium' },
     'medium',
     'Medium',
   );
@@ -589,7 +607,7 @@ test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid
   // 'extreme' is not a level any template distinguishes, so it normalizes rather than throwing,
   // matching how KvCacheQuantization and SpeculativeType treat unrecognized values.
   const bogus = normalizeModelRuntimePresetRecord(
-    { id: 'bogus', label: 'Bogus', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, ReasoningEffort: 'extreme' },
+    { id: 'bogus', label: 'Bogus', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ReasoningEffort: 'extreme' },
     'bogus',
     'Bogus',
   );
@@ -598,7 +616,7 @@ test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid
 
 test('a stored preset without disk-cache fields reads back with the disk tier off and default sizes', () => {
   const legacy = normalizeModelRuntimePresetRecord(
-    { id: 'legacy', label: 'Legacy', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0 },
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
     'legacy',
     'Legacy',
   );
@@ -607,14 +625,14 @@ test('a stored preset without disk-cache fields reads back with the disk tier of
   assert.equal(legacy.DiskCacheCheckpointInterval, 2048);
 
   const padded = normalizeModelRuntimePresetRecord(
-    { id: 'disk', label: 'Disk', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, DiskCacheDir: '  D:\\cache  ' },
+    { id: 'disk', label: 'Disk', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, DiskCacheDir: '  D:\\cache  ' },
     'disk',
     'Disk',
   );
   assert.equal(padded.DiskCacheDir, 'D:\\cache');
 
   const explicit = normalizeModelRuntimePresetRecord(
-    { id: 'spaced', label: 'Spaced', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, DiskCacheCheckpointInterval: 4096 },
+    { id: 'spaced', label: 'Spaced', Backend: 'exl3', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, DiskCacheCheckpointInterval: 4096 },
     'spaced',
     'Spaced',
   );

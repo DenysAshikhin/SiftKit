@@ -21,7 +21,8 @@ function writeConfig(dir: string, obj: JsonValue): void {
 function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
-  return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'exl3', ...overrides });
+  // Manual RAM sizes unless a test opts into CacheAuto, which reads the model directory.
+  return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'exl3', CacheAuto: false, ...overrides });
 }
 
 const ARCHITECTURES = ['Qwen3_5ForConditionalGeneration'];

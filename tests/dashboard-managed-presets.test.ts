@@ -137,7 +137,7 @@ test('model preset defaults MaintainPerStepThinking on when reasoning is enabled
     Reasoning: 'on',
     ReasoningContent: true,
     PreserveThinking: true,
-    IdleAction: 'unload', SparseDraftHead: 0,
+    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
   });
 
   const preset = config.Server.ModelPresets.Presets[0];
@@ -153,7 +153,7 @@ test('model preset honors explicit MaintainPerStepThinking false when reasoning 
     ReasoningContent: true,
     PreserveThinking: true,
     MaintainPerStepThinking: false,
-    IdleAction: 'unload', SparseDraftHead: 0,
+    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
@@ -165,7 +165,7 @@ test('model preset disables MaintainPerStepThinking when reasoning is disabled',
     label: 'Thinking Off',
     Reasoning: 'off',
     MaintainPerStepThinking: true,
-    IdleAction: 'unload', SparseDraftHead: 0,
+    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);

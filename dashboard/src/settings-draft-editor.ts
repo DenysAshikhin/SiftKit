@@ -69,6 +69,7 @@ export type ModelIntegerField =
   | 'VisionImageRetention'
   | 'VisionMaxImagePixels';
 export type ModelFloatField =
+  | 'CacheContexts'
   | 'Temperature'
   | 'TopP'
   | 'MinP'

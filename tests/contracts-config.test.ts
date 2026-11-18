@@ -340,7 +340,8 @@ test('a disk-cache model preset needs an absolute path and a RAM tier', () => {
   assert.match(JSON.stringify(withDisk({ DiskCacheDir: 'cache' }).error?.issues), /normalized absolute path/u);
   assert.match(JSON.stringify(withDisk({ DiskCacheDir: 'D:\\AI\\x\\..\\cache' }).error?.issues), /normalized absolute path/u);
   assert.match(JSON.stringify(withDisk({ DiskCacheDir: 'D:\\AI\\.\\cache' }).error?.issues), /normalized absolute path/u);
-  assert.match(JSON.stringify(withDisk({ CacheRam: 0 }).error?.issues), /CacheRam must be above 0/u);
+  assert.match(JSON.stringify(withDisk({ CacheAuto: false, CacheRam: 0 }).error?.issues), /CacheRam must be above 0/u);
+  assert.equal(withDisk({ CacheAuto: true, CacheRam: 0 }).success, true, 'Auto sizes the RAM tier above 0');
   assert.equal(withDisk({ ExternalServerEnabled: true }).success, true, 'the runtime, not the schema, rejects an external disk preset');
 });
 

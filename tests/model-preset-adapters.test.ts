@@ -22,7 +22,8 @@ import { createManagedTempDir } from './helpers/temp-dirs.ts';
 function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
-  return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'exl3', ...overrides });
+  // Manual RAM sizes unless a test opts into CacheAuto, which reads the model directory.
+  return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'exl3', CacheAuto: false, ...overrides });
 }
 
 test('model preset contracts reject the removed MaxTokens field', () => {
@@ -419,6 +420,8 @@ const PRESET_FIELD_EXPECTATIONS = {
   UBatchSize: ALWAYS,
   CacheRam: MANAGED_ONLY,
   CacheRecurrentRam: MANAGED_ONLY,
+  CacheAuto: MANAGED_ONLY,
+  CacheContexts: MANAGED_ONLY,
   DiskCacheDir: MANAGED_ONLY,
   DiskCacheSizeMiB: MANAGED_ONLY,
   DiskCacheCheckpointInterval: MANAGED_ONLY,
@@ -571,4 +574,37 @@ test('EXL3 adapter accepts any thinking setting when the model has no chat templ
   } finally {
     rmSync(modelRoot, { recursive: true, force: true });
   }
+});
+
+const FLASH_NEXT_CONFIG = {
+  architectures: ['Qwen3NextForCausalLM'],
+  text_config: {
+    layer_types: Array.from({ length: 12 }, () => ['linear_attention', 'linear_attention', 'linear_attention', 'full_attention']).flat(),
+    num_attention_heads: 16, num_key_value_heads: 2, head_dim: 256,
+    linear_num_key_heads: 16, linear_num_value_heads: 48, linear_key_head_dim: 128, linear_value_head_dim: 128,
+    linear_conv_kernel_dim: 4, mtp_num_hidden_layers: 1,
+  },
+};
+
+function writeModelDirectory(name: string, config: object): { modelRoot: string; modelPath: string } {
+  const modelRoot = createManagedTempDir('siftkit-cache-auto-');
+  const modelPath = join(modelRoot, name);
+  mkdirSync(modelPath);
+  writeFileSync(join(modelPath, 'config.json'), JSON.stringify(config));
+  return { modelRoot, modelPath };
+}
+
+test('EXL3 adapter sizes the RAM tiers from the model when CacheAuto is on', () => {
+  const { modelRoot, modelPath } = writeModelDirectory('flash-next', FLASH_NEXT_CONFIG);
+  const preset = createModelPreset({ ModelPath: modelPath, CacheAuto: true, CacheContexts: 1.5, NumCtx: 200_000,
+    KvCacheQuantization: 'f16', SpeculativeEnabled: true, CacheRam: 1, CacheRecurrentRam: 1 });
+  const environment = new Exl3PresetAdapter(modelRoot).buildLaunchEnvironment(preset);
+  assert.equal(environment.TABBY_MEMORY_SYSMEM_KV_CACHE, '7618');
+  assert.equal(environment.TABBY_MEMORY_SYSMEM_RECURRENT_CACHE, '8352');
+});
+
+test('EXL3 adapter refuses CacheAuto for a model whose cache geometry is unknown', () => {
+  const { modelRoot, modelPath } = writeModelDirectory('fake', { architectures: ['Fake'] });
+  assert.throws(() => new Exl3PresetAdapter(modelRoot).buildLaunchEnvironment(createModelPreset({ ModelPath: modelPath, CacheAuto: true })),
+    /CacheAuto cannot size .*fake: config\.json has no num_hidden_layers/u);
 });

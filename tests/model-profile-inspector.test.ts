@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import type { ModelProfile } from '@siftkit/contracts';
 
 import { inspectModelDirectory, readTemplateThinking } from '../src/inference-presets/model-profile-inspector.ts';
 
@@ -120,4 +121,47 @@ test('a directory without config.json or with malformed config fails loudly', ()
   withModelDirectory({ 'config.json': JSON.stringify({ architectures: [] }) }, (directory) => {
     assert.throws(() => inspectModelDirectory(directory));
   });
+});
+
+const HYBRID_TEXT_CONFIG = {
+  num_hidden_layers: 4, num_attention_heads: 16, num_key_value_heads: 2, head_dim: 256, hidden_size: 2048,
+  layer_types: ['linear_attention', 'linear_attention', 'linear_attention', 'full_attention'],
+  linear_num_key_heads: 16, linear_num_value_heads: 48, linear_key_head_dim: 128, linear_value_head_dim: 128,
+  linear_conv_kernel_dim: 4, mtp_num_hidden_layers: 1,
+};
+
+function geometryOf(config: object): ModelProfile['cacheGeometry'] | undefined {
+  let geometry: ModelProfile['cacheGeometry'] | undefined;
+  withModelDirectory({ 'config.json': JSON.stringify(config) }, (directory) => {
+    geometry = inspectModelDirectory(directory).cacheGeometry;
+  });
+  return geometry;
+}
+
+test('a hybrid model declares its KV and recurrent snapshot geometry', () => {
+  // 3 linear layers × (10240 × 4 × 2 + 48 × 128 × 128 × 2) bytes of fp16 state
+  assert.deepEqual(geometryOf({ architectures: ['Qwen3NextForCausalLM'], text_config: HYBRID_TEXT_CONFIG }),
+    { attentionLayers: 1, kvTokenDim: 512, mtpLayers: 1, recurrentSnapshotBytes: 4_964_352 });
+});
+
+test('a dense model derives head_dim and has no recurrent snapshots', () => {
+  assert.deepEqual(geometryOf({ architectures: ['LlamaForCausalLM'], num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, hidden_size: 4096 }),
+    { attentionLayers: 32, kvTokenDim: 1024, mtpLayers: 0, recurrentSnapshotBytes: 0 });
+});
+
+test('a dense model with sliding-window layers counts every layer as full attention, an upper bound', () => {
+  assert.deepEqual(geometryOf({ architectures: ['Gemma3ForCausalLM'], num_attention_heads: 8, num_key_value_heads: 4, head_dim: 256,
+    layer_types: ['sliding_attention', 'sliding_attention', 'full_attention'] }),
+  { attentionLayers: 3, kvTokenDim: 1024, mtpLayers: 0, recurrentSnapshotBytes: 0 });
+});
+
+test('cache geometry names why it cannot be derived', () => {
+  assert.equal(geometryOf({ architectures: ['Fake'] }), 'config.json has no num_hidden_layers');
+  assert.equal(geometryOf({ architectures: ['DeepseekV3ForCausalLM'], num_hidden_layers: 2, kv_lora_rank: 512 }),
+    'MLA attention (kv_lora_rank) is not modelled');
+  assert.equal(geometryOf({ architectures: ['X'], layer_types: ['mamba'], num_key_value_heads: 1, head_dim: 64 }),
+    "layer type 'mamba' is not modelled");
+  const { linear_conv_kernel_dim: _dropped, ...noKernel } = HYBRID_TEXT_CONFIG;
+  assert.equal(geometryOf({ architectures: ['Qwen3NextForCausalLM'], text_config: noKernel }),
+    'config.json has no linear_conv_kernel_dim');
 });

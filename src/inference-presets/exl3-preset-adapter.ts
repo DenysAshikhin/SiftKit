@@ -8,6 +8,7 @@ import {
   type PresetRequestDefaults,
 } from './preset-compatibility.ts';
 import { inspectModelDirectory, readTemplateThinking } from './model-profile-inspector.ts';
+import { resolveProfileCacheSizes, type CacheTierSizes } from './cache-sizing.ts';
 
 /** A profile with no ModelPath declares no loading identity, e.g. a model already served externally. */
 export class MissingModelPathError extends Error {
@@ -162,6 +163,7 @@ export class Exl3PresetAdapter {
   buildLaunchEnvironment(preset: ModelRuntimePreset): Exl3LaunchEnvironment {
     const request = this.buildLoadRequest(preset);
     const draftCacheMode = preset.SpeculativeEnabled ? this.getCacheModes(preset).draft : null;
+    const cacheSizes = this.getCacheTierSizes(preset);
     return Exl3LaunchEnvironmentSchema.parse({
       TABBY_MODEL_MODEL_DIR: win32.resolve(this.modelRoot),
       TABBY_MODEL_MODEL_NAME: request.model_name,
@@ -171,8 +173,8 @@ export class Exl3PresetAdapter {
       // The reviewer lane serves approval verdicts beside a running agent; the scheduler never admits into it.
       TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots + (preset.ReviewerSlot ? 1 : 0)),
       TABBY_MODEL_CHUNK_SIZE: String(request.chunk_size),
-      TABBY_MEMORY_SYSMEM_KV_CACHE: String(preset.CacheRam),
-      TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(preset.CacheRecurrentRam),
+      TABBY_MEMORY_SYSMEM_KV_CACHE: String(cacheSizes.cacheRamMiB),
+      TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(cacheSizes.recurrentRamMiB),
       // Tabby reads disk_cache_size in MB and multiplies by 1024², so MiB passes through unchanged.
       ...(preset.DiskCacheDir === null ? {} : {
         TABBY_MEMORY_DISK_CACHE_DIR: win32.resolve(preset.DiskCacheDir),
@@ -199,6 +201,15 @@ export class Exl3PresetAdapter {
   buildRequestDefaults(preset: ModelRuntimePreset): PresetRequestDefaults {
     this.validatePreset(preset);
     return buildPresetRequestDefaults(preset);
+  }
+
+  /** The preset's manual RAM-tier sizes, or with CacheAuto the sizes the model's geometry needs. */
+  private getCacheTierSizes(preset: ModelRuntimePreset): CacheTierSizes {
+    if (!preset.CacheAuto) return { cacheRamMiB: preset.CacheRam, recurrentRamMiB: preset.CacheRecurrentRam };
+    const modelDirectory = win32.resolve(this.modelRoot, this.getRelativeModelPath(preset));
+    const sizes = resolveProfileCacheSizes(preset, inspectModelDirectory(modelDirectory));
+    if (typeof sizes === 'string') throw new Error(`preset=${preset.id} backend=exl3 CacheAuto cannot size ${modelDirectory}: ${sizes}`);
+    return sizes;
   }
 
   private getRelativeModelPath(preset: ModelRuntimePreset): string {

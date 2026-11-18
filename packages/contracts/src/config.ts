@@ -62,6 +62,10 @@ const ModelPresetSettingsShape = {
   ReviewerSlot: z.boolean(),
   UBatchSize: z.number(), CacheRam: z.number(),
   CacheRecurrentRam: z.number(),
+  /** Size CacheRam and CacheRecurrentRam from the model for CacheContexts full contexts; the manual values are kept but unused. */
+  CacheAuto: z.boolean(),
+  /** Full NumCtx contexts the RAM tiers hold while CacheAuto is on. */
+  CacheContexts: z.number().positive(),
   DiskCacheDir: z.string().min(1).nullable(), DiskCacheSizeMiB: z.number().int().positive(),
   DiskCacheCheckpointInterval: z.number().int().positive(),
   NgramRam: z.boolean(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
@@ -85,7 +89,7 @@ const ModelPresetSettingsShape = {
 
 export const ModelPresetFieldSchema = z.enum([
   'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'CompactionReserveTokens', 'NcpuMoe', 'ParallelSlots', 'ReviewerSlot', 'UBatchSize', 'CacheRam',
-  'CacheRecurrentRam', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
+  'CacheRecurrentRam', 'CacheAuto', 'CacheContexts', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'HybridDraftTokens', 'SparseDraftHead', 'ReasoningBudget',
@@ -144,7 +148,7 @@ export const ServerModelPresetsConfigSchema = z.object({
       context.addIssue({ code: 'custom', path: at('DiskCacheDir'),
         message: `Model preset '${preset.id}': DiskCacheDir must be a normalized absolute path such as C:\\exl3-cache (no . or .. segments).` });
     }
-    if (preset.CacheRam <= 0) {
+    if (!preset.CacheAuto && preset.CacheRam <= 0) {
       context.addIssue({ code: 'custom', path: at('CacheRam'),
         message: `Model preset '${preset.id}': the disk cache writes through the RAM tier, so CacheRam must be above 0.` });
     }

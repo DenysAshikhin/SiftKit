@@ -10,7 +10,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 /** The default presets as a schema-90 file stored them: no SparseDraftHead. */
 function schema90Presets() {
-  return getDefaultServerConfig().Server.ModelPresets.Presets.map(({ SparseDraftHead: _added, ...preset }) => preset);
+  return getDefaultServerConfig().Server.ModelPresets.Presets.map(({ SparseDraftHead: _added, CacheAuto: _auto, CacheContexts: _contexts, ...preset }) => preset);
 }
 
 /** A schema-90 file whose stored model presets are exactly `storedPresetsJson`. */

@@ -472,7 +472,7 @@ test('auto mode over HTTP reviews each write in its own request, skips the exemp
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',
-            Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 32_000, Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, MaintainPerStepThinking: true, IdleAction: 'unload', SparseDraftHead: 0 }],
+            Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 32_000, Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, MaintainPerStepThinking: true, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
           },
         },
       }),

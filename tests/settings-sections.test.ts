@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  CACHE_AUTO_LABEL,
+  CACHE_CONTEXTS_LABEL,
   HYBRID_DRAFT_TOKENS_LABEL,
   NGRAM_RAM_LABEL,
   POLICY_MODE_OPTIONS,
@@ -63,6 +65,8 @@ test('settings tooltip labels include the documented fields', () => {
       'UBatchSize',
       'CacheRam',
       'CacheRecurrentRam',
+      CACHE_AUTO_LABEL,
+      CACHE_CONTEXTS_LABEL,
       'Disk cache directory',
       'Disk cache size (MiB)',
       'Disk checkpoint spacing',

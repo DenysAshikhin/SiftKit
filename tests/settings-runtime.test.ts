@@ -36,7 +36,7 @@ test('syncDerivedSettingsFields uses the active managed preset model when presen
             Model: 'Managed Model',
             BaseUrl: 'http://127.0.0.1:8080',
             ModelPath: 'D:\\models\\managed-exl3',
-            IdleAction: 'unload', SparseDraftHead: 0,
+            IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
           },
         ],
       },

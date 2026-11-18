@@ -76,6 +76,7 @@ test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', a
     try {
       await assert.rejects(runtime.ensurePresetReady({
         ...preset,
+        CacheAuto: false,
         Backend: 'exl3' as const,
         BaseUrl: `http://127.0.0.1:${port}`,
         Model: 'model-a',
@@ -112,6 +113,7 @@ test('managed Tabby reports a missing configured Python interpreter before check
     try {
       await assert.rejects(runtime.ensurePresetReady({
         ...preset,
+        CacheAuto: false,
         Backend: 'exl3' as const,
         BaseUrl: `http://127.0.0.1:${port}`,
         Model: 'model-a',

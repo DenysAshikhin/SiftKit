@@ -560,7 +560,7 @@ export async function withTestEnvAndServer(
     Model: 'mock-model',
     BaseUrl: stub.baseUrl,
     NumCtx: 128000,
-    IdleAction: 'unload', SparseDraftHead: 0,
+    IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
   }], {}).map((preset) => JsonObjectSchema.parse(JSON.parse(JSON.stringify(preset))));
 
   try {

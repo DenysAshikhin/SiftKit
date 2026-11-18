@@ -96,6 +96,8 @@ const PRESET_FIELD_SUPPORT = {
   UBatchSize: 'always',
   CacheRam: 'managed-only',
   CacheRecurrentRam: 'managed-only',
+  CacheAuto: 'managed-only',
+  CacheContexts: 'managed-only',
   DiskCacheDir: 'managed-only',
   DiskCacheSizeMiB: 'managed-only',
   DiskCacheCheckpointInterval: 'managed-only',

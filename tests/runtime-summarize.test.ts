@@ -984,7 +984,7 @@ test('summary requests use the host model and only an explicit operation cap', a
               Model: null,
               ExternalServerEnabled: true,
               BaseUrl: stubBaseUrl,
-              IdleAction: 'unload', SparseDraftHead: 0,
+              IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
             }],
             },
           },

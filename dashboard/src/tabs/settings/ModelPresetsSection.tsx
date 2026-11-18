@@ -5,13 +5,14 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups.ts';
 import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.tsx';
-import { HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL, SPARSE_DRAFT_HEAD_LABEL } from '../../settings-sections.ts';
+import { CACHE_AUTO_LABEL, CACHE_CONTEXTS_LABEL, HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL, SPARSE_DRAFT_HEAD_LABEL } from '../../settings-sections.ts';
 import { getModelPresetAssignments } from '../../model-runtime-presets.ts';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema, type ModelProfile } from '@siftkit/contracts';
 import {
   getMlaKvCacheEquivalent,
   getReasoningEffortOptions,
 } from '../../../../src/inference-presets/preset-compatibility.ts';
+import { resolveProfileCacheSizes, type CacheTierSizes } from '../../../../src/inference-presets/cache-sizing.ts';
 import { ModelProfileBanner } from './ModelProfileBanner.tsx';
 import type {
   DashboardConfig,
@@ -86,6 +87,25 @@ function PresetIntegerControl({ preset, profile, field, label, modelPresetAction
   );
 }
 
+/** A RAM tier in MiB: the manual value, or with Auto on the computed size (or why there is none). */
+function CacheRamControl({ preset, profile, field, sizes, modelPresetActions }: {
+  preset: DashboardModelRuntimePreset;
+  profile: ModelProfile | null;
+  field: 'CacheRam' | 'CacheRecurrentRam';
+  sizes: CacheTierSizes | string | null;
+  modelPresetActions: ModelPresetSettingsActions;
+}) {
+  const computed = sizes === null || typeof sizes === 'string' ? null : (field === 'CacheRam' ? sizes.cacheRamMiB : sizes.recurrentRamMiB);
+  return (
+    <ModelPresetControl preset={preset} profile={profile} field={field} label={field}>
+      <input type="number" min={0} aria-label={field} disabled={sizes !== null} value={computed ?? preset[field]}
+        onChange={(event) => modelPresetActions.setInteger(field, parseIntegerInput(event.target.value, preset[field]))} />
+      {typeof sizes === 'string' ? <span className="hint">Cannot auto-size: {sizes}</span> : null}
+      {computed === null ? null : <span className="hint">≈ {(computed / 1024).toFixed(1)} GiB</span>}
+    </ModelPresetControl>
+  );
+}
+
 export function ModelPresetsSection({
   dashboardConfig,
   selectedModelPreset,
@@ -108,6 +128,7 @@ export function ModelPresetsSection({
   }
   const preset = selectedModelPreset;
   const profile = getIdentifiedProfile(modelProfileStatus);
+  const autoCacheSizes = preset.CacheAuto ? resolveProfileCacheSizes(preset, profile) : null;
   const assignments = getModelPresetAssignments(dashboardConfig, preset.id);
   const runtimeStatusMatchesPreset = runtimeStatus !== null
     && dashboardConfig.Server.ModelPresets.ActivePresetId === preset.id
@@ -220,12 +241,21 @@ export function ModelPresetsSection({
           <ModelPresetControl preset={preset} profile={profile} field="UBatchSize" label="UBatchSize">
             <input type="number" value={preset.UBatchSize} onChange={(event) => modelPresetActions.setInteger('UBatchSize', parseIntegerInput(event.target.value, preset.UBatchSize))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} profile={profile} field="CacheRam" label="CacheRam">
-            <input type="number" value={preset.CacheRam} onChange={(event) => modelPresetActions.setInteger('CacheRam', parseIntegerInput(event.target.value, preset.CacheRam))} />
+          <ModelPresetControl preset={preset} profile={profile} field="CacheAuto" label={CACHE_AUTO_LABEL}>
+            <label className="settings-live-toggle-control">
+              <input type="checkbox" aria-label={CACHE_AUTO_LABEL} checked={preset.CacheAuto}
+                onChange={(event) => modelPresetActions.setBoolean('CacheAuto', event.target.checked)} />
+              <span>{preset.CacheAuto ? 'Auto' : 'Manual'}</span>
+            </label>
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} profile={profile} field="CacheRecurrentRam" label="CacheRecurrentRam">
-            <input type="number" value={preset.CacheRecurrentRam} onChange={(event) => modelPresetActions.setInteger('CacheRecurrentRam', parseIntegerInput(event.target.value, preset.CacheRecurrentRam))} />
-          </ModelPresetControl>
+          {preset.CacheAuto ? (
+            <ModelPresetControl preset={preset} profile={profile} field="CacheContexts" label={CACHE_CONTEXTS_LABEL}>
+              <input type="number" min={0.1} step={0.1} aria-label={CACHE_CONTEXTS_LABEL} value={preset.CacheContexts}
+                onChange={(event) => modelPresetActions.setFloat('CacheContexts', parseFloatInput(event.target.value, preset.CacheContexts))} />
+            </ModelPresetControl>
+          ) : null}
+          <CacheRamControl preset={preset} profile={profile} field="CacheRam" sizes={autoCacheSizes} modelPresetActions={modelPresetActions} />
+          <CacheRamControl preset={preset} profile={profile} field="CacheRecurrentRam" sizes={autoCacheSizes} modelPresetActions={modelPresetActions} />
           <ModelPresetControl preset={preset} profile={profile} field="DiskCacheDir" label="Disk cache directory">
             <input value={preset.DiskCacheDir || ''} placeholder="Off" onChange={(event) => modelPresetActions.setNullableString('DiskCacheDir', event.target.value.trim() === '' ? null : event.target.value)} />
           </ModelPresetControl>

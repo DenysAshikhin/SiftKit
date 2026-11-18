@@ -19,6 +19,7 @@ interface PresetRenderOptions {
   reasoning?: 'on' | 'off';
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   unlocked?: boolean;
+  cacheAuto?: boolean;
   profileStatus?: ModelProfileStatus;
 }
 
@@ -59,6 +60,7 @@ function renderPreset(options: PresetRenderOptions = {}): string {
   preset.Reasoning = options.reasoning ?? 'off';
   preset.ReasoningEffort = options.effort ?? preset.ReasoningEffort;
   preset.UnlockAllSettings = options.unlocked ?? false;
+  preset.CacheAuto = options.cacheAuto ?? false;
   preset.SpeculativeEnabled = true;
 
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, {
@@ -103,6 +105,10 @@ test('a managed preset exposes every launch control and no backend selector', ()
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDynamic'), /disabled/u);
   assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /type="checkbox" checked=""/u);
+
+  const auto = renderPreset({ cacheAuto: true });
+  assert.match(getRenderedField(auto, 'CacheRam'), /disabled/u);
+  assert.match(getRenderedField(auto, 'CacheRecurrentRam'), /disabled/u);
 });
 
 test('an external preset exposes chunk size but disables process-scoped controls', () => {

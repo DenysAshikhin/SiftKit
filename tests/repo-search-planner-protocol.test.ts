@@ -54,7 +54,7 @@ type PresetOverrides = Partial<ModelRuntimePreset>;
 
 function buildTestConfig(preset: PresetOverrides = {}): SiftConfig {
   return mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset, IdleAction: 'unload', SparseDraftHead: 0 }] } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }] } },
   });
 }
 

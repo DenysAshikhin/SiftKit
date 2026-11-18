@@ -41,7 +41,7 @@ function makeClientConfig(options: {
             BaseUrl: options.baseUrl,
             NumCtx: options.localNumCtx,
             Reasoning: 'on',
-            IdleAction: 'unload', SparseDraftHead: 0,
+            IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
             ...options.presetFields,
           },
         ],

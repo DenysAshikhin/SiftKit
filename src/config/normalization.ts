@@ -251,6 +251,19 @@ function getSparseDraftHead(value: JsonValue): number {
   return parsed.data;
 }
 
+// Stored presets gain CacheAuto and CacheContexts in the 91 -> 92 upgrade, so a missing or bad value is corrupt config.
+function getCacheAuto(value: JsonValue): boolean {
+  const parsed = ModelPresetSettingsSchema.shape.CacheAuto.safeParse(value);
+  if (!parsed.success) throw new Error(`Invalid CacheAuto '${String(value)}'; expected true or false.`);
+  return parsed.data;
+}
+
+function getCacheContexts(value: JsonValue): number {
+  const parsed = ModelPresetSettingsSchema.shape.CacheContexts.safeParse(value);
+  if (!parsed.success) throw new Error(`Invalid CacheContexts '${String(value)}'; expected a number above 0 (full contexts kept in RAM).`);
+  return parsed.data;
+}
+
 function getFiniteNonNegativeInteger(value: JsonValue, fallback: number): number {
   const text = String(value ?? '').trim();
   if (!text) {
@@ -497,6 +510,8 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
       input.CacheRecurrentRam,
       Number(defaults.CacheRecurrentRam ?? SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM),
     ),
+    CacheAuto: getCacheAuto(input.CacheAuto),
+    CacheContexts: getCacheContexts(input.CacheContexts),
     DiskCacheDir: getNullableTrimmedString(input.DiskCacheDir),
     DiskCacheSizeMiB: getFinitePositiveInteger(
       input.DiskCacheSizeMiB,

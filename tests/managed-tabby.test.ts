@@ -42,6 +42,7 @@ async function createManagedTabbyFixture(
     ParallelSlots: 4,
     UBatchSize: 1_024,
     KvCacheQuantization: 'q8_0/q4_0' as const,
+    CacheAuto: false,
     SpeculativeEnabled: true,
     SpeculativeDraftMax: 5,
     HealthcheckIntervalMs: 10,

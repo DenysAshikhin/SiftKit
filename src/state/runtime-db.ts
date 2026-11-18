@@ -24,6 +24,8 @@ import { upgradeOrchestratorSingleParent } from './schema-upgrades/orchestrator-
 import { upgradeOrchestratorAttemptResults } from './schema-upgrades/orchestrator-attempt-results.ts';
 import { upgradeOrchestratorCheckDigests } from './schema-upgrades/orchestrator-check-digests.ts';
 import { upgradeModelPresetSparseDraftHead } from './schema-upgrades/model-preset-sparse-draft-head.ts';
+import { upgradeModelPresetCacheAuto } from './schema-upgrades/model-preset-cache-auto.ts';
+import { upgradeChatSessionPresetSnapshots } from './schema-upgrades/chat-session-preset-snapshots.ts';
 import { upgradeOrchestratorSearchReports } from './schema-upgrades/orchestrator-search-reports.ts';
 import { upgradeOrchestratorSingleWorker } from './schema-upgrades/orchestrator-single-worker.ts';
 import { upgradeVaultCutoverJobs } from './schema-upgrades/vault-cutover-jobs.ts';
@@ -38,7 +40,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 91;
+export const CURRENT_SCHEMA_VERSION = 93;
 const RUNTIME_DATABASE_FILE = 'runtime.sqlite';
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
@@ -74,6 +76,8 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 88, apply: upgradeOrchestratorSingleWorker },
   { from: 89, apply: upgradeOrchestratorCheckDigests },
   { from: 90, apply: upgradeModelPresetSparseDraftHead },
+  { from: 91, apply: upgradeModelPresetCacheAuto },
+  { from: 92, apply: upgradeChatSessionPresetSnapshots },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

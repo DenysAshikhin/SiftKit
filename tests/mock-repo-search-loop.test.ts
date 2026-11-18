@@ -78,7 +78,7 @@ function modelPresetReasoning(reasoning: 'on' | 'off', presetFields: Partial<Mod
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0, ...presetFields }],
+        Presets: [{ id: 'default', Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ...presetFields }],
       },
     },
   };
@@ -2142,7 +2142,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
               ReasoningContent: true,
               PreserveThinking: true,
               MaintainPerStepThinking: false,
-              IdleAction: 'unload', SparseDraftHead: 0,
+              IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1,
             }],
           },
         },

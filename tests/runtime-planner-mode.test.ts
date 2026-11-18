@@ -913,7 +913,7 @@ function createPlannerConfig(reasoning: 'on' | 'off'): JsonObject {
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', NumCtx: PLANNER_NUM_CTX, Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0 }],
+        Presets: [{ id: 'default', NumCtx: PLANNER_NUM_CTX, Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
       },
     },
   };

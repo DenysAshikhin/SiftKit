@@ -40,7 +40,7 @@ function buildCliChatConfig(reasoning: 'on' | 'off'): SiftConfig {
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', label: 'Default', Model: 'test-model', Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0 }],
+        Presets: [{ id: 'default', label: 'Default', Model: 'test-model', Reasoning: reasoning, IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
       },
     },
   });

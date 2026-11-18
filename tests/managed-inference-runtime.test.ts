@@ -119,7 +119,8 @@ test('Tabby engine replacement updates complete launch identity without mutating
   const config = createPresetRoutingConfig();
   const [source] = config.Server.ModelPresets.Presets;
   assert.ok(source);
-  const preset = { ...source, ModelPath: 'Z:\\different-model-root\\model-a' };
+  // The model root does not exist, so the preset keeps manual RAM sizes.
+  const preset = { ...source, CacheAuto: false, ModelPath: 'Z:\\different-model-root\\model-a' };
   const initial = structuredClone(config.Server.Engines.Exl3);
   const runtime = new ManagedTabbyRuntime(initial, new InferenceRunFlushQueue(), NEVER_LAUNCHING_ENGINE_HOST);
   const next = {

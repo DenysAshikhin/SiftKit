@@ -28,6 +28,8 @@ export const VISION_OFFLOAD_LABEL = 'Keep vision weights in RAM';
 export const NGRAM_RAM_LABEL = 'Keep n-gram table in RAM';
 export const HYBRID_DRAFT_TOKENS_LABEL = 'Hybrid draft tokens';
 export const SPARSE_DRAFT_HEAD_LABEL = 'Sparse draft head';
+export const CACHE_AUTO_LABEL = 'Auto-size caches';
+export const CACHE_CONTEXTS_LABEL = 'Full contexts in RAM';
 
 export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'general',
@@ -130,8 +132,10 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'ParallelSlots', layout: 'quarter', helpText: 'Concurrent generation lanes exposed as the EXL3 maximum batch size.' },
       { label: 'ReviewerSlot', layout: 'quarter', helpText: 'One extra EXL3 lane for auto-approval verdicts, so a verdict runs beside the agent instead of displacing it. Costs VRAM; the scheduler still runs ParallelSlots requests.' },
       { label: 'UBatchSize', layout: 'quarter', helpText: 'Prompt-ingestion chunk size used by EXL3.' },
-      { label: 'CacheRam', layout: 'quarter', helpText: 'Host RAM reserved for the exllamav3 pinned second-tier page cache (`TABBY_MEMORY_SYSMEM_KV_CACHE`), which tensor parallel rejects. Counts as shared GPU memory on Windows because the tier is page-locked.' },
-      { label: 'CacheRecurrentRam', layout: 'quarter', helpText: 'Host RAM for exllamav3 recurrent (linear-attention) states, in MiB; maps to `TABBY_MEMORY_SYSMEM_RECURRENT_CACHE`. Only allocated for hybrid/linear-attention models, which need one state per ParallelSlots lane, so raise it alongside ParallelSlots.' },
+      { label: 'CacheRam', layout: 'quarter', helpText: 'Host RAM reserved for the exllamav3 pinned second-tier page cache (`TABBY_MEMORY_SYSMEM_KV_CACHE`), which tensor parallel rejects. Counts as shared GPU memory on Windows because the tier is page-locked. Disabled while Auto-size caches is on.' },
+      { label: 'CacheRecurrentRam', layout: 'quarter', helpText: 'Host RAM for exllamav3 recurrent (linear-attention) states, in MiB; maps to `TABBY_MEMORY_SYSMEM_RECURRENT_CACHE`. Only allocated for hybrid/linear-attention models, which need one state per ParallelSlots lane, so raise it alongside ParallelSlots. Disabled while Auto-size caches is on.' },
+      { label: CACHE_AUTO_LABEL, layout: 'quarter', helpText: 'Sizes CacheRam and CacheRecurrentRam from the model\'s config.json so the RAM tiers hold "Full contexts in RAM" contexts of NumCtx tokens. The manual values are kept for when this is off.' },
+      { label: CACHE_CONTEXTS_LABEL, layout: 'quarter', helpText: 'Recommended: 1.1 for a single conversation. 1.5 when two alternate (e.g. orchestrator and worker): only the idle conversation\'s KV moves to RAM, but its last snapshot must outlast every per-request snapshot the active one makes. Dense models keep no snapshots, so 1.1 covers two alternating conversations.' },
       { label: 'Disk cache directory', layout: 'half', helpText: 'Persistent third cache tier on disk (`TABBY_MEMORY_DISK_CACHE_DIR`). KV pages and recurrent checkpoints survive Tabby restarts, so a reloaded model reuses earlier prompt prefixes. Empty turns it off. Needs CacheRam above 0 and a SiftKit-managed launch. SiftKit drains it to disk before every stop.' },
       { label: 'Disk cache size (MiB)', layout: 'quarter', helpText: 'Budget for the whole disk cache directory (`TABBY_MEMORY_DISK_CACHE_SIZE`); least recently used entries are removed to fit. Presets sharing a directory must use the same size.' },
       { label: 'Disk checkpoint spacing', layout: 'quarter', helpText: 'Tokens between recurrent checkpoints kept on disk for hybrid models (`TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL`). A resumed prompt replays at most this many tokens; smaller values use much more disk, since each checkpoint stores the full recurrent state (often over 100 MiB).' },

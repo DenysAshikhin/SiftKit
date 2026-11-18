@@ -36,6 +36,7 @@ async function createManagedTabbyRun(root: string, leaseName: string) {
     runtime,
     preset: {
       ...preset,
+      CacheAuto: false,
       Backend: 'exl3' as const,
       BaseUrl: `http://127.0.0.1:${portLease.port}`,
       Model: 'model-a',

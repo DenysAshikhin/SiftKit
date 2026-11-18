@@ -15,7 +15,7 @@ test('overlayActivePreset writes NumCtx and Reasoning onto the active preset', (
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
-        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0 }],
+        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
       },
     },
   });
@@ -33,7 +33,7 @@ test('overlayActivePreset leaves preset fields it does not overlay untouched', (
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
-        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', BaseUrl: 'http://127.0.0.1:9999', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0 }],
+        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', BaseUrl: 'http://127.0.0.1:9999', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }],
       },
     },
   });
@@ -51,8 +51,8 @@ test('overlays follow the active preset id rather than the first preset', () => 
       ModelPresets: {
         ActivePresetId: 'other',
         Presets: [
-          { id: 'active', label: 'active', Model: 'preset-model', IdleAction: 'unload', SparseDraftHead: 0 },
-          { id: 'other', label: 'other', Model: 'other-model', IdleAction: 'unload', SparseDraftHead: 0 },
+          { id: 'active', label: 'active', Model: 'preset-model', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
+          { id: 'other', label: 'other', Model: 'other-model', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 },
         ],
       },
     },

@@ -87,6 +87,7 @@ export const GLM_PROFILE: ModelProfile = {
   moe: true, recurrent: true, mtp: true, vision: true, ngram: false, mla: true,
   reasoningEfforts: ['low', 'high', 'max'], thinkingToggle: false, preserveThinking: false,
   sampling: { temperature: 1.0, topP: 0.95, topK: null },
+  cacheGeometry: 'MLA attention (kv_lora_rank) is not modelled',
 };
 
 export const PRESET = {
@@ -124,7 +125,7 @@ export const MANAGED_PRESET = {
   KvCacheQuantization: 'f16', Temperature: 0.7, TopP: 0.9, TopK: 40, MinP: 0.05, PresencePenalty: 0, RepetitionPenalty: 1.1,
   Reasoning: 'off', ReasoningEffort: 'xhigh', ReasoningContent: false, PreserveThinking: false, MaintainPerStepThinking: false,
   SpeculativeEnabled: false,
-  SpeculativeDraftMax: 16, SpeculativeDynamic: true, HybridDraftTokens: 5, SparseDraftHead: 0, ReasoningBudget: 128, ReasoningBudgetMessage: '',
+  SpeculativeDraftMax: 16, SpeculativeDynamic: true, HybridDraftTokens: 5, SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1, ReasoningBudget: 128, ReasoningBudgetMessage: '',
   StartupTimeoutMs: 1000, HealthcheckTimeoutMs: 1000, HealthcheckIntervalMs: 500,
   SleepIdleSeconds: 600, IdleAction: 'unload', UnlockAllSettings: false,
 } satisfies DashboardModelRuntimePreset;

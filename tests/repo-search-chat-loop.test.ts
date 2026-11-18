@@ -510,7 +510,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
       config: mockSiftConfig({
-        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0 }] } },
+        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload', SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 }] } },
       }),
       mockResponses: [{ content: "hi" }],
       mockCommandResults: {},
