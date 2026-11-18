@@ -1,5 +1,3 @@
-export type ColorOptions = { env?: NodeJS.ProcessEnv; isTTY?: boolean };
-
 export function formatTimestamp(date: Date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -100,15 +98,3 @@ export function formatTokensPerSecond(value?: number | null): string {
   return formatGroupedNumber(value, 2);
 }
 
-export function supportsAnsiColor(options: ColorOptions = {}): boolean {
-  const env = options.env ?? process.env;
-  const isTTY = options.isTTY ?? Boolean(process.stdout && process.stdout.isTTY);
-  return isTTY && !Object.prototype.hasOwnProperty.call(env, 'NO_COLOR');
-}
-
-export function colorize(text: string, colorCode: number, options: ColorOptions = {}): string {
-  if (!supportsAnsiColor(options)) {
-    return text;
-  }
-  return `\x1b[${colorCode}m${text}\x1b[0m`;
-}

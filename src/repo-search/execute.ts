@@ -1,5 +1,12 @@
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { PromptCacheBreak } from '@siftkit/contracts';
+import { insertEngineEvent } from '../state/engine-events.ts';
+import {
+  describePromptCacheBreak,
+  formatPromptCacheBreakDetail,
+  summarizePromptCacheBreak,
+} from './engine/prompt-cache-watch.ts';
 import { getActiveModelPreset, loadConfig, notifyStatusBackend } from '../config/index.ts';
 import type { InferenceBackendId } from '../config/types.ts';
 import type { TokenCountSource } from './prompt-budget.ts';
@@ -153,7 +160,20 @@ function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgres
   }
 }
 
-class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> {
+/** Stores a run's cache break for the Logs tab; a failed write is logged, never thrown into the run. */
+function recordPromptCacheBreak(requestId: string, cacheBreak: PromptCacheBreak): void {
+  const summary = summarizePromptCacheBreak(cacheBreak);
+  try {
+    insertEngineEvent(getRuntimeDatabase(), {
+      kind: 'prompt_cache_break', inferenceRunId: null, runId: requestId, turn: cacheBreak.turn,
+      summary, detail: formatPromptCacheBreakDetail(cacheBreak),
+    });
+  } catch (error) {
+    serverLogger.emitBody('rs', requestId, { event: 'engine_event_lost', fields: `${summary}: ${getErrorMessage(error)}`, severity: 'error' });
+  }
+}
+
+export class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> {
   private readonly requestId: string;
   private readonly target: ProgressWriter<RepoSearchProgressEvent>;
 
@@ -175,6 +195,15 @@ class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> 
   }
 
   write(event: RepoSearchProgressEvent): void {
+    if (event.kind === 'prompt_cache_break') {
+      const { kind: _kind, taskId: _taskId, maxTurns: _maxTurns, elapsedMs, ...cacheBreak } = event;
+      recordPromptCacheBreak(this.requestId, cacheBreak);
+      // The chat banner and the CLI already show context warnings, so the break travels as one.
+      const warning = { ...contextWarningEvent(describePromptCacheBreak(cacheBreak)), elapsedMs };
+      logRepoSearchLifecycleEvent(this.requestId, warning);
+      this.target.write(warning);
+      return;
+    }
     logRepoSearchLifecycleEvent(this.requestId, event);
     this.target.write(event);
   }

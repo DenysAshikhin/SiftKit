@@ -20,6 +20,9 @@ export const MockPlannerResponseSchema = z.strictObject({
   backendEosReason: StopReasonSchema,
   /** Simulates a `choices[].finish_reason` such as `'length'`. */
   finishReason: StopReasonSchema,
+  /** Simulates the engine's reported prefill and cached-token counts for this response. */
+  promptEvalTokens: z.number().int().nonnegative().nullable().default(null),
+  promptCacheTokens: z.number().int().nonnegative().nullable().default(null),
 });
 export const MockPlannerResponsesSchema = z.array(MockPlannerResponseSchema);
 
@@ -31,6 +34,8 @@ export function parseMockPlannerResponse(value: MockPlannerResponseInput, respon
   thinking: string;
   toolCalls: InferenceToolCall[];
   stop: StreamStop;
+  promptEvalTokens: number | null;
+  promptCacheTokens: number | null;
 } {
   const response = MockPlannerResponseSchema.parse(value);
   return {
@@ -49,5 +54,7 @@ export function parseMockPlannerResponse(value: MockPlannerResponseInput, respon
       backendEosReason: response.backendEosReason,
       finishReason: response.finishReason,
     }),
+    promptEvalTokens: response.promptEvalTokens,
+    promptCacheTokens: response.promptCacheTokens,
   };
 }

@@ -3,7 +3,7 @@
  * idle-summary snapshots.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { ManagedFilePickerTargetSchema, ModelProfileRequestSchema } from '@siftkit/contracts';
+import { ManagedFilePickerTargetSchema, ModelProfileRequestSchema, type EngineEventsResponse } from '@siftkit/contracts';
 import type {
   MetricsResponse,
   IdleSummaryResponse,
@@ -32,6 +32,7 @@ import {
 } from '../dashboard-runs.ts';
 import { queryRecentSnapshots } from '../idle-summary.ts';
 import { getIdleSummaryDatabase } from '../server-ops.ts';
+import { listEngineEvents } from '../../state/engine-events.ts';
 import { getRuntimeRoot, getMetricsPath } from '../paths.ts';
 import { DEFAULT_WEB_SEARCH_CONFIG, readConfig } from '../config-store.ts';
 import { readWebSearchUsage } from '../web-search-usage.ts';
@@ -224,6 +225,16 @@ class DashboardRunDetailEndpoint implements RouteEndpoint {
     }
     sendJson(res, 200, detail);
     return;
+  }
+}
+
+class DashboardEngineEventsEndpoint implements RouteEndpoint {
+  async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const limitValue = Number(requestUrl.searchParams.get('limit') || 200);
+    const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 200;
+    const database = getIdleSummaryDatabase(ctx);
+    sendJson(res, 200, { events: database ? listEngineEvents(database, limit) : [] } satisfies EngineEventsResponse);
   }
 }
 
@@ -900,6 +911,7 @@ const BENCHMARK_QUESTION_PRESET_MUTATION_ENDPOINT = new BenchmarkQuestionPresetM
 const DASHBOARD_ROUTES = new RouteTable([
   { method: 'GET', path: '/dashboard/runs', endpoint: new DashboardRunsEndpoint() },
   { method: 'GET', path: /^\/dashboard\/runs\/([^/]+)$/u, endpoint: new DashboardRunDetailEndpoint() },
+  { method: 'GET', path: '/dashboard/engine-events', endpoint: new DashboardEngineEventsEndpoint() },
   { method: 'GET', path: '/dashboard/metrics/timeseries', endpoint: new DashboardMetricsTimeseriesEndpoint() },
   { method: 'GET', path: '/dashboard/web-search-quota', endpoint: new DashboardWebSearchQuotaEndpoint() },
   { method: 'GET', path: '/dashboard/metrics/idle-summary', endpoint: new DashboardIdleSummaryEndpoint() },

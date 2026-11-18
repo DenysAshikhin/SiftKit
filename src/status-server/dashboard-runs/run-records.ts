@@ -56,6 +56,7 @@ export function normalizeRunRecord(record: JsonObject): RunRecord {
     providerDurationMs: Number.isFinite(record.providerDurationMs) ? Number(record.providerDurationMs) : null,
     wallDurationMs: Number.isFinite(record.wallDurationMs) ? Number(record.wallDurationMs) : null,
     throughput: record.throughput == null ? null : InferenceThroughputSchema.parse(record.throughput),
+    promptCacheBreakCount: Number.isFinite(record.promptCacheBreakCount) ? Number(record.promptCacheBreakCount) : 0,
     rawPaths: JsonRecordReader.asObject(record.rawPaths) || {},
   };
 }
@@ -143,7 +144,7 @@ function parseRunLogThroughput(text: string | null | undefined, runId: string): 
   }
 }
 
-export function normalizeRunRecordFromDbRow(row: RunLogDbRow): RunRecord {
+export function normalizeRunRecordFromDbRow(row: RunLogDbRow, promptCacheBreakCount: number): RunRecord {
   return normalizeRunRecord({
     id: String(row.run_id || ''),
     kind: String(row.run_kind || 'unknown'),
@@ -172,6 +173,7 @@ export function normalizeRunRecordFromDbRow(row: RunLogDbRow): RunRecord {
     providerDurationMs: toNullableNonNegativeInteger(row.provider_duration_ms) ?? toNullableNonNegativeInteger(row.duration_ms),
     wallDurationMs: toNullableNonNegativeInteger(row.wall_duration_ms),
     throughput: parseRunLogThroughput(row.throughput_json, String(row.run_id || '')),
+    promptCacheBreakCount,
     rawPaths: {},
   });
 }

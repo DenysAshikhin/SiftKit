@@ -31,6 +31,7 @@ const BASE_RUN_RECORD: RunRecord = {
   providerDurationMs: null,
   wallDurationMs: null,
   throughput: null,
+  promptCacheBreakCount: 0,
   rawPaths: {},
 };
 

@@ -44,3 +44,7 @@
 .field-reference tr.fits td:last-child { color: var(--ok, #4a8); }
 .field-hint.headroom.warning { color: var(--warn, #c93); opacity: 1; }
 .field-hint.headroom.error { color: var(--err, #d55); opacity: 1; }
+
+.cache-break-badge { color: var(--warn, #c93); }
+.cache-break-warning header b { color: var(--warn, #c93); }
+.engine-event-detail { white-space: pre-wrap; max-height: 28rem; overflow: auto; }

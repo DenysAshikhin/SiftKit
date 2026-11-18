@@ -2,6 +2,7 @@ export * from './primitives.ts';
 export * from './operation-types.ts';
 export * from './inference-throughput.ts';
 export * from './runs.ts';
+export * from './engine-events.ts';
 export * from './metrics.ts';
 export * from './idle-summary.ts';
 export * from './chat.ts';

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from '../lib/zod.ts';
 import { InferenceBackendIdSchema, type InferenceBackendId } from '../config/types.ts';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.ts';
+import { deleteEngineEventsForInferenceRun } from './engine-events.ts';
 import { formatTimestamp } from '../lib/text-format.ts';
 
 const InferenceRunStatusSchema = z.enum(['running', 'ready', 'failed', 'stopped', 'sync_completed']);
@@ -684,6 +685,7 @@ export function deleteInferenceRun(id: string, databasePath?: string): boolean {
   }
   clearPendingChunksForRun(runId);
   const database = getDatabase(databasePath);
+  deleteEngineEventsForInferenceRun(database, runId);
   const result = database.prepare('DELETE FROM inference_runs WHERE id = ?').run(runId);
   return Number(result.changes) > 0;
 }

@@ -1,5 +1,5 @@
 import { TokenCountSourceSchema } from './prompt-budget.ts';
-import { ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import { PromptCacheBreakSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.ts';
 import type { JsonSerializable } from '../lib/json-types.ts';
 import type { SiftConfig } from '../config/index.ts';
@@ -156,6 +156,13 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   z.object({ ...turnScopedFields, kind: z.literal('narration'), narrationText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('answer'), answerText: z.string() }),
   z.object({ ...taskScopedFields, kind: z.literal('progress_update'), progressText: z.string() }),
+  // turn comes from the break itself; the remaining task fields are the shared ones.
+  PromptCacheBreakSchema.extend({
+    kind: z.literal('prompt_cache_break'),
+    taskId: z.string(),
+    maxTurns: z.number(),
+    elapsedMs: z.number(),
+  }),
   z.object({
     ...turnScopedFields,
     kind: z.literal('tool_start'),

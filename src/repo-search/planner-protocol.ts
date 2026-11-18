@@ -525,6 +525,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       nextMockResponseIndex: index + 1,
       throughput: emptyInferenceThroughput(),
       stop: mock.stop,
+      promptEvalTokens: mock.promptEvalTokens,
+      promptCacheTokens: mock.promptCacheTokens,
     };
   }
 

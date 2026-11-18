@@ -2,7 +2,7 @@ import type { ActivitySummaryProgressEvent } from '../types.ts';
 import type { RepoSearchProgressEvent } from '../types.ts';
 import type { ProgressWriter } from '../../lib/progress-writer.ts';
 import type { TokenCountSource } from '../prompt-budget.ts';
-import type { ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
+import type { PromptCacheBreak, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { foldTurnTokenRecords, resolveCharsPerToken } from './turn-token-record.ts';
 import type { TurnTokenRecord } from './turn-token-record.ts';
 
@@ -54,6 +54,10 @@ export class ProgressReporter {
   /** Provider activity for the run; forwarded to the writer, never emitted as an event. */
   recordActivity(): void {
     this.progressWriter.recordActivity();
+  }
+
+  promptCacheBreak(cacheBreak: PromptCacheBreak): void {
+    this.emit({ kind: 'prompt_cache_break', taskId: this.taskId, maxTurns: this.maxTurns, elapsedMs: this.elapsedMs(), ...cacheBreak });
   }
 
   preflightStart(turn: number, promptChars: number): void {

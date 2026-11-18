@@ -38,6 +38,8 @@ export const RunRecordSchema = z.object({
   durationMs: z.number().nullable(), providerDurationMs: z.number().nullable(), wallDurationMs: z.number().nullable(),
   /** Canonical fold of the run's model requests; null for runs recorded before it existed. */
   throughput: InferenceThroughputSchema.nullable(),
+  /** Prompt-cache breaks recorded for this run. */
+  promptCacheBreakCount: z.number().int().nonnegative(),
   rawPaths: JsonObjectSchema,
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;

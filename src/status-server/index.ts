@@ -26,11 +26,8 @@ import {
   getIdleSummarySnapshotsPath,
   getRuntimeRoot,
 } from './paths.ts';
-import {
-  supportsAnsiColor,
-  colorize,
-  formatElapsed,
-} from '../lib/text-format.ts';
+import { supportsAnsiColor, colorize, type ColorOptions } from '../lib/ansi-color.ts';
+import { formatElapsed } from '../lib/text-format.ts';
 import { ensureStatusFile } from './status-file.ts';
 import { getStatusServerBindHost, getStatusServerConnectHost } from '../lib/status-host.ts';
 import { readMetricsWithResetDecision, writeMetrics } from './metrics.ts';
@@ -88,7 +85,6 @@ import type {
   RunRecord,
   DailyMetrics,
 } from './dashboard-runs.ts';
-import type { ColorOptions } from '../lib/text-format.ts';
 import type { StatusMetadata } from './status-file.ts';
 import type { Metrics } from './metrics.ts';
 import type { IdleSummarySnapshot } from './idle-summary.ts';

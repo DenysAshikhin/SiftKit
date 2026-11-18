@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { toError } from '../../src/lib/errors.ts';
 import {
   RunsResponseSchema, RunDetailResponseSchema, RunLogDeletePreviewResponseSchema, RunLogDeleteResponseSchema,
+  EngineEventsResponseSchema, type EngineEventsResponse,
   MetricsResponseSchema, WebSearchQuotaResponseSchema, IdleSummaryResponseSchema, DashboardHealthSchema,
   SiftConfigSchema, RestartBackendResponseSchema,
   DashboardBenchmarkQuestionPresetsResponseSchema, DashboardBenchmarkQuestionPresetSchema,
@@ -118,6 +119,10 @@ export function getRuns(
 
 export function getRunDetail(id: string): Promise<RunDetailResponse> {
   return fetchJson(`/dashboard/runs/${encodeURIComponent(id)}`, RunDetailResponseSchema);
+}
+
+export function getEngineEvents(): Promise<EngineEventsResponse> {
+  return fetchJson('/dashboard/engine-events?limit=200', EngineEventsResponseSchema);
 }
 
 export function previewRunLogDelete(criteria: RunLogDeleteCriteria): Promise<RunLogDeletePreviewResponse> {

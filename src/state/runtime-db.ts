@@ -26,6 +26,7 @@ import { upgradeOrchestratorCheckDigests } from './schema-upgrades/orchestrator-
 import { upgradeModelPresetSparseDraftHead } from './schema-upgrades/model-preset-sparse-draft-head.ts';
 import { upgradeModelPresetCacheAuto } from './schema-upgrades/model-preset-cache-auto.ts';
 import { upgradeChatSessionPresetSnapshots } from './schema-upgrades/chat-session-preset-snapshots.ts';
+import { upgradeEngineEvents } from './schema-upgrades/engine-events.ts';
 import { upgradeOrchestratorSearchReports } from './schema-upgrades/orchestrator-search-reports.ts';
 import { upgradeOrchestratorSingleWorker } from './schema-upgrades/orchestrator-single-worker.ts';
 import { upgradeVaultCutoverJobs } from './schema-upgrades/vault-cutover-jobs.ts';
@@ -40,7 +41,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 93;
+export const CURRENT_SCHEMA_VERSION = 94;
 const RUNTIME_DATABASE_FILE = 'runtime.sqlite';
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
@@ -78,6 +79,7 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 90, apply: upgradeModelPresetSparseDraftHead },
   { from: 91, apply: upgradeModelPresetCacheAuto },
   { from: 92, apply: upgradeChatSessionPresetSnapshots },
+  { from: 93, apply: upgradeEngineEvents },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {
@@ -356,6 +358,7 @@ export function pruneRuntimeHistory(
     },
     { table: 'idle_summary_snapshots', sql: 'DELETE FROM idle_summary_snapshots WHERE emitted_at_utc < ?' },
     { table: 'runtime_error_events', sql: 'DELETE FROM runtime_error_events WHERE created_at_utc < ?' },
+    { table: 'engine_events', sql: 'DELETE FROM engine_events WHERE occurred_at_utc < ?' },
     { table: 'benchmark_runs', sql: 'DELETE FROM benchmark_runs WHERE created_at_utc < ?' },
   ];
 

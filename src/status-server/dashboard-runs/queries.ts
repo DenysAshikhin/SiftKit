@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { z } from '../../lib/zod.ts';
 import { getRuntimeDatabasePath } from '../../config/paths.ts';
 import { type JsonlEvent } from '../../state/jsonl-transcript.ts';
+import { countPromptCacheBreaksByRun } from '../../state/engine-events.ts';
 import {
   RunLogDbRowSchema,
   type DashboardRunsQueryOptions,
@@ -160,7 +161,8 @@ export function queryDashboardRunsFromDb(
         ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
       `).all(...params));
     })();
-  return rows.map((row) => normalizeRunRecordFromDbRow(row));
+  const breakCounts = countPromptCacheBreaksByRun(database, rows.map((row) => String(row.run_id || '')));
+  return rows.map((row) => normalizeRunRecordFromDbRow(row, breakCounts.get(String(row.run_id || '')) ?? 0));
 }
 
 export function queryDashboardRunDetailFromDb(
@@ -177,7 +179,7 @@ export function queryDashboardRunDetailFromDb(
     return null;
   }
   const row = RunLogDbRowSchema.parse(rawRow);
-  const run = normalizeRunRecordFromDbRow(row);
+  const run = normalizeRunRecordFromDbRow(row, countPromptCacheBreaksByRun(database, [runId]).get(runId) ?? 0);
   const events: JsonlEvent[] = [];
   events.push(...parseJsonlEventsFromText(typeof row.repo_search_transcript_jsonl === 'string' ? row.repo_search_transcript_jsonl : null));
   const requestPayload = parseJsonObjectText(typeof row.request_json === 'string' ? row.request_json : null);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { deleteRunLogs, getRunDetail, getRuns, previewRunLogDelete } from '../api.ts';
+import { deleteRunLogs, getEngineEvents, getRunDetail, getRuns, previewRunLogDelete } from '../api.ts';
+import { groupEngineEvents, type EngineEventGroup } from '../lib/engine-events.ts';
 import {
   buildRunLogDeleteCriteria,
   describeRunLogDeleteCriteria,
@@ -62,6 +63,9 @@ export function useRunsController(deps: {
   const [selectedRunId, setSelectedRunId] = useState(params.get('run') || '');
   const [selectedRunDetail, setSelectedRunDetail] = useState<Awaited<ReturnType<typeof getRunDetail>> | null>(null);
   const [repoSearchSimpleFlow, setRepoSearchSimpleFlow] = useState(true);
+  const [engineGroups, setEngineGroups] = useState<EngineEventGroup[]>([]);
+  const [engineOnly, setEngineOnly] = useState(false);
+  const [selectedEngineGroupKey, setSelectedEngineGroupKey] = useState('');
   const [showRunDeleteModal, setShowRunDeleteModal] = useState(false);
   const [runDeleteMode, setRunDeleteMode] = useState<'count' | 'before_date'>('count');
   const [runDeleteType, setRunDeleteType] = useState<RunLogDeleteType>('all');
@@ -131,6 +135,14 @@ export function useRunsController(deps: {
     void refreshRuns();
     return () => { cancelled = true; };
   }, [search, kindFilter, statusFilter, deps.refreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getEngineEvents()
+      .then((response) => { if (!cancelled) setEngineGroups(groupEngineEvents(response.events)); })
+      .catch((error) => { if (!cancelled) setRunsError(`Engine events: ${error instanceof Error ? error.message : String(error)}`); });
+    return () => { cancelled = true; };
+  }, [deps.refreshToken]);
 
   useEffect(() => {
     if (!showRunDeleteModal) {
@@ -257,8 +269,13 @@ export function useRunsController(deps: {
     onOpenRunDeleteModal: openRunDeleteModal,
     onChangeStatusFilter: setStatusFilter,
     onToggleKindFilter: (value) => setKindFilter((previous) => toggleRunLogTypeFilter(previous, value)),
-    onSelectRun: setSelectedRunId,
+    onSelectRun: (runId) => { setSelectedEngineGroupKey(''); setSelectedRunId(runId); },
     onChangeRepoSearchSimpleFlow: setRepoSearchSimpleFlow,
+    engineGroups,
+    engineOnly,
+    selectedEngineGroupKey,
+    onToggleEngineOnly: () => setEngineOnly((previous) => !previous),
+    onSelectEngineGroup: (key) => { setSelectedEngineGroupKey(key); setSelectedRunId(''); },
   };
 
   const runDelete: RunDeleteController = {

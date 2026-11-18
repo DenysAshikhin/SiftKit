@@ -92,6 +92,7 @@ import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.ts
 import type { TurnTokenRecord } from './turn-token-record.ts';
 import { ToolStatsRecorder } from './tool-stats.ts';
 import { TranscriptManager } from './transcript-manager.ts';
+import { PromptCacheWatch } from './prompt-cache-watch.ts';
 import { RunStateCompactor } from './run-state-compactor.ts';
 import { TranscriptCompactor } from './transcript-compactor.ts';
 import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.ts';
@@ -203,6 +204,7 @@ export class TaskLoop {
   };
   private finalOutput = '';
   private lastCompactionSummary = '';
+  private readonly promptCacheWatch = new PromptCacheWatch();
   private turnsUsed = 0;
   private mockResponseIndex = 0;
   private executingPlannerRequest: ExecutingPlannerRequest | null = null;
@@ -509,6 +511,7 @@ export class TaskLoop {
       this.duplicates.forgetSuccesses();
       // The slips before compaction came from a context the model no longer holds; its streak starts over.
       this.counters.invalidResponses = 0;
+      this.promptCacheWatch.noteCompaction();
     }
 
     this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
@@ -555,6 +558,16 @@ export class TaskLoop {
       stop: response.stop,
       ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     });
+    const cacheBreak = this.promptCacheWatch.observe({
+      turn,
+      promptTokens: prepared.promptTokenCount,
+      promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
+      promptCacheTokens: Number.isFinite(response.promptCacheTokens) ? Number(response.promptCacheTokens) : null,
+    });
+    if (cacheBreak !== null) {
+      this.options.logger?.write({ kind: 'prompt_cache_break', taskId: this.task.id, ...cacheBreak });
+      this.progress.promptCacheBreak(cacheBreak);
+    }
 
     const turnThinkingText = String(response.thinkingText || '').trim();
     if (turnThinkingText) {

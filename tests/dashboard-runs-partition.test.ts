@@ -10,6 +10,7 @@ import {
   upsertRunLog,
 } from '../src/status-server/dashboard-runs/artifact-upserts.ts';
 import { deleteDashboardRunLogs } from '../src/status-server/dashboard-runs/deletion.ts';
+import { countPromptCacheBreaksByRun, insertEngineEvent } from '../src/state/engine-events.ts';
 import { queryDashboardRunDetailFromDb, queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.ts';
 import { normalizeRunRecordFromDbRow } from '../src/status-server/dashboard-runs/run-records.ts';
 import type { RunLogDbRow, RunLogUpsertRow } from '../src/status-server/dashboard-runs/types.ts';
@@ -64,7 +65,7 @@ function buildRunLogRow(overrides: Partial<RunLogDbRow> = {}): RunLogDbRow {
 }
 
 test('dashboard run-record module normalizes database rows', () => {
-  const run = normalizeRunRecordFromDbRow(buildRunLogRow());
+  const run = normalizeRunRecordFromDbRow(buildRunLogRow(), 0);
 
   assert.equal(run.id, 'run-1');
   assert.equal(run.status, 'failed');
@@ -143,12 +144,19 @@ test('dashboard deletion module deletes oldest matching run logs directly', () =
       });
     }
 
+    for (const runId of ['repo-1', 'repo-2']) {
+      insertEngineEvent(database, { kind: 'prompt_cache_break', inferenceRunId: null, runId, turn: 2, summary: 's', detail: 'd' });
+    }
+
     const result = deleteDashboardRunLogs(database, { mode: 'count', type: 'repo_search', count: 1 });
     const remaining = queryDashboardRunsFromDb(database, { kind: 'repo_search' });
 
     assert.deepEqual(result.deletedRunIds, ['repo-1']);
     assert.equal(result.deletedCount, 1);
     assert.deepEqual(remaining.map((run) => run.id), ['repo-2']);
+    assert.deepEqual([...countPromptCacheBreaksByRun(database, ['repo-1', 'repo-2'])], [['repo-2', 1]]);
+    assert.equal(remaining[0]?.promptCacheBreakCount, 1);
+    assert.equal(queryDashboardRunDetailFromDb(database, 'repo-2')?.run.promptCacheBreakCount, 1);
   });
 });
 
@@ -239,7 +247,7 @@ test('run-log identity upsert preserves earlier identity when a later write carr
 });
 
 test('legacy run-log rows normalize to null canonical identity', () => {
-  const legacy = normalizeRunRecordFromDbRow(buildRunLogRow());
+  const legacy = normalizeRunRecordFromDbRow(buildRunLogRow(), 0);
 
   assert.equal(legacy.operationType, null);
   assert.equal(legacy.operationPresetId, null);
@@ -255,7 +263,7 @@ test('run-log normalization rejects unknown operation types and passes snapshot 
     operation_type: 'not-an-operation',
     operation_preset_json: '{not json',
     model_preset_json: '[]',
-  }));
+  }), 0);
 
   assert.equal(run.operationType, null);
   assert.equal(run.operationPresetJson, '{not json');

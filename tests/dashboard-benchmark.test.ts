@@ -73,6 +73,7 @@ function runRecord(overrides: Partial<RunRecord>): { run: RunRecord } {
     durationMs: 10_000,
     providerDurationMs: 9_500,
     wallDurationMs: 10_050,
+    promptCacheBreakCount: 0,
     rawPaths: {},
   };
   return { run: { ...base, ...overrides } };

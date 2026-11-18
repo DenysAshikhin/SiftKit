@@ -29,7 +29,7 @@ function makeRun() {
     toolTokens: null, promptCacheTokens: null, promptEvalTokens: null,
     promptEvalDurationMs: null, generationDurationMs: null,
     speculativeAcceptedTokens: null, speculativeGeneratedTokens: null,
-    durationMs: null, providerDurationMs: null, wallDurationMs: null, throughput: null, rawPaths: {},
+    durationMs: null, providerDurationMs: null, wallDurationMs: null, throughput: null, promptCacheBreakCount: 0, rawPaths: {},
   };
 }
 // A post-migration repo-agent run: legacy kind keeps it in the repo_search group, while the
@@ -83,6 +83,7 @@ function Probe() {
 test('runs controller fetches on mount, re-fetches on refresh, and deletes with refresh propagation', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
   let runsFetchCount = 0;
+  let engineFetchCount = 0;
   let deleteFetchCount = 0;
   let deleted = false;
   async function fetchStub(input: string) {
@@ -94,6 +95,10 @@ test('runs controller fetches on mount, re-fetches on refresh, and deletes with 
       deleteFetchCount += 1;
       deleted = true;
       return jsonResponse({ ok: true, deletedCount: 1, deletedRunIds: [RUN_ID] });
+    }
+    if (url.includes('/dashboard/engine-events')) {
+      engineFetchCount += 1;
+      return jsonResponse({ events: [] });
     }
     if (url.includes('/dashboard/runs')) {
       runsFetchCount += 1;
@@ -116,6 +121,7 @@ test('runs controller fetches on mount, re-fetches on refresh, and deletes with 
   // Mount: the runs effect runs, fetches /dashboard/runs, and renders the run.
   await React.act(async () => { root.render(React.createElement(Probe)); });
   assert.equal(runsFetchCount, 1);
+  assert.equal(engineFetchCount, 1);
   assert.match(container.textContent, /Probe Run/u);
 
   // Identity fields cross the API contract untouched: legacy rows read null, new rows read

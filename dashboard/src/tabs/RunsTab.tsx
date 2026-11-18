@@ -14,6 +14,9 @@ import {
   runGroupLabel,
 } from '../lib/format.ts';
 import type { RepoSearchChatStep } from '../lib/chat-steps.ts';
+import { ENGINE_EVENT_KIND_LABELS, type EngineEventGroup } from '../lib/engine-events.ts';
+import { PromptCacheBreakSchema } from '@siftkit/contracts';
+import { summarizePromptCacheBreak } from '../../../src/repo-search/engine/prompt-cache-watch.ts';
 import type { RunDetailResponse, RunGroupFilter, RunRecord } from '../types.ts';
 
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
@@ -42,6 +45,11 @@ export type RunsTabProps = {
   onToggleKindFilter(value: RunGroupFilter): void;
   onSelectRun(runId: string): void;
   onChangeRepoSearchSimpleFlow(next: boolean): void;
+  engineGroups: EngineEventGroup[];
+  engineOnly: boolean;
+  selectedEngineGroupKey: string;
+  onToggleEngineOnly(): void;
+  onSelectEngineGroup(key: string): void;
 };
 
 export function RunsTab({
@@ -61,13 +69,20 @@ export function RunsTab({
   onToggleKindFilter,
   onSelectRun,
   onChangeRepoSearchSimpleFlow,
+  engineGroups,
+  engineOnly,
+  selectedEngineGroupKey,
+  onToggleEngineOnly,
+  onSelectEngineGroup,
 }: RunsTabProps) {
+  const selectedEngineGroup = engineGroups.find((group) => group.key === selectedEngineGroupKey) ?? null;
   const chipItems: FilterChipItem[] = [
     ...RUN_LOG_TYPE_PRESETS.map((preset) => ({
       value: `kind:${preset.value}`,
       label: preset.label,
       active: kindFilter === preset.value,
     })),
+    { value: 'engine', label: 'Engine', active: engineOnly },
     ...STATUS_CHIPS.map((chip) => ({
       value: `status:${chip.value}`,
       label: chip.label,
@@ -76,6 +91,10 @@ export function RunsTab({
   ];
 
   function onToggleChip(value: string): void {
+    if (value === 'engine') {
+      onToggleEngineOnly();
+      return;
+    }
     if (value.startsWith('kind:')) {
       onToggleKindFilter(normalizeRunLogTypeFilter(value.slice('kind:'.length)));
       return;
@@ -97,7 +116,26 @@ export function RunsTab({
         <div className="runs">
           {runsLoading && <p className="hint">Loading runs…</p>}
           {runsError && <p className="error">{runsError}</p>}
-          {RUN_GROUP_KEYS.map((group) => {
+          {engineGroups.length > 0 && (
+            <>
+              <div className="rgroup">Engine (exl3) · {engineGroups.length}</div>
+              {engineGroups.map((group) => (
+                <div
+                  key={group.key}
+                  className={selectedEngineGroupKey === group.key ? 'run sel' : 'run'}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onSelectEngineGroup(group.key)}
+                >
+                  <span className="t">{group.summary}</span>
+                  <span className="m">
+                    {ENGINE_EVENT_KIND_LABELS[group.kind]} · ×{group.events.length} · {formatShortTime(group.events[0]?.occurredAtUtc ?? null)}
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+          {!engineOnly && RUN_GROUP_KEYS.map((group) => {
             const items = groupedRuns[group];
             if (items.length === 0) {
               return null;
@@ -116,6 +154,7 @@ export function RunsTab({
                     <span className="t">{run.title}</span>
                     <span className="m">
                       <StatusDot status={run.status} /> · {formatDurationHms(run.durationMs)} · {formatShortTime(run.startedAtUtc)}
+                      {run.promptCacheBreakCount > 0 ? <span className="cache-break-badge"> · ⚠ cache ×{run.promptCacheBreakCount}</span> : null}
                     </span>
                   </div>
                 ))}
@@ -125,7 +164,30 @@ export function RunsTab({
         </div>
       </div>
       <div className="detail">
-        {selectedRunDetail ? (
+        {selectedEngineGroup ? (
+          <>
+            <h2>{selectedEngineGroup.summary}</h2>
+            <div className="meta-line">
+              <span>{ENGINE_EVENT_KIND_LABELS[selectedEngineGroup.kind]}</span>
+              <span>×{selectedEngineGroup.events.length}</span>
+              <span>latest {formatShortTime(selectedEngineGroup.events[0]?.occurredAtUtc ?? null)}</span>
+              <span>first {formatShortTime(selectedEngineGroup.events.at(-1)?.occurredAtUtc ?? null)}</span>
+            </div>
+            {selectedEngineGroup.events[0]?.runId ? (
+              <button type="button" className="chip" onClick={() => onSelectRun(selectedEngineGroup.events[0]?.runId ?? '')}>
+                Open run {selectedEngineGroup.events[0]?.runId}
+              </button>
+            ) : null}
+            <div className="card">
+              <header><b>Latest</b><span>{formatDate(selectedEngineGroup.events[0]?.occurredAtUtc ?? null)}</span></header>
+              <pre className="mono engine-event-detail">{selectedEngineGroup.events[0]?.detail ?? ''}</pre>
+            </div>
+            <div className="card">
+              <header><b>Occurrences</b></header>
+              <ul className="cbody">{selectedEngineGroup.events.map((event) => <li key={event.id}>{formatDate(event.occurredAtUtc)}</li>)}</ul>
+            </div>
+          </>
+        ) : selectedRunDetail ? (
           <>
             <h2>{selectedRunDetail.run.title}</h2>
             <div className="meta-line">
@@ -135,6 +197,18 @@ export function RunsTab({
               <span>started {formatShortTime(selectedRunDetail.run.startedAtUtc)}</span>
               <span>{formatDurationHms(selectedRunDetail.run.durationMs)}</span>
             </div>
+            {(() => {
+              const breaks = selectedRunDetail.events
+                .filter((event) => event.kind === 'prompt_cache_break')
+                .flatMap((event) => { const parsed = PromptCacheBreakSchema.safeParse(event.payload); return parsed.success ? [parsed.data] : []; });
+              if (breaks.length === 0) return null;
+              return (
+                <div className="card cache-break-warning">
+                  <header><b>⚠ Prompt cache broke on {breaks.length} turn{breaks.length === 1 ? '' : 's'}</b></header>
+                  <ul className="cbody">{breaks.map((cacheBreak) => <li key={cacheBreak.turn}>{summarizePromptCacheBreak(cacheBreak)}</li>)}</ul>
+                </div>
+              );
+            })()}
             {(() => {
               const finalOutput = extractRunFinalOutput(selectedRunDetail);
               if (!finalOutput) {

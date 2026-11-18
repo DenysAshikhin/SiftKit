@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
+import { type ColorOptions, colorize } from '../lib/ansi-color.ts';
 import {
-  type ColorOptions,
-  colorize,
   formatElapsed,
   formatGroupedNumber,
   formatInteger,

@@ -5,6 +5,7 @@ import { JsonRecordReader } from '../../lib/json-record-reader.ts';
 import { parseJsonValueText } from '../../lib/json.ts';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
 import { commandMatchesDisplayText } from '../tool-command-display.ts';
+import { deleteEngineEventsForRuns } from '../../state/engine-events.ts';
 import type { DashboardRunLogDeleteCriteria, DashboardRunLogType } from './types.ts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
@@ -298,6 +299,7 @@ export function deleteDashboardRunLogs(
   deleteRunLogSourceFiles(sourcePaths);
   let deletedCount = 0;
   database.transaction(() => {
+    deleteEngineEventsForRuns(database, deletedRunIds);
     if (deletedRunIds.length > 0) {
       const placeholders = deletedRunIds.map(() => '?').join(', ');
       const runLogResult = database

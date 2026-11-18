@@ -4,7 +4,10 @@ import { PassThrough } from 'node:stream';
 
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
 import { TabbyRunRecorder } from '../src/status-server/tabby-run-recorder.ts';
+import { listEngineEvents } from '../src/state/engine-events.ts';
+import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { withTempEnv } from './_runtime-helpers.ts';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
 /** Runs `fn` with a Tabby recorder whose engine streams are attached, inside an isolated runtime database. */
 async function withTabbyRecorder(
@@ -90,5 +93,70 @@ test('an unterminated last stderr line is observed when the stream ends', async 
 test('waitForEngineStderrEnd resolves after its bound when stderr never ends', async () => {
   await withTabbyRecorder(async (recorder) => {
     await recorder.waitForEngineStderrEnd(20);
+  });
+});
+
+const ASGI_ERROR = [
+  '23:19:36.937 ERROR:    Exception in ASGI application\n',
+  '  + Exception Group Traceback (most recent call last):\n',
+  '  |   File "C:\\tabby\\endpoints.py", line 9, in stream\n',
+  '  | RuntimeError: Cannot call write() when UVStream is closed\n',
+  '  +------------------------------------\n',
+  '23:19:37.002 INFO:     #1313 chat/completions (stream): 10 tokens generated\n',
+].join('');
+
+const engineEvents = () => listEngineEvents(getRuntimeDatabase(), 20);
+
+test('an engine ERROR record split across chunks becomes one engine_error event', async () => {
+  await withTabbyRecorder((recorder, { stdout }) => {
+    stdout.write(ASGI_ERROR.slice(0, 70));
+    stdout.write(ASGI_ERROR.slice(70));
+
+    const events = engineEvents();
+    assert.deepEqual(events.map((event) => [event.kind, event.inferenceRunId, event.summary]), [[
+      'engine_error', recorder.runId, 'Exception in ASGI application — RuntimeError: Cannot call write() when UVStream is closed',
+    ]]);
+    assert.match(events[0]?.detail ?? '', /endpoints\.py/u);
+    assert.doesNotMatch(events[0]?.detail ?? '', /tokens generated/u);
+  });
+});
+
+test('INFO and WARNING records are not engine errors', async () => {
+  await withTabbyRecorder((_recorder, { stdout, stderr }) => {
+    stdout.write('08:53:57.716 WARNING:  No sampler overrides are configured\n08:53:58.000 INFO:     Loaded\n');
+    stderr.write('08:54:18.879 WARNING:  Disabling authentication makes your instance vulnerable.\n');
+    assert.deepEqual(engineEvents(), []);
+  });
+});
+
+test('an ERROR record still open when its stream ends is recorded', async () => {
+  await withTabbyRecorder(async (recorder, { stderr }) => {
+    stderr.write('01:00:00.000 CRITICAL: Model load failed\nTraceback (most recent call last):\nOSError: [WinError 1450] Insufficient system resources exist');
+    stderr.end();
+    await recorder.waitForEngineStderrEnd(1_000);
+    assert.deepEqual(engineEvents().map((event) => event.summary), ['Model load failed — OSError: [WinError 1450] Insufficient system resources exist']);
+  });
+});
+
+test('an engine that exits on its own after becoming ready records one engine_exit event', async () => {
+  await withTabbyRecorder((recorder, { stderr }) => {
+    recorder.finish({ status: 'ready', baseUrl: DEAD_BASE_URL });
+    stderr.write(TRACEBACK);
+    recorder.finish({ status: 'failed', exitCode: 1 });
+
+    const events = engineEvents();
+    assert.deepEqual(events.map((event) => [event.kind, event.summary]), [[
+      'engine_exit', 'Engine exited with code 1: RuntimeError: Insufficient VRAM in split for model and cache',
+    ]]);
+    assert.match(events[0]?.detail ?? '', /Traceback/u);
+  });
+});
+
+test('a requested stop or a failure before ready records no engine_exit', async () => {
+  await withTabbyRecorder((recorder) => {
+    recorder.finish({ status: 'failed', exitCode: 1 });
+    recorder.finish({ status: 'ready', baseUrl: DEAD_BASE_URL });
+    recorder.finish({ status: 'stopped', exitCode: 0 });
+    assert.deepEqual(engineEvents(), []);
   });
 });
