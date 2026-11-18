@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { build } from 'vite';
@@ -19,6 +20,9 @@ const CHROME_FLAGS = ['--headless=new', '--disable-gpu', '--no-first-run', '--no
   '--remote-debugging-port=0', '--window-size=1000,1400', 'about:blank'];
 const PAGE_READY_TRIES = 200;
 const PAGE_READY_POLL_MS = 50;
+const LAUNCH_TIMEOUT_MS = 30_000;
+const EXIT_TIMEOUT_MS = 10_000;
+const ProcessInfoSchema = z.object({ processInfo: z.array(z.object({ type: z.string(), id: z.number().int() })) });
 
 function findChrome(): string {
   const found = CHROME_PATHS.find((candidate) => candidate !== undefined && fs.existsSync(candidate));
@@ -138,29 +142,58 @@ export class BrowserPage {
   }
 }
 
-/** Headless Chrome with one flag list for every browser test; its default headless profile is temporary and removed on close. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The DevTools URL the browser writes into its profile once it listens; null until then. */
+function readDevToolsUrl(userDataDir: string): string | null {
+  const file = path.join(userDataDir, 'DevToolsActivePort');
+  const [port = '', wsPath = ''] = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split(/\r?\n/u) : [];
+  return port === '' || wsPath === '' ? null : `ws://127.0.0.1:${port}${wsPath}`;
+}
+
+/**
+ * Headless Chrome with one flag list for every browser test, in a profile of its own. Chrome may relaunch itself
+ * and leave the spawned process, so the session finds the browser through its profile and DevTools, never that process.
+ */
 export class HeadlessChrome {
   readonly devTools: DevTools;
-  private readonly exited: Promise<void>;
+  /** The browser process DevTools reports, which closing waits on. */
+  readonly browserPid: number;
+  readonly userDataDir: string;
+  private readonly killOnExit: () => void;
 
-  private constructor(devTools: DevTools, exited: Promise<void>) {
+  private constructor(devTools: DevTools, browserPid: number, userDataDir: string) {
     this.devTools = devTools;
-    this.exited = exited;
+    this.browserPid = browserPid;
+    this.userDataDir = userDataDir;
+    // A test cut off by its timeout never reaches close; its browser must not outlive the test process.
+    this.killOnExit = () => { if (isAlive(browserPid)) process.kill(browserPid); };
+    process.once('exit', this.killOnExit);
   }
 
   static async launch(): Promise<HeadlessChrome> {
-    const chrome = spawn(findChrome(), CHROME_FLAGS);
-    const exited = new Promise<void>((resolve) => { chrome.once('exit', () => resolve()); });
-    const url = await new Promise<string>((resolve, reject) => {
-      let stderr = '';
-      chrome.once('error', reject);
-      chrome.stderr.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString('utf8');
-        const match = /DevTools listening on (ws:\S+)/u.exec(stderr)?.[1];
-        if (match !== undefined) resolve(match);
-      });
-    });
-    return new HeadlessChrome(await DevTools.connect(url), exited);
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chrome-'));
+    const chrome = spawn(findChrome(), [`--user-data-dir=${userDataDir}`, ...CHROME_FLAGS], { stdio: 'ignore' });
+    const spawnError = new Promise<never>((resolve, reject) => { chrome.once('error', reject); });
+    const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
+    let url = readDevToolsUrl(userDataDir);
+    while (url === null) {
+      if (Date.now() > deadline) throw new Error(`Chrome never wrote DevToolsActivePort to ${userDataDir} within ${LAUNCH_TIMEOUT_MS} ms.`);
+      await Promise.race([sleep(PAGE_READY_POLL_MS), spawnError]);
+      url = readDevToolsUrl(userDataDir);
+    }
+    const devTools = await DevTools.connect(url);
+    const { processInfo } = await devTools.send('SystemInfo.getProcessInfo', {}, ProcessInfoSchema);
+    const browser = processInfo.find((entry) => entry.type === 'browser');
+    if (browser === undefined) throw new Error('DevTools reported no browser process.');
+    return new HeadlessChrome(devTools, browser.id, userDataDir);
   }
 
   /** Opens `url` and waits until the page defines `window[entry]` as a function. */
@@ -175,8 +208,13 @@ export class HeadlessChrome {
     return page;
   }
 
+  /** Closes the browser, kills it if it has not exited in time, and removes its profile. */
   async close(): Promise<void> {
     this.devTools.closeBrowser();
-    await this.exited;
+    const deadline = Date.now() + EXIT_TIMEOUT_MS;
+    while (isAlive(this.browserPid) && Date.now() < deadline) await sleep(PAGE_READY_POLL_MS);
+    this.killOnExit();
+    process.removeListener('exit', this.killOnExit);
+    fs.rmSync(this.userDataDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 }
