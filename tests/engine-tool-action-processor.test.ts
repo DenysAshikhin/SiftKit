@@ -24,6 +24,8 @@ import { ChatJournalStore } from '../src/state/chat-journal.ts';
 import { replayChatContext } from '../src/status-server/chat-context-replay.ts';
 import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.ts';
 import { digestOutput } from '../src/output-digest/digest.ts';
+import { estimateTokenCount } from '../src/lib/token-estimate.ts';
+import { OUTPUT_TAIL_CAP_TOKENS } from '../src/repo-search/engine/turn-budget.ts';
 import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
 import { asObject } from './helpers/dashboard-http.ts';
 import { parseJsonValueText } from '../src/lib/json.ts';
@@ -1020,6 +1022,30 @@ test('a validation run leads with the digest of its raw output, taken before sha
   assert.match(shown, /\d+ lines omitted from validation command output\./u);
   assert.doesNotMatch(shown, /short test summary info/u, 'the shaped tail itself holds none of the failures');
   assert.doesNotMatch(commands[1]?.promptOutput ?? '', /Digest of the whole output/u);
+});
+
+// The real case: a worker's passing suite once came back as 153,089 characters, about 60,000 tokens of its context.
+test('a recognised check that passed comes back as its verdict and a capped tail, unless the run asked for full output', async () => {
+  const root = createManagedTempDir('siftkit-run-pass-');
+  const output = readDigestFixture('node-test/real-run-pass.txt');
+  const auto = { command: 'node .\\src\\test-runner\\run-tests.ts orchestrator contracts' };
+  const full = { command: 'node .\\src\\test-runner\\run-tests.ts contracts orchestrator', outputMode: 'full' };
+  const failing = { command: 'node .\\src\\test-runner\\run-tests.ts orchestrator' };
+  const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent', null, {
+    [buildRepoToolRequestedCommand('run', auto)]: { exitCode: 0, stdout: output, stderr: '' },
+    [buildRepoToolRequestedCommand('run', full)]: { exitCode: 0, stdout: `${output}full run\n`, stderr: '' },
+    [buildRepoToolRequestedCommand('run', failing)]: { exitCode: 1, stdout: output, stderr: '' },
+  });
+  for (const [turn, args] of [[1, auto], [2, full], [3, failing]] as const) {
+    await processor.executeBatch(turn, [{ kind: 'tool', callId: `test_call_pass_${turn}`, toolName: 'run', args }], '', 0, false);
+  }
+  const [passed = '', fullOutput = '', exitedNonZero = ''] = commands.map((command) => command.promptOutput ?? '');
+  const digest = 'Digest of the whole output:\nnode:test: passed (263 tests, 263 pass, 0 fail, 0 cancelled, 0 skipped, 0 todo)\n';
+  assert.ok(passed.startsWith(digest), passed.slice(0, 300));
+  assert.ok(estimateTokenCount(undefined, passed.slice(digest.length)) <= OUTPUT_TAIL_CAP_TOKENS, passed.slice(digest.length));
+  assert.match(passed, /ℹ duration_ms 40987\.0442/u, 'the tail still ends with the runner summary');
+  assert.match(fullOutput, /✔ assistant public contracts round-trip/u, 'outputMode "full" returns the raw output');
+  assert.match(exitedNonZero, /ℹ duration_ms 40987\.0442/u, 'a nonzero exit keeps its tail whatever the digest says');
 });
 
 test('a run with outputMode "full" leads with the digest over its unshaped output', async () => {

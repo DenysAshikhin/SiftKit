@@ -59,6 +59,10 @@ const EXPECTED: Record<string, ToolDigest[]> = {
   'node-test/pass.txt': [
     digest('node:test', false, [['tests', 5], ['pass', 4], ['fail', 0], ['cancelled', 0], ['skipped', 1], ['todo', 0]], []),
   ],
+  // A worker's real `run-tests.ts orchestrator contracts` from run 774d7a22: 1,308 of its 1,643 lines are server log noise.
+  'node-test/real-run-pass.txt': [
+    digest('node:test', false, [['tests', 263], ['pass', 263], ['fail', 0], ['cancelled', 0], ['skipped', 0], ['todo', 0]], []),
+  ],
   'vitest/fail.txt': [
     digest('vitest', true, [['tests', 4], ['failed', 3], ['passed', 1]], [
       ['broken.test.ts > never runs', 'broken.test.ts:3:24', ['TypeError: missing is not a function']],

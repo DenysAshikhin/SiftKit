@@ -10,6 +10,11 @@ export type LiveContextUsage = {
   exact: boolean;
 };
 
+/** The one usage shape: `ratio` is the used share of the window, clamped to [0, 1]. */
+export function toLiveContextUsage(usedTokens: number, contextWindowTokens: number, exact: boolean): LiveContextUsage {
+  return { usedTokens, contextWindowTokens, ratio: Math.min(1, Math.max(0, usedTokens / contextWindowTokens)), exact };
+}
+
 /**
  * Drives the bar and label beneath the composer. At rest it mirrors the persisted usage, which is
  * the measured next prompt when the last run measured one and a row estimate otherwise. While
@@ -28,13 +33,7 @@ export function resolveLiveContextUsage(input: {
   if (!contextUsage || contextUsage.contextWindowTokens <= 0) {
     return null;
   }
-  const contextWindowTokens = contextUsage.contextWindowTokens;
-  const finish = (usedTokens: number, exact: boolean): LiveContextUsage => ({
-    usedTokens,
-    contextWindowTokens,
-    ratio: Math.min(1, Math.max(0, usedTokens / contextWindowTokens)),
-    exact,
-  });
+  const finish = (usedTokens: number, exact: boolean): LiveContextUsage => toLiveContextUsage(usedTokens, contextUsage.contextWindowTokens, exact);
   if (!input.busy || !liveTokenBase) {
     return finish(contextUsage.totalUsedTokens, contextUsage.usedTokensMeasured);
   }

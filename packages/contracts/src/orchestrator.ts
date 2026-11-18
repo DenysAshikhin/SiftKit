@@ -334,9 +334,12 @@ export const OrchestratorParentTurnSchema = z.object({
 }).strict();
 export type OrchestratorParentTurn = z.infer<typeof OrchestratorParentTurnSchema>;
 
-/** The orchestrator's own live conversation; `parked` means it released its model while its child or a check works. */
+/**
+ * The orchestrator's own live conversation; `parked` means it released its model while its child or a check works.
+ * `contextTokens` is the context window its prompt fills.
+ */
 export const OrchestratorParentActivitySchema = z.object({
-  waitingForModel: z.boolean(), parked: z.boolean(), promptTokens: z.number().nonnegative(),
+  waitingForModel: z.boolean(), parked: z.boolean(), promptTokens: z.number().nonnegative(), contextTokens: z.number().positive(),
   prompt: z.object({ system: z.string(), user: z.string() }).strict().nullable(),
   turnCount: z.number().int().nonnegative(),
   turns: z.array(OrchestratorParentTurnSchema).max(ORCHESTRATOR_RECENT_TURN_LIMIT),

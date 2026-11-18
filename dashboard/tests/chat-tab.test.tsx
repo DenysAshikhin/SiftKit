@@ -585,7 +585,8 @@ test('orchestrator mode hands the live activity and the last work phase to the r
   const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'executing', message: 'Executing.',
     taskId: null, purpose: null, attempt: null, childRunId: null };
   const activity = OrchestratorActivitySchema.parse({ runId: ORCHESTRATOR_RUN_ID, children: [{ childRunId, taskId: 'greet',
-    waitingForModel: false, turn: 2, maxTurns: 40, promptTokens: 100, tools: [] }], parent: null, schedule: null });
+    waitingForModel: false, turn: 2, maxTurns: 40, promptTokens: 100, tools: [] }], schedule: null,
+    parent: { waitingForModel: false, parked: true, promptTokens: 52_000, contextTokens: 200_000, prompt: null, turnCount: 3, turns: [] } });
   const encoder = new TextEncoder();
   globalThis.fetch = async (input) => {
     const url = String(input);
@@ -601,6 +602,8 @@ test('orchestrator mode hands the live activity and the last work phase to the r
     await screen.findByLabelText(`Agent ${childRunId}`);
     const steps = screen.getAllByRole('listitem', { name: /step$/u }).map((step) => step.getAttribute('data-status'));
     assert.deepEqual(steps, ['done', 'now', 'todo', 'todo'], 'the approval pause still shows the Execute step');
+    assert.equal(view.container.querySelector('.ctx-label')?.textContent, '52k / 200k', 'the composer shows the orchestrator\'s own context');
+    assert.equal(view.container.querySelector('.ctx')?.getAttribute('title'), 'context 52,000 / 200,000');
     view.unmount();
   } finally { globalThis.fetch = originalFetch; }
 });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { buildNodeTestArgs } from './test-targets.ts';
-import { buildGuardEnv } from './test-environment.ts';
+import { buildTestEnv } from './test-environment.ts';
 import { terminateProcessTree } from '../lib/process-tree.ts';
 import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.ts';
 
@@ -41,9 +41,8 @@ const testArgs = buildNodeTestArgs(repoRoot, process.argv.slice(2));
 const child = spawn(process.execPath, ['--test', ...testArgs], {
   cwd: repoRoot,
   env: {
-    ...process.env,
     // The guard preload imports only builtins, so its settings travel as env.
-    ...buildGuardEnv(repoRoot),
+    ...buildTestEnv(repoRoot, process.env),
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${liveInstanceGuardUrl}`.trim(),
   },
   stdio: 'inherit',

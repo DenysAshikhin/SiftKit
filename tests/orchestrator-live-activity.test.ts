@@ -76,8 +76,9 @@ test('the parent conversation opens with its prompt, publishes parking at once, 
   const live = new OrchestratorLiveActivity(RUN_ID, registry);
   live.applyParent({ kind: 'lock_wait', elapsedMs: 1 });
   assert.equal(published.length, 0, 'nothing streams before the parent starts');
-  live.startParent({ system: 'You orchestrate.', user: 'Go.' });
+  live.startParent({ system: 'You orchestrate.', user: 'Go.' }, 200_000);
   assert.deepEqual(published.at(-1)?.parent?.prompt, { system: 'You orchestrate.', user: 'Go.' });
+  assert.equal(published.at(-1)?.parent?.contextTokens, 200_000, 'the view carries the context window it fills');
   const thinking = (text: string): OperationProgressEvent => ({ kind: 'thinking', turn: 1, maxTurns: 600, thinkingText: text });
   live.applyParent(thinking('a'));
   live.applyParent(thinking('ab'));

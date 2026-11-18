@@ -12,7 +12,7 @@ import {
 import { GLM_PROFILE } from '../dashboard/tests/fixtures.ts';
 
 const BARE_PROFILE: ModelProfile = {
-  name: 'bare', architecture: 'LlamaForCausalLM',
+  name: 'bare', architecture: 'MistralForCausalLM',
   moe: false, recurrent: false, mtp: false, vision: false, ngram: false, mla: false,
   reasoningEfforts: [], thinkingToggle: true, preserveThinking: true,
   sampling: { temperature: null, topP: null, topK: null },

@@ -13,6 +13,7 @@ import {
   parseNativePlannerActions as parseNativePlannerActionsFromResult,
   type NativePlannerActionOptions,
 } from '../src/planner-protocol/native-actions.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
 
 function parseNativePlannerActions(
   response: { text: string; toolCalls: InferenceToolCall[] },
@@ -551,5 +552,24 @@ test('finish content quoting a complete tool-call example in a fenced block fini
       { toolDefinitions, contentWithoutTools: 'finish' },
     ),
     [{ kind: 'finish', text }],
+  );
+});
+
+// Real case (run 774d7a22, turn 51): the orchestrator sent its whole plan as a JSON string that stopped after tasks.
+test('save_plan accepts a plan sent as a JSON string, and a truncated one names where it broke and the full shape', () => {
+  const definitions = resolveRepoSearchPlannerToolDefinitions(['save_plan']);
+  const [savePlan] = definitions;
+  if (savePlan === undefined) assert.fail('save_plan has no definition.');
+  const plan = JsonObjectSchema.parse(savePlan.exampleArgs.plan);
+  assert.deepEqual(
+    parseNativePlannerActions({ text: '', toolCalls: [call('plan-1', 'save_plan', { plan: JSON.stringify(plan) })] }, { toolDefinitions: definitions, contentWithoutTools: 'finish' }),
+    [{ kind: 'tool', callId: 'plan-1', toolName: 'save_plan', args: { plan } }],
+  );
+  const truncated = JSON.stringify({ goal: plan.goal, constraints: plan.constraints, tasks: plan.tasks }).slice(0, -1);
+  assert.throws(
+    () => parseNativePlannerActions({ text: '', toolCalls: [call('plan-2', 'save_plan', { plan: truncated })] }, { toolDefinitions: definitions, contentWithoutTools: 'finish' }),
+    (error) => error instanceof NativePlannerToolCallError
+      && error.message.includes(`the string is not valid JSON: Expected ',' or '}' after property value in JSON at position ${String(truncated.length)}`)
+      && error.message.endsWith('expected shape: {"goal": "…", "constraints": ["…"], "tasks": [{…}], "finalVerification": […]}'),
   );
 });

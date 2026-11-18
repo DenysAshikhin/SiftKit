@@ -24,6 +24,7 @@ import { runCli } from '../../src/cli/dispatch.ts';
 import { parseJsonText, parseJsonValueText } from '../../src/lib/json.ts';
 import type { JsonObject } from '../../src/lib/json-types.ts';
 import { z } from '../../src/lib/zod.ts';
+import { COMMAND_TAIL_CHARS } from '../../src/orchestrator/run.ts';
 import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.ts';
 import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from '../helpers/dashboard-model-queue-harness.ts';
 import { requestJson } from '../helpers/dashboard-http.ts';
@@ -215,6 +216,25 @@ test('one conversation plans, dispatches a writer, reviews it, and finishes; the
       attempt.childRunId === session.id || attempt.childRunId === session.orchestratorRunId)), false,
     'a worker run gets no chat session of its own');
   });
+
+test('a prompt-cache break in the orchestrator or its worker becomes a run event, so the CLI prints it', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-cache-break-');
+  const { engine } = context;
+  const evicted = { promptEvalTokens: 50_000, promptCacheTokens: 0 };
+  engine.parent.push([savePlan(), { ...dispatch({ taskId: 'greeting' }), ...evicted }, review('greeting', 'pass'), COMPLETE]);
+  engine.children.push([writeFile(GREETING), APPROVING_VERDICT, { ...AGENT_REPORT, ...evicted }]);
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  const warnings = events.filter((event) => event.message.includes('Prompt cache broke'))
+    .map((event) => [event.message.replace(/grew [\d,]+\./u, 'grew N.'), event.taskId, event.childRunId]);
+  assert.deepEqual(warnings, [
+    ['Orchestrator warning: Prompt cache broke on turn 2: re-prefilled 50,000 tokens where the prompt grew N.', null, null],
+    ['Worker warning: Prompt cache broke on turn 2: re-prefilled 50,000 tokens where the prompt grew N.', 'greeting',
+      state.attempts[0]?.childRunId],
+  ]);
+});
 
 test('failing checks go back to the same child, which fixes them and resubmits inside its one session', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-resubmit-');
@@ -556,6 +576,24 @@ test('run_check leads its result with the digest of the whole check output', asy
   assertCompleted(state, engine);
   const [, check] = engine.parentToolOutputs();
   assert.match(check ?? '', /exit 1\nDigest of the whole output:\npytest: FAILED \(2 failed, 1 passed\)\n✖ test_compares_lists — test_math\.py:4\n/u);
+});
+
+test('a run_check of a real passing suite returns its verdict and a bounded tail', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-check-pass-');
+  const { engine } = context;
+  fs.copyFileSync(digestFixturePath('node-test/real-run-pass.txt'), path.join(context.repo, 'suite-pass.txt'));
+  engine.parent.push([savePlan(), tool('run_check', { command: 'Get-Content -Raw -Encoding UTF8 suite-pass.txt', cwd: '.' }),
+    dispatch({ taskId: 'greeting' }), review('greeting', 'pass'), COMPLETE]);
+  engine.children.push(WRITER);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  const [, check = ''] = engine.parentToolOutputs();
+  const verdict = 'exit 0\nDigest of the whole output:\nnode:test: passed (263 tests, 263 pass, 0 fail, 0 cancelled, 0 skipped, 0 todo)\n';
+  assert.ok(check.startsWith(verdict), check.slice(0, 300));
+  assert.ok(check.length <= verdict.length + COMMAND_TAIL_CHARS, String(check.length));
+  assert.match(check, /ℹ duration_ms 40987\.0442/u);
 });
 
 test('an engine failure in the orchestrator conversation fails the run as infrastructure', async (t) => {

@@ -4,8 +4,8 @@ import { UNFILTERED_CHECK_OUTPUT_RULE } from '../../output-digest/types.ts';
 import type { RepoNativeToolCall } from '../repo-tool-arguments.ts';
 import { resolveRepoScopedPath } from './repo-paths.ts';
 
-/** One shell statement: its tokens with quotes removed, and its text with quoted content blanked. */
-type Statement = { tokens: string[]; bare: string };
+/** One shell statement: its tokens with quotes removed, its text with quoted content blanked, and where each piped command starts. */
+type Statement = { tokens: string[]; bare: string; commandStarts: number[] };
 
 const LOCATION_COMMANDS = new Set(['cd', 'chdir', 'sl', 'set-location', 'pushd', 'push-location']);
 const DRIVE_PATH = /(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s'"`;|,(){}]*/gu;
@@ -16,22 +16,32 @@ const CHECK_INVOCATION = new RegExp(String.raw`(?<![\w.-])(?:run-tests\.ts|npm(?
   + String.raw`|npx\s+(?:tsc|vitest|eslint|jest|playwright)|tsc|vitest|eslint|jest|pytest|mypy|pyright|ruff|msbuild|node\s+--test`
   + String.raw`|cargo\s+(?:test|build|check|clippy)|go\s+(?:test|build|vet)|dotnet\s+(?:test|build))(?![\w.-])`, 'iu');
 const OUTPUT_CUT = /\|\s*(Select-Object|Select-String|Where-Object|ForEach-Object|Out-File|Out-Null|Tee-Object|Get-Content|findstr|select|sls|where|tee|\?|%)(?![\w-])|(?<![\w-])[1-6*]?(>>?)(?!&)/iu;
+// Words that run the command after them, so the word they wrap is judged as the command.
+const COMMAND_WRAPPERS = new Set(['&', '.', 'npx', 'pnpx', 'bunx', 'call', 'start', 'start-process', 'cmd', 'cmd.exe', 'iex', 'invoke-expression']);
+const SIFTKIT_EXECUTABLE = /(?:^|[\\/])siftkit(?:\.(?:cmd|ps1|exe|js))?$/iu;
 
 /** Splits a PowerShell command into statements on `;`, newlines, `&&`, and `||` outside quotes. */
 function splitStatements(command: string): Statement[] {
   const statements: Statement[] = [];
   let tokens: string[] = [];
+  let commandStarts: number[] = [];
+  let atCommandStart = true;
   let token = '';
   let bare = '';
   let quote: string | null = null;
   const endToken = (): void => {
-    if (token !== '') tokens.push(token);
+    if (token === '') return;
+    if (atCommandStart) commandStarts.push(tokens.length);
+    atCommandStart = false;
+    tokens.push(token);
     token = '';
   };
   const endStatement = (): void => {
     endToken();
-    if (tokens.length > 0) statements.push({ tokens, bare });
+    if (tokens.length > 0) statements.push({ tokens, bare, commandStarts });
     tokens = [];
+    commandStarts = [];
+    atCommandStart = true;
     bare = '';
   };
   for (let index = 0; index < command.length; index += 1) {
@@ -61,6 +71,7 @@ function splitStatements(command: string): Statement[] {
       bare += char;
       if (/[\s|(){},]/u.test(char)) endToken();
       else token += char;
+      if (char === '|') atCommandStart = true;
     }
   }
   endStatement();
@@ -117,6 +128,20 @@ function findCutCheckOutput(command: string): string | null {
   return null;
 }
 
+/** A command that starts SiftKit: agents search with their own tools, and only the orchestrator dispatches work. */
+function findSiftKitInvocation(command: string): string | null {
+  for (const { tokens, commandStarts } of splitStatements(command)) {
+    for (const start of commandStarts) {
+      let index = start;
+      while (COMMAND_WRAPPERS.has((tokens[index] ?? '').toLowerCase()) || (index > start && /^[-/]/u.test(tokens[index] ?? ''))) index += 1;
+      if (SIFTKIT_EXECUTABLE.test(tokens[index] ?? '')) {
+        return 'Agents may not run `siftkit`: search with your own read, grep, find, and ls tools, and leave repo-agent work to the orchestrator.';
+      }
+    }
+  }
+  return null;
+}
+
 /** Absolute paths in free text, such as a child's instruction, that lie outside the repository root. */
 export function findPathsOutsideRepo(text: string, repoRoot: string): string[] {
   const named = [...text.matchAll(DRIVE_PATH)].map((match) => match[0].replace(/[.:]+$/u, ''));
@@ -124,13 +149,15 @@ export function findPathsOutsideRepo(text: string, repoRoot: string): string[] {
 }
 
 /**
- * Why a run or run_check command may not run: it reaches outside the repository root, or it cuts the
- * output of a check the digest must read whole. Judged before approval, so no reviewer call is spent on it.
+ * Why a run or run_check command may not run: it reaches outside the repository root, starts SiftKit, or
+ * cuts the output of a check the digest must read whole. Judged before approval, so no reviewer call is spent on it.
  */
 export function findShellCommandProblem(call: RepoNativeToolCall, repoRoot: string): string | null {
   if (call.toolName !== 'run' && call.toolName !== 'run_check') return null;
   const cwdText = call.toolName === 'run_check' ? call.args.cwd : '.';
   const cwd = resolveInside(repoRoot, repoRoot, cwdText);
   if (cwd === null) return outsideRoot(cwdText, repoRoot);
-  return findEscapingPath(call.args.command, cwd, repoRoot) ?? findCutCheckOutput(call.args.command);
+  return findEscapingPath(call.args.command, cwd, repoRoot)
+    ?? findSiftKitInvocation(call.args.command)
+    ?? findCutCheckOutput(call.args.command);
 }

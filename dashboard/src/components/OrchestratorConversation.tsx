@@ -2,6 +2,8 @@ import React from 'react';
 
 import type { OrchestratorParentActivity, OrchestratorParentTurn } from '@siftkit/contracts';
 
+import { toLiveContextUsage } from '../lib/contextBar.ts';
+
 function parentStatus(parent: OrchestratorParentActivity, live: boolean): string {
   if (!live) return 'finished';
   if (parent.parked) return 'released its model while children work';
@@ -44,7 +46,9 @@ export function OrchestratorConversation({ parent, live }: { parent: Orchestrato
         <span className="orch-title">Orchestrator</span>
         <span className="hint">{parentStatus(parent, live)}</span>
         <span className="hint">{parent.turnCount} turns</span>
-        <span className="hint">{parent.promptTokens.toLocaleString()} prompt tokens</span>
+        <span className="hint">
+          context {parent.promptTokens.toLocaleString()} / {parent.contextTokens.toLocaleString()} ({Math.round(toLiveContextUsage(parent.promptTokens, parent.contextTokens, true).ratio * 100)}%)
+        </span>
       </header>
       {parent.prompt === null ? null : (
         <details className="orch-parent-prompt">

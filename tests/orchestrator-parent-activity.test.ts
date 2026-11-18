@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ORCHESTRATOR_RECENT_TURN_LIMIT } from '@siftkit/contracts';
-import { IDLE_PARENT_ACTIVITY, reduceParentActivity } from '../src/orchestrator/parent-activity.ts';
+import { reduceParentActivity, startParentActivity } from '../src/orchestrator/parent-activity.ts';
 import type { OperationProgressEvent } from '../src/repo-search/types.ts';
 
 const TURN = { turn: 3, maxTurns: 600 } as const;
 
 function reduce(events: OperationProgressEvent[]) {
-  return events.reduce(reduceParentActivity, IDLE_PARENT_ACTIVITY);
+  return events.reduce(reduceParentActivity, startParentActivity(null, 200_000));
 }
 
 function toolStart(toolCallId: string, command: string): OperationProgressEvent {
@@ -31,7 +31,7 @@ test('a turn collects its thinking, its text, and each tool call with its result
     toolResult('p1', 0, 'Task greeting reported.'), toolResult('p2', 1, 'exit 1'),
   ]);
   assert.deepEqual(activity, {
-    waitingForModel: false, parked: false, promptTokens: 52_000, prompt: null, turnCount: 3,
+    waitingForModel: false, parked: false, promptTokens: 52_000, contextTokens: 200_000, prompt: null, turnCount: 3,
     turns: [{ turn: 3, thinking: 'Dispatch the greeting.', text: 'Starting the writer.', tools: [
       { toolCallId: 'p1', command: 'dispatch', status: 'succeeded', output: 'Task greeting reported.' },
       { toolCallId: 'p2', command: 'run_check npm test', status: 'failed', output: 'exit 1' },

@@ -6,9 +6,10 @@ import type { OperationProgressEvent } from '../repo-search/types.ts';
 const TURN_TEXT_TAIL_CHARS = 6_000;
 const TOOL_OUTPUT_TAIL_CHARS = 3_000;
 
-export const IDLE_PARENT_ACTIVITY: OrchestratorParentActivity = {
-  waitingForModel: false, parked: false, promptTokens: 0, prompt: null, turnCount: 0, turns: [],
-};
+/** The parent's view before its first turn: the prompt it opens with and the context window it fills. */
+export function startParentActivity(prompt: OrchestratorParentActivity['prompt'], contextTokens: number): OrchestratorParentActivity {
+  return { waitingForModel: false, parked: false, promptTokens: 0, contextTokens, prompt, turnCount: 0, turns: [] };
+}
 
 function tail(text: string, limit: number): string {
   return text.length <= limit ? text : `…${text.slice(-limit)}`;

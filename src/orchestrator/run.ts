@@ -33,7 +33,7 @@ import {
   type RepoAgentDecision,
 } from '@siftkit/contracts';
 
-import { getActiveModelPreset } from '../config/getters.ts';
+import { getActiveModelPreset, getConfiguredContextTokens } from '../config/getters.ts';
 import type { SiftConfig } from '../config/types.ts';
 import { toError } from '../lib/errors.ts';
 import { ModelJson } from '../lib/model-json.ts';
@@ -47,7 +47,7 @@ import type { SubmissionGate, SubmissionVerdict } from '../repo-search/engine/su
 import { taskPassed } from '../repo-search/engine/task-loop-support.ts';
 import type { OrchestratorToolCall } from '../repo-search/repo-tool-arguments.ts';
 import { resolveRunSystemPrompt } from '../repo-search/run-system-prompt.ts';
-import type { RepoSearchProgressEvent } from '../repo-search/types.ts';
+import type { OperationProgressEvent, RepoSearchProgressEvent } from '../repo-search/types.ts';
 import { readConfig } from '../status-server/config-store.ts';
 import { resolveNewSessionModelConfig } from '../status-server/new-chat-session.ts';
 import type { OrchestratorLiveRun, RepositoryLease } from '../status-server/orchestrator-runs.ts';
@@ -82,8 +82,8 @@ import {
 
 /** The parent's whole job is one conversation; planning alone can take dozens of turns. */
 const PARENT_MAX_TURNS = 600;
-/** How much of a command's output the orchestrator reads back. */
-const COMMAND_OUTPUT_CHARS = 4_000;
+/** How much of a command's output tail the orchestrator reads back, after the check's digest. */
+export const COMMAND_TAIL_CHARS = 4_000;
 
 /** The one child between its start and its settled result. */
 type LiveChild = {
@@ -93,6 +93,8 @@ type LiveChild = {
   repository: RepositoryLease;
   submission: WorkerSubmission;
   session: RepoAgentSession;
+  /** Ends the subscription that stores the child's warnings as run events. */
+  detachWarnings: () => void;
 };
 
 /** An answered approval the run continues with; an abort never returns. */
@@ -123,15 +125,15 @@ function fail(code: OrchestratorFailureCode, message: string, taskId: string | n
   return new OrchestratorRunFailure({ code, message, taskId });
 }
 
-/** Keeps the parent's lease alive and its live view current while its conversation streams. */
+/** Keeps the parent's lease alive and hands each streamed event to its run. */
 class ParentProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   private readonly lease: ParentLease;
-  private readonly activity: OrchestratorLiveActivity;
+  private readonly run: OrchestratorRun;
 
-  constructor(lease: ParentLease, activity: OrchestratorLiveActivity) {
+  constructor(lease: ParentLease, run: OrchestratorRun) {
     super();
     this.lease = lease;
-    this.activity = activity;
+    this.run = run;
   }
 
   get enabled(): boolean {
@@ -140,7 +142,7 @@ class ParentProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 
   write(event: RepoSearchProgressEvent): void {
     this.lease.renew();
-    this.activity.applyParent(event);
+    this.run.applyParentProgress(event);
   }
 
   override recordActivity(): void {
@@ -298,11 +300,11 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       promptKind: 'orchestrator', allowedTools, promptPrefix: preset.promptPrefix, systemContext,
       webSearch: this.lease.config.WebSearch, webToolsEnabled: undefined, webChatTools: false, orchestratorTools: true,
       visionEnabled: getActiveModelPreset(this.lease.config).VisionEnabled === true,
-    }).systemPrompt });
+    }).systemPrompt }, getConfiguredContextTokens(this.lease.config).totalContextTokens);
     const result = await this.ctx.engineService.executeRepoSearch({
       presetId: this.request.presetId, taskKind: 'orchestrator', prompt, requestId: parentRunId, repoRoot: this.request.repoRoot,
       systemContext, statusBackendUrl: this.statusUrl, config: this.lease.config, allowedTools,
-      maxTurns: PARENT_MAX_TURNS, abortSignal: this.signal, progressWriter: new ParentProgressWriter(this.lease, this.activity),
+      maxTurns: PARENT_MAX_TURNS, abortSignal: this.signal, progressWriter: new ParentProgressWriter(this.lease, this),
       orchestratorTools: this, submissionGate: this,
     }).catch((error) => {
       this.signal.throwIfAborted();
@@ -341,6 +343,18 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
   private commit(changes: Parameters<ServerContext['orchestratorRunStore']['update']>[2], message: string,
     detail: { taskId?: string; purpose?: OrchestratorAttempt['purpose']; attempt?: number; childRunId?: string } = {}): void {
     this.publish(this.ctx.orchestratorRunStore.update(this.runId, this.state.revision, changes, { message, ...detail }));
+  }
+
+  /** The parent's streamed event: its live view follows it, and a context warning becomes a run event. */
+  applyParentProgress(event: RepoSearchProgressEvent): void {
+    this.activity.applyParent(event);
+    this.recordWarning(event, null);
+  }
+
+  /** Stores a parent or child context warning, such as a prompt-cache break, as a run event the CLI prints. */
+  private recordWarning(event: OperationProgressEvent, child: { taskId: string; childRunId: string } | null): void {
+    if (event.kind !== 'context_warning' || isOrchestratorTerminalPhase(this.state.phase)) return;
+    this.commit({}, `${child === null ? 'Orchestrator' : 'Worker'} warning: ${event.warningText}`, child ?? {});
   }
 
   private publish(state: OrchestratorRunState): void {
@@ -502,9 +516,11 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
       workerPresetId: task.workerPresetId, repoRoot: this.request.repoRoot, work, instruction,
     }, submission);
-    const child: LiveChild = { attempt, task, baseline, repository, submission, session };
+    const source = { taskId: task.id, childRunId: attempt.childRunId };
+    const detachWarnings = session.attach({ wantsLiveText: false, writeProgress: (event) => this.recordWarning(event, source) });
+    const child: LiveChild = { attempt, task, baseline, repository, submission, session, detachWarnings };
     this.child = child;
-    this.activity.track(session, { childRunId: attempt.childRunId, taskId: task.id });
+    this.activity.track(session, source);
     this.publish(this.ctx.orchestratorRunStore.markAttemptRunning(this.runId, this.state.revision, attempt.childRunId));
     this.superviseChild(child, session).catch((error) => {
       this.childFailure ??= toError(error);
@@ -536,6 +552,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       child.repository.release();
       this.child = null;
       this.activity.untrack(child.attempt.childRunId);
+      child.detachWarnings();
       this.wake();
     }
   }
@@ -705,7 +722,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const status = !result.executed ? 'not run' : result.timedOut ? 'timed out' : `exit ${result.exitCode ?? 'unknown'}`;
     const ok = orchestratorCheckFailure(result) === null;
     if (ok) this.passedRunChecks.push(args.command);
-    return { ok, output: `${status}\n${renderCheckOutput(result, COMMAND_OUTPUT_CHARS)}` };
+    return { ok, output: `${status}\n${renderCheckOutput(result, COMMAND_TAIL_CHARS)}` };
   }
 
   private recordReview(args: OrchestratorRecordReviewArgs): OrchestratorToolOutcome {
@@ -787,7 +804,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     }
     return { kind: 'reject', message: [
       `Final verification failed (finish ${this.finishAttempts} of ${ORCHESTRATOR_MAX_FINISH_ATTEMPTS}):`,
-      ...failing.map((check) => `${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, COMMAND_OUTPUT_CHARS)}`),
+      ...failing.map((check) => `${orchestratorCheckFailure(check) ?? ''}\n${renderCheckOutput(check, COMMAND_TAIL_CHARS)}`),
       'Dispatch fixes for the tasks responsible, then finish again.',
     ].join('\n') };
   }

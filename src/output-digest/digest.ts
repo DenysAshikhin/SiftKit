@@ -14,7 +14,6 @@ import type { DigestFailure, ToolDigest } from './types.ts';
 import { parseVitest } from './vitest.ts';
 
 const DIGEST_HEADING = 'Digest of the whole output:';
-const MESSAGE_LINE_CAP = 12;
 // Room for the `… N more digest lines` notice a cut digest ends with.
 const CUT_NOTICE_RESERVE_CHARS = 32;
 
@@ -36,14 +35,10 @@ function failureLine(failure: DigestFailure): string {
   return failure.location === null ? `✖ ${failure.name}` : `✖ ${failure.name} — ${failure.location}`;
 }
 
+/** A failure's whole message, so nobody reruns the check to read it; the caller's budget bounds the digest. */
 function detailLines(failure: DigestFailure): string[] {
   if (failure.message.length === 0) return [];
-  const hidden = failure.message.length - MESSAGE_LINE_CAP;
-  return [
-    `✖ ${failure.name}`,
-    ...failure.message.slice(0, MESSAGE_LINE_CAP).map((line) => `  ${line}`),
-    ...(hidden > 0 ? [`  … ${hidden} more lines`] : []),
-  ];
+  return [`✖ ${failure.name}`, ...failure.message.map((line) => `  ${line}`)];
 }
 
 /** Every tool's verdict and failure list come before any details, so cutting the text from its end keeps them. */

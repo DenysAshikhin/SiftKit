@@ -4,7 +4,7 @@ import type { OperationProgressEvent } from '../repo-search/types.ts';
 import type { OrchestratorRunRegistry } from '../status-server/orchestrator-runs.ts';
 import type { RepoAgentSession } from '../status-server/repo-agent-sessions.ts';
 import { reduceChildActivity } from './child-activity.ts';
-import { IDLE_PARENT_ACTIVITY, reduceParentActivity } from './parent-activity.ts';
+import { reduceParentActivity, startParentActivity } from './parent-activity.ts';
 
 /** The parent streams thinking token by token; its view is published at most this often. */
 const PARENT_PUBLISH_INTERVAL_MS = 250;
@@ -30,9 +30,9 @@ export class OrchestratorLiveActivity {
     this.publish();
   }
 
-  /** Starts the parent's view with the exact prompt its conversation opens with. */
-  startParent(prompt: { system: string; user: string }): void {
-    this.parent = { ...IDLE_PARENT_ACTIVITY, prompt };
+  /** Starts the parent's view with the exact prompt its conversation opens with and its context window. */
+  startParent(prompt: { system: string; user: string }, contextTokens: number): void {
+    this.parent = startParentActivity(prompt, contextTokens);
     this.publish();
   }
 

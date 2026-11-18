@@ -84,7 +84,7 @@ test('a dense Qwen3.8 directory profiles its template levels, thinking toggle, a
 
 test('a template embedded in tokenizer_config.json is inspected when no chat_template.jinja exists', () => {
   withModelDirectory({
-    'config.json': JSON.stringify({ architectures: ['LlamaForCausalLM'], num_local_experts: 0 }),
+    'config.json': JSON.stringify({ architectures: ['MistralForCausalLM'], num_local_experts: 0 }),
     'tokenizer_config.json': JSON.stringify({ chat_template: GLM_TEMPLATE }),
   }, (directory) => {
     const profile = inspectModelDirectory(directory);
@@ -102,7 +102,7 @@ test('a template that never reads the thinking kwargs distinguishes no levels an
 });
 
 test('a directory without any chat template constrains no thinking setting', () => {
-  withModelDirectory({ 'config.json': JSON.stringify({ architectures: ['LlamaForCausalLM'] }) }, (directory) => {
+  withModelDirectory({ 'config.json': JSON.stringify({ architectures: ['MistralForCausalLM'] }) }, (directory) => {
     const profile = inspectModelDirectory(directory);
 
     assert.deepEqual(readTemplateThinking(directory), { reasoningEfforts: [], thinkingToggle: true, preserveThinking: true });
@@ -145,7 +145,7 @@ test('a hybrid model declares its KV and recurrent snapshot geometry', () => {
 });
 
 test('a dense model derives head_dim and has no recurrent snapshots', () => {
-  assert.deepEqual(geometryOf({ architectures: ['LlamaForCausalLM'], num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, hidden_size: 4096 }),
+  assert.deepEqual(geometryOf({ architectures: ['MistralForCausalLM'], num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, hidden_size: 4096 }),
     { attentionLayers: 32, kvTokenDim: 1024, mtpLayers: 0, recurrentSnapshotBytes: 0 });
 });
 

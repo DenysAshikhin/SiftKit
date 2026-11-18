@@ -3,7 +3,7 @@ import type { SiftConfig } from '../../config/index.ts';
 import { estimateTokenCount } from '../../lib/token-estimate.ts';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.ts';
 import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
-import { FAILED_COMMAND_TAIL_CAP_TOKENS, type AvailableToolResultCapacity } from './turn-budget.ts';
+import { OUTPUT_TAIL_CAP_TOKENS, type AvailableToolResultCapacity } from './turn-budget.ts';
 
 export type FittedToolResult = {
   resultText: string;
@@ -13,8 +13,8 @@ export type FittedToolResult = {
   rawResultTokenCount: number;
 };
 
-// A truncated result keeps half its budget, so a digest within a third leaves the tail at least a sixth.
-const DIGEST_BUDGET_SHARE = 1 / 3;
+// A digest takes what it needs up to this share of the result, so the output tail behind it always keeps a third.
+const DIGEST_MAX_SHARE = 2 / 3;
 
 type CountedTokenResult = {
   tokenCount: number;
@@ -61,6 +61,8 @@ export class ToolResultBudgeter {
     keep: ToolOutputKeep;
     /** A rendered digest of the whole command output, which leads the result; null when no parser recognised it. */
     digest: string | null;
+    /** The model asked for the raw output, so a digest does not cut a succeeded command's output to a tail. */
+    fullOutputRequested: boolean;
   }): Promise<FittedToolResult> {
     const rawToolTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_raw', {
       taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: options.rawResultText.length,
@@ -83,32 +85,37 @@ export class ToolResultBudgeter {
     let fittedReturnedSegmentCount: number | null = null;
 
     const successBudgetTokens = Math.min(options.capacity.perToolCapTokens, options.capacity.remainingTokenAllowance);
-    const maxResultTokens = options.commandSucceededForFitting
-      ? successBudgetTokens
-      : Math.min(FAILED_COMMAND_TAIL_CAP_TOKENS, successBudgetTokens);
+    const fullOutput = options.commandSucceededForFitting && (options.digest === null || options.fullOutputRequested);
+    const outputBudgetTokens = fullOutput ? successBudgetTokens : Math.min(OUTPUT_TAIL_CAP_TOKENS, successBudgetTokens);
+    // The digest is short; counting it, not the raw output a second time, sizes both parts.
+    const digestTokenCount = options.digest === null ? 0 : await this.countTokenValue(options.digest);
 
-    if (candidateResultTokenCount > maxResultTokens) {
-      const segments = options.resultText.split(/\r?\n/u).filter((line) => line.length > 0);
+    if (candidateResultTokenCount > Math.min(successBudgetTokens, digestTokenCount + outputBudgetTokens)) {
       const budgeter = this;
       const fitter = new ToolOutputFitter({
         async countToolOutputTokens(text: string): Promise<number> {
           return budgeter.countTokenValue(text);
         },
       });
-      // The digest is cut from its end so every verdict and failure name survives first.
-      const headerText = options.digest === null ? undefined : (await fitter.fitSegments({
-        segments: options.digest.split('\n'), separator: '\n', maxTokens: maxResultTokens * DIGEST_BUDGET_SHARE, unit: 'lines', keep: 'head',
-      })).visibleText;
+      // The digest leads whole within two thirds of the result; a longer one is cut from its end, so verdicts and failure names survive.
+      const digestBudgetTokens = Math.max(1, Math.floor(successBudgetTokens * DIGEST_MAX_SHARE));
+      let headerText = options.digest ?? undefined;
+      let headerTokenCount = digestTokenCount;
+      if (options.digest !== null && digestTokenCount > digestBudgetTokens) {
+        headerText = (await fitter.fitSegments({
+          segments: options.digest.split('\n'), separator: '\n', maxTokens: digestBudgetTokens, unit: 'lines', keep: 'head',
+        })).visibleText;
+        headerTokenCount = await this.countTokenValue(headerText);
+      }
       const fitResult = await fitter.fitSegments({
-        headerText,
-        segments,
+        segments: options.resultText.split(/\r?\n/u).filter((line) => line.length > 0),
         separator: '\n',
-        maxTokens: maxResultTokens,
+        maxTokens: Math.max(1, Math.min(outputBudgetTokens, successBudgetTokens - headerTokenCount)),
         unit: options.outputUnit,
-        keep: options.commandSucceededForFitting ? options.keep : 'tail',
+        keep: fullOutput ? options.keep : 'tail',
       });
       fittedReturnedSegmentCount = fitResult.returnedLineCount;
-      resultText = fitResult.visibleText;
+      resultText = headerText === undefined ? fitResult.visibleText : `${headerText}\n${fitResult.visibleText}`;
       const fitTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_fit', {
         taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: resultText.length,
       });

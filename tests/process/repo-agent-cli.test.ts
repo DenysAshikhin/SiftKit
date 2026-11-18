@@ -195,13 +195,11 @@ after(() => {
 });
 
 function makeRunner(server: RepoAgentTestServer): CliProcessRunner {
-  const environment: NodeJS.ProcessEnv = {
+  return new CliProcessRunner({
     ...process.env,
     SIFTKIT_STATUS_BACKEND_URL: `${server.getBaseUrl()}/status`,
     SIFTKIT_CONFIG_SERVICE_URL: `${server.getBaseUrl()}/config`,
-  };
-  delete environment.SIFTKIT_AGENT_RUN_ID;
-  return new CliProcessRunner(environment);
+  });
 }
 
 test('non-TTY start with --progress prints progress to stderr and a complete approval boundary to stdout', async () => {

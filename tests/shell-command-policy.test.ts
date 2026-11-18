@@ -97,6 +97,30 @@ test('an instruction naming an absolute path outside the repository is caught; p
   assert.deepEqual(findPathsOutsideRepo(`Edit src/a.ts and ${inside}.`, root), []);
 });
 
+test('neither the orchestrator nor a worker may start siftkit from a command', () => {
+  const root = makeRoot();
+  for (const command of [
+    'siftkit repo-search --prompt "find the router"',
+    'npx siftkit summary --question q',
+    'npx --yes siftkit status',
+    'cmd /c siftkit repo-search --prompt x',
+    '& siftkit.cmd repo-agent "fix it"',
+    'cd src; siftkit.ps1 summary',
+    'npm test 2>&1 | siftkit summary --question "pass?"',
+  ]) {
+    for (const call of [run(command), { toolName: 'run_check' as const, args: { command, cwd: '.' } }]) {
+      assert.match(findShellCommandProblem(call, root) ?? '', /may not run `siftkit`/u, `${call.toolName}: ${command}`);
+    }
+  }
+  for (const command of [
+    'git log --oneline --grep siftkit',
+    'Select-String -Path src\\*.ts -Pattern siftkit',
+    'node .\\src\\test-runner\\run-tests.ts siftkit-cli',
+  ]) {
+    assert.equal(findShellCommandProblem(run(command), root), null, command);
+  }
+});
+
 test('tools other than run and run_check are not judged', () => {
   assert.equal(findShellCommandProblem({ toolName: 'read', args: { path: '..\\x.txt' } }, makeRoot()), null);
 });

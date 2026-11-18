@@ -111,7 +111,7 @@ test('a passing review says every criterion was met, and a settled attempt state
 });
 
 const PARENT: OrchestratorParentActivity = {
-  waitingForModel: false, parked: true, promptTokens: 52_000, turnCount: 14,
+  waitingForModel: false, parked: true, promptTokens: 52_000, contextTokens: 200_000, turnCount: 14,
   prompt: { system: 'You are the SiftKit orchestrator.', user: 'Requested task: Greet' },
   turns: [{ turn: 14, thinking: 'The greeting task is next.', text: '',
     tools: [{ toolCallId: 'p1', command: 'dispatch', status: 'running', output: '' }] },
@@ -123,6 +123,7 @@ test('the orchestrator view shows its prompt, its latest thinking, and every too
   renderPanel(runState({}), { ...liveActivity([LIVE_CHILD]), parent: PARENT });
   const view = screen.getByLabelText('Orchestrator conversation');
   assert.ok(view.textContent?.includes('released its model while children work'));
+  screen.getByText('context 52,000 / 200,000 (26%)');
   screen.getByText('turn 14');
   screen.getByText('You are the SiftKit orchestrator.');
   screen.getByText('Requested task: Greet');

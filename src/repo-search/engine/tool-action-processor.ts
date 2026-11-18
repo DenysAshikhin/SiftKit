@@ -59,6 +59,7 @@ import { TokenUsageTracker } from './token-usage.ts';
 import { ToolStatsRecorder } from './tool-stats.ts';
 import { TranscriptManager } from './transcript-manager.ts';
 import { TurnBudget, type AvailableToolResultCapacity } from './turn-budget.ts';
+import { requestsFullOutput } from './validation-command-output-policy.ts';
 import {
   RepoNativeToolCallSchema,
   isOrchestratorToolCall,
@@ -1213,6 +1214,7 @@ export class ToolActionProcessor {
       outputUnit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit ? nativeExecution.outputUnit : 'lines',
       keep: nativeExecution && nativeExecution.ok && nativeExecution.outputKeep ? nativeExecution.outputKeep : 'head',
       digest: nativeExecution && nativeExecution.ok ? nativeExecution.digest ?? null : null,
+      fullOutputRequested: requestsFullOutput(context.runFullOutputDecision),
     });
     resultText = fitted.resultText;
     const fittedReturnedSegmentCount = fitted.fittedReturnedSegmentCount;

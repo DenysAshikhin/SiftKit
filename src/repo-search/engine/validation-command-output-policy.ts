@@ -78,6 +78,11 @@ export type RunFullOutputDecision =
   | { kind: 'retry'; effectiveMode: 'full'; downgraded: false }
   | { kind: 'duplicate' };
 
+/** Whether a run is served its raw output in full; null is a call that is not `run`. */
+export function requestsFullOutput(decision: RunFullOutputDecision | null): boolean {
+  return decision !== null && decision.kind !== 'duplicate' && decision.effectiveMode === 'full';
+}
+
 /**
  * First `full` request on a validation command is served as `auto`; only an immediate
  * back-to-back retry of the identical command with `full` is honored. Any other `run`

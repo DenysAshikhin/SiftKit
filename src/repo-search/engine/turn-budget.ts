@@ -11,12 +11,9 @@ export const MIN_TURN_TOOL_RESULT_RATIO = 0.075;
 // import without pulling in the loop.
 export const DEFAULT_MAX_TURNS = 45;
 
-// A failing command's tail is still evidence — test runners and compilers print
-// their verdicts and failure summaries last — but failure dumps are low-density,
-// so the kept tail gets a small fixed budget instead of the growing per-tool cap.
-// ~75-125 lines: enough for a runner summary plus failing-test names, never
-// enough for repeated failures to starve the remaining allowance.
-export const FAILED_COMMAND_TAIL_CAP_TOKENS = 1_024;
+// A failed command's output, or the output behind a digest, keeps this small fixed tail (~75-125 lines) instead of
+// the per-tool cap: the digest holds every verdict and failure, and runners print their summaries last.
+export const OUTPUT_TAIL_CAP_TOKENS = 1_024;
 
 // Below this there is not enough room to write a summary worth resuming from, so the
 // run fails loudly instead of emitting a stub that silently loses the conversation.

@@ -33,11 +33,11 @@ test('every failure of every tool is listed with its location before any details
   ].join('\n'));
 });
 
-test('a failure message is capped at 12 lines and says how many it left out', () => {
+test('a failure message renders whole, so reading a failure never needs a rerun', () => {
   const message = Array.from({ length: 40 }, (unused, index) => `diff line ${index}`);
   const rendered = renderDigests([{ ...PYTEST, failures: [{ name: 'big diff', location: 'x.py:1', message }] }]) ?? '';
   const details = rendered.split('\nDetails:\n')[1]?.split('\n') ?? [];
-  assert.deepEqual(details, ['✖ big diff', ...message.slice(0, 12).map((line) => `  ${line}`), '  … 28 more lines']);
+  assert.deepEqual(details, ['✖ big diff', ...message.map((line) => `  ${line}`)]);
 });
 
 test('output no parser recognises has no digest', () => {

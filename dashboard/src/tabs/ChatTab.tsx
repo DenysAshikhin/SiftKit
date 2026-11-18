@@ -12,7 +12,7 @@ import {
   getTurnTokenDisplay,
 } from '../lib/format.ts';
 import { getContextBarFillTone } from '../lib/context-bar-tone.ts';
-import { formatLiveContextTokens, resolveLiveContextUsage } from '../lib/contextBar.ts';
+import { formatLiveContextTokens, resolveLiveContextUsage, toLiveContextUsage, type LiveContextUsage } from '../lib/contextBar.ts';
 import { deriveSessionIndicator, hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state.ts';
 import type { ChatSessionRuntime, SessionIndicator } from '../lib/chat-session-runtime-store.ts';
 import type { ChatRuntimeHub } from '../lib/chat-runtime-hub.ts';
@@ -29,7 +29,9 @@ import { MessageImages } from '../components/MessageImages.tsx';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar.tsx';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard.tsx';
 import type { RepoAgentDecision } from '../api.ts';
-import { REPO_AGENT_DEFAULT_MAX_TURNS, countMemoryNotes, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply } from '@siftkit/contracts';
+import {
+  REPO_AGENT_DEFAULT_MAX_TURNS, countMemoryNotes, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply, type OrchestratorParentActivity,
+} from '@siftkit/contracts';
 import { ChatQuestionCard } from '../components/ChatQuestionCard.tsx';
 import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl.tsx';
 import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl.tsx';
@@ -258,6 +260,8 @@ export function ChatTab({
   const [orchestratorApproval, setOrchestratorApproval] = React.useState<ApprovalMode>('auto');
   const [orchestratorPlanPath, setOrchestratorPlanPath] = React.useState('');
   const orchestratorLive = orchestrator.state !== null && !isOrchestratorTerminalPhase(orchestrator.state.phase);
+  const liveContext: LiveContextProps = { runtimeHub, sessionId: selectedSessionId, runtime, busy: selectedSessionBusy,
+    orchestratorParent: chatMode === 'orchestrator' ? orchestrator.activity?.parent ?? null : null };
   // Each committed revision may link a new run or finish a phase or child whose rates the session folds.
   const orchestratorRevision = orchestrator.state === null ? null : `${orchestrator.state.runId}:${orchestrator.state.revision}`;
   React.useEffect(() => {
@@ -599,7 +603,7 @@ export function ChatTab({
                   ) : null}
                 </div>
               ) : null}
-              <LiveContextBar runtimeHub={runtimeHub} sessionId={selectedSessionId} runtime={runtime} busy={selectedSessionBusy} />
+              <LiveContextBar {...liveContext} />
               <PendingImageStrip
                 images={pendingImages}
                 pendingCount={pendingImageReadCount}
@@ -623,7 +627,7 @@ export function ChatTab({
                   onPaste={handleComposerPaste}
                   rows={2}
                 />
-                <LiveContextLabel runtimeHub={runtimeHub} sessionId={selectedSessionId} runtime={runtime} busy={selectedSessionBusy} />
+                <LiveContextLabel {...liveContext} />
                 <label className="mini-btn attach" title="Attach images">
                   Attach
                   <input
@@ -660,8 +664,7 @@ export function ChatTab({
                     {queueMode && chatMode !== 'orchestrator' ? 'Queue' : getSendLabel(chatMode)}
                   </button>
               </div>
-              <LiveChatStatsBar runtimeHub={runtimeHub} sessionId={selectedSessionId} runtime={runtime} busy={selectedSessionBusy}
-                lastTurn={lastTurnTelemetry} sessionStats={sessionPromptCacheStats} />
+              <LiveChatStatsBar {...liveContext} lastTurn={lastTurnTelemetry} sessionStats={sessionPromptCacheStats} />
             </div>
           </>
         ) : (
@@ -833,15 +836,20 @@ function CompactedHistoryPanel(props: {
   );
 }
 
-function useLiveContextUsage(runtimeHub: ChatRuntimeHub, sessionId: string, runtime: ChatSessionRuntime | null, busy: boolean) {
+/** An orchestrator session fills the orchestrator's own context, not the chat's, so its parent's prompt is the usage. */
+function useLiveContextUsage({ runtimeHub, sessionId, runtime, busy, orchestratorParent }: LiveContextProps): LiveContextUsage | null {
   const streamedCharsSinceBase = useChatRuntimeSelector(runtimeHub, (store) => selectStreamedCharsSinceBase(store, sessionId));
+  if (orchestratorParent !== null) return toLiveContextUsage(orchestratorParent.promptTokens, orchestratorParent.contextTokens, true);
   return resolveLiveContextUsage({ contextUsage: runtime?.contextUsage ?? null, liveTokenBase: runtime?.liveTokenBase ?? null, streamedCharsSinceBase, busy });
 }
 
-type LiveContextProps = { runtimeHub: ChatRuntimeHub; sessionId: string; runtime: ChatSessionRuntime | null; busy: boolean };
+type LiveContextProps = {
+  runtimeHub: ChatRuntimeHub; sessionId: string; runtime: ChatSessionRuntime | null; busy: boolean;
+  orchestratorParent: OrchestratorParentActivity | null;
+};
 
-function LiveContextBar({ runtimeHub, sessionId, runtime, busy }: LiveContextProps) {
-  const usage = useLiveContextUsage(runtimeHub, sessionId, runtime, busy);
+function LiveContextBar(props: LiveContextProps) {
+  const usage = useLiveContextUsage(props);
   if (!usage) return null;
   return (
     <div className={getContextBarFillTone(usage.ratio) === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(usage.usedTokens)} / ${formatNumber(usage.contextWindowTokens)}`}>
@@ -850,13 +858,13 @@ function LiveContextBar({ runtimeHub, sessionId, runtime, busy }: LiveContextPro
   );
 }
 
-function LiveContextLabel({ runtimeHub, sessionId, runtime, busy }: LiveContextProps) {
-  const usage = useLiveContextUsage(runtimeHub, sessionId, runtime, busy);
+function LiveContextLabel(props: LiveContextProps) {
+  const usage = useLiveContextUsage(props);
   return usage ? <span className="ctx-label">{formatLiveContextTokens(usage, formatCompactTokenCount)} / {formatCompactTokenCount(usage.contextWindowTokens)}</span> : null;
 }
 
 function LiveChatStatsBar({ lastTurn, sessionStats, ...context }: LiveContextProps & { lastTurn: LastTurnTelemetry; sessionStats: ChatSessionStats }) {
-  const usage = useLiveContextUsage(context.runtimeHub, context.sessionId, context.runtime, context.busy);
+  const usage = useLiveContextUsage(context);
   return <ChatStatsBar lastTurn={lastTurn} sessionStats={sessionStats} liveContextUsage={usage} streaming={context.busy} />;
 }
 
