@@ -4,15 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 
-import type { OrchestratorActivity, OrchestratorRunState } from '@siftkit/contracts';
+import type { OrchestratorRunState } from '@siftkit/contracts';
 import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import {
   OrchestratorRunRegistry,
   RepositoryGate,
-  type OrchestratorLiveRun,
   type RepositoryLease,
 } from '../src/status-server/orchestrator-runs.ts';
+import { FakeLiveRun } from './helpers/fake-orchestrator-live-run.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
@@ -32,30 +32,6 @@ function createRun(store: OrchestratorRunStore): OrchestratorRunState {
 /** Resolves on the next macrotask so any already-granted lease has settled. */
 async function settle<T>(promise: Promise<T>): Promise<T | 'pending'> {
   return Promise.race([promise, new Promise<'pending'>((resolve) => setImmediate(() => resolve('pending')))]);
-}
-
-class FakeLiveRun implements OrchestratorLiveRun {
-  abortReason: string | null = null;
-  private finish: () => void = () => {};
-  readonly settled = new Promise<void>((resolve) => { this.finish = resolve; });
-  readonly runId: string;
-  private readonly onAbort: () => void;
-
-  constructor(runId: string, onAbort: () => void = () => {}) {
-    this.runId = runId;
-    this.onAbort = onAbort;
-  }
-  abort(reason: string): void {
-    this.abortReason = reason;
-    this.onAbort();
-    this.finish();
-  }
-  decide(): boolean {
-    return false;
-  }
-  activitySnapshot(): OrchestratorActivity {
-    return { runId: this.runId, schedule: null, parent: null, children: [] };
-  }
 }
 
 test('shared leases overlap; an exclusive waits for them and blocks later readers until it releases', async () => {

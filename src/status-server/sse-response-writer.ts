@@ -4,7 +4,7 @@ import { OPERATION_STREAM_HEARTBEAT_MS } from '../lib/operation-stream.ts';
 
 const SSE_DRAIN_TIMEOUT_MS = 15_000;
 const SSE_CHUNK_CODE_UNITS = 16 * 1024;
-const SSE_MAX_BUFFERED_BYTES = 1024 * 1024;
+export const SSE_MAX_BUFFERED_BYTES = 1024 * 1024;
 
 /** Owns SSE headers, framing, heartbeats, and disconnect-safe writes. */
 export class SseResponseWriter {
