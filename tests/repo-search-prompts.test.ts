@@ -313,7 +313,7 @@ test('buildAgentSystemPrompt says recognised test output leads with a digest, an
   const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
   assert.doesNotMatch(prompt, /PowerShell syntax \([^)]*(?:-Last|-Tail)/u, 'trimming idioms are not offered as the syntax to use');
   assert.match(prompt, /starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message/u);
-  assert.ok(prompt.includes(UNFILTERED_CHECK_OUTPUT_RULE), 'the shared unfiltered-output rule is stated');
+  assert.equal(prompt.includes(UNFILTERED_CHECK_OUTPUT_RULE), false, 'the unfiltered-output rule is stated once, in the run tool');
   assert.doesNotMatch(prompt, /Select-String '\^\(✖\|ℹ\)'/u, 'the interim result-line filter is gone');
 });
 

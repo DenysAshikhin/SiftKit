@@ -4,7 +4,7 @@ import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema, ToolAc
 import { z } from '../lib/zod.ts';
 import { RUNTIME_DIR_NAME } from '../lib/paths.ts';
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
-import { DIGEST_TOOLS, UNFILTERED_CHECK_OUTPUT_RULE } from '../output-digest/types.ts';
+import { DIGEST_TOOLS } from '../output-digest/types.ts';
 import {
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
@@ -250,7 +250,7 @@ const STRUCTURED_REPO_TOOL_GUIDANCE =
   '- Prefer the structured repository tools over `run` for repository discovery: use `grep` for content search, `find` for filenames, `ls` for directory structure, and `read` for anchored file content. Do not use `run` for these operations when the corresponding structured tool is available.';
 
 const RUN_SHELL_GUIDANCE =
-  `- Use \`run\` only for validation or operations that available structured tools cannot express. The structured \`grep\` tool remains available; only the Unix shell command \`grep\` is unavailable inside \`run\`. \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-String, Where-Object, Get-Content). Long output reaches you as its tail. Test and type-check output SiftKit recognises (${DIGEST_TOOLS.join(', ')}) also starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message. ${UNFILTERED_CHECK_OUTPUT_RULE} Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
+  `- Use \`run\` only for validation or operations that available structured tools cannot express. The structured \`grep\` tool remains available; only the Unix shell command \`grep\` is unavailable inside \`run\`. \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-String, Where-Object, Get-Content). Long output reaches you as its tail. Test and type-check output SiftKit recognises (${DIGEST_TOOLS.join(', ')}) also starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message. Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
 
 function buildNativePlannerInstructions(toolNames: readonly string[]): string {
   if (toolNames.length === 0) {

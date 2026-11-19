@@ -30,6 +30,7 @@ import {
   EXPOSED_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.ts';
 import { emptyInferenceThroughput } from '../lib/inference-throughput.ts';
+import { UNFILTERED_CHECK_OUTPUT_RULE } from '../output-digest/types.ts';
 import type { InferenceThroughput, ThroughputAuditOperation } from '@siftkit/contracts';
 
 export type PlannerActionResponse = {
@@ -124,7 +125,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   }),
   run: buildRepoToolDefinition({
     toolName: 'run',
-    description: 'Execute a shell command in the repository root. Returns stdout and stderr.',
+    description: `Execute a shell command in the repository root. Returns stdout and stderr. ${UNFILTERED_CHECK_OUTPUT_RULE}`,
     exampleArgs: { command: 'npm test', outputMode: 'auto' },
   }),
   git: buildRepoToolDefinition({
@@ -182,7 +183,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   }),
   run_check: buildRepoToolDefinition({
     toolName: 'run_check',
-    description: 'Run one verification command in the repository and return its exit code and output.',
+    description: `Run one verification command in the repository and return its exit code and output. ${UNFILTERED_CHECK_OUTPUT_RULE}`,
     exampleArgs: { command: 'npm run typecheck', cwd: '.' },
   }),
   record_review: buildRepoToolDefinition({

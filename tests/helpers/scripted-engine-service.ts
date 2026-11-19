@@ -1,5 +1,6 @@
 import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.ts';
 import type { OrchestratorToolHost } from '../../src/repo-search/engine/orchestrator-tool-host.ts';
+import type { SubmissionGate } from '../../src/repo-search/engine/submission-gate.ts';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../../src/repo-search/types.ts';
 import { RecordingEngineService } from './recording-engine-service.ts';
 
@@ -40,9 +41,12 @@ export class ScriptedEngineService extends RecordingEngineService {
     if (next instanceof Error) return Promise.reject(next);
     const host = request.orchestratorTools;
     if (host === undefined) return Promise.reject(new Error('An orchestrator conversation needs its tool host.'));
+    const gate = request.submissionGate;
+    if (gate === undefined) return Promise.reject(new Error('An orchestrator conversation needs its submission gate.'));
     const conversation = new LazyConversation(next);
     this.conversations.push(conversation);
-    return super.executeRepoSearch({ ...request, mockResponses: conversation.turns, orchestratorTools: conversation.wrap(host) });
+    return super.executeRepoSearch({ ...request, mockResponses: conversation.turns, orchestratorTools: conversation.wrap(host),
+      submissionGate: conversation.wrapGate(gate) });
   }
 
   private runChild(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
@@ -55,6 +59,11 @@ export class ScriptedEngineService extends RecordingEngineService {
   /** Every orchestrator tool result the parents read, in order. */
   parentToolOutputs(): string[] {
     return this.conversations.flatMap((conversation) => conversation.outputs);
+  }
+
+  /** Why code refused each finish the parents gave, in order. */
+  parentFinishRejections(): string[] {
+    return this.conversations.flatMap((conversation) => conversation.finishRejections);
   }
 
   /** Recorded prompts of one side, in call order. */
@@ -73,6 +82,7 @@ function isFixedTurn(turn: ParentTurn): turn is MockPlannerResponseInput {
 class LazyConversation {
   readonly turns: MockPlannerResponseInput[] = [];
   readonly outputs: string[] = [];
+  readonly finishRejections: string[] = [];
   private readonly pending: ParentTurn[];
 
   constructor(script: ParentTurn[]) {
@@ -90,6 +100,16 @@ class LazyConversation {
       },
       contextDigest: () => host.contextDigest(),
       planSaved: () => host.planSaved(),
+    };
+  }
+
+  wrapGate(gate: SubmissionGate): SubmissionGate {
+    return {
+      review: async (answer) => {
+        const verdict = await gate.review(answer);
+        if (verdict.kind === 'reject') this.finishRejections.push(verdict.message);
+        return verdict;
+      },
     };
   }
 

@@ -4,16 +4,21 @@ import { UNFILTERED_CHECK_OUTPUT_RULE } from '../../output-digest/types.ts';
 import type { RepoNativeToolCall } from '../repo-tool-arguments.ts';
 import { resolveRepoScopedPath } from './repo-paths.ts';
 
-/** One shell statement: its tokens with quotes removed, its text with quoted content blanked, and where each piped command starts. */
-type Statement = { tokens: string[]; bare: string; commandStarts: number[] };
+/**
+ * One shell statement: its tokens with quotes removed, where each token starts in its text, the text with quoted
+ * content blanked, and which tokens start a command (after a pipe, `(`, `{`, or an assignment's `=`).
+ */
+type Statement = { tokens: string[]; offsets: number[]; bare: string; commandStarts: number[] };
 
 const LOCATION_COMMANDS = new Set(['cd', 'chdir', 'sl', 'set-location', 'pushd', 'push-location']);
 const DRIVE_PATH = /(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s'"`;|,(){}]*/gu;
 // A bare `..` is also PowerShell's range operator, so outside a cd only `..` joined to a separator is a path.
 const PARENT_SEGMENT = /(?:^|[\\/])\.\.[\\/]|[\\/]\.\.$/u;
 const HOME_REFERENCE = /(?<![\w$])(?:~(?:[\\/]|$)|\$HOME\b|\$env:(?:USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|TEMP|TMP)\b)/iu;
-const CHECK_INVOCATION = new RegExp(String.raw`(?<![\w.-])(?:run-tests\.ts|npm(?:\.cmd)?\s+(?:run\s+)?(?:test|lint|typecheck|build|check)[\w:-]*`
-  + String.raw`|npx\s+(?:tsc|vitest|eslint|jest|playwright)|tsc|vitest|eslint|jest|pytest|mypy|pyright|ruff|msbuild|node\s+--test`
+// A check as a command runs it: the executable, by name or path, and the arguments that make it a check.
+const CHECK_INVOCATION = new RegExp(String.raw`^(?:[^\s|]*[\\/])?(?:(?:node|tsx)(?:\s+[^\s|]+)*?\s+[^\s|]*run-tests\.ts|node\s+--test`
+  + String.raw`|npm(?:\.cmd)?\s+(?:run\s+)?(?:test|lint|typecheck|build|check)[\w:-]*|(?:python3?|py)\s+-m\s+(?:pytest|mypy)`
+  + String.raw`|tsc|vitest|eslint|jest|playwright|pytest|mypy|pyright|ruff|msbuild`
   + String.raw`|cargo\s+(?:test|build|check|clippy)|go\s+(?:test|build|vet)|dotnet\s+(?:test|build))(?![\w.-])`, 'iu');
 const OUTPUT_CUT = /\|\s*(Select-Object|Select-String|Where-Object|ForEach-Object|Out-File|Out-Null|Tee-Object|Get-Content|findstr|select|sls|where|tee|\?|%)(?![\w-])|(?<![\w-])[1-6*]?(>>?)(?!&)/iu;
 // Words that run the command after them, so the word they wrap is judged as the command.
@@ -24,22 +29,28 @@ const SIFTKIT_EXECUTABLE = /(?:^|[\\/])siftkit(?:\.(?:cmd|ps1|exe|js))?$/iu;
 function splitStatements(command: string): Statement[] {
   const statements: Statement[] = [];
   let tokens: string[] = [];
+  let offsets: number[] = [];
   let commandStarts: number[] = [];
   let atCommandStart = true;
   let token = '';
+  let tokenStart: number | null = null;
   let bare = '';
   let quote: string | null = null;
   const endToken = (): void => {
-    if (token === '') return;
-    if (atCommandStart) commandStarts.push(tokens.length);
-    atCommandStart = false;
-    tokens.push(token);
+    if (token !== '' && tokenStart !== null) {
+      if (atCommandStart) commandStarts.push(tokens.length);
+      atCommandStart = token === '=';
+      tokens.push(token);
+      offsets.push(tokenStart);
+    }
     token = '';
+    tokenStart = null;
   };
   const endStatement = (): void => {
     endToken();
-    if (tokens.length > 0) statements.push({ tokens, bare, commandStarts });
+    if (tokens.length > 0) statements.push({ tokens, offsets, bare, commandStarts });
     tokens = [];
+    offsets = [];
     commandStarts = [];
     atCommandStart = true;
     bare = '';
@@ -61,6 +72,7 @@ function splitStatements(command: string): Statement[] {
     const pair = command.slice(index, index + 2);
     if (char === "'" || char === '"') {
       quote = char;
+      tokenStart ??= bare.length;
       bare += ' ';
     } else if (pair === '&&' || pair === '||') {
       endStatement();
@@ -68,10 +80,14 @@ function splitStatements(command: string): Statement[] {
     } else if (char === ';' || char === '\n' || char === '\r') {
       endStatement();
     } else {
+      if (/[\s|(){},]/u.test(char)) {
+        endToken();
+      } else {
+        tokenStart ??= bare.length;
+        token += char;
+      }
       bare += char;
-      if (/[\s|(){},]/u.test(char)) endToken();
-      else token += char;
-      if (char === '|') atCommandStart = true;
+      if (char === '|' || char === '(' || char === '{') atCommandStart = true;
     }
   }
   endStatement();
@@ -118,12 +134,24 @@ function findEscapingPath(command: string, startCwd: string, repoRoot: string): 
   return null;
 }
 
+/** The token a command runs, past wrappers such as `npx` or `cmd /c` and their flags. */
+function commandHead(tokens: readonly string[], start: number): number {
+  let index = start;
+  while (COMMAND_WRAPPERS.has((tokens[index] ?? '').toLowerCase()) || (index > start && /^[-/]/u.test(tokens[index] ?? ''))) index += 1;
+  return index;
+}
+
+/** A check run as a command whose output the rest of its statement pipes or redirects away. */
 function findCutCheckOutput(command: string): string | null {
-  for (const { bare } of splitStatements(command)) {
-    const check = CHECK_INVOCATION.exec(bare);
-    if (check === null) continue;
-    const cut = OUTPUT_CUT.exec(bare.slice(check.index + check[0].length));
-    if (cut !== null) return `\`${cut[1] ?? cut[2] ?? ''}\` cuts the output of a test, build, lint, or typecheck command. ${UNFILTERED_CHECK_OUTPUT_RULE}`;
+  for (const { tokens, offsets, bare, commandStarts } of splitStatements(command)) {
+    for (const start of commandStarts) {
+      const offset = offsets[commandHead(tokens, start)];
+      if (offset === undefined) continue;
+      const check = CHECK_INVOCATION.exec(bare.slice(offset));
+      if (check === null) continue;
+      const cut = OUTPUT_CUT.exec(bare.slice(offset + check[0].length));
+      if (cut !== null) return `\`${cut[1] ?? cut[2] ?? ''}\` cuts the output of a test, build, lint, or typecheck command. ${UNFILTERED_CHECK_OUTPUT_RULE}`;
+    }
   }
   return null;
 }
@@ -132,9 +160,7 @@ function findCutCheckOutput(command: string): string | null {
 function findSiftKitInvocation(command: string): string | null {
   for (const { tokens, commandStarts } of splitStatements(command)) {
     for (const start of commandStarts) {
-      let index = start;
-      while (COMMAND_WRAPPERS.has((tokens[index] ?? '').toLowerCase()) || (index > start && /^[-/]/u.test(tokens[index] ?? ''))) index += 1;
-      if (SIFTKIT_EXECUTABLE.test(tokens[index] ?? '')) {
+      if (SIFTKIT_EXECUTABLE.test(tokens[commandHead(tokens, start)] ?? '')) {
         return 'Agents may not run `siftkit`: search with your own read, grep, find, and ls tools, and leave repo-agent work to the orchestrator.';
       }
     }

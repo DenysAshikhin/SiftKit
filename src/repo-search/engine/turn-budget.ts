@@ -20,7 +20,7 @@ export const OUTPUT_TAIL_CAP_TOKENS = 1_024;
 export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 
 // An orchestrator's compaction keeps only its run state, so past this share of its window with no plan
-// saved it may only call save_plan: 150k of 200k leaves room to write the plan before compaction.
+// saved it may only call save_plan; the last quarter is left for writing the plan before compaction.
 const ORCHESTRATOR_PLAN_DEADLINE_SHARE = 0.75;
 
 /**

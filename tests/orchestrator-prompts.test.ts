@@ -83,7 +83,7 @@ test('the orchestrator explores the code and runs checks itself, and plans only 
 test('the orchestrator sizes files with find and ls and runs checks without tail pipelines', () => {
   const prompt = buildOrchestratorPrompt(brief());
   assert.ok(prompt.includes('find and ls report each file\'s line count; use them to size files, not run_check.'));
-  assert.ok(prompt.includes(UNFILTERED_CHECK_OUTPUT_RULE));
+  assert.equal(prompt.includes(UNFILTERED_CHECK_OUTPUT_RULE), false, 'the unfiltered-output rule is stated once, in the run_check tool');
 });
 
 test('the orchestrator adds implementation tasks in small batches in dependency order', () => {

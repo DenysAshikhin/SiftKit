@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { build } from 'vite';
 import { z } from 'zod';
 import { JsonValueSchema, type JsonObject, type JsonValue } from '../../src/lib/json-types.ts';
 import { parseJsonText } from '../../src/lib/json.ts';
+import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.ts';
 
 const CHROME_PATHS = [
   process.env.SIFTKIT_TEST_CHROME,
@@ -20,6 +20,7 @@ const CHROME_FLAGS = ['--headless=new', '--disable-gpu', '--no-first-run', '--no
   '--remote-debugging-port=0', '--window-size=1000,1400', 'about:blank'];
 const PAGE_READY_TRIES = 200;
 const PAGE_READY_POLL_MS = 50;
+const PROCESS_POLL_MS = 50;
 const LAUNCH_TIMEOUT_MS = 30_000;
 const EXIT_TIMEOUT_MS = 10_000;
 const ProcessInfoSchema = z.object({ processInfo: z.array(z.object({ type: z.string(), id: z.number().int() })) });
@@ -179,14 +180,14 @@ export class HeadlessChrome {
   }
 
   static async launch(): Promise<HeadlessChrome> {
-    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chrome-'));
+    const userDataDir = createManagedTempDir('siftkit-chrome-');
     const chrome = spawn(findChrome(), [`--user-data-dir=${userDataDir}`, ...CHROME_FLAGS], { stdio: 'ignore' });
     const spawnError = new Promise<never>((resolve, reject) => { chrome.once('error', reject); });
     const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
     let url = readDevToolsUrl(userDataDir);
     while (url === null) {
       if (Date.now() > deadline) throw new Error(`Chrome never wrote DevToolsActivePort to ${userDataDir} within ${LAUNCH_TIMEOUT_MS} ms.`);
-      await Promise.race([sleep(PAGE_READY_POLL_MS), spawnError]);
+      await Promise.race([sleep(PROCESS_POLL_MS), spawnError]);
       url = readDevToolsUrl(userDataDir);
     }
     const devTools = await DevTools.connect(url);
@@ -212,9 +213,10 @@ export class HeadlessChrome {
   async close(): Promise<void> {
     this.devTools.closeBrowser();
     const deadline = Date.now() + EXIT_TIMEOUT_MS;
-    while (isAlive(this.browserPid) && Date.now() < deadline) await sleep(PAGE_READY_POLL_MS);
+    while (isAlive(this.browserPid) && Date.now() < deadline) await sleep(PROCESS_POLL_MS);
     this.killOnExit();
     process.removeListener('exit', this.killOnExit);
-    fs.rmSync(this.userDataDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    // A profile still locked here stays registered, so the managed sweep removes or reports it at exit.
+    await removeDirectoryWithRetries(this.userDataDir);
   }
 }

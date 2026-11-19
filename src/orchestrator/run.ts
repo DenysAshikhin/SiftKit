@@ -436,6 +436,15 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     return { ok: false, output: ['Not done:', ...problems.map((problem) => `- ${problem}`)].join('\n') };
   }
 
+  /** Why a busy child blocks this call; waitForChild returns mid-child only when the child waits on the parent's decide. */
+  private childBlocker(): string | null {
+    if (this.escalation !== null) {
+      return `Child approval ${this.escalation.approval.approvalId} is waiting for your decide; the child stays paused until you answer it.`;
+    }
+    if (this.child !== null) throw new Error('The orchestrator acted while its child ran with no approval waiting on it.');
+    return null;
+  }
+
   private savePlan(args: OrchestratorSavePlanArgs): Promise<OrchestratorToolOutcome> {
     if (this.state.plan !== null) return Promise.resolve(this.refuse(['A plan is already saved; change it with update_tasks.']));
     return this.storePlan(args.plan, 'saved');
@@ -454,7 +463,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
 
   /** Validates a whole candidate plan, stores it, and rewrites its Markdown; shared by the first save and every update. */
   private async storePlan(candidate: OrchestratorPlan, change: 'saved' | 'updated'): Promise<OrchestratorToolOutcome> {
-    if (this.child !== null) return this.refuse(['A child is still running; change the plan once it reports.']);
+    const blocker = this.childBlocker();
+    if (blocker !== null) return this.refuse([blocker]);
     let plan: OrchestratorPlan;
     try {
       plan = validateOrchestratorPlan(candidate, this.config, this.request.repoRoot);
@@ -488,8 +498,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
   private async dispatch(args: OrchestratorDispatchArgs): Promise<OrchestratorToolOutcome> {
     const { plan, planPath, planHash } = this.state;
     if (plan === null || planPath === null || planHash === null) return this.refuse(['Save a plan first.']);
-    if (this.escalation !== null) return this.refuse(['A child approval is waiting; answer it with decide.']);
-    if (this.child !== null) return this.refuse(['A child is still running.']);
+    const blocker = this.childBlocker();
+    if (blocker !== null) return this.refuse([blocker]);
     const task = plan.tasks.find((entry) => entry.id === args.taskId);
     if (task === undefined) return this.refuse([`Task '${args.taskId}' is not in the saved plan.`]);
     const problem = dispatchProblem({ taskStates: this.state.tasks, attempts: this.state.attempts, request: { task, purpose: args.purpose } });
@@ -717,7 +727,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
   }
 
   private async runCheck(args: OrchestratorRunCheckArgs): Promise<OrchestratorToolOutcome> {
-    if (this.child !== null) return this.refuse(['A child is still running; run checks once it reports.']);
+    const blocker = this.childBlocker();
+    if (blocker !== null) return this.refuse([blocker]);
     const check: OrchestratorVerificationCheck = { kind: 'command', command: args.command, cwd: args.cwd, expectedExitCode: 0 };
     const unrunnable = await findUnrunnableChecks(this.request.repoRoot, [check], this.signal);
     if (unrunnable.length > 0) return this.refuse(unrunnable);
@@ -787,7 +798,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       this.finishOutcome = { status: 'blocked', reason: finish.reason };
       return { kind: 'accept', output: answer };
     }
-    if (this.child !== null) return { kind: 'reject', message: 'A child is still running; wait for its report before finishing.' };
+    const blocker = this.childBlocker();
+    if (blocker !== null) return { kind: 'reject', message: blocker };
     const { plan } = this.state;
     if (plan === null) return { kind: 'reject', message: 'No plan is saved; there is nothing to finish.' };
     const open = this.state.tasks.filter((task) => task.status !== 'completed').map((task) => `${task.taskId} (${task.status})`);

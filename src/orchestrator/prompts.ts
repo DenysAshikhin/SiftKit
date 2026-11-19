@@ -8,7 +8,6 @@ import {
 } from '@siftkit/contracts';
 
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
-import { UNFILTERED_CHECK_OUTPUT_RULE } from '../output-digest/types.ts';
 import { renderReportInstruction } from './handoff.ts';
 import type { PlanWorker } from './scheduler.ts';
 
@@ -97,7 +96,6 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
     'Use run_check to run tests, typecheck, lint, or a command that reproduces a problem; never to change files, install',
     'packages, or commit: that is a child\'s work. Read and search code with your read tools, not run_check.',
     'find and ls report each file\'s line count; use them to size files, not run_check.',
-    UNFILTERED_CHECK_OUTPUT_RULE,
     APPROVAL_RULES[brief.approval],
   ].join('\n');
 }

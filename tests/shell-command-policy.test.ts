@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { UNFILTERED_CHECK_OUTPUT_RULE } from '../src/output-digest/types.ts';
 import { findPathsOutsideRepo, findShellCommandProblem } from '../src/repo-search/engine/shell-command-policy.ts';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 function makeRoot(): string {
@@ -67,11 +69,17 @@ test('a test, build, lint, or typecheck command may not have its output cut', ()
     ['npm test > out.txt', '>'],
     ['npm run lint 2>&1 | Out-File log.txt; Get-Content log.txt -Tail 20', 'Out-File'],
     ['cd .; npx vitest run dashboard 2>&1 | Where-Object { $_ -match "fail" }', 'Where-Object'],
+    ['$out = npm test 2>&1 | Select-Object -Last 5', 'Select-Object'],
+    ['1..3 | ForEach-Object { node --test tests/a.test.ts | Out-Null }', 'Out-Null'],
+    ['.\\node_modules\\.bin\\tsc --noEmit | Select-String error', 'Select-String'],
+    ['python -m pytest | Select-Object -Last 5', 'Select-Object'],
   ]) {
     const problem = findShellCommandProblem(run(command), root);
     assert.ok(problem !== null, command);
     assert.ok(problem.startsWith(`\`${filter}\` cuts the output of a test, build, lint, or typecheck command.`), `${command}\n${problem}`);
     assert.match(problem, /Run test, build, lint, and typecheck commands unfiltered/u);
+    // Real case (run 560566c3): workers looped a suite through Out-Null and Select-String only to see whether it was flaky.
+    assert.match(problem, /To repeat a check, run it again; each run gets its own digest./u);
   }
   assert.ok(findShellCommandProblem({ toolName: 'run_check', args: { command: 'npm test | Select-Object -Last 5', cwd: '.' } }, root) !== null);
 });
@@ -83,9 +91,20 @@ test('unfiltered checks and filtered non-check commands are allowed', () => {
     'node .\\src\\test-runner\\run-tests.ts orchestrator; "EXIT=$LASTEXITCODE"',
     'New-Item -ItemType Directory -Force scratch | Out-Null; npm run lint',
     'git log --oneline | Select-Object -First 5',
+    // Real case (run 560566c3): a file listing whose filter names a check tool runs no check.
+    'Get-ChildItem . -Filter eslint* | Select-Object Name',
+    'rg -n eslint src | Select-Object -First 20',
+    'Select-String -Path package.json -Pattern jest | Select-Object -First 3',
     'node .\\src\\test-runner\\run-tests.ts --test-name-pattern "a > b | Select-Object"',
   ]) {
     assert.equal(findShellCommandProblem(run(command), root), null, command);
+  }
+});
+
+// Real case (run 560566c3): 10 of 17 workers filtered a check first; the rule sat mid-paragraph in the system prompt only.
+test('the run and run_check tools state the unfiltered-check rule where the call is written', () => {
+  for (const definition of resolveRepoSearchPlannerToolDefinitions(['run', 'run_check'])) {
+    assert.ok(definition.function.description.includes(UNFILTERED_CHECK_OUTPUT_RULE), definition.function.description);
   }
 });
 

@@ -457,7 +457,7 @@ test('with approval auto the orchestrator decides a child escalation in its own 
   assert.equal(fs.readFileSync(path.join(context.repo, TARGET), 'utf8'), GREETING);
 });
 
-test('while a child awaits a decision, code refuses a check, a second dispatch, and a plan change, and decide resumes it', async (t) => {
+test('while a child awaits a decision, code refuses a check, a second dispatch, a plan change, and a finish, and decide resumes it', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-one-child-');
   const { engine } = context;
   const refusedThenDecide: ParentTurn = (output) => ({ toolCalls: [
@@ -466,16 +466,18 @@ test('while a child awaits a decision, code refuses a check, a second dispatch, 
     tool('update_tasks', { update: [{ taskId: 'greeting', set: { title: 'Renamed' } }] }),
     tool('decide', { approvalId: announcedApprovalId(output), decision: 'approve', reason: 'Inside its scope.' }),
   ].flatMap((turn) => turn.toolCalls ?? []) });
-  engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' }), refusedThenDecide, review('greeting', 'pass'), COMPLETE]);
+  engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' }), COMPLETE, refusedThenDecide, review('greeting', 'pass'), COMPLETE]);
   engine.children.push(ESCALATING_WRITER);
 
   const { state } = await followRun(context, (await startRun(context, 'auto')).runId);
 
   assertCompleted(state, engine);
-  const [, , check, again, update, decided] = engine.parentToolOutputs();
-  assert.match(check ?? '', /A child is still running; run checks once it reports\./u);
-  assert.match(again ?? '', /A child approval is waiting; answer it with decide\./u);
-  assert.match(update ?? '', /A child is still running; change the plan once it reports\./u);
+  const [, announced, check, again, update, decided] = engine.parentToolOutputs();
+  // Real case (run 560566c3): told only "a child is still running", the orchestrator polled run_check for 28 turns
+  // while its child sat paused on an approval it had already been shown.
+  const waiting = `Child approval ${announcedApprovalId(announced ?? '')} is waiting for your decide; the child stays paused until you answer it.`;
+  for (const refused of [check, again, update]) assert.ok((refused ?? '').includes(waiting), refused);
+  assert.deepEqual(engine.parentFinishRejections(), [waiting], 'the early finish was refused, the last one accepted');
   assert.match(decided ?? '', /## greeting \(implementation attempt 1\): passed/u);
   assert.equal(state.attempts.length, 1, 'the refused dispatch started no child');
   assert.equal(state.plan?.tasks[0]?.title, WRITE_TASK.title, 'the refused update left the plan alone');
