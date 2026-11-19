@@ -9,6 +9,8 @@ import { ManagedInferenceRuntime } from '../../src/status-server/managed-inferen
 export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
   preparedPreset: ModelRuntimePreset | null = null;
   engineConfig = getDefaultConfigObject().Server.Engines.Exl3;
+  /** Presets/ensure/stop/release calls in order; kept apart from `events`, which lifecycle tests assert exactly. */
+  readonly callOrder: string[] = [];
   private residentResidencyKey: string | null = null;
 
   private readonly events: string[];
@@ -35,7 +37,16 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
     return structuredClone(previous);
   }
 
+  replaceModelPresets(): void {
+    this.callOrder.push('presets');
+  }
+
+  async releaseRamDisk(): Promise<void> {
+    this.callOrder.push('release');
+  }
+
   async stopProcess(): Promise<void> {
+    this.callOrder.push('stop');
     this.events.push(`stop:${this.id}`);
     this.residentResidencyKey = null;
     this.transitionModelTo('unloaded');
@@ -43,6 +54,7 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
   }
 
   async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
+    this.callOrder.push(`ensure ${preset.id}`);
     this.preparedPreset = structuredClone(preset);
     const residencyKey = this.getPresetResidencyKey(preset);
     if (this.getModelState() === 'ready' && this.residentResidencyKey === residencyKey) return;

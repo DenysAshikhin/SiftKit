@@ -83,6 +83,8 @@ export const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
 
 /** Qwen3.8 Flash-Next's cache geometry: 12 attention layers, 2 KV heads × 256, one MTP layer, 36 gated-delta-net layers. */
 export const FLASH_NEXT_GEOMETRY = { attentionLayers: 12, kvTokenDim: 512, mtpLayers: 1, recurrentSnapshotBytes: 59_572_224 };
+/** Qwen3.8-27B-exl3-SCP_5.00bpw, as the inspector reads its config.json. */
+export const QWEN_27B_GEOMETRY = { attentionLayers: 16, kvTokenDim: 1024, mtpLayers: 1, recurrentSnapshotBytes: 79_429_632 };
 
 /** GLM-5.3-Flash-3.00bpw-hq as the inspector profiles the shipped model directory. */
 export const GLM_PROFILE: ModelProfile = {
@@ -124,7 +126,7 @@ export const MANAGED_PRESET = {
   id: 'managed', label: 'Managed', Backend: 'exl3', Model: 'test-model',
   ExternalServerEnabled: false, BaseUrl: 'http://127.0.0.1:8080', ModelPath: null,
   NumCtx: 4096, CompactionReserveTokens: 1024, NcpuMoe: 0, VisionEnabled: false, VisionOffload: false, VisionImageRetention: 8, VisionMaxImagePixels: 0, ParallelSlots: 1, ReviewerSlot: false, UBatchSize: 512, CacheRam: 2048, CacheRecurrentRam: 4096,
-  DiskCacheDir: null, DiskCacheSizeMiB: 51200, DiskCacheCheckpointInterval: 2048, NgramRam: false,
+  DiskCacheDir: null, DiskCacheSizeMiB: 51200, DiskCacheCheckpointInterval: 2048, RamDiskCache: false, RamDiskCacheGiB: 10, NgramRam: false,
   KvCacheQuantization: 'f16', Temperature: 0.7, TopP: 0.9, TopK: 40, MinP: 0.05, PresencePenalty: 0, RepetitionPenalty: 1.1,
   Reasoning: 'off', ReasoningEffort: 'xhigh', ReasoningContent: false, PreserveThinking: false, MaintainPerStepThinking: false,
   SpeculativeEnabled: false,
@@ -144,7 +146,7 @@ export const DASHBOARD_CONFIG = {
   Interactive: { Enabled: true, WrappedCommands: ['npm test'], IdleTimeoutMs: 1000, MaxTranscriptCharacters: 2000, TranscriptRetention: true },
   Server: {
     ModelPresets: { Presets: [MANAGED_PRESET], ActivePresetId: MANAGED_PRESET.id },
-    Engines: { Exl3: { Managed: true, WorkingDirectory: '', PythonPath: 'python', Entrypoint: 'tabbyAPI/main.py', ModelRoot: '', AdminApiKey: '', ShutdownTimeoutMs: 10000, Environment: {} } },
+    Engines: { Exl3: { Managed: true, WorkingDirectory: '', PythonPath: 'python', Entrypoint: 'tabbyAPI/main.py', ModelRoot: '', AdminApiKey: '', ShutdownTimeoutMs: 10000, Environment: {}, RamDisk: { ToolPath: null, DriveLetter: 'S' } } },
   },
   WebSearch: {
     EnabledDefault: true,

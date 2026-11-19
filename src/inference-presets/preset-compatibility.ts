@@ -112,6 +112,8 @@ const PRESET_FIELD_SUPPORT = {
   DiskCacheDir: 'managed-only',
   DiskCacheSizeMiB: 'managed-only',
   DiskCacheCheckpointInterval: 'managed-only',
+  RamDiskCache: 'managed-only',
+  RamDiskCacheGiB: 'managed-only',
   NgramRam: 'managed-only',
   KvCacheQuantization: 'always',
 

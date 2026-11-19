@@ -436,4 +436,21 @@ export const NEVER_LAUNCHING_ENGINE_HOST: ManagedEngineHost = {
       throw new Error('Unexpected GPU memory probe.');
     },
   },
+  ramDisk: {
+    find() {
+      throw new Error('Unexpected RAM disk lookup.');
+    },
+    create() {
+      throw new Error('Unexpected RAM disk creation.');
+    },
+    grow() {
+      throw new Error('Unexpected RAM disk growth.');
+    },
+    remove() {
+      throw new Error('Unexpected RAM disk removal.');
+    },
+    removeDetached() {
+      throw new Error('Unexpected RAM disk removal.');
+    },
+  },
 };

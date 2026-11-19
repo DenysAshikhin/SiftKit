@@ -9,6 +9,8 @@ import type { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
 import type { ModelRequestLock } from './server-types.ts';
 import type { AppliedModelPresetState } from './applied-model-preset-state.ts';
 import { persistAppliedModelSelection, readConfig, restorePreviousModelSelection } from './config-store.ts';
+import { serverLogger } from './server-logger.ts';
+import { toError } from '../lib/errors.ts';
 
 const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is in progress; retry once it completes.';
 
@@ -67,10 +69,9 @@ export class PresetRuntimeCoordinator {
   // The startup load is a residency action: a request arriving mid-load waits, so no switch races it on the runtime.
   async initialize(): Promise<void> {
     const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.runtime;
     this.beginResidencyAction();
     try {
-      await runtime.ensurePresetReady(preset);
+      await this.readyRuntime(preset);
     } catch (error) {
       this.fail('process-start', error instanceof Error ? error.message : String(error));
       throw error;
@@ -168,7 +169,7 @@ export class PresetRuntimeCoordinator {
   private async restoreAppliedPreset(preset: ModelRuntimePreset): Promise<void> {
     this.beginResidencyAction();
     try {
-      await this.runtime.ensurePresetReady(preset);
+      await this.readyRuntime(preset);
       this.errorPhase = null;
       this.error = null;
     } catch (error) {
@@ -260,7 +261,7 @@ export class PresetRuntimeCoordinator {
     if (runtime.getModelState() === 'ready') return { status: 'noop' };
     this.beginResidencyAction();
     try {
-      await runtime.ensurePresetReady(preset);
+      await this.readyRuntime(preset);
       this.errorPhase = null;
       this.error = null;
       return { status: 'done' };
@@ -312,7 +313,20 @@ export class PresetRuntimeCoordinator {
       }
     }
     await runtime.stopProcess();
+    // An unelevated server shows a UAC prompt here; a declined one leaves the disk to the next start.
+    try {
+      await runtime.releaseRamDisk();
+    } catch (error) {
+      serverLogger.warning({ scope: 'exl3', id: 'ram-disk', event: 'ram_disk_release_failed', fields: '',
+        alert: `Could not remove the RAM disk: ${toError(error).message}` });
+    }
     this.pendingSwitch = null;
+  }
+
+  /** Every load sees the presets as configured now, so a RAM-disk preset sizes the shared disk from all of them. */
+  private async readyRuntime(preset: ModelRuntimePreset): Promise<void> {
+    this.runtime.replaceModelPresets(readConfig(this.configPath).Server.ModelPresets.Presets);
+    await this.runtime.ensurePresetReady(preset);
   }
 
   private setPendingSwitch(target: ModelRuntimePreset, kind: SwitchKind): void {
@@ -381,7 +395,7 @@ export class PresetRuntimeCoordinator {
         await runtime.stopProcess();
         previousEngine = runtime.replaceEngineConfig(expected.Server.Engines.Exl3);
       }
-      await runtime.ensurePresetReady(target);
+      await this.readyRuntime(target);
       this.publishReadyPreset(target);
       // Persist before admission reopens so a joined readiness check never sees the old selection; compare-and-set keeps a newer save.
       if (kind === 'requested') persistAppliedModelSelection(this.configPath, expected, target);
@@ -404,7 +418,7 @@ export class PresetRuntimeCoordinator {
         if (previousEngine !== null) runtime.replaceEngineConfig(previousEngine);
         // Restore the previous selection only while the config is unchanged; a newer save keeps its intent.
         const restored = restorePreviousModelSelection(this.configPath, expected, previous);
-        await runtime.ensurePresetReady(previous);
+        await this.readyRuntime(previous);
         this.appliedModelPresetState.applyPreset(previous);
         const warning = cleanupError ? ` Target cleanup warning: ${cleanupError}` : '';
         this.rollback = restored

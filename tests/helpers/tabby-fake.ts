@@ -10,6 +10,7 @@ import {
 } from '../../src/inference-presets/exl3-model-capabilities.ts';
 import type { ManagedEngineHost } from '../../src/status-server/engine-process.ts';
 import type { GpuMemoryProbe } from '../../src/status-server/gpu-memory.ts';
+import { FakeRamDiskDriver } from './fake-ram-disk.ts';
 import { FakeTabbyLauncher, type FakeTabbyOptions } from './in-process-tabby.ts';
 
 class FixedExl3PackageLocator implements Exl3PackageLocator {
@@ -157,6 +158,7 @@ export function writeFakeUnifiedExl3Venv(root: string): FakeUnifiedExl3Venv {
 
 export interface FakeEngineHost {
   launcher: FakeTabbyLauncher;
+  ramDisk: FakeRamDiskDriver;
   host: ManagedEngineHost;
   pythonPath: string;
 }
@@ -168,7 +170,8 @@ export interface FakeEngineHost {
 export function writeFakeEngineHost(root: string, options: FakeTabbyOptions, gpuMemory: GpuMemoryProbe = NO_GPU_MEMORY): FakeEngineHost {
   const { pythonPath } = writeFakeExl3Venv(root, true);
   const launcher = new FakeTabbyLauncher(options);
-  return { launcher, host: { launcher, packageLocator: createFakeExl3PackageLocator(pythonPath), gpuMemory }, pythonPath };
+  const ramDisk = new FakeRamDiskDriver();
+  return { launcher, ramDisk, host: { launcher, packageLocator: createFakeExl3PackageLocator(pythonPath), gpuMemory, ramDisk }, pythonPath };
 }
 
 /** A host without an NVIDIA GPU: every VRAM check is skipped. */

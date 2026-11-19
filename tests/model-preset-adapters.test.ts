@@ -63,8 +63,8 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     cache_mode: '8,4',
     chunk_size: 1_024,
   });
-  assert.deepEqual(adapter.buildLaunchEnvironment(preset), {
-    TABBY_MODEL_MODEL_DIR: 'D:\\personal\\models\\exl3',
+  assert.deepEqual(adapter.buildLaunchEnvironment(preset, 'S'), {
+TABBY_MODEL_MODEL_DIR: 'D:\\personal\\models\\exl3',
     TABBY_MODEL_MODEL_NAME: '3.6_27B',
     TABBY_MODEL_MAX_SEQ_LEN: '30000',
     TABBY_MODEL_CACHE_SIZE: '30208',
@@ -109,8 +109,8 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     cache_mode: 'FP16',
     chunk_size: preset.UBatchSize,
   });
-  assert.deepEqual(adapter.buildLaunchEnvironment(preset), {
-    TABBY_MODEL_MODEL_DIR: 'D:\\personal\\models\\exl3',
+  assert.deepEqual(adapter.buildLaunchEnvironment(preset, 'S'), {
+TABBY_MODEL_MODEL_DIR: 'D:\\personal\\models\\exl3',
     TABBY_MODEL_MODEL_NAME: '3.6_27B',
     TABBY_MODEL_MAX_SEQ_LEN: String(preset.NumCtx),
     TABBY_MODEL_CACHE_SIZE: String(preset.NumCtx),
@@ -133,7 +133,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     PYTHONUTF8: '1',
     TABBY_LOG_CONSOLE_WIDTH: '4096',
   });
-  assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
+  assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset, 'S'), false);
 });
 
 test('EXL3 adapter disables dynamic drafting when the preset opts out', () => {
@@ -145,18 +145,18 @@ test('EXL3 adapter disables dynamic drafting when the preset opts out', () => {
     SpeculativeDynamic: false,
   });
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
-  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DYNAMIC_DRAFT, 'false');
+  assert.equal(adapter.buildLaunchEnvironment(preset, 'S').TABBY_DRAFT_MODEL_DYNAMIC_DRAFT, 'false');
 });
 
 test('EXL3 adapter emits the disk cache only for a preset that sets a directory', () => {
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const exl3Preset = createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' });
-  const off = adapter.buildLaunchEnvironment({ ...exl3Preset, DiskCacheDir: null });
+  const off = adapter.buildLaunchEnvironment({ ...exl3Preset, DiskCacheDir: null }, 'S');
   assert.equal(off.TABBY_MEMORY_DISK_CACHE_DIR, undefined);
   assert.equal(off.TABBY_MEMORY_DISK_CACHE_SIZE, undefined);
   assert.equal(off.TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL, undefined);
   const on = adapter.buildLaunchEnvironment({ ...exl3Preset, CacheRam: 4096, DiskCacheDir: 'D:\\AI\\exl3-disk-cache',
-    DiskCacheSizeMiB: 51200, DiskCacheCheckpointInterval: 2048 });
+    DiskCacheSizeMiB: 51200, DiskCacheCheckpointInterval: 2048 }, 'S');
   assert.equal(on.TABBY_MEMORY_DISK_CACHE_DIR, 'D:\\AI\\exl3-disk-cache');
   assert.equal(on.TABBY_MEMORY_DISK_CACHE_SIZE, '51200');
   assert.equal(on.TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL, '2048');
@@ -165,10 +165,10 @@ test('EXL3 adapter emits the disk cache only for a preset that sets a directory'
 test('the EXL3 launch environment rejects a partial disk-cache variable set', () => {
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const exl3Preset = createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' });
-  const on = adapter.buildLaunchEnvironment({ ...exl3Preset, CacheRam: 4096, DiskCacheDir: 'D:\\AI\\exl3-disk-cache' });
+  const on = adapter.buildLaunchEnvironment({ ...exl3Preset, CacheRam: 4096, DiskCacheDir: 'D:\\AI\\exl3-disk-cache' }, 'S');
   const { TABBY_MEMORY_DISK_CACHE_SIZE, ...withoutSize } = on;
   assert.equal(Exl3LaunchEnvironmentSchema.safeParse(withoutSize).success, false, 'a directory without a size');
-  const off = adapter.buildLaunchEnvironment({ ...exl3Preset, DiskCacheDir: null });
+  const off = adapter.buildLaunchEnvironment({ ...exl3Preset, DiskCacheDir: null }, 'S');
   const dirOnly = { ...off, TABBY_MEMORY_DISK_CACHE_DIR: 'D:\\AI\\exl3-disk-cache' };
   assert.equal(Exl3LaunchEnvironmentSchema.safeParse(dirOnly).success, false, 'a directory alone');
 });
@@ -187,7 +187,7 @@ test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => 
     });
     const adapter = new Exl3PresetAdapter(baseDir);
 
-    const env = adapter.buildLaunchEnvironment(preset);
+    const env = adapter.buildLaunchEnvironment(preset, 'S');
     assert.equal(env.TABBY_MODEL_VISION, 'true');
   } finally {
     rmSync(baseDir, { recursive: true, force: true });
@@ -209,7 +209,7 @@ test('EXL3 adapter emits TABBY_MODEL_VISION_OFFLOAD true when the preset offload
     });
     const adapter = new Exl3PresetAdapter(baseDir);
 
-    const env = adapter.buildLaunchEnvironment(preset);
+    const env = adapter.buildLaunchEnvironment(preset, 'S');
     assert.equal(env.TABBY_MODEL_VISION, 'true');
     assert.equal(env.TABBY_MODEL_VISION_OFFLOAD, 'true');
   } finally {
@@ -236,10 +236,10 @@ test('EXL3 adapter maps NgramRam onto TABBY_MODEL_NGRAM_RAM', () => {
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' };
 
-  const streamed = adapter.buildLaunchEnvironment(createModelPreset({ ...base, NgramRam: false }));
+  const streamed = adapter.buildLaunchEnvironment(createModelPreset({ ...base, NgramRam: false }), 'S');
   assert.equal(streamed.TABBY_MODEL_NGRAM_RAM, 'false');
 
-  const resident = adapter.buildLaunchEnvironment(createModelPreset({ ...base, NgramRam: true }));
+  const resident = adapter.buildLaunchEnvironment(createModelPreset({ ...base, NgramRam: true }), 'S');
   assert.equal(resident.TABBY_MODEL_NGRAM_RAM, 'true');
 });
 
@@ -247,22 +247,22 @@ test('EXL3 adapter adds one engine lane for a reviewer slot beyond the parallel 
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', ParallelSlots: 1 };
 
-  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, ReviewerSlot: false })).TABBY_MODEL_MAX_BATCH_SIZE, '1');
-  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, ReviewerSlot: true })).TABBY_MODEL_MAX_BATCH_SIZE, '2');
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, ReviewerSlot: false }), 'S').TABBY_MODEL_MAX_BATCH_SIZE, '1');
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, ReviewerSlot: true }), 'S').TABBY_MODEL_MAX_BATCH_SIZE, '2');
 });
 
 test('EXL3 adapter ships HybridDraftTokens with speculation on or off', () => {
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', KvCacheQuantization: 'f16' as const };
 
-  const alone = adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: false, HybridDraftTokens: 5 }));
+  const alone = adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: false, HybridDraftTokens: 5 }), 'S');
   assert.equal(alone.TABBY_DRAFT_MODEL_DRAFT_MODE, 'disabled');
   assert.equal(alone.TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS, '5');
 
-  const withMtp = adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, HybridDraftTokens: 8 }));
+  const withMtp = adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, HybridDraftTokens: 8 }), 'S');
   assert.equal(withMtp.TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS, '8');
 
-  const off = adapter.buildLaunchEnvironment(createModelPreset({ ...base, HybridDraftTokens: 0 }));
+  const off = adapter.buildLaunchEnvironment(createModelPreset({ ...base, HybridDraftTokens: 0 }), 'S');
   assert.equal(off.TABBY_DRAFT_MODEL_HYBRID_DRAFT_TOKENS, '0');
 });
 
@@ -277,10 +277,10 @@ test('EXL3 adapter ships SparseDraftHead only while MTP speculation is on', () =
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', KvCacheQuantization: 'f16' as const };
 
-  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, SparseDraftHead: 8192 })).TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD, '8192');
-  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, SparseDraftHead: 0 })).TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD, '0');
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, SparseDraftHead: 8192 }), 'S').TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD, '8192');
+  assert.equal(adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: true, SparseDraftHead: 0 }), 'S').TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD, '0');
   // Tabby ignores the sparse head without a drafter; shipping it would only force relaunches for a no-op.
-  assert.equal('TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD' in adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: false, SparseDraftHead: 8192 })), false);
+  assert.equal('TABBY_DRAFT_MODEL_SPARSE_DRAFT_HEAD' in adapter.buildLaunchEnvironment(createModelPreset({ ...base, SpeculativeEnabled: false, SparseDraftHead: 8192 }), 'S'), false);
 });
 
 test('the model preset schema accepts SparseDraftHead 0 and 8192 and rejects -1 as too small', () => {
@@ -299,7 +299,7 @@ test('EXL3 adapter refuses a launch value TabbyAPI cannot read as a non-negative
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   const preset = createModelPreset({ ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B', CacheRam: 2048.5 });
 
-  assert.throws(() => adapter.buildLaunchEnvironment(preset), /TABBY_MEMORY_SYSMEM_KV_CACHE/u);
+  assert.throws(() => adapter.buildLaunchEnvironment(preset, 'S'), /TABBY_MEMORY_SYSMEM_KV_CACHE/u);
 });
 
 test('EXL3 adapter maps NcpuMoe onto TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS', () => {
@@ -310,7 +310,7 @@ test('EXL3 adapter maps NcpuMoe onto TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS', () => {
     NcpuMoe: 12,
   });
 
-  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS, '12');
+  assert.equal(adapter.buildLaunchEnvironment(preset, 'S').TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS, '12');
 });
 
 test('EXL3 preset validation rejects a negative NcpuMoe', () => {
@@ -337,7 +337,7 @@ test('EXL3 preset validation rejects MTP with a draft cache quantization Tabby c
   });
   assert.throws(() => adapter.validatePreset(preset), /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u);
   assert.throws(() => adapter.buildLoadRequest(preset), /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u);
-  assert.throws(() => adapter.buildLaunchEnvironment(preset), /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u);
+  assert.throws(() => adapter.buildLaunchEnvironment(preset, 'S'), /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u);
   assert.deepEqual(
     adapter.buildLoadRequest({ ...preset, SpeculativeEnabled: false }).cache_mode,
     '5,5',
@@ -427,6 +427,8 @@ const PRESET_FIELD_EXPECTATIONS = {
   DiskCacheDir: MANAGED_ONLY,
   DiskCacheSizeMiB: MANAGED_ONLY,
   DiskCacheCheckpointInterval: MANAGED_ONLY,
+  RamDiskCache: MANAGED_ONLY,
+  RamDiskCacheGiB: MANAGED_ONLY,
   NgramRam: MANAGED_ONLY,
   KvCacheQuantization: ALWAYS,
 
@@ -526,7 +528,7 @@ test('EXL3 adapter pins the allocator before Torch is imported', () => {
   // own expandable-segments default returns early on win32, so the launch environment is the
   // only thing that enables it on this host. Tabby's async allocator would otherwise install
   // cudaMallocAsync, which cannot use expandable segments at all.
-  const env = adapter.buildLaunchEnvironment(preset);
+  const env = adapter.buildLaunchEnvironment(preset, 'S');
   assert.equal(env.PYTORCH_ALLOC_CONF, 'backend:native,expandable_segments:True');
   assert.equal(env.PYTORCH_CUDA_ALLOC_CONF, 'backend:native,expandable_segments:True');
   assert.equal(env.TABBY_MEMORY_CUDA_MALLOC_ASYNC, 'false');
@@ -600,13 +602,26 @@ test('EXL3 adapter sizes the RAM tiers from the model when CacheAuto is on', () 
   const { modelRoot, modelPath } = writeModelDirectory('flash-next', FLASH_NEXT_CONFIG);
   const preset = createModelPreset({ ModelPath: modelPath, CacheAuto: true, CacheContexts: 1.5, NumCtx: 200_000,
     KvCacheQuantization: 'f16', SpeculativeEnabled: true, CacheRam: 1, CacheRecurrentRam: 1 });
-  const environment = new Exl3PresetAdapter(modelRoot).buildLaunchEnvironment(preset);
+  const environment = new Exl3PresetAdapter(modelRoot).buildLaunchEnvironment(preset, 'S');
   assert.equal(environment.TABBY_MEMORY_SYSMEM_KV_CACHE, '7618');
   assert.equal(environment.TABBY_MEMORY_SYSMEM_RECURRENT_CACHE, '8352');
 });
 
+test('a RAM-disk preset caches in its own folder on the RAM disk, with 0.2-context staging tiers and its manual fields ignored', () => {
+  const { modelRoot, modelPath } = writeModelDirectory('flash-next', FLASH_NEXT_CONFIG);
+  const preset = createModelPreset({ id: 'flash-next', ModelPath: modelPath, NumCtx: 200_000, KvCacheQuantization: 'f16',
+    SpeculativeEnabled: true, RamDiskCache: true, RamDiskCacheGiB: 11, DiskCacheCheckpointInterval: 2048,
+    CacheRam: 1, CacheRecurrentRam: 1, CacheAuto: false });
+  const environment = new Exl3PresetAdapter(modelRoot).buildLaunchEnvironment(preset, 'T');
+  assert.equal(environment.TABBY_MEMORY_DISK_CACHE_DIR, 'T:\\flash-next');
+  assert.equal(environment.TABBY_MEMORY_DISK_CACHE_SIZE, '11264');
+  assert.equal(environment.TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL, '2048');
+  assert.equal(environment.TABBY_MEMORY_SYSMEM_KV_CACHE, '1016');
+  assert.equal(environment.TABBY_MEMORY_SYSMEM_RECURRENT_CACHE, '1137');
+});
+
 test('EXL3 adapter refuses CacheAuto for a model whose cache geometry is unknown', () => {
   const { modelRoot, modelPath } = writeModelDirectory('fake', { architectures: ['Fake'] });
-  assert.throws(() => new Exl3PresetAdapter(modelRoot).buildLaunchEnvironment(createModelPreset({ ModelPath: modelPath, CacheAuto: true })),
+  assert.throws(() => new Exl3PresetAdapter(modelRoot).buildLaunchEnvironment(createModelPreset({ ModelPath: modelPath, CacheAuto: true }), 'S'),
     /CacheAuto cannot size .*fake: config\.json has no num_hidden_layers/u);
 });

@@ -2,6 +2,7 @@ import test from 'node:test';
 
 import { ChildProcessEngineLauncher } from '../../src/status-server/engine-process.ts';
 import { acquireChildPortLease } from '../_runtime-helpers.ts';
+import { FakeRamDiskDriver } from '../helpers/fake-ram-disk.ts';
 import { writeManagedEngineLauncher } from '../helpers/managed-engine-fixtures.ts';
 import { runManagedEngineReadinessScenario } from '../helpers/managed-engine-readiness-scenario.ts';
 import { createFakeExl3PackageLocator, NO_GPU_MEMORY } from '../helpers/tabby-fake.ts';
@@ -22,6 +23,7 @@ test('managed engine readiness launches real engine processes that never become 
       launcher: new ChildProcessEngineLauncher(),
       packageLocator: createFakeExl3PackageLocator(managed.pythonPath),
       gpuMemory: NO_GPU_MEMORY,
+      ramDisk: new FakeRamDiskDriver(),
     });
   } finally {
     // Windows releases a terminated launcher's working directory asynchronously, so removal retries.

@@ -194,6 +194,7 @@ export function getDefaultConfig(): TestConfig {
           AdminApiKey: '',
           ShutdownTimeoutMs: 30_000,
           Environment: {},
+          RamDisk: { ToolPath: null, DriveLetter: 'S' },
         },
       },
     },

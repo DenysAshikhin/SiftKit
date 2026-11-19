@@ -19,6 +19,10 @@ export abstract class ManagedInferenceRuntime {
 
   abstract stopProcess(): Promise<void>;
   abstract replaceEngineConfig(engine: Exl3EngineConfig): Exl3EngineConfig;
+  /** The configured model presets; a RAM-disk preset sizes the shared disk from all of them. */
+  abstract replaceModelPresets(presets: readonly ModelRuntimePreset[]): void;
+  /** Removes the RAM disk once no engine caches on it; the server's shutdown calls it after stopProcess. */
+  abstract releaseRamDisk(): Promise<void>;
   abstract ensurePresetReady(preset: ModelRuntimePreset): Promise<void>;
   abstract unloadPreset(): Promise<void>;
 

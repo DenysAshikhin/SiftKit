@@ -286,6 +286,7 @@ test('failed preset switch returns 503 and keeps the status server alive', async
       AdminApiKey: '',
       ShutdownTimeoutMs: 1_000,
       Environment: {},
+      RamDisk: { ToolPath: null, DriveLetter: 'S' },
     };
     config.Server.ModelPresets = {
       ActivePresetId: exl3Preset.id,

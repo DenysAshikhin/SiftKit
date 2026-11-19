@@ -55,6 +55,9 @@ export const RuntimeEngineConfigSchema = z.object({
 }).strict();
 export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 
+/** Preset ids are lowercase words joined by dashes; a model preset's id also names its RAM-disk cache folder. */
+export const PRESET_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
 const ModelPresetSettingsShape = {
   ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
   NumCtx: z.number(), CompactionReserveTokens: z.number().int().positive(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(),
@@ -68,6 +71,10 @@ const ModelPresetSettingsShape = {
   CacheContexts: z.number().positive(),
   DiskCacheDir: z.string().min(1).nullable(), DiskCacheSizeMiB: z.number().int().positive(),
   DiskCacheCheckpointInterval: z.number().int().positive(),
+  /** Keep the prompt cache on SiftKit's RAM disk; replaces CacheRam, CacheRecurrentRam, CacheAuto, and DiskCacheDir. */
+  RamDiskCache: z.boolean(),
+  /** This preset's folder budget on the RAM disk, in GiB. */
+  RamDiskCacheGiB: z.number().int().positive(),
   NgramRam: z.boolean(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
   Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
@@ -89,7 +96,7 @@ const ModelPresetSettingsShape = {
 
 export const ModelPresetFieldSchema = z.enum([
   'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'CompactionReserveTokens', 'NcpuMoe', 'ParallelSlots', 'ReviewerSlot', 'UBatchSize', 'CacheRam',
-  'CacheRecurrentRam', 'CacheAuto', 'CacheContexts', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
+  'CacheRecurrentRam', 'CacheAuto', 'CacheContexts', 'DiskCacheDir', 'DiskCacheSizeMiB', 'DiskCacheCheckpointInterval', 'RamDiskCache', 'RamDiskCacheGiB', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'HybridDraftTokens', 'SparseDraftHead', 'ReasoningBudget',
@@ -103,7 +110,7 @@ export const ModelPresetSettingsSchema = z.object(ModelPresetSettingsShape).stri
 export type ModelPresetSettings = z.infer<typeof ModelPresetSettingsSchema>;
 
 export const ModelRuntimePresetSchema = z.object({
-  id: z.string(), label: z.string(), Backend: InferenceBackendIdSchema, Model: z.string().nullable(),
+  id: z.string().regex(PRESET_ID_PATTERN), label: z.string(), Backend: InferenceBackendIdSchema, Model: z.string().nullable(),
   ...ModelPresetSettingsShape,
 }).strict();
 export type ModelRuntimePreset = z.infer<typeof ModelRuntimePresetSchema>;
@@ -142,6 +149,10 @@ export const ServerModelPresetsConfigSchema = z.object({
   // exllamav3 applies one size budget to a whole disk-cache root, so presets sharing one must agree on it.
   const budgets = new Map<string, number>();
   for (const [index, preset] of value.Presets.entries()) {
+    if (preset.RamDiskCache && preset.DiskCacheDir !== null) {
+      context.addIssue({ code: 'custom', path: ['Presets', index, 'RamDiskCache'],
+        message: `Model preset '${preset.id}': RamDiskCache and DiskCacheDir are two disk caches; turn one off.` });
+    }
     if (preset.DiskCacheDir === null) continue;
     const at = (field: string) => ['Presets', index, field];
     if (!WINDOWS_ABSOLUTE_PATH.test(preset.DiskCacheDir) || DOT_SEGMENT.test(preset.DiskCacheDir)) {
@@ -164,6 +175,13 @@ export const ServerModelPresetsConfigSchema = z.object({
 });
 export type ServerModelPresetsConfig = z.infer<typeof ServerModelPresetsConfigSchema>;
 
+export const Exl3RamDiskConfigSchema = z.object({
+  /** aim_ll.exe of Arsenal Image Mounter; required once a preset turns RamDiskCache on. */
+  ToolPath: z.string().min(1).nullable(),
+  DriveLetter: z.string().regex(/^[A-Z]$/u),
+}).strict();
+export type Exl3RamDiskConfig = z.infer<typeof Exl3RamDiskConfigSchema>;
+
 export const Exl3EngineConfigSchema = z.object({
   Managed: z.boolean(),
   WorkingDirectory: z.string(),
@@ -182,6 +200,7 @@ export const Exl3EngineConfigSchema = z.object({
       });
     }
   }),
+  RamDisk: Exl3RamDiskConfigSchema,
 }).strict();
 export type Exl3EngineConfig = z.infer<typeof Exl3EngineConfigSchema>;
 
@@ -284,7 +303,7 @@ WEB_RESEARCH_PRESET_TOOLS satisfies readonly PresetToolName[];
 FULL_PRESET_TOOLS satisfies readonly PresetToolName[];
 
 export const SiftPresetSchema = z.object({
-  id: z.string().trim().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+  id: z.string().trim().min(1).regex(PRESET_ID_PATTERN),
   label: z.string(), description: z.string(), presetKind: PresetKindSchema,
   operationMode: PresetOperationModeSchema, promptPrefix: z.string(),
   allowedTools: z.array(PresetToolNameSchema), surfaces: z.array(PresetSurfaceSchema), useForSummary: z.boolean(),

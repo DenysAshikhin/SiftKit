@@ -7,6 +7,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
 import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
+import { serverLogger } from '../src/status-server/server-logger.ts';
 import type { ModelRequestLock } from '../src/status-server/server-types.ts';
 import type { ModelRequestContext } from '../src/status-server/model-request-context.ts';
 import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.ts';
@@ -140,6 +141,33 @@ async function applyAltPreset(fixture: CoordinatorFixture): Promise<void> {
   await fixture.coordinator.applyPreset('exl3-alt');
   assert.equal(fixture.coordinator.getStatus().activePresetId, 'exl3-alt');
 }
+
+test('every load hands the runtime the configured presets first, and shutdown releases the RAM disk after the engine stops', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, runtime } = fixture;
+  try {
+    await coordinator.initialize();
+    await coordinator.shutdown();
+    assert.deepEqual(runtime.callOrder, ['presets', 'ensure exl3-main', 'stop', 'release']);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a RAM disk that cannot be removed at shutdown is warned about and does not fail the shutdown', async (t) => {
+  const warnings = t.mock.method(serverLogger, 'warning', () => {});
+  const fixture = createCoordinator();
+  const { coordinator, runtime } = fixture;
+  t.mock.method(runtime, 'releaseRamDisk', async () => { throw new Error('The operation was canceled by the user.'); });
+  try {
+    await coordinator.initialize();
+    await coordinator.shutdown();
+    assert.deepEqual(warnings.mock.calls.map((call) => [call.arguments[0]?.event, call.arguments[0]?.alert]),
+      [['ram_disk_release_failed', 'Could not remove the RAM disk: The operation was canceled by the user.']]);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
 
 test('preset coordinator drains by preset and swaps the resident model without a process restart', async () => {
   const fixture = createCoordinator();

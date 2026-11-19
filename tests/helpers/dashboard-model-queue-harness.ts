@@ -277,6 +277,7 @@ export class DashboardModelQueueHarness {
         AdminApiKey: '',
         ShutdownTimeoutMs: 2_000,
         Environment: {},
+        RamDisk: { ToolPath: null, DriveLetter: 'S' },
       };
       const mainPreset = {
         ...basePreset,

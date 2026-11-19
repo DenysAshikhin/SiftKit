@@ -44,6 +44,8 @@ export const SIFT_DEFAULT_CACHE_CONTEXTS = 1.1;
 export const SIFT_DEFAULT_EXL3_DISK_CACHE_SIZE_MIB = 51_200;
 /** Orchestrator phases share a ~2k-token prefix and a hybrid model resumes only from a stored checkpoint. */
 export const SIFT_DEFAULT_EXL3_DISK_CACHE_CHECKPOINT_INTERVAL = 2_048;
+export const SIFT_DEFAULT_RAM_DISK_CACHE_GIB = 10;
+export const SIFT_DEFAULT_RAM_DISK_DRIVE_LETTER = 'S';
 export const SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION = 'f16';
 export const SIFT_DEFAULT_ENGINE_REASONING_BUDGET = 10_000;
 export const SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';

@@ -15,6 +15,10 @@ class TestRuntime extends ManagedInferenceRuntime {
 
   replaceEngineConfig(): never { throw new Error('Engine replacement is not used by this fixture.'); }
 
+  replaceModelPresets(): void {}
+
+  async releaseRamDisk(): Promise<void> {}
+
   async startProcess(): Promise<void> {
     this.transitionProcessTo('starting');
     this.transitionProcessTo('ready');

@@ -18,6 +18,10 @@ class FakeRuntime extends ManagedInferenceRuntime {
 
   replaceEngineConfig(): never { throw new Error('Engine replacement is not used by this fixture.'); }
 
+  replaceModelPresets(): void {}
+
+  async releaseRamDisk(): Promise<void> {}
+
   async stopProcess(): Promise<void> {
     this.transitionModelTo('unloaded');
     this.transitionProcessTo('stopped');

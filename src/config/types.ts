@@ -2,6 +2,7 @@ import type {
   DashboardConfig as ContractDashboardConfig,
   AssistantConfig as ContractAssistantConfig,
   Exl3EngineConfig as ContractExl3EngineConfig,
+  Exl3RamDiskConfig as ContractExl3RamDiskConfig,
   InferenceBackendId as ContractInferenceBackendId,
   InferenceConfig as ContractInferenceConfig,
   InferenceProcessState as ContractInferenceProcessState,
@@ -29,6 +30,7 @@ export type InferenceModelState = ContractInferenceModelState;
 export type InferenceThinkingConfig = ContractInferenceThinkingConfig;
 export type InferenceConfig = ContractInferenceConfig;
 export type Exl3EngineConfig = ContractExl3EngineConfig;
+export type Exl3RamDiskConfig = ContractExl3RamDiskConfig;
 export type RuntimeEngineConfig = ContractRuntimeEngineConfig;
 export type ModelKvCacheQuantization = ContractModelKvCacheQuantization;
 export type ModelPresetSettings = ContractModelPresetSettings;

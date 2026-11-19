@@ -57,6 +57,7 @@ export type ModelIntegerField =
   | 'CacheRecurrentRam'
   | 'DiskCacheSizeMiB'
   | 'DiskCacheCheckpointInterval'
+  | 'RamDiskCacheGiB'
   | 'TopK'
   | 'SpeculativeDraftMax'
   | 'HybridDraftTokens'

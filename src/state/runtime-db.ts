@@ -27,6 +27,7 @@ import { upgradeModelPresetSparseDraftHead } from './schema-upgrades/model-prese
 import { upgradeModelPresetCacheAuto } from './schema-upgrades/model-preset-cache-auto.ts';
 import { upgradeChatSessionPresetSnapshots } from './schema-upgrades/chat-session-preset-snapshots.ts';
 import { upgradeEngineEvents } from './schema-upgrades/engine-events.ts';
+import { upgradeModelPresetRamDisk } from './schema-upgrades/model-preset-ram-disk.ts';
 import { upgradeOrchestratorSearchReports } from './schema-upgrades/orchestrator-search-reports.ts';
 import { upgradeOrchestratorSingleWorker } from './schema-upgrades/orchestrator-single-worker.ts';
 import { upgradeVaultCutoverJobs } from './schema-upgrades/vault-cutover-jobs.ts';
@@ -41,7 +42,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 94;
+export const CURRENT_SCHEMA_VERSION = 95;
 const RUNTIME_DATABASE_FILE = 'runtime.sqlite';
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
@@ -80,6 +81,7 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 91, apply: upgradeModelPresetCacheAuto },
   { from: 92, apply: upgradeChatSessionPresetSnapshots },
   { from: 93, apply: upgradeEngineEvents },
+  { from: 94, apply: upgradeModelPresetRamDisk },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

@@ -6,6 +6,7 @@ import test from 'node:test';
 import { z } from 'zod';
 
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
+import { requiredRamDiskBytes } from '../src/inference-presets/cache-sizing.ts';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
 import { serverLogger } from '../src/status-server/server-logger.ts';
@@ -16,6 +17,7 @@ import { FakeTabbyModelState, writeFakeEngineHost } from './helpers/tabby-fake.t
 import { launchEngineVariables, NEVER_LAUNCHING_ENGINE_HOST, type FakeTabbyOptions } from './helpers/in-process-tabby.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 import type { GpuMemory, GpuMemoryProbe } from '../src/status-server/gpu-memory.ts';
+import type { EngineProcess } from '../src/status-server/engine-process.ts';
 
 const FIXTURE_ENTRYPOINT = 'tabby-main.py';
 // The default fake rejects /v1/model/load and announces MTP drafting on stdout at once.
@@ -57,6 +59,7 @@ async function createManagedTabbyFixture(
     AdminApiKey: '',
     ShutdownTimeoutMs: hostOptions.shutdownTimeoutMs ?? 5_000,
     Environment: environment,
+    RamDisk: { ToolPath: 'C:\\aim\\aim_ll.exe', DriveLetter: 'S' },
   }, flushQueue, fakeTabby.host);
 
   return {
@@ -196,6 +199,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
       AdminApiKey: '',
       ShutdownTimeoutMs: 2_000,
       Environment: {},
+      RamDisk: { ToolPath: null, DriveLetter: 'S' },
     }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
     try {
       await Promise.all([runtime.ensurePresetReady(exl3Preset), runtime.ensurePresetReady(exl3Preset)]);
@@ -397,6 +401,7 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
     Environment: {},
+    RamDisk: { ToolPath: null, DriveLetter: 'S' },
   }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
 
   await assert.rejects(runtime.ensurePresetReady({
@@ -423,6 +428,7 @@ test('unmanaged EXL3 preset with a disk cache fails loud instead of silently dro
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
     Environment: {},
+    RamDisk: { ToolPath: null, DriveLetter: 'S' },
   }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
 
   await assert.rejects(runtime.ensurePresetReady({
@@ -438,7 +444,7 @@ test('unmanaged EXL3 preset with a disk cache fails loud instead of silently dro
   }), /sets DiskCacheDir, but the disk cache is a launch setting/u);
 });
 
-test('managed engine rejects an external-server EXL3 preset with a disk cache', async () => {
+test('managed engine rejects an external-server EXL3 preset with a disk cache or a RAM disk cache', async () => {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
   const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
@@ -451,6 +457,7 @@ test('managed engine rejects an external-server EXL3 preset with a disk cache', 
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
     Environment: {},
+    RamDisk: { ToolPath: null, DriveLetter: 'S' },
   }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
 
   await assert.rejects(runtime.ensurePresetReady({
@@ -465,6 +472,17 @@ test('managed engine rejects an external-server EXL3 preset with a disk cache', 
     CacheRam: 4096,
     SpeculativeEnabled: false,
   }), /sets DiskCacheDir, but the disk cache is a launch setting/u);
+  await assert.rejects(runtime.ensurePresetReady({
+    ...preset,
+    id: 'external-ram-disk-cache',
+    Backend: 'exl3' as const,
+    BaseUrl: DEAD_BASE_URL,
+    Model: 'model-a',
+    ModelPath: path.join('.', 'model-a'),
+    ExternalServerEnabled: true,
+    RamDiskCache: true,
+    SpeculativeEnabled: false,
+  }), /sets RamDiskCache, but the disk cache is a launch setting/u);
 });
 
 test('managed Tabby waits for delayed MTP drafting announced on stderr', async () => {
@@ -587,6 +605,7 @@ async function withExternalTabby(
     AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,
     Environment: {},
+    RamDisk: { ToolPath: null, DriveLetter: 'S' },
   }, flushQueue, fakeTabby.host);
   try {
     await fn(runtime, externalPresetFor(root, `http://127.0.0.1:${getAddressInfo(server).port}`), fakeTabby.launcher);
@@ -825,5 +844,77 @@ test('a preset without a disk cache is terminated without an unload', async () =
     await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
     await fixture.runtime.unloadPreset();
     assert.deepEqual(fixture.launcher.events, ['terminate']);
+  });
+});
+
+const RAM_DISK = { RamDiskCache: true, RamDiskCacheGiB: 11, CacheAuto: false, CacheRam: 512 } as const;
+const RAM_DISK_MODEL_CONFIG = {
+  architectures: ['Qwen3NextForCausalLM'],
+  text_config: {
+    layer_types: Array.from({ length: 12 }, () => ['linear_attention', 'linear_attention', 'linear_attention', 'full_attention']).flat(),
+    num_attention_heads: 16, num_key_value_heads: 2, head_dim: 256,
+    linear_num_key_heads: 16, linear_num_value_heads: 48, linear_key_head_dim: 128, linear_value_head_dim: 128,
+    linear_conv_kernel_dim: 4, mtp_num_hidden_layers: 1,
+  },
+};
+
+/** A RAM-disk preset sizes its staging tiers from the model's config.json. */
+function writeRamDiskModelConfig(root: string): void {
+  fs.mkdirSync(path.join(root, 'model-a'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'model-a', 'config.json'), JSON.stringify(RAM_DISK_MODEL_CONFIG));
+}
+
+test('a RAM-disk preset readies the disk before its engine launches and caches in its folder', async () => {
+  await withTempEnv(async (root) => {
+    writeRamDiskModelConfig(root);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-ram-disk');
+    const preset = { ...fixture.exl3Preset, ...RAM_DISK, id: 'next' };
+    fixture.runtime.replaceModelPresets([preset]);
+    await fixture.runtime.ensurePresetReady(preset);
+    assert.deepEqual(fixture.ramDisk.calls, ['find', `create S ${String(requiredRamDiskBytes([11]))}`]);
+    assert.equal(launchEngineVariables(fixture.launcher.launches.at(-1)).TABBY_MEMORY_DISK_CACHE_DIR, 'S:\\next');
+  });
+});
+
+test('switching to a preset without the RAM disk removes it once the old engine stopped; shutdown releases it', async () => {
+  await withTempEnv(async (root) => {
+    writeRamDiskModelConfig(root);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-ram-disk-off');
+    const ramDiskPreset = { ...fixture.exl3Preset, ...RAM_DISK, id: 'next' };
+    const plain = { ...fixture.exl3Preset, id: 'plain', NumCtx: 20_000 };
+    fixture.runtime.replaceModelPresets([ramDiskPreset, plain]);
+    await fixture.runtime.ensurePresetReady(ramDiskPreset);
+    await fixture.runtime.ensurePresetReady(plain);
+    assert.equal(fixture.ramDisk.calls.at(-1), 'remove S');
+    assert.deepEqual(fixture.launcher.events.slice(-2), ['unload', 'terminate'], 'the RAM-disk engine drained its cache first');
+    await fixture.runtime.ensurePresetReady(ramDiskPreset);
+    await fixture.runtime.stopProcess();
+    await fixture.runtime.releaseRamDisk();
+    assert.equal(fixture.ramDisk.disk, null);
+  });
+});
+
+test('the process-exit path stops the engine, then starts the RAM disk removal without waiting', async (t) => {
+  await withTempEnv(async (root) => {
+    writeRamDiskModelConfig(root);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-ram-disk-exit');
+    const preset = { ...fixture.exl3Preset, ...RAM_DISK, id: 'next' };
+    fixture.runtime.replaceModelPresets([preset]);
+    await fixture.runtime.ensurePresetReady(preset);
+    const order: string[] = [];
+    const terminate = fixture.launcher.terminate.bind(fixture.launcher);
+    t.mock.method(fixture.launcher, 'terminate', (child: EngineProcess) => { order.push('terminate'); terminate(child); });
+    t.mock.method(fixture.ramDisk, 'removeDetached', () => { order.push('remove-detached'); });
+    fixture.runtime.stopForProcessExitSync();
+    assert.deepEqual(order, ['terminate', 'remove-detached']);
+  });
+});
+
+test('a RAM-disk preset the runtime was not given fails loudly', async () => {
+  await withTempEnv(async (root) => {
+    writeRamDiskModelConfig(root);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-ram-disk-unlisted');
+    await assert.rejects(fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, ...RAM_DISK, id: 'next' }),
+      /Model preset 'next' is not in the runtime's preset list/u);
   });
 });

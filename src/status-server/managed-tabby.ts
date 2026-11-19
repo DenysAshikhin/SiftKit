@@ -10,6 +10,7 @@ import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilit
 import { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.ts';
 import type { EngineProcess, ManagedEngineHost } from './engine-process.ts';
+import { RamDiskCache } from './ram-disk-cache.ts';
 import { serverLogger } from './server-logger.ts';
 import { assertResidentMatches, TabbyModelClient, type TabbyModelCard } from './tabby-model-client.ts';
 import { TabbyRunRecorder } from './tabby-run-recorder.ts';
@@ -55,6 +56,8 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private readonly flushQueue: InferenceRunFlushQueue;
   private readonly host: ManagedEngineHost;
   private client: TabbyModelClient;
+  private readonly ramDisk: RamDiskCache;
+  private modelPresets: readonly ModelRuntimePreset[] = [];
 
   constructor(
     engine: Exl3EngineConfig,
@@ -66,6 +69,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.engine = structuredClone(engine);
     this.flushQueue = flushQueue;
     this.host = host;
+    this.ramDisk = new RamDiskCache(host.ramDisk);
     this.adapter = new Exl3PresetAdapter(engine.ModelRoot);
     this.capabilities = new Exl3ModelCapabilities(host.packageLocator);
   }
@@ -115,6 +119,23 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     return structuredClone(previous);
   }
 
+  replaceModelPresets(presets: readonly ModelRuntimePreset[]): void {
+    this.modelPresets = structuredClone(presets);
+  }
+
+  releaseRamDisk(): Promise<void> {
+    return this.ramDisk.release(this.engine.RamDisk);
+  }
+
+  /** Before a managed launch: ready the RAM disk for a preset that caches on it, otherwise remove it. */
+  private async prepareRamDisk(preset: ModelRuntimePreset): Promise<void> {
+    if (!preset.RamDiskCache) return this.ramDisk.release(this.engine.RamDisk);
+    if (!this.modelPresets.some((entry) => entry.id === preset.id)) {
+      throw new Error(`Model preset '${preset.id}' is not in the runtime's preset list; replaceModelPresets must run before ensurePresetReady.`);
+    }
+    return this.ramDisk.prepare(this.engine.RamDisk, this.modelPresets, preset);
+  }
+
   async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
     if (preset.Backend !== 'exl3') {
       throw new Error(`Preset '${preset.id}' cannot be loaded by the EXL3 runtime.`);
@@ -126,13 +147,14 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
         + 'on a server SiftKit did not launch. Use a managed launch or disable SpeculativeEnabled.',
       );
     }
-    if (!managed && preset.DiskCacheDir !== null) {
+    const diskCacheField = preset.RamDiskCache ? 'RamDiskCache' : preset.DiskCacheDir !== null ? 'DiskCacheDir' : null;
+    if (!managed && diskCacheField !== null) {
       throw new Error(
-        `Preset '${preset.id}' sets DiskCacheDir, but the disk cache is a launch setting that only a SiftKit-managed `
-        + 'TabbyAPI can apply. Use a managed launch or clear DiskCacheDir.',
+        `Preset '${preset.id}' sets ${diskCacheField}, but the disk cache is a launch setting that only a SiftKit-managed `
+        + `TabbyAPI can apply. Use a managed launch or turn off ${diskCacheField}.`,
       );
     }
-    const launchEnvironment = managed ? this.adapter.buildLaunchEnvironment(preset) : null;
+    const launchEnvironment = managed ? this.buildLaunchEnvironment(preset) : null;
     const processSignature = launchEnvironment
       ? JSON.stringify(this.getEngineIdentity(launchEnvironment))
       : null;
@@ -146,6 +168,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     ) await this.stopProcess();
     this.currentPreset = preset;
     if (this.getProcessState() !== 'ready') {
+      if (managed) await this.prepareRamDisk(preset);
       await this.startProcess(preset, launchEnvironment, processSignature);
     }
     if (this.residentResidencyKey === this.getPresetResidencyKey(preset) && this.getModelState() === 'ready') return;
@@ -211,7 +234,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private async flushDiskCache(): Promise<void> {
     const preset = this.currentPreset;
     const baseUrl = this.processBaseUrl;
-    if (preset === null || preset.DiskCacheDir === null || baseUrl === null || this.getModelState() !== 'ready') return;
+    if (preset === null || (preset.DiskCacheDir === null && !preset.RamDiskCache) || baseUrl === null || this.getModelState() !== 'ready') return;
     try {
       await this.client.unload(baseUrl, this.engine.ShutdownTimeoutMs);
     } catch (error) {
@@ -250,6 +273,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     const child = this.child;
     this.stopping = true;
     if (child && child.exitCode === null) this.host.launcher.terminate(child);
+    this.ramDisk.releaseForProcessExitSync(this.engine.RamDisk);
     this.child = null;
     this.recorder = null;
     this.processBaseUrl = null;
@@ -413,6 +437,10 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   }
 
   // Use the same effective launch environment for identity and process creation.
+  private buildLaunchEnvironment(preset: ModelRuntimePreset): Exl3LaunchEnvironment {
+    return this.adapter.buildLaunchEnvironment(preset, this.engine.RamDisk.DriveLetter);
+  }
+
   private getEngineIdentity(launchEnvironment: Exl3LaunchEnvironment) {
     const cpuThreads = this.engine.Environment.EXL3_MOE_CPU_THREADS;
     const environment = {
@@ -440,7 +468,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       managed,
       model: preset.Model,
       load: this.adapter.buildLoadRequest(preset),
-      launch: managed ? this.getEngineIdentity(this.adapter.buildLaunchEnvironment(preset)) : null,
+      launch: managed ? this.getEngineIdentity(this.buildLaunchEnvironment(preset)) : null,
       parallelSlots: preset.ParallelSlots,
     });
   }

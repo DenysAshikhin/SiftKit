@@ -5,14 +5,14 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups.ts';
 import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.tsx';
-import { CACHE_AUTO_LABEL, CACHE_CONTEXTS_LABEL, HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL, SPARSE_DRAFT_HEAD_LABEL } from '../../settings-sections.ts';
+import { CACHE_AUTO_LABEL, CACHE_CONTEXTS_LABEL, HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL, RAM_DISK_CACHE_LABEL, RAM_DISK_SIZE_LABEL, SPARSE_DRAFT_HEAD_LABEL } from '../../settings-sections.ts';
 import { getModelPresetAssignments } from '../../model-runtime-presets.ts';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema, type ModelProfile } from '@siftkit/contracts';
 import {
   getMlaKvCacheEquivalent,
   getReasoningEffortOptions,
 } from '../../../../src/inference-presets/preset-compatibility.ts';
-import { resolveCacheTierSizes, type CacheTierSizes } from '../../../../src/inference-presets/cache-sizing.ts';
+import { GIB, resolveCacheTierSizes, resolveDiskCacheContextBytes, type CacheTierSizes } from '../../../../src/inference-presets/cache-sizing.ts';
 import { ModelProfileBanner } from './ModelProfileBanner.tsx';
 import type {
   DashboardConfig,
@@ -104,6 +104,17 @@ function CacheRamControl({ preset, profile, field, sizes, modelPresetActions }: 
       {computed === null ? null : <span className="hint">≈ {(computed / 1024).toFixed(1)} GiB</span>}
     </ModelPresetControl>
   );
+}
+
+/** The size of one full context in the disk tier, from the profiled geometry. */
+function describeRamDiskContext(preset: DashboardModelRuntimePreset, profile: ModelProfile | null): string {
+  if (profile === null) return 'Profile the model to see its size per full context.';
+  const bytes = resolveDiskCacheContextBytes(preset, profile.cacheGeometry);
+  if (typeof bytes === 'string') return `Cannot size: ${bytes}`;
+  const gib = (value: number) => (value / GIB).toFixed(1);
+  const snapshots = bytes.snapshotBytes === 0 ? '' : ` + ${gib(bytes.snapshotBytes)} GiB of snapshots every ${String(preset.DiskCacheCheckpointInterval)} tokens`;
+  return `≈ ${gib(bytes.kvBytes + bytes.snapshotBytes)} GiB per full ${(preset.NumCtx / 1000).toFixed(0)}k context: `
+    + `${gib(bytes.kvBytes)} GiB KV${snapshots}. All RAM-disk presets share one RAM disk, sized to their total.`;
 }
 
 export function ModelPresetsSection({
@@ -241,27 +252,48 @@ export function ModelPresetsSection({
           <ModelPresetControl preset={preset} profile={profile} field="UBatchSize" label="UBatchSize">
             <input type="number" value={preset.UBatchSize} onChange={(event) => modelPresetActions.setInteger('UBatchSize', parseIntegerInput(event.target.value, preset.UBatchSize))} />
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} profile={profile} field="CacheAuto" label={CACHE_AUTO_LABEL}>
+          <ModelPresetControl preset={preset} profile={profile} field="RamDiskCache" label={RAM_DISK_CACHE_LABEL}>
             <label className="settings-live-toggle-control">
-              <input type="checkbox" aria-label={CACHE_AUTO_LABEL} checked={preset.CacheAuto}
-                onChange={(event) => modelPresetActions.setBoolean('CacheAuto', event.target.checked)} />
-              <span>{preset.CacheAuto ? 'Auto' : 'Manual'}</span>
+              <input type="checkbox" aria-label={RAM_DISK_CACHE_LABEL} checked={preset.RamDiskCache}
+                onChange={(event) => {
+                  modelPresetActions.setBoolean('RamDiskCache', event.target.checked);
+                  // The RAM disk replaces the preset's own disk cache; the contract rejects both at once.
+                  if (event.target.checked && preset.DiskCacheDir !== null) modelPresetActions.setNullableString('DiskCacheDir', null);
+                }} />
+              <span>{preset.RamDiskCache ? 'On' : 'Off'}</span>
             </label>
           </ModelPresetControl>
-          {preset.CacheAuto ? (
-            <ModelPresetControl preset={preset} profile={profile} field="CacheContexts" label={CACHE_CONTEXTS_LABEL}>
-              <input type="number" min={0.1} step={0.1} aria-label={CACHE_CONTEXTS_LABEL} value={preset.CacheContexts}
-                onChange={(event) => modelPresetActions.setFloat('CacheContexts', parseFloatInput(event.target.value, preset.CacheContexts))} />
+          {preset.RamDiskCache ? (
+            <ModelPresetControl preset={preset} profile={profile} field="RamDiskCacheGiB" label={RAM_DISK_SIZE_LABEL}>
+              <input type="number" min={1} aria-label={RAM_DISK_SIZE_LABEL} value={preset.RamDiskCacheGiB}
+                onChange={(event) => modelPresetActions.setInteger('RamDiskCacheGiB', parseIntegerInput(event.target.value, preset.RamDiskCacheGiB))} />
+              <span className="hint">{describeRamDiskContext(preset, profile)}</span>
             </ModelPresetControl>
-          ) : null}
-          <CacheRamControl preset={preset} profile={profile} field="CacheRam" sizes={autoCacheSizes} modelPresetActions={modelPresetActions} />
-          <CacheRamControl preset={preset} profile={profile} field="CacheRecurrentRam" sizes={autoCacheSizes} modelPresetActions={modelPresetActions} />
-          <ModelPresetControl preset={preset} profile={profile} field="DiskCacheDir" label="Disk cache directory">
-            <input value={preset.DiskCacheDir || ''} placeholder="Off" onChange={(event) => modelPresetActions.setNullableString('DiskCacheDir', event.target.value.trim() === '' ? null : event.target.value)} />
-          </ModelPresetControl>
-          <ModelPresetControl preset={preset} profile={profile} field="DiskCacheSizeMiB" label="Disk cache size (MiB)">
-            <input type="number" min={1} value={preset.DiskCacheSizeMiB} onChange={(event) => modelPresetActions.setInteger('DiskCacheSizeMiB', parseIntegerInput(event.target.value, preset.DiskCacheSizeMiB))} />
-          </ModelPresetControl>
+          ) : (
+            <>
+              <ModelPresetControl preset={preset} profile={profile} field="CacheAuto" label={CACHE_AUTO_LABEL}>
+                <label className="settings-live-toggle-control">
+                  <input type="checkbox" aria-label={CACHE_AUTO_LABEL} checked={preset.CacheAuto}
+                    onChange={(event) => modelPresetActions.setBoolean('CacheAuto', event.target.checked)} />
+                  <span>{preset.CacheAuto ? 'Auto' : 'Manual'}</span>
+                </label>
+              </ModelPresetControl>
+              {preset.CacheAuto ? (
+                <ModelPresetControl preset={preset} profile={profile} field="CacheContexts" label={CACHE_CONTEXTS_LABEL}>
+                  <input type="number" min={0.1} step={0.1} aria-label={CACHE_CONTEXTS_LABEL} value={preset.CacheContexts}
+                    onChange={(event) => modelPresetActions.setFloat('CacheContexts', parseFloatInput(event.target.value, preset.CacheContexts))} />
+                </ModelPresetControl>
+              ) : null}
+              <CacheRamControl preset={preset} profile={profile} field="CacheRam" sizes={autoCacheSizes} modelPresetActions={modelPresetActions} />
+              <CacheRamControl preset={preset} profile={profile} field="CacheRecurrentRam" sizes={autoCacheSizes} modelPresetActions={modelPresetActions} />
+              <ModelPresetControl preset={preset} profile={profile} field="DiskCacheDir" label="Disk cache directory">
+                <input value={preset.DiskCacheDir || ''} placeholder="Off" onChange={(event) => modelPresetActions.setNullableString('DiskCacheDir', event.target.value.trim() === '' ? null : event.target.value)} />
+              </ModelPresetControl>
+              <ModelPresetControl preset={preset} profile={profile} field="DiskCacheSizeMiB" label="Disk cache size (MiB)">
+                <input type="number" min={1} value={preset.DiskCacheSizeMiB} onChange={(event) => modelPresetActions.setInteger('DiskCacheSizeMiB', parseIntegerInput(event.target.value, preset.DiskCacheSizeMiB))} />
+              </ModelPresetControl>
+            </>
+          )}
           <ModelPresetControl preset={preset} profile={profile} field="DiskCacheCheckpointInterval" label="Disk checkpoint spacing">
             <input type="number" min={1} value={preset.DiskCacheCheckpointInterval} onChange={(event) => modelPresetActions.setInteger('DiskCacheCheckpointInterval', parseIntegerInput(event.target.value, preset.DiskCacheCheckpointInterval))} />
           </ModelPresetControl>

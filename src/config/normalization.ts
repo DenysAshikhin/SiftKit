@@ -1,7 +1,7 @@
 import { getRuntimePaths } from './paths.ts';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.ts';
 import {
-  CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelKvCacheQuantizationSchema,
+  CaptureScopeSchema, Exl3RamDiskConfigSchema, KeyCustodySchema, ModelIdleActionSchema, ModelKvCacheQuantizationSchema,
   ModelPresetFieldSchema, ModelPresetSettingsSchema, ReasoningEffortSchema, SiftConfigSchema as CanonicalSiftConfigSchema,
   SiftPresetCollectionSchema,
   type ModelIdleAction, type ReasoningEffort,
@@ -29,6 +29,7 @@ import { PresetCatalog } from '../preset-catalog.ts';
 import { InferenceBackendIdSchema } from './types.ts';
 import type {
   Exl3EngineConfig,
+  Exl3RamDiskConfig,
   AssistantConfig,
   ModelKvCacheQuantization,
   ModelPresetSettings,
@@ -209,6 +210,7 @@ function normalizeExl3Engine(value: JsonValue): Exl3EngineConfig {
     AdminApiKey: getNullableTrimmedString(input.AdminApiKey) ?? '',
     ShutdownTimeoutMs: getFinitePositiveInteger(input.ShutdownTimeoutMs, defaults.ShutdownTimeoutMs),
     Environment: getEngineEnvironment(input.Environment),
+    RamDisk: getEngineRamDisk(input.RamDisk),
   };
 }
 
@@ -218,6 +220,13 @@ function getEngineEnvironment(value: JsonValue): Record<string, string> {
   if (!parsed.success) {
     throw new Error('Invalid Server.Engines.Exl3.Environment; expected an object of string values.');
   }
+  return parsed.data;
+}
+
+// Schema 95 stores RamDisk on every engine config, so a missing or bad value is corrupt config.
+function getEngineRamDisk(value: JsonValue): Exl3RamDiskConfig {
+  const parsed = Exl3RamDiskConfigSchema.safeParse(value);
+  if (!parsed.success) throw new Error(`Invalid Server.Engines.Exl3.RamDisk: ${parsed.error.message}`);
   return parsed.data;
 }
 
@@ -242,7 +251,7 @@ function getModelIdleAction(value: JsonValue): ModelIdleAction {
   return parsed.data;
 }
 
-// A schema upgrade gave every stored preset this field (SparseDraftHead in 91, CacheAuto/CacheContexts in 92), so a missing or bad value is corrupt config.
+// A schema upgrade gave every stored preset this field (SparseDraftHead in 91, CacheAuto/CacheContexts in 92, RamDiskCache/RamDiskCacheGiB in 95), so a missing or bad value is corrupt config.
 function getUpgradedPresetField<Schema extends z.ZodType>(schema: Schema, field: string, value: JsonValue, expected: string): z.output<Schema> {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw new Error(`Invalid ${field} '${String(value)}'; expected ${expected}.`);
@@ -507,6 +516,9 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
       input.DiskCacheCheckpointInterval,
       Number(defaults.DiskCacheCheckpointInterval ?? SIFT_DEFAULT_EXL3_DISK_CACHE_CHECKPOINT_INTERVAL),
     ),
+    RamDiskCache: getUpgradedPresetField(ModelPresetSettingsSchema.shape.RamDiskCache, 'RamDiskCache', input.RamDiskCache, 'true or false'),
+    RamDiskCacheGiB: getUpgradedPresetField(ModelPresetSettingsSchema.shape.RamDiskCacheGiB, 'RamDiskCacheGiB', input.RamDiskCacheGiB,
+      'a whole number of GiB above 0'),
     NgramRam: getBooleanWithDefault(input.NgramRam, defaults.NgramRam),
     KvCacheQuantization: getModelKvCacheQuantization(
       input.KvCacheQuantization,

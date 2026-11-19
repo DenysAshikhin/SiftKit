@@ -4,8 +4,10 @@ import { z } from '../../lib/zod.ts';
 import type { RuntimeDatabase } from '../database-handle.ts';
 
 const PresetRowsSchema = z.array(z.object({ id: z.number().int(), server_model_presets_json: z.string() }));
-// Pins only what preset-field steps need from stored model presets: a list of objects.
-const StoredPresetsSchema = z.array(z.record(z.string(), JsonValueSchema));
+const SnapshotRowsSchema = z.array(z.object({ id: z.string(), model_preset_json: z.string().nullable() }));
+// Pins only what preset-field steps need: stored presets and snapshots are objects.
+const StoredPresetSchema = z.record(z.string(), JsonValueSchema);
+const StoredPresetsSchema = z.array(StoredPresetSchema);
 
 type StoredRecord = Readonly<Record<string, JsonValue>>;
 
@@ -22,5 +24,17 @@ export function addMissingStoredPresetFields(database: RuntimeDatabase, fields: 
     const parsed = StoredPresetsSchema.safeParse(parseJsonValueText(row.server_model_presets_json));
     if (!parsed.success) throw new Error(`Stored model presets are unreadable: ${parsed.error.message}`);
     update.run(JSON.stringify(parsed.data.map((preset) => withMissingFields(preset, fields))), row.id);
+  }
+}
+
+/** Gives every chat session's model preset snapshot the fields it lacks, keeping values it already stores. */
+export function addMissingSnapshotPresetFields(database: RuntimeDatabase, fields: StoredRecord): void {
+  const rows = SnapshotRowsSchema.parse(database.prepare('SELECT id, model_preset_json FROM chat_sessions').all());
+  const update = database.prepare('UPDATE chat_sessions SET model_preset_json = ? WHERE id = ?');
+  for (const row of rows) {
+    if (row.model_preset_json === null) continue;
+    const parsed = StoredPresetSchema.safeParse(parseJsonValueText(row.model_preset_json));
+    if (!parsed.success) throw new Error(`Chat session ${row.id} model preset snapshot is unreadable: ${parsed.error.message}`);
+    update.run(JSON.stringify(withMissingFields(parsed.data, fields)), row.id);
   }
 }

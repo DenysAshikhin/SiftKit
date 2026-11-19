@@ -8,7 +8,7 @@ import {
   type PresetRequestDefaults,
 } from './preset-compatibility.ts';
 import { inspectModelDirectory, readModelCacheGeometry, readTemplateThinking } from './model-profile-inspector.ts';
-import { resolveCacheTierSizes, type CacheTierSizes } from './cache-sizing.ts';
+import { MIB_PER_GIB, RAM_DISK_STAGING_CONTEXTS, resolveCacheTierSizes, type CacheTierSizes } from './cache-sizing.ts';
 
 /** A profile with no ModelPath declares no loading identity, e.g. a model already served externally. */
 export class MissingModelPathError extends Error {
@@ -162,7 +162,7 @@ export class Exl3PresetAdapter {
     };
   }
 
-  buildLaunchEnvironment(preset: ModelRuntimePreset): Exl3LaunchEnvironment {
+  buildLaunchEnvironment(preset: ModelRuntimePreset, ramDiskLetter: string): Exl3LaunchEnvironment {
     const request = this.buildLoadRequest(preset);
     const draftCacheMode = preset.SpeculativeEnabled ? this.getCacheModes(preset).draft?.mode ?? null : null;
     const cacheSizes = this.getCacheTierSizes(preset);
@@ -177,12 +177,7 @@ export class Exl3PresetAdapter {
       TABBY_MODEL_CHUNK_SIZE: String(request.chunk_size),
       TABBY_MEMORY_SYSMEM_KV_CACHE: String(cacheSizes.cacheRamMiB),
       TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(cacheSizes.recurrentRamMiB),
-      // Tabby reads disk_cache_size in MB and multiplies by 1024², so MiB passes through unchanged.
-      ...(preset.DiskCacheDir === null ? {} : {
-        TABBY_MEMORY_DISK_CACHE_DIR: win32.resolve(preset.DiskCacheDir),
-        TABBY_MEMORY_DISK_CACHE_SIZE: String(preset.DiskCacheSizeMiB),
-        TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL: String(preset.DiskCacheCheckpointInterval),
-      }),
+      ...this.getDiskCacheEnvironment(preset, ramDiskLetter),
       TABBY_DRAFT_MODEL_DRAFT_MODE: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
@@ -206,9 +201,26 @@ export class Exl3PresetAdapter {
     return buildPresetRequestDefaults(preset);
   }
 
-  /** The preset's manual RAM-tier sizes, or with CacheAuto the sizes the model's geometry needs. */
+  /** TabbyAPI's disk tier: the preset's folder on SiftKit's RAM disk, its own DiskCacheDir, or none. */
+  private getDiskCacheEnvironment(preset: ModelRuntimePreset, ramDiskLetter: string): Record<string, string> {
+    // Tabby reads disk_cache_size in MB and multiplies by 1024², so MiB passes through unchanged.
+    const tier = (directory: string, sizeMiB: number) => ({
+      TABBY_MEMORY_DISK_CACHE_DIR: directory,
+      TABBY_MEMORY_DISK_CACHE_SIZE: String(sizeMiB),
+      TABBY_MEMORY_DISK_CACHE_CHECKPOINT_INTERVAL: String(preset.DiskCacheCheckpointInterval),
+    });
+    if (preset.RamDiskCache) return tier(win32.join(`${ramDiskLetter}:\\`, preset.id), preset.RamDiskCacheGiB * MIB_PER_GIB);
+    return preset.DiskCacheDir === null ? {} : tier(win32.resolve(preset.DiskCacheDir), preset.DiskCacheSizeMiB);
+  }
+
+  /** The preset's manual RAM-tier sizes, or with CacheAuto (always, on a RAM disk) the sizes the model's geometry needs. */
   private getCacheTierSizes(preset: ModelRuntimePreset): CacheTierSizes {
+    if (preset.RamDiskCache) return this.autoSizeCacheTiers({ ...preset, CacheContexts: RAM_DISK_STAGING_CONTEXTS });
     if (!preset.CacheAuto) return { cacheRamMiB: preset.CacheRam, recurrentRamMiB: preset.CacheRecurrentRam };
+    return this.autoSizeCacheTiers(preset);
+  }
+
+  private autoSizeCacheTiers(preset: ModelRuntimePreset): CacheTierSizes {
     const modelDirectory = win32.resolve(this.modelRoot, this.getRelativeModelPath(preset));
     const sizes = resolveCacheTierSizes(preset, readModelCacheGeometry(modelDirectory));
     if (typeof sizes === 'string') throw new Error(`preset=${preset.id} backend=exl3 CacheAuto cannot size ${modelDirectory}: ${sizes}`);

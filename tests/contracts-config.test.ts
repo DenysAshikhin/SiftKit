@@ -154,6 +154,7 @@ test('Exl3EngineConfigSchema accepts process-level configuration', () => {
     AdminApiKey: 'secret',
     ShutdownTimeoutMs: 30_000,
     Environment: { EXL3_MOE_PINNED_ARENA: '1' },
+    RamDisk: { ToolPath: null, DriveLetter: 'S' },
   };
   assert.doesNotThrow(() => Exl3EngineConfigSchema.parse(config));
   const { AdminApiKey: _AdminApiKey, ...withoutAdminApiKey } = config;
