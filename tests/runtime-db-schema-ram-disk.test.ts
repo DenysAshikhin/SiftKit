@@ -39,7 +39,7 @@ test('the 94 to 95 upgrade turns the RAM disk off on every stored preset and giv
   const config = readConfig(dbPath);
   assert.deepEqual(config.Server.ModelPresets.Presets.map((preset) => [preset.RamDiskCache, preset.RamDiskCacheGiB]),
     config.Server.ModelPresets.Presets.map(() => [false, 10]));
-  assert.deepEqual(config.Server.Engines.Exl3.RamDisk, { ToolPath: null, DriveLetter: 'S' });
+  assert.deepEqual(config.Server.Engines.Exl3.RamDisk, { DriveLetter: 'S' });
 });
 
 test('the 94 to 95 upgrade fails loudly on a stored preset id that cannot name a folder, and leaves the file at 94', (t) => {

@@ -176,8 +176,6 @@ export const ServerModelPresetsConfigSchema = z.object({
 export type ServerModelPresetsConfig = z.infer<typeof ServerModelPresetsConfigSchema>;
 
 export const Exl3RamDiskConfigSchema = z.object({
-  /** aim_ll.exe of Arsenal Image Mounter; required once a preset turns RamDiskCache on. */
-  ToolPath: z.string().min(1).nullable(),
   DriveLetter: z.string().regex(/^[A-Z]$/u),
 }).strict();
 export type Exl3RamDiskConfig = z.infer<typeof Exl3RamDiskConfigSchema>;

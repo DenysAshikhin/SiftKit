@@ -295,7 +295,7 @@ export const ENGINE_EVENTS_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS engine_events (
     id TEXT PRIMARY KEY,
     occurred_at_utc TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('prompt_cache_break', 'engine_error', 'engine_exit')),
+    kind TEXT NOT NULL CHECK (kind IN ('prompt_cache_break', 'engine_error', 'engine_exit', 'disk_cache_full')),
     inference_run_id TEXT,
     run_id TEXT,
     turn INTEGER,

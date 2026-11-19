@@ -4,7 +4,7 @@ import type { Exl3PackageLocator } from '../inference-presets/exl3-model-capabil
 import { InterpreterExl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
 import { raiseProcessTreePriority } from '../lib/process-priority.ts';
 import { terminateProcessTree } from '../lib/process-tree.ts';
-import { ArsenalRamDiskDriver, SystemPowerShellRunner } from './arsenal-ram-disk-driver.ts';
+import { ArsenalRamDiskDriver, SystemPowerShellRunner, vendoredAimLlPath } from './arsenal-ram-disk-driver.ts';
 import { NvidiaSmiGpuMemoryProbe, type GpuMemoryProbe } from './gpu-memory.ts';
 import type { RamDiskDriver } from './ram-disk-cache.ts';
 
@@ -68,6 +68,6 @@ export function createSystemManagedEngineHost(): ManagedEngineHost {
     launcher: new ChildProcessEngineLauncher(),
     packageLocator: new InterpreterExl3PackageLocator(),
     gpuMemory: new NvidiaSmiGpuMemoryProbe(0),
-    ramDisk: new ArsenalRamDiskDriver(new SystemPowerShellRunner()),
+    ramDisk: new ArsenalRamDiskDriver(new SystemPowerShellRunner(), vendoredAimLlPath()),
   };
 }

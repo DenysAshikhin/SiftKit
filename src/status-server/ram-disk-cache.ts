@@ -4,11 +4,14 @@ import path from 'node:path';
 import { PRESET_ID_PATTERN } from '@siftkit/contracts';
 import type { Exl3RamDiskConfig, ModelRuntimePreset } from '../config/types.ts';
 import { GIB, requiredRamDiskBytes } from '../inference-presets/cache-sizing.ts';
+import { toError } from '../lib/errors.ts';
 import { parseJsonValueText } from '../lib/json.ts';
 import { z } from '../lib/zod.ts';
 import { serverLogger } from './server-logger.ts';
 
-const OWNER_FILE = 'siftkit-owner.json';
+export const OWNER_FILE = 'siftkit-owner.json';
+// exllamav3's per-directory record of the disk budget its process uses.
+const BUDGET_FILE = 'budget.json';
 const OwnerSchema = z.object({ pid: z.number().int().positive() });
 
 /** SiftKit's mounted RAM disk: its letter, the directory it is mounted at, and its size. */
@@ -17,11 +20,11 @@ export type RamDisk = { readonly letter: string; readonly root: string; readonly
 /** Finds, creates, grows, and removes SiftKit's RAM disk; every call but `find` may need elevation. */
 export interface RamDiskDriver {
   find(): Promise<RamDisk | null>;
-  create(toolPath: string, letter: string, sizeBytes: number): Promise<RamDisk>;
-  grow(toolPath: string, disk: RamDisk, sizeBytes: number): Promise<RamDisk>;
-  remove(toolPath: string, disk: RamDisk): Promise<void>;
+  create(letter: string, sizeBytes: number): Promise<RamDisk>;
+  grow(disk: RamDisk, sizeBytes: number): Promise<RamDisk>;
+  remove(disk: RamDisk): Promise<void>;
   /** Starts the removal and returns at once, for the synchronous process-exit path. */
-  removeDetached(toolPath: string, disk: RamDisk): void;
+  removeDetached(disk: RamDisk): void;
 }
 
 function isAlive(pid: number): boolean {
@@ -53,11 +56,6 @@ function directoryBytes(directory: string): number {
     .reduce((sum, entry) => sum + fs.statSync(path.join(entry.parentPath, entry.name)).size, 0);
 }
 
-function requireToolPath(config: Exl3RamDiskConfig): string {
-  if (config.ToolPath === null) throw new Error('RAM disk cache needs Server.Engines.Exl3.RamDisk.ToolPath (aim_ll.exe).');
-  return config.ToolPath;
-}
-
 /** Keeps SiftKit's RAM disk sized for every RAM-disk preset; runs only while no engine uses the disk. */
 export class RamDiskCache {
   private disk: RamDisk | null = null;
@@ -71,41 +69,38 @@ export class RamDiskCache {
 
   /** Readies the disk and `preset`'s folder before an engine that caches on it launches. */
   async prepare(config: Exl3RamDiskConfig, presets: readonly ModelRuntimePreset[], preset: ModelRuntimePreset): Promise<void> {
-    const toolPath = requireToolPath(config);
-    await this.removeLeftover(toolPath, true);
+    await this.removeLeftover(true);
     const ramDiskPresets = presets.filter((entry) => entry.RamDiskCache);
     const required = requiredRamDiskBytes(ramDiskPresets.map((entry) => entry.RamDiskCacheGiB));
     let disk = this.disk;
     if (disk !== null && disk.letter !== config.DriveLetter) {
-      await this.driver.remove(toolPath, disk);
+      await this.driver.remove(disk);
       disk = null;
     }
-    if (disk === null) disk = await this.create(toolPath, config.DriveLetter, required);
-    else if (disk.sizeBytes < required) disk = await this.grow(toolPath, disk, required);
+    if (disk === null) disk = await this.create(config.DriveLetter, required);
+    else if (disk.sizeBytes < required) disk = await this.grow(disk, required);
     this.disk = disk;
     this.tidyFolders(disk, ramDiskPresets);
     fs.mkdirSync(path.join(disk.root, preset.id), { recursive: true });
   }
 
   /** Removes SiftKit's disk, if any, once no engine caches on it; a leftover found at the first check goes too. */
-  async release(config: Exl3RamDiskConfig): Promise<void> {
-    if (this.disk === null && (this.checked || config.ToolPath === null)) return;
-    const toolPath = requireToolPath(config);
-    await this.removeLeftover(toolPath, false);
+  async release(): Promise<void> {
+    await this.removeLeftover(false);
     const disk = this.disk;
     if (disk === null) return;
-    await this.driver.remove(toolPath, disk);
+    await this.driver.remove(disk);
     this.disk = null;
   }
 
-  releaseForProcessExitSync(config: Exl3RamDiskConfig): void {
-    if (this.disk === null || config.ToolPath === null) return;
-    this.driver.removeDetached(config.ToolPath, this.disk);
+  releaseForProcessExitSync(): void {
+    if (this.disk === null) return;
+    this.driver.removeDetached(this.disk);
     this.disk = null;
   }
 
   /** Until a check succeeds, removes a disk an earlier server left; a live owner's disk fails a load and is skipped by release. */
-  private async removeLeftover(toolPath: string, failOnLiveOwner: boolean): Promise<void> {
+  private async removeLeftover(failOnLiveOwner: boolean): Promise<void> {
     if (this.checked) return;
     const found = await this.driver.find();
     const owner = found === null ? null : liveOwner(found);
@@ -117,22 +112,23 @@ export class RamDiskCache {
     if (found === null) return;
     serverLogger.warning({ scope: 'exl3', id: found.letter, event: 'ram_disk_leftover_removed', fields: '',
       alert: `Removed a leftover SiftKit RAM disk ${found.letter}: from an earlier server.` });
-    await this.driver.remove(toolPath, found);
+    await this.driver.remove(found);
   }
-  private async create(toolPath: string, letter: string, sizeBytes: number): Promise<RamDisk> {
-    const disk = await this.driver.create(toolPath, letter, sizeBytes);
+
+  private async create(letter: string, sizeBytes: number): Promise<RamDisk> {
+    const disk = await this.driver.create(letter, sizeBytes);
     fs.writeFileSync(path.join(disk.root, OWNER_FILE), JSON.stringify({ pid: process.pid }));
     return disk;
   }
 
-  private async grow(toolPath: string, disk: RamDisk, sizeBytes: number): Promise<RamDisk> {
+  private async grow(disk: RamDisk, sizeBytes: number): Promise<RamDisk> {
     try {
-      return await this.driver.grow(toolPath, disk, sizeBytes);
+      return await this.driver.grow(disk, sizeBytes);
     } catch (error) {
       serverLogger.warning({ scope: 'exl3', id: disk.letter, event: 'ram_disk_recreated', fields: '',
-        alert: `Could not grow RAM disk ${disk.letter}: (${error instanceof Error ? error.message : String(error)}); recreated it empty.` });
-      await this.driver.remove(toolPath, disk);
-      return this.create(toolPath, disk.letter, sizeBytes);
+        alert: `Could not grow RAM disk ${disk.letter}: (${toError(error).message}); recreated it empty.` });
+      await this.driver.remove(disk);
+      return this.create(disk.letter, sizeBytes);
     }
   }
 
@@ -149,7 +145,19 @@ export class RamDiskCache {
         serverLogger.warning({ scope: 'exl3', id: entry.name, event: 'ram_disk_folder_wiped', fields: '',
           alert: `RAM disk cache of preset '${entry.name}' exceeded its lowered budget; wiped it.` });
         fs.rmSync(folder, { recursive: true, force: true });
+      } else {
+        clearBudgetDeclarations(folder);
       }
     }
+  }
+}
+
+/**
+ * exllamav3 on Windows leaves its budget.json behind at close (it deletes the file while still holding it open), and a
+ * leftover with another budget refuses the next engine for 10 minutes. No engine runs during prepare, so every one is stale.
+ */
+function clearBudgetDeclarations(folder: string): void {
+  for (const cacheDirectory of fs.readdirSync(folder, { withFileTypes: true })) {
+    if (cacheDirectory.isDirectory()) fs.rmSync(path.join(folder, cacheDirectory.name, BUDGET_FILE), { force: true });
   }
 }

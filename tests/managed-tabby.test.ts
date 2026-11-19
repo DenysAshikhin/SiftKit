@@ -59,7 +59,7 @@ async function createManagedTabbyFixture(
     AdminApiKey: '',
     ShutdownTimeoutMs: hostOptions.shutdownTimeoutMs ?? 5_000,
     Environment: environment,
-    RamDisk: { ToolPath: 'C:\\aim\\aim_ll.exe', DriveLetter: 'S' },
+    RamDisk: { DriveLetter: 'S' },
   }, flushQueue, fakeTabby.host);
 
   return {
@@ -199,7 +199,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
       AdminApiKey: '',
       ShutdownTimeoutMs: 2_000,
       Environment: {},
-      RamDisk: { ToolPath: null, DriveLetter: 'S' },
+      RamDisk: { DriveLetter: 'S' },
     }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
     try {
       await Promise.all([runtime.ensurePresetReady(exl3Preset), runtime.ensurePresetReady(exl3Preset)]);
@@ -401,7 +401,7 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
     Environment: {},
-    RamDisk: { ToolPath: null, DriveLetter: 'S' },
+    RamDisk: { DriveLetter: 'S' },
   }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
 
   await assert.rejects(runtime.ensurePresetReady({
@@ -428,7 +428,7 @@ test('unmanaged EXL3 preset with a disk cache fails loud instead of silently dro
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
     Environment: {},
-    RamDisk: { ToolPath: null, DriveLetter: 'S' },
+    RamDisk: { DriveLetter: 'S' },
   }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
 
   await assert.rejects(runtime.ensurePresetReady({
@@ -457,7 +457,7 @@ test('managed engine rejects an external-server EXL3 preset with a disk cache or
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
     Environment: {},
-    RamDisk: { ToolPath: null, DriveLetter: 'S' },
+    RamDisk: { DriveLetter: 'S' },
   }, flushQueue, NEVER_LAUNCHING_ENGINE_HOST);
 
   await assert.rejects(runtime.ensurePresetReady({
@@ -605,7 +605,7 @@ async function withExternalTabby(
     AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,
     Environment: {},
-    RamDisk: { ToolPath: null, DriveLetter: 'S' },
+    RamDisk: { DriveLetter: 'S' },
   }, flushQueue, fakeTabby.host);
   try {
     await fn(runtime, externalPresetFor(root, `http://127.0.0.1:${getAddressInfo(server).port}`), fakeTabby.launcher);

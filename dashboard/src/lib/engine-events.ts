@@ -6,6 +6,7 @@ export const ENGINE_EVENT_KIND_LABELS: Record<EngineEventKind, string> = {
   prompt_cache_break: 'Cache break',
   engine_error: 'Error',
   engine_exit: 'Exit',
+  disk_cache_full: 'Disk cache full',
 };
 
 /** Collapses events whose kind and summary match once digits are ignored; input and groups stay newest first. */

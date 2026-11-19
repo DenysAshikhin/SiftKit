@@ -28,6 +28,8 @@ import { upgradeModelPresetCacheAuto } from './schema-upgrades/model-preset-cach
 import { upgradeChatSessionPresetSnapshots } from './schema-upgrades/chat-session-preset-snapshots.ts';
 import { upgradeEngineEvents } from './schema-upgrades/engine-events.ts';
 import { upgradeModelPresetRamDisk } from './schema-upgrades/model-preset-ram-disk.ts';
+import { upgradeEngineEventDiskCacheFull } from './schema-upgrades/engine-event-disk-cache-full.ts';
+import { upgradeExl3RamDiskBundledTool } from './schema-upgrades/exl3-ram-disk-bundled-tool.ts';
 import { upgradeOrchestratorSearchReports } from './schema-upgrades/orchestrator-search-reports.ts';
 import { upgradeOrchestratorSingleWorker } from './schema-upgrades/orchestrator-single-worker.ts';
 import { upgradeVaultCutoverJobs } from './schema-upgrades/vault-cutover-jobs.ts';
@@ -42,7 +44,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 95;
+export const CURRENT_SCHEMA_VERSION = 97;
 const RUNTIME_DATABASE_FILE = 'runtime.sqlite';
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
@@ -82,6 +84,8 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 92, apply: upgradeChatSessionPresetSnapshots },
   { from: 93, apply: upgradeEngineEvents },
   { from: 94, apply: upgradeModelPresetRamDisk },
+  { from: 95, apply: upgradeEngineEventDiskCacheFull },
+  { from: 96, apply: upgradeExl3RamDiskBundledTool },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

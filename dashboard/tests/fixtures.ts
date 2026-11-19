@@ -146,7 +146,7 @@ export const DASHBOARD_CONFIG = {
   Interactive: { Enabled: true, WrappedCommands: ['npm test'], IdleTimeoutMs: 1000, MaxTranscriptCharacters: 2000, TranscriptRetention: true },
   Server: {
     ModelPresets: { Presets: [MANAGED_PRESET], ActivePresetId: MANAGED_PRESET.id },
-    Engines: { Exl3: { Managed: true, WorkingDirectory: '', PythonPath: 'python', Entrypoint: 'tabbyAPI/main.py', ModelRoot: '', AdminApiKey: '', ShutdownTimeoutMs: 10000, Environment: {}, RamDisk: { ToolPath: null, DriveLetter: 'S' } } },
+    Engines: { Exl3: { Managed: true, WorkingDirectory: '', PythonPath: 'python', Entrypoint: 'tabbyAPI/main.py', ModelRoot: '', AdminApiKey: '', ShutdownTimeoutMs: 10000, Environment: {}, RamDisk: { DriveLetter: 'S' } } },
   },
   WebSearch: {
     EnabledDefault: true,

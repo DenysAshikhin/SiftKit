@@ -1170,7 +1170,7 @@ const PRELUDE = String.raw`param([string]$JobPath)
 $ErrorActionPreference = 'Stop'
 $job = Get-Content -Raw -Encoding utf8 $JobPath | ConvertFrom-Json
 function Write-Result($value) { ConvertTo-Json -Compress -InputObject $value | Set-Content -Encoding utf8 $job.resultPath }
-# aim_ll writes progress to stderr, so it runs through Start-Process with both streams to files (as smol-helper does).
+# aim_ll writes progress to stderr, so it runs through Start-Process with both streams to files.
 function Invoke-Aim([string[]]$arguments) {
   $log = [IO.Path]::GetTempFileName()
   try {
@@ -1440,7 +1440,7 @@ This task runs on the real machine and is done by the primary agent with the use
 
 - [ ] **Step 1: Full suites.** Run the node suite, the process suite and the dashboard suite, each through `siftkit summary`, then run `npm run typecheck`. Expected: 0 failures.
 - [ ] **Step 2: Configure.**
-  - Set `Server.Engines.Exl3.RamDisk.ToolPath` to `C:\Users\denys\Documents\GitHub\jellyfin\smol-helper\aim\aim_ll.exe` and `DriveLetter` to `S`.
+  - Keep `Server.Engines.Exl3.RamDisk.DriveLetter` at `S`. (Revised during the live check: SiftKit ships `vendor/arsenal-image-mounter/aim_ll.exe`, and the `ToolPath` setting from Tasks 2–8 was removed.)
   - Set both presets (`exl3-3-8-next-3-5bpw-f16`, `exl3-3-8-27b-5bpw`) to `RamDiskCache: true` with `RamDiskCacheGiB` at the spec estimate rounded up: 11 and 10.
   - Restart the stable server unelevated.
 - [ ] **Step 3: Disk lifecycle.**

@@ -72,7 +72,7 @@ test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', a
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
       Environment: {},
-      RamDisk: { ToolPath: null, DriveLetter: 'S' },
+      RamDisk: { DriveLetter: 'S' },
     }, flushQueue, fakeTabby.host);
     try {
       await assert.rejects(runtime.ensurePresetReady({
@@ -110,7 +110,7 @@ test('managed Tabby reports a missing configured Python interpreter before check
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
       Environment: {},
-      RamDisk: { ToolPath: null, DriveLetter: 'S' },
+      RamDisk: { DriveLetter: 'S' },
     }, flushQueue, fakeTabby.host);
     try {
       await assert.rejects(runtime.ensurePresetReady({

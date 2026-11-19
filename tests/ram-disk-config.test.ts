@@ -20,7 +20,7 @@ test('new model presets and the exl3 engine default to no RAM disk on drive S', 
   const config = getDefaultConfigObject();
   const preset = config.Server.ModelPresets.Presets[0];
   assert.deepEqual([preset?.RamDiskCache, preset?.RamDiskCacheGiB], [false, 10]);
-  assert.deepEqual(config.Server.Engines.Exl3.RamDisk, { ToolPath: null, DriveLetter: 'S' });
+  assert.deepEqual(config.Server.Engines.Exl3.RamDisk, { DriveLetter: 'S' });
 });
 
 test('a RAM-disk preset is valid alone, but not with its own disk cache directory or a non-integer budget', () => {
@@ -38,10 +38,12 @@ test('model preset ids are lowercase words joined by dashes, because an id names
   }
 });
 
-test('the exl3 RAM disk takes one drive letter and an optional aim_ll path', () => {
+test('the exl3 RAM disk takes one drive letter and nothing else', () => {
   const engine = getDefaultConfigObject().Server.Engines.Exl3;
-  assert.equal(Exl3EngineConfigSchema.safeParse({ ...engine, RamDisk: { ToolPath: 'C:\\aim\\aim_ll.exe', DriveLetter: 'T' } }).success, true);
+  assert.equal(Exl3EngineConfigSchema.safeParse({ ...engine, RamDisk: { DriveLetter: 'T' } }).success, true);
   for (const letter of ['', 'ST', 's', '1']) {
-    assert.equal(Exl3EngineConfigSchema.safeParse({ ...engine, RamDisk: { ToolPath: null, DriveLetter: letter } }).success, false, letter);
+    assert.equal(Exl3EngineConfigSchema.safeParse({ ...engine, RamDisk: { DriveLetter: letter } }).success, false, letter);
   }
+  // SiftKit ships its own aim_ll, so a tool path is no setting.
+  assert.equal(Exl3EngineConfigSchema.safeParse({ ...engine, RamDisk: { ToolPath: 'C:\\aim\\aim_ll.exe', DriveLetter: 'S' } }).success, false);
 });

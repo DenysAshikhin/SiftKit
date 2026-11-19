@@ -14,9 +14,18 @@ const LOG_RECORD_START = /^\d{2}:\d{2}:\d{2}\.\d{3} [A-Z]+:/u;
 const ERROR_RECORD_START = /^\d{2}:\d{2}:\d{2}\.\d{3} (?:ERROR|CRITICAL):\s*(.*)$/u;
 // winloop raises this when TabbyAPI writes a reply to a client that already hung up: a disconnect, not an engine fault.
 const CLIENT_DISCONNECT_EXCEPTION = /^RuntimeError: Cannot call write\(\) when UVStream is clos(?:ed|ing)$/u;
+// TabbyAPI logs its 503 reply to a request made while no model is loaded, as SiftKit's post-unload probe does: not an engine fault.
+const NO_MODEL_REPLY = 'Sent to request: No models are currently loaded.';
 // Exception-group tracebacks prefix their lines with `|` and `+`.
 const TRACEBACK_PREFIX = /^[\s|+]*/u;
 const EXIT_DETAIL_LINES = 40;
+// exllamav3 evicts at its budget silently; its periodic tier report and the load report show usage against the budget.
+const DISK_TIER_REPORT = /Disk cache tier: .*On disk: \d+ pages, \d+ checkpoints, ([\d.]+) of ([\d.]+) GB/u;
+const DISK_LOAD_REPORT = /Disk cache: .+ holds \d+ pages \(([\d,]+) reusable tokens\).*, ([\d.]+) GB of ([\d.]+) GB/u;
+const DISK_OUT_OF_SPACE = /Disk cache tier: (.+\)); writes paused/u;
+// Reports round to 0.1 GB, and eviction keeps the cache within one page or checkpoint of its budget.
+const DISK_FULL_MARGIN_GB = 0.1;
+const DISK_FULL_ADVICE = 'exllamav3 evicts its oldest pages, so long prompts lose their start. Raise the preset\'s disk cache budget.';
 
 type EngineStreamKind = 'engine_stdout' | 'engine_stderr';
 type OpenErrorRecord = { message: string; lines: string[]; exception: string | null; clientDisconnect: boolean };
@@ -28,6 +37,8 @@ export class TabbyRunRecorder extends InferenceRunRecorder {
   private readonly openRecordByStream = new Map<EngineStreamKind, OpenErrorRecord>();
   private readonly recentStderrLines: string[] = [];
   private mtpDraftingMarkerSeen = false;
+  /** Each disk cache problem is recorded once per engine run, though the engine keeps reporting it. */
+  private readonly diskCacheProblems = new Set<'budget' | 'space'>();
   private lastEngineErrorLine: string | null = null;
   private readyReached = false;
   private engineStderrEnd: Promise<void> = Promise.resolve();
@@ -108,6 +119,7 @@ export class TabbyRunRecorder extends InferenceRunRecorder {
       this.recentStderrLines.push(line);
       if (this.recentStderrLines.length > EXIT_DETAIL_LINES) this.recentStderrLines.shift();
     }
+    this.observeDiskCacheLine(line);
     if (LOG_RECORD_START.test(line)) {
       this.closeErrorRecord(streamKind);
       const errorStart = ERROR_RECORD_START.exec(line);
@@ -125,12 +137,32 @@ export class TabbyRunRecorder extends InferenceRunRecorder {
     const record = this.openRecordByStream.get(streamKind);
     if (record === undefined) return;
     this.openRecordByStream.delete(streamKind);
-    if (record.clientDisconnect) return;
+    if (record.clientDisconnect || record.message === NO_MODEL_REPLY) return;
     this.recordEngineEvent({
       kind: 'engine_error', inferenceRunId: this.runId, runId: null, turn: null,
       summary: record.exception === null ? record.message : `${record.message} — ${record.exception}`,
       detail: record.lines.join('\n'),
     });
+  }
+
+  private observeDiskCacheLine(line: string): void {
+    const usage = readDiskUsage(line);
+    if (usage !== null && Number(usage.budgetGb) > 0 && Number(usage.usedGb) >= Number(usage.budgetGb) - DISK_FULL_MARGIN_GB) {
+      const tokens = usage.reusableTokens === null ? '' : `, ${usage.reusableTokens} reusable tokens`;
+      this.recordDiskCacheProblem('budget', `Disk cache full (${usage.usedGb} of ${usage.budgetGb} GB${tokens}): ${DISK_FULL_ADVICE}`, line);
+      return;
+    }
+    const outOfSpace = DISK_OUT_OF_SPACE.exec(line)?.[1];
+    if (outOfSpace !== undefined) {
+      this.recordDiskCacheProblem('space', `Disk cache out of space: ${outOfSpace}; exllamav3 paused its writes.`, line);
+    }
+  }
+
+  private recordDiskCacheProblem(problem: 'budget' | 'space', summary: string, line: string): void {
+    if (this.diskCacheProblems.has(problem)) return;
+    this.diskCacheProblems.add(problem);
+    serverLogger.warning({ scope: 'exl3', id: this.runId.slice(0, 8), event: 'disk_cache_full', fields: '', alert: summary });
+    this.recordEngineEvent({ kind: 'disk_cache_full', inferenceRunId: this.runId, runId: null, turn: null, summary, detail: line });
   }
 
   /** Stream handlers must not throw, so a failed write is logged with the event it lost. */
@@ -141,4 +173,13 @@ export class TabbyRunRecorder extends InferenceRunRecorder {
       serverLogger.emitBody('engine', this.runId, { event: 'engine_event_lost', fields: `${input.summary}: ${getErrorMessage(error)}`, severity: 'error' });
     }
   }
+}
+
+/** Disk usage as a tier or load report prints it; the numbers stay as printed so a summary repeats them verbatim. */
+function readDiskUsage(line: string): { usedGb: string; budgetGb: string; reusableTokens: string | null } | null {
+  const tier = DISK_TIER_REPORT.exec(line);
+  if (tier?.[1] !== undefined && tier[2] !== undefined) return { usedGb: tier[1], budgetGb: tier[2], reusableTokens: null };
+  const load = DISK_LOAD_REPORT.exec(line);
+  if (load?.[1] !== undefined && load[2] !== undefined && load[3] !== undefined) return { usedGb: load[2], budgetGb: load[3], reusableTokens: load[1] };
+  return null;
 }

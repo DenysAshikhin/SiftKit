@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-export const EngineEventKindSchema = z.enum(['prompt_cache_break', 'engine_error', 'engine_exit']);
+export const EngineEventKindSchema = z.enum(['prompt_cache_break', 'engine_error', 'engine_exit', 'disk_cache_full']);
 export type EngineEventKind = z.infer<typeof EngineEventKindSchema>;
 
-/** One engine-level problem: a prompt-cache break in an agent run, or an engine error or exit. */
+/** One engine-level problem: a prompt-cache break in an agent run, an engine error or exit, or a disk cache that is full. */
 export const EngineEventSchema = z.object({
   id: z.string(),
   occurredAtUtc: z.string(),

@@ -30,7 +30,7 @@ async function createManagedTabbyRun(root: string, leaseName: string) {
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
     Environment: {},
-    RamDisk: { ToolPath: null, DriveLetter: 'S' },
+    RamDisk: { DriveLetter: 'S' },
   }, flushQueue, fakeTabby.host);
 
   return {

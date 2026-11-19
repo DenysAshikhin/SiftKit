@@ -166,7 +166,7 @@ export function getDefaultConfigObject(): SiftConfig {
           AdminApiKey: '',
           ShutdownTimeoutMs: 30_000,
           Environment: {},
-          RamDisk: { ToolPath: null, DriveLetter: SIFT_DEFAULT_RAM_DISK_DRIVE_LETTER },
+          RamDisk: { DriveLetter: SIFT_DEFAULT_RAM_DISK_DRIVE_LETTER },
         },
       },
     },

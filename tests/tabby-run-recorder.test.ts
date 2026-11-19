@@ -6,6 +6,7 @@ import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush
 import { TabbyRunRecorder } from '../src/status-server/tabby-run-recorder.ts';
 import { listEngineEvents } from '../src/state/engine-events.ts';
 import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
+import { serverLogger } from '../src/status-server/server-logger.ts';
 import { withTempEnv } from './_runtime-helpers.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
@@ -138,6 +139,14 @@ test('a reply written to a client that already hung up is not an engine error', 
   });
 });
 
+test('TabbyAPI\'s 503 reply while no model is loaded, which SiftKit\'s post-unload probe expects, is not an engine error', async () => {
+  await withTabbyRecorder((_recorder, { stdout }) => {
+    stdout.write('11:23:28.216 INFO:     Model unloaded.\r\n11:23:28.219 ERROR:    Sent to request: No models are currently loaded.\r\n');
+    stdout.write('11:23:30.808 INFO:     exllamav3 version: 1.6.7\r\n');
+    assert.deepEqual(engineEvents(), []);
+  });
+});
+
 test('INFO and WARNING records are not engine errors', async () => {
   await withTabbyRecorder((_recorder, { stdout, stderr }) => {
     stdout.write('08:53:57.716 WARNING:  No sampler overrides are configured\n08:53:58.000 INFO:     Loaded\n');
@@ -175,5 +184,43 @@ test('a requested stop or a failure before ready records no engine_exit', async 
     recorder.finish({ status: 'ready', baseUrl: DEAD_BASE_URL });
     recorder.finish({ status: 'stopped', exitCode: 0 });
     assert.deepEqual(engineEvents(), []);
+  });
+});
+
+// Recorded from a 27B preset whose 3 GiB disk budget held less than one full context.
+const DISK_TIER_BELOW_BUDGET = '11:22:51.000 INFO:     Disk cache tier: saved 90 pages (23040 tokens) and 0 checkpoints, 812 MB of pages (continues). On disk: 208 pages, 0 checkpoints, 1.9 of 3.0 GB\r\n';
+const DISK_TIER_AT_BUDGET = '11:23:27.625 INFO:     Disk cache tier: saved 409 pages (104704 tokens) and 7 checkpoints, 3695 MB of pages. On disk: 298 pages, 5 checkpoints, 3.0 of 3.0 GB\r\n';
+const DISK_LOAD_AT_BUDGET = '11:24:30.170 INFO:     Disk cache: S:\\exl3-3-8-27b-5bpw\\33c18c1067132e06 holds 298 pages (0 reusable tokens) and 5 recurrent checkpoints, 3.00 GB of 3.00 GB.\r\n';
+const DISK_OUT_OF_SPACE = '11:30:00.000 WARNING:  Disk cache tier: page failed ([Errno 28] No space left on device); writes paused for 60 seconds (restores from what is already on disk continue)\r\n';
+
+test('a disk cache tier at its budget records one disk_cache_full event per engine run, and warns', async (t) => {
+  const warnings = t.mock.method(serverLogger, 'warning', () => {});
+  await withTabbyRecorder((recorder, { stdout }) => {
+    stdout.write(DISK_TIER_BELOW_BUDGET);
+    assert.deepEqual(engineEvents(), []);
+    stdout.write(DISK_TIER_AT_BUDGET);
+    stdout.write(DISK_LOAD_AT_BUDGET);
+    stdout.write(DISK_TIER_AT_BUDGET);
+
+    const events = engineEvents();
+    assert.deepEqual(events.map((event) => [event.kind, event.inferenceRunId, event.summary]), [[
+      'disk_cache_full', recorder.runId,
+      'Disk cache full (3.0 of 3.0 GB): exllamav3 evicts its oldest pages, so long prompts lose their start. Raise the preset\'s disk cache budget.',
+    ]]);
+    assert.equal(events[0]?.detail, DISK_TIER_AT_BUDGET.trim());
+    assert.deepEqual(warnings.mock.calls.map((call) => call.arguments[0]?.event), ['disk_cache_full']);
+  });
+});
+
+test('a disk cache found full at load, and a disk out of space, are each recorded once', async (t) => {
+  t.mock.method(serverLogger, 'warning', () => {});
+  await withTabbyRecorder((_recorder, { stdout }) => {
+    stdout.write(DISK_LOAD_AT_BUDGET);
+    stdout.write(DISK_OUT_OF_SPACE);
+    stdout.write(DISK_OUT_OF_SPACE);
+    assert.deepEqual(engineEvents().map((event) => [event.kind, event.summary]).reverse(), [
+      ['disk_cache_full', 'Disk cache full (3.00 of 3.00 GB, 0 reusable tokens): exllamav3 evicts its oldest pages, so long prompts lose their start. Raise the preset\'s disk cache budget.'],
+      ['disk_cache_full', 'Disk cache out of space: page failed ([Errno 28] No space left on device); exllamav3 paused its writes.'],
+    ]);
   });
 });

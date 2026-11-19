@@ -124,12 +124,12 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   }
 
   releaseRamDisk(): Promise<void> {
-    return this.ramDisk.release(this.engine.RamDisk);
+    return this.ramDisk.release();
   }
 
   /** Before a managed launch: ready the RAM disk for a preset that caches on it, otherwise remove it. */
   private async prepareRamDisk(preset: ModelRuntimePreset): Promise<void> {
-    if (!preset.RamDiskCache) return this.ramDisk.release(this.engine.RamDisk);
+    if (!preset.RamDiskCache) return this.ramDisk.release();
     if (!this.modelPresets.some((entry) => entry.id === preset.id)) {
       throw new Error(`Model preset '${preset.id}' is not in the runtime's preset list; replaceModelPresets must run before ensurePresetReady.`);
     }
@@ -273,7 +273,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     const child = this.child;
     this.stopping = true;
     if (child && child.exitCode === null) this.host.launcher.terminate(child);
-    this.ramDisk.releaseForProcessExitSync(this.engine.RamDisk);
+    this.ramDisk.releaseForProcessExitSync();
     this.child = null;
     this.recorder = null;
     this.processBaseUrl = null;

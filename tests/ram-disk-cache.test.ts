@@ -7,11 +7,11 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import type { ModelRuntimePreset } from '../src/config/types.ts';
 import { GIB, requiredRamDiskBytes } from '../src/inference-presets/cache-sizing.ts';
 import { z } from '../src/lib/zod.ts';
-import { RamDiskCache } from '../src/status-server/ram-disk-cache.ts';
+import { OWNER_FILE, RamDiskCache } from '../src/status-server/ram-disk-cache.ts';
 import { serverLogger } from '../src/status-server/server-logger.ts';
 import { FakeRamDiskDriver } from './helpers/fake-ram-disk.ts';
 
-const CONFIG = { ToolPath: 'C:\\aim\\aim_ll.exe', DriveLetter: 'S' };
+const CONFIG = { DriveLetter: 'S' };
 const OwnerFileSchema = z.object({ pid: z.number() });
 
 function preset(id: string, ramDisk: boolean, gib = 10): ModelRuntimePreset {
@@ -63,12 +63,24 @@ test('a raised budget grows the disk in place; a failed grow recreates it empty 
 test('a failed create or a declined UAC prompt fails the load with the reason', async () => {
   const driver = new FakeRamDiskDriver();
   driver.failNext = 'create';
-  await assert.rejects(new RamDiskCache(driver).prepare(CONFIG, [NEXT], NEXT), /create failed .*canceled by the user/u);
+  await assert.rejects(new RamDiskCache(driver).prepare(CONFIG, [NEXT], NEXT), /create failed: The operation was canceled by the user/u);
 });
 
-test('a RAM-disk preset needs the aim_ll path', async () => {
-  await assert.rejects(new RamDiskCache(new FakeRamDiskDriver()).prepare({ ToolPath: null, DriveLetter: 'S' }, [NEXT], NEXT),
-    /RAM disk cache needs Server\.Engines\.Exl3\.RamDisk\.ToolPath \(aim_ll\.exe\)/u);
+test('every engine budget declaration left on the disk is cleared before a launch, and the cached pages stay', async () => {
+  const driver = new FakeRamDiskDriver();
+  const cache = new RamDiskCache(driver);
+  await cache.prepare(CONFIG, [NEXT, BIG], NEXT);
+  const root = driver.disk?.root ?? '';
+  for (const id of ['flash-next', 'qwen-27b']) {
+    fs.mkdirSync(path.join(root, id, 'c375d7f601493972'), { recursive: true });
+    fs.writeFileSync(path.join(root, id, 'c375d7f601493972', 'budget.json'), '{"root_size": 10737418240, "pid": 44336}');
+    fs.writeFileSync(path.join(root, id, 'c375d7f601493972', 'index.sqlite'), 'pages');
+  }
+  await cache.prepare(CONFIG, [preset('flash-next', true, 11), preset('qwen-27b', true, 12)], BIG);
+  for (const id of ['flash-next', 'qwen-27b']) {
+    assert.equal(fs.existsSync(path.join(root, id, 'c375d7f601493972', 'budget.json')), false, id);
+    assert.ok(fs.existsSync(path.join(root, id, 'c375d7f601493972', 'index.sqlite')), id);
+  }
 });
 
 test('folders of presets no longer on the RAM disk are deleted, and a folder over its lowered budget is wiped with a warning', async (t) => {
@@ -102,7 +114,7 @@ test('a leftover whose owner marker is corrupt is removed like any leftover', as
   const warnings = t.mock.method(serverLogger, 'warning', () => {});
   const driver = new FakeRamDiskDriver();
   const leftover = driver.plantLeftover('S', GIB, null);
-  fs.writeFileSync(path.join(leftover.root, 'siftkit-owner.json'), '{"pid":');
+  fs.writeFileSync(path.join(leftover.root, OWNER_FILE), '{"pid":');
   await new RamDiskCache(driver).prepare(CONFIG, [NEXT], NEXT);
   assert.deepEqual(driver.calls, ['find', 'remove S', `create S ${String(requiredRamDiskBytes([11]))}`]);
   assert.deepEqual(warnings.mock.calls.map((call) => call.arguments[0]?.event), ['ram_disk_leftover_removed']);
@@ -115,7 +127,7 @@ test('a disk whose SiftKit owner has exited becomes a leftover the next load rem
   const cache = new RamDiskCache(driver);
   await assert.rejects(cache.prepare(CONFIG, [NEXT], NEXT), new RegExp(`belongs to SiftKit process ${String(process.ppid)}`, 'u'));
   // Windows pids are multiples of 4, so this one never names a live process.
-  fs.writeFileSync(path.join(disk.root, 'siftkit-owner.json'), JSON.stringify({ pid: 2_147_483_647 }));
+  fs.writeFileSync(path.join(disk.root, OWNER_FILE), JSON.stringify({ pid: 2_147_483_647 }));
   await cache.prepare(CONFIG, [NEXT], NEXT);
   assert.deepEqual(driver.calls.slice(-3), ['find', 'remove S', `create S ${String(requiredRamDiskBytes([11]))}`]);
 });
@@ -125,32 +137,34 @@ test('release removes the disk, and a leftover is removed at the first check whi
   const driver = new FakeRamDiskDriver();
   const cache = new RamDiskCache(driver);
   await cache.prepare(CONFIG, [NEXT], NEXT);
-  await cache.release(CONFIG);
+  await cache.release();
   assert.equal(driver.disk, null);
 
   const leftover = new FakeRamDiskDriver();
   leftover.plantLeftover('S', GIB, null);
-  await new RamDiskCache(leftover).release(CONFIG);
+  await new RamDiskCache(leftover).release();
   assert.deepEqual(leftover.calls, ['find', 'remove S']);
 
   const foreign = new FakeRamDiskDriver();
   foreign.plantLeftover('S', GIB, process.ppid);
   const other = new RamDiskCache(foreign);
-  await other.release(CONFIG);
+  await other.release();
   assert.deepEqual(foreign.calls, ['find'], 'a disk of a live SiftKit process is left alone');
   await assert.rejects(other.prepare(CONFIG, [NEXT], NEXT), new RegExp(`RAM disk S: belongs to SiftKit process ${String(process.ppid)}`, 'u'));
 });
 
-test('release without an aim_ll path and without a disk does nothing', async () => {
+test('without a disk, release looks for a leftover once and then does nothing', async () => {
   const driver = new FakeRamDiskDriver();
-  await new RamDiskCache(driver).release({ ToolPath: null, DriveLetter: 'S' });
-  assert.deepEqual(driver.calls, []);
+  const cache = new RamDiskCache(driver);
+  await cache.release();
+  await cache.release();
+  assert.deepEqual(driver.calls, ['find']);
 });
 
 test('the process-exit path starts the removal without waiting', async () => {
   const driver = new FakeRamDiskDriver();
   const cache = new RamDiskCache(driver);
   await cache.prepare(CONFIG, [NEXT], NEXT);
-  cache.releaseForProcessExitSync(CONFIG);
+  cache.releaseForProcessExitSync();
   assert.equal(driver.calls.at(-1), 'remove-detached S');
 });

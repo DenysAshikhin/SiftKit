@@ -7,11 +7,28 @@ import { promisify } from 'node:util';
 
 import { toError } from '../lib/errors.ts';
 import { parseJsonValueText } from '../lib/json.ts';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.ts';
 import { z } from '../lib/zod.ts';
 import type { RamDisk, RamDiskDriver } from './ram-disk-cache.ts';
 
 const execFileAsync = promisify(execFile);
 type Job = Record<string, string | number>;
+// FIND recognises SiftKit's disk by the label CREATE formats it with.
+const VOLUME_LABEL = 'SiftKitCache';
+
+/** SiftKit ships its own aim_ll; the Arsenal Image Mounter driver it talks to must be installed. */
+export function vendoredAimLlPath(): string {
+  const root = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
+  if (root === null) throw new Error('The SiftKit checkout holding vendor/arsenal-image-mounter was not found.');
+  return path.join(root, 'vendor', 'arsenal-image-mounter', 'aim_ll.exe');
+}
+
+/** The -Command that starts `scriptPath` elevated through UAC; a waited launch exits with the script's exit code. */
+export function elevatedLaunch(scriptPath: string, jobPath: string, wait: boolean): string {
+  const quote = (text: string): string => text.replaceAll("'", "''");
+  const launch = `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${quote(scriptPath)}" -JobPath "${quote(jobPath)}"'`;
+  return wait ? `$p = ${launch} -Wait -PassThru; exit $p.ExitCode` : launch;
+}
 
 /** Runs a PowerShell script with a job file; `admin` scripts run elevated, through UAC when this process is not. */
 export interface PowerShellRunner {
@@ -31,13 +48,13 @@ $ErrorActionPreference = 'Stop'
 $job = Get-Content -Raw -Encoding utf8 $JobPath | ConvertFrom-Json
 Remove-Item -Force -LiteralPath $JobPath
 function Write-Result($value) { if ($job.resultPath) { ConvertTo-Json -Compress -InputObject $value | Set-Content -Encoding utf8 $job.resultPath } }
-# aim_ll writes progress to stderr, so it runs through Start-Process with both streams to files (as smol-helper does).
+# aim_ll writes progress to stderr, which a Stop preference turns into an error, so both streams go to files.
 function Invoke-Aim([string[]]$arguments) {
   $log = [IO.Path]::GetTempFileName()
   try {
     $quoted = $arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }
     $process = Start-Process -FilePath $job.tool -ArgumentList $quoted -NoNewWindow -Wait -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
-    $process.ExitCode
+    [pscustomobject]@{ Code = $process.ExitCode; Output = @(Get-Content $log) }
   } finally { Remove-Item -Force -ErrorAction SilentlyContinue $log, "$log.err" }
 }
 try {
@@ -48,7 +65,7 @@ finally { Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $PSComma
 `;
 
 const FIND = String.raw`
-  $volume = Get-CimInstance Win32_LogicalDisk -Filter "VolumeName='SiftKitCache'" | Select-Object -First 1
+  $volume = Get-CimInstance Win32_LogicalDisk -Filter "VolumeName='${VOLUME_LABEL}'" | Select-Object -First 1
   $found = $null
   if ($volume) {
     $partition = Get-CimAssociatedInstance -InputObject $volume -ResultClassName Win32_DiskPartition | Select-Object -First 1
@@ -61,24 +78,36 @@ const FIND = String.raw`
 const CREATE = String.raw`
   $root = "$($job.letter):\"
   if (Test-Path $root) { throw "Drive $($job.letter): is already in use." }
-  $code = Invoke-Aim @('-a', '-t', 'file', '-o', 'awe', '-s', "$($job.sizeBytes)", '-m', "$($job.letter):", '-p', '/fs:ntfs /q /y /v:SiftKitCache')
+  $code = (Invoke-Aim @('-a', '-t', 'file', '-o', 'awe', '-s', "$($job.sizeBytes)", '-m', "$($job.letter):", '-p', '/fs:ntfs /q /y /v:${VOLUME_LABEL}')).Code
   if ($code -ne 0) { throw "aim_ll -a exited $code." }
   for ($try = 0; $try -lt 40 -and -not (Test-Path $root); $try++) { Start-Sleep -Milliseconds 500 }
   if (-not (Test-Path $root)) { throw "The RAM disk $($job.letter): did not appear." }
   Write-Result @{ ok = $true }
 `;
 
+// aim_ll -e names the disk by device number (it rejects -m) and adds -s to the current size.
 const GROW = String.raw`
-  $code = Invoke-Aim @('-e', '-s', "$($job.sizeBytes)", '-m', "$($job.letter):")
-  if ($code -ne 0) { throw "aim_ll -e exited $code." }
+  $unit = $null
+  $device = $null
+  foreach ($line in (Invoke-Aim @('-l')).Output) {
+    if ($line -match 'Device number ([0-9A-Fa-f]{6})') { $device = $Matches[1] }
+    if ($line -match "Mounted at $($job.letter):\\") { $unit = $device }
+  }
+  if (-not $unit) { throw "No Arsenal disk is mounted at $($job.letter):." }
+  $current = (Get-Partition -DriveLetter $job.letter | Get-Disk).Size
+  $delta = [int64]$job.sizeBytes - $current
+  if ($delta -gt 0) {
+    $code = (Invoke-Aim @('-e', '-s', "$delta", '-u', $unit)).Code
+    if ($code -ne 0) { throw "aim_ll -e exited $code." }
+  }
   Update-HostStorageCache
   Resize-Partition -DriveLetter $job.letter -Size (Get-PartitionSupportedSize -DriveLetter $job.letter).SizeMax
   Write-Result @{ ok = $true }
 `;
 
 const REMOVE = String.raw`
-  $code = Invoke-Aim @('-d', '-m', "$($job.letter):")
-  if ($code -ne 0 -and (Test-Path "$($job.letter):\")) { $code = Invoke-Aim @('-D', '-m', "$($job.letter):") }
+  $code = (Invoke-Aim @('-d', '-m', "$($job.letter):")).Code
+  if ($code -ne 0 -and (Test-Path "$($job.letter):\")) { $code = (Invoke-Aim @('-D', '-m', "$($job.letter):")).Code }
   if (Test-Path "$($job.letter):\") { throw "Could not remove the RAM disk $($job.letter): (aim_ll exit $code)." }
   Write-Result @{ ok = $true }
 `;
@@ -87,12 +116,14 @@ const script = (body: string): string => `${PRELUDE}${body}${POSTLUDE}`;
 const mounted = (letter: string, sizeBytes: number): RamDisk => ({ letter, root: `${letter}:\\`, sizeBytes });
 const tempBase = (): string => path.join(os.tmpdir(), `siftkit-ram-disk-${randomUUID()}`);
 
-/** SiftKit's RAM disk through Arsenal Image Mounter's aim_ll; the disk is NTFS, labelled SiftKitCache. */
+/** SiftKit's RAM disk through Arsenal Image Mounter's aim_ll; the disk is NTFS, labelled with VOLUME_LABEL. */
 export class ArsenalRamDiskDriver implements RamDiskDriver {
   private readonly runner: PowerShellRunner;
+  private readonly aimLlPath: string;
 
-  constructor(runner: PowerShellRunner) {
+  constructor(runner: PowerShellRunner, aimLlPath: string) {
     this.runner = runner;
+    this.aimLlPath = aimLlPath;
   }
 
   async find(): Promise<RamDisk | null> {
@@ -100,26 +131,28 @@ export class ArsenalRamDiskDriver implements RamDiskDriver {
     return found === null ? null : mounted(found.letter, found.sizeBytes);
   }
 
-  async create(toolPath: string, letter: string, sizeBytes: number): Promise<RamDisk> {
-    await this.admin('create', CREATE, { tool: toolPath, letter, sizeBytes });
+  async create(letter: string, sizeBytes: number): Promise<RamDisk> {
+    await this.admin('create', CREATE, { letter, sizeBytes });
     return mounted(letter, sizeBytes);
   }
 
-  async grow(toolPath: string, disk: RamDisk, sizeBytes: number): Promise<RamDisk> {
-    await this.admin('grow', GROW, { tool: toolPath, letter: disk.letter, sizeBytes });
+  async grow(disk: RamDisk, sizeBytes: number): Promise<RamDisk> {
+    await this.admin('grow', GROW, { letter: disk.letter, sizeBytes });
     return { ...disk, sizeBytes };
   }
 
-  async remove(toolPath: string, disk: RamDisk): Promise<void> {
-    await this.admin('remove', REMOVE, { tool: toolPath, letter: disk.letter });
+  async remove(disk: RamDisk): Promise<void> {
+    await this.admin('remove', REMOVE, { letter: disk.letter });
   }
 
-  removeDetached(toolPath: string, disk: RamDisk): void {
-    this.runner.start(script(REMOVE), { tool: toolPath, letter: disk.letter });
+  removeDetached(disk: RamDisk): void {
+    this.runner.start(script(REMOVE), { tool: this.aimLlPath, letter: disk.letter });
   }
 
+  /** Checks aim_ll first, so a missing copy fails before the UAC prompt rather than inside the elevated script. */
   private async admin(operation: string, body: string, job: Job): Promise<void> {
-    const done = DoneSchema.parse(parseJsonValueText(await this.runner.run(script(body), job, true)));
+    if (!fs.existsSync(this.aimLlPath)) throw new Error(`aim_ll was not found at ${this.aimLlPath}.`);
+    const done = DoneSchema.parse(parseJsonValueText(await this.runner.run(script(body), { tool: this.aimLlPath, ...job }, true)));
     if ('error' in done) throw new Error(`RAM disk ${operation} failed: ${done.error}`);
   }
 }
@@ -136,8 +169,8 @@ export class SystemPowerShellRunner implements PowerShellRunner {
       const elevate = admin && !await this.isElevated();
       // A declined UAC prompt makes Start-Process throw, so the outer PowerShell exits non-zero.
       const args = elevate
-        ? ['-NoProfile', '-Command', `$p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${files.script}" -JobPath "${files.job}"'; exit $p.ExitCode`]
-        : ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', files.script, '-JobPath', files.job];
+        ? ['-NoProfile', '-Command', elevatedLaunch(files.script, files.job, true)]
+        :['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', files.script, '-JobPath', files.job];
       try {
         await execFileAsync('powershell.exe', args, { windowsHide: true });
       } catch (error) {
@@ -153,9 +186,8 @@ export class SystemPowerShellRunner implements PowerShellRunner {
 
   start(script: string, job: Job): void {
     const files = this.write(tempBase(), script, job);
-    const child = spawn('powershell.exe', ['-NoProfile', '-Command',
-      `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${files.script}" -JobPath "${files.job}"'`],
-    { detached: true, stdio: 'ignore', windowsHide: true });
+    const child = spawn('powershell.exe', ['-NoProfile', '-Command', elevatedLaunch(files.script, files.job, false)],
+      { detached: true, stdio: 'ignore', windowsHide: true });
     child.unref();
   }
 

@@ -90,7 +90,7 @@ export function getTestExl3Engine(): Exl3EngineConfig {
     AdminApiKey: '',
     ShutdownTimeoutMs: 30_000,
     Environment: {},
-    RamDisk: { ToolPath: null, DriveLetter: 'S' },
+    RamDisk: { DriveLetter: 'S' },
   };
 }
 
