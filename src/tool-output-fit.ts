@@ -5,6 +5,9 @@ export type ToolOutputTruncationUnit = 'lines' | 'files' | 'results' | 'characte
 // segments (correct for command output whose verdict/errors land at the end).
 export type ToolOutputKeep = 'head' | 'tail';
 
+/** The argument that resumes a cut numbered read: `read` takes `offset`, summary `read_lines` takes `startLine`. */
+export type ToolOutputContinueArgument = 'offset' | 'startLine';
+
 export type ToolOutputFitResult = {
   visibleText: string;
   returnedLineCount: number;
@@ -19,6 +22,8 @@ export type ToolOutputFitInput = {
   maxTokens: number;
   unit: ToolOutputTruncationUnit;
   keep: ToolOutputKeep;
+  /** Set only for numbered (`N: text`) line reads; the cut notice then names where to continue. */
+  continueArgument: ToolOutputContinueArgument | null;
 };
 
 export type ToolOutputTokenCounter = {
@@ -92,9 +97,7 @@ export class ToolOutputFitter {
     const kept = keepTail
       ? input.segments.slice(total - segmentCount)
       : input.segments.slice(0, segmentCount);
-    const notice = truncatedCount > 0
-      ? `${truncatedCount} ${input.unit} truncated due to per-tool context limit.`
-      : null;
+    const notice = truncatedCount > 0 ? describeCut(input, total, kept, keepTail) : null;
     // Tail mode leads with the notice so the surviving tail (the summary) stays
     // last; head mode trails it after the surviving head.
     if (notice && keepTail) {
@@ -109,6 +112,16 @@ export class ToolOutputFitter {
     }
     return parts.join(input.separator).trim();
   }
+}
+
+/** What a cut output still shows; a numbered read also names the argument value that continues it. */
+function describeCut(input: ToolOutputFitInput, total: number, kept: readonly string[], keepTail: boolean): string {
+  const prefix = 'Cut by the per-tool context limit:';
+  if (keepTail) return `${prefix} the first ${String(total - kept.length)} of ${String(total)} ${input.unit} are not shown.`;
+  const argument = input.continueArgument;
+  const lastLine = argument === null ? null : /^(\d+): /u.exec(kept.at(-1) ?? '');
+  const next = argument === null || lastLine === null ? '' : ` Continue with ${argument}=${String(Number(lastLine[1]) + 1)}.`;
+  return `${prefix} showing the first ${String(kept.length)} of ${String(total)} ${input.unit}.${next}`;
 }
 
 export type ReadRange = {

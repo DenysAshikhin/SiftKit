@@ -7,7 +7,7 @@ import { completeLiveContent } from '../src/llm-protocol/live-content-classifier
 import { z } from '../src/lib/zod.ts';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../src/planner-protocol/json-schema.ts';
 import {
-  ELIDED_ARGUMENTS_KEY,
+  formatRejectedCallCut,
   NativePlannerResponseError,
   NativePlannerToolCallError,
   parseNativePlannerActions as parseNativePlannerActionsFromResult,
@@ -187,26 +187,26 @@ test('invalid arguments fail on their provider call id and field', () => {
   );
 });
 
-test('a call copying the elided-arguments placeholder is refused with a re-send instruction', () => {
+test('a call re-sending the shortened copy of a rejected call is refused with a re-send instruction', () => {
+  const shortened = { path: 'README.md', edits: [{ oldText: `const answer = 42;${formatRejectedCallCut(900)}`, newText: 'b' }] };
   assert.throws(
     () => parseNativePlannerActions(
-      { text: '', toolCalls: [call('copied-1', 'edit', { [ELIDED_ARGUMENTS_KEY]: 'rejected edit call; 900 chars of arguments discarded' })] },
+      { text: '', toolCalls: [call('copied-1', 'edit', shortened)] },
       { toolDefinitions, contentWithoutTools: 'finish' },
     ),
     (error) => error instanceof NativePlannerToolCallError
       && error.callId === 'copied-1'
-      && error.message === 'Tool "edit" was called with the placeholder SiftKit put in your history for a rejected call; re-send the call with its complete arguments.',
+      && error.message === 'Tool "edit" was called with the shortened copy SiftKit keeps of a rejected call; re-send the call with its complete arguments.',
   );
 });
 
-test('a call carrying the placeholder key beside real arguments gets ordinary validation', () => {
-  assert.throws(
-    () => parseNativePlannerActions(
-      { text: '', toolCalls: [call('mixed-1', 'edit', { [ELIDED_ARGUMENTS_KEY]: 'x', path: 'a.ts' })] },
-      { toolDefinitions, contentWithoutTools: 'finish' },
-    ),
-    (error) => error instanceof NativePlannerToolCallError && !/placeholder/u.test(error.message),
+test('an edit whose text only mentions a cut is parsed normally', () => {
+  const args = { path: 'README.md', edits: [{ oldText: 'chars cut from this rejected call', newText: '…[+12 chars]' }] };
+  const [action] = parseNativePlannerActions(
+    { text: '', toolCalls: [call('plain-1', 'edit', args)] },
+    { toolDefinitions, contentWithoutTools: 'finish' },
   );
+  assert.deepEqual(action, { kind: 'tool', callId: 'plain-1', toolName: 'edit', args });
 });
 
 test('Qwen dialect text falls back to native tool calls', () => {

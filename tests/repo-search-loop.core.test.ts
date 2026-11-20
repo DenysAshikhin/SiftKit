@@ -23,7 +23,7 @@ import {
 } from '../src/repo-search/engine.ts';
 import { resolveFinalGenerationTokenLimit, resolveGenerationTokenLimit } from '../src/lib/context-token-budget.ts';
 import { getActiveModelPreset } from '../src/config/getters.ts';
-import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.ts';
+import { REJECTED_ARGS_SHORTEN_LIMIT } from '../src/repo-search/engine/repo-tools.ts';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
 import { mockSiftConfig } from './helpers/mock-config.ts';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.ts';
@@ -293,7 +293,7 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
     }
   );
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.match(String(commandResult?.insertedResultText || ''), /truncated due to per-tool context limit/u);
+  assert.match(String(commandResult?.insertedResultText || ''), /Cut by the per-tool context limit/u);
 });
 
 test('runTaskLoop replaces long repeated tool output before inserting it into context', async () => {
@@ -1089,11 +1089,11 @@ test('runTaskLoop sends append-only chat requests without removed slot or cache 
 });
 
 /**
- * Padded past REJECTED_ARGS_ELISION_LIMIT so the duplicate rejections exercise the elision
- * branch: the accepted call keeps its arguments, the rejected repeats must not. The padding
+ * Padded past REJECTED_ARGS_SHORTEN_LIMIT so the duplicate rejections exercise the shortening
+ * branch: the accepted call keeps its arguments, the rejected repeats keep a shortened copy. The padding
  * is derived from the limit so a change to it cannot silently stop exercising the branch.
  */
-const DUPLICATE_PATH_PADDING = 'x'.repeat(REJECTED_ARGS_ELISION_LIMIT);
+const DUPLICATE_PATH_PADDING = 'x'.repeat(REJECTED_ARGS_SHORTEN_LIMIT);
 const OVERSIZED_DUPLICATE_PATH = `src/${DUPLICATE_PATH_PADDING}`;
 const OVERSIZED_DUPLICATE_COMMAND = `git operation="grep" path=${JSON.stringify(OVERSIZED_DUPLICATE_PATH)} pattern="planner"`;
 
@@ -1215,8 +1215,8 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
     const duplicateArguments = String(
       asObject(asObjectArray(duplicateAssistant?.tool_calls)[0]?.function)?.arguments || '',
     );
-    assert.match(duplicateArguments, /chars of arguments discarded — the tool result states why/u);
-    assert.ok(duplicateArguments.length < REJECTED_ARGS_ELISION_LIMIT);
+    assert.match(duplicateArguments, /chars cut from this rejected call/u);
+    assert.ok(duplicateArguments.length < REJECTED_ARGS_SHORTEN_LIMIT);
     const acceptedAssistant = assistantToolCalls.find((message) => message !== duplicateAssistant);
     assert.match(
       String(asObject(asObjectArray(acceptedAssistant?.tool_calls)[0]?.function)?.arguments || ''),

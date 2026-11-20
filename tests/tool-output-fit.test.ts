@@ -19,6 +19,7 @@ test('ToolOutputFitter returns full text when it already fits under maxTokens', 
     maxTokens: 1000,
     unit: 'lines',
     keep: 'head',
+    continueArgument: null,
   });
 
   assert.equal(result.returnedLineCount, 3);
@@ -37,6 +38,7 @@ test('ToolOutputFitter targets 50 percent of maxTokens when truncation is trigge
     maxTokens: 300,
     unit: 'lines',
     keep: 'head',
+    continueArgument: null,
   });
 
   assert.equal(result.truncationReason, 'per-tool context limit');
@@ -50,7 +52,19 @@ test('ToolOutputFitter targets 50 percent of maxTokens when truncation is trigge
     `visibleText length ${result.visibleText.length} must use a meaningful share of the 50% target (>75)`,
   );
   assert.equal(result.truncatedLineCount, segments.length - result.returnedLineCount);
-  assert.match(result.visibleText, /lines truncated due to per-tool context limit\./u);
+  assert.match(result.visibleText, new RegExp(`Cut by the per-tool context limit: showing the first ${String(result.returnedLineCount)} of 200 lines\\.$`, 'u'));
+});
+
+test('a cut numbered read says which offset continues it', async () => {
+  const fitter = new ToolOutputFitter(new CharsTokenCounter());
+  const segments = Array.from({ length: 100 }, (_value, index) => `${String(index + 40)}: text`);
+
+  const result = await fitter.fitSegments({ segments, separator: '\n', maxTokens: 600, unit: 'lines', keep: 'head', continueArgument: 'offset' });
+
+  const shown = result.returnedLineCount;
+  assert.ok(shown > 0 && shown < 100);
+  assert.match(result.visibleText, new RegExp(
+    `\\n${String(39 + shown)}: text\\nCut by the per-tool context limit: showing the first ${String(shown)} of 100 lines\\. Continue with offset=${String(40 + shown)}\\.$`, 'u'));
 });
 
 test('ToolOutputFitter keeps the tail segments and leads with the notice when keep is "tail"', async () => {
@@ -63,6 +77,7 @@ test('ToolOutputFitter keeps the tail segments and leads with the notice when ke
     maxTokens: 200,
     unit: 'lines',
     keep: 'tail',
+    continueArgument: null,
   });
 
   assert.equal(result.truncationReason, 'per-tool context limit');
@@ -70,7 +85,7 @@ test('ToolOutputFitter keeps the tail segments and leads with the notice when ke
   assert.doesNotMatch(result.visibleText, /(^|\n)line-0(\n|$)/u, 'first segment must be dropped');
   assert.match(
     result.visibleText,
-    /truncated due to per-tool context limit\.[\s\S]*line-99/u,
+    new RegExp(`^Cut by the per-tool context limit: the first ${String(100 - result.returnedLineCount)} of 100 lines are not shown\\.\\nline-`, 'u'),
     'truncation notice must precede the kept tail',
   );
   assert.equal(result.truncatedLineCount, segments.length - result.returnedLineCount);
@@ -87,6 +102,7 @@ test('ToolOutputFitter still includes header when truncating to 50 percent targe
     maxTokens: 200,
     unit: 'lines',
     keep: 'head',
+    continueArgument: null,
   });
 
   assert.equal(result.truncationReason, 'per-tool context limit');
@@ -95,4 +111,15 @@ test('ToolOutputFitter still includes header when truncating to 50 percent targe
     result.visibleText.length <= 100,
     `visibleText length ${result.visibleText.length} must be <= 50% of maxTokens (100)`,
   );
+});
+
+test('only output declared as a numbered read names a continuation, with its own argument', async () => {
+  const fitter = new ToolOutputFitter(new CharsTokenCounter());
+  const segments = Array.from({ length: 100 }, (_value, index) => `${String(index + 1)}: text`);
+  const fit = (continueArgument: 'offset' | 'startLine' | null) => fitter.fitSegments({
+    segments, separator: '\n', maxTokens: 600, unit: 'lines', keep: 'head', continueArgument,
+  });
+
+  assert.match((await fit(null)).visibleText, /showing the first \d+ of 100 lines\.$/u);
+  assert.match((await fit('startLine')).visibleText, /showing the first \d+ of 100 lines\. Continue with startLine=\d+\.$/u);
 });

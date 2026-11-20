@@ -24,8 +24,6 @@ type BuildPromptToolResultOptions = {
   toolName: string;
   command?: string;
   args?: JsonObject;
-  exitCode?: number | null;
-  /** Command output only. Callers must not prepend an `exit_code=` line — this function adds it. */
   output: string;
 };
 
@@ -64,7 +62,7 @@ function isHttpClientLogLine(line: string): boolean {
  */
 const UNIFIED_DIFF_MARKER = /^(?:diff --git |@@ .+ @@)/mu;
 
-function containsUnifiedDiff(output: string): boolean {
+export function containsUnifiedDiff(output: string): boolean {
   return UNIFIED_DIFF_MARKER.test(output);
 }
 
@@ -134,6 +132,14 @@ export function fingerprintGitToolCall(args: GitToolArgs): string {
   });
 }
 
+/** `exit_code=N (no output…)`, the shape every tool result builder uses for an empty result. */
+function formatNoOutputMarker(exitCode: number, note: string | null): string {
+  return `exit_code=${String(exitCode)} (no output${note === null ? '' : `: ${note}`})`;
+}
+
+/** A bare exit code or a formatNoOutputMarker line: status, never evidence. */
+const EXIT_CODE_STATUS_LINE = /^exit_code=\d+(?: \(no output(?:: [^)]*)?\))?$/iu;
+
 function extractEvidenceKeys(promptResultText: string): string[] {
   const lines = String(promptResultText || '')
     .replace(/\r\n/gu, '\n')
@@ -141,7 +147,7 @@ function extractEvidenceKeys(promptResultText: string): string[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !isHttpClientLogLine(line))
-    .filter((line) => !/^exit_code=\d+(?: \(no output\))?$/iu.test(line))
+    .filter((line) => !EXIT_CODE_STATUS_LINE.test(line))
     .filter((line) => !/^(read_lines|find_text|json_filter)\b.*=/iu.test(line));
   if (lines.length === 0) {
     return [];
@@ -182,7 +188,28 @@ export function buildPromptToolResult(options: BuildPromptToolResultOptions): st
   if (options.toolName === 'git') {
     throw new Error('Invalid Git tool call: use buildGitPromptToolResult with typed arguments.');
   }
+  if (options.toolName === 'run') {
+    throw new Error('Invalid run tool call: use buildRunPromptToolResult with its exit code.');
+  }
   return body.trim();
+}
+
+/** A failed command's output led by its exit code, or `empty` when it printed nothing. */
+function renderExitCodedResult(visible: string, exitCode: number, empty: string): string {
+  if (!visible) return empty;
+  return exitCode === 0 ? visible : `exit_code=${String(exitCode)}\n${visible}`;
+}
+
+/**
+ * A `run` result. The output alone hides a failure, and an empty result next to the zero-output
+ * warning reads as "nothing happened", so both say what the exit code means.
+ */
+export function buildRunPromptToolResult(options: { exitCode: number; output: string }): string {
+  const visible = options.output.replace(/\r\n/gu, '\n').trim();
+  const note = options.exitCode === 0
+    ? 'the command succeeded silently'
+    : 'usually a missing path, or an error hidden by -ErrorAction SilentlyContinue or 2>$null';
+  return renderExitCodedResult(visible, options.exitCode, formatNoOutputMarker(options.exitCode, note));
 }
 
 export function buildGitPromptToolResult(options: {
@@ -198,12 +225,11 @@ export function buildGitPromptToolResult(options: {
   const preserveBlankLines = isContentBearingGitCall(options.args)
     || containsUnifiedDiff(body);
   const visible = preserveBlankLines ? body.trim() : filterDecorativeLines(body);
-  if (!failed) {
-    // An empty result must still say the command ran: on its own, the zero-output warning
-    // reads as "nothing happened" rather than "this search legitimately matched nothing".
-    return visible || 'exit_code=0 (no output)';
-  }
-  return visible ? `exit_code=${exitCode}\n${visible}` : `exit_code=${exitCode}`;
+  // An empty success must still say the command ran: on its own, the zero-output warning
+  // reads as "nothing happened" rather than "this search legitimately matched nothing".
+  return failed
+    ? renderExitCodedResult(visible, exitCode, `exit_code=${String(exitCode)}`)
+    : renderExitCodedResult(visible, 0, formatNoOutputMarker(0, null));
 }
 
 export function buildToolReplayFingerprint(options: BuildToolReplayFingerprintOptions): string {

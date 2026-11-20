@@ -386,6 +386,7 @@ test('buildCompactionSummaryInstruction requests the complete resumable summary 
   assert.match(instruction, /Decisions made/u);
   assert.match(instruction, /Tool results that still matter/u);
   assert.match(instruction, /In-flight work/u);
+  assert.match(instruction, /7\. Checks — each test, typecheck and lint command run, its latest result \(passed or failed, with counts\), and whether a file was edited after it ran/u);
   assert.doesNotMatch(instruction, /BEGIN CONVERSATION TO COMPACT/u);
 });
 

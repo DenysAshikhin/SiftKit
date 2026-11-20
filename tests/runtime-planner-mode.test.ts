@@ -1108,7 +1108,7 @@ test('planner fits oversized read_lines output and reports omitted lines', async
       const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.match(secondPrompt, /read_lines startLine=1 endLine=\d+ lineCount=\d+/u);
       assert.match(secondPrompt, /^1: /mu);
-      assert.match(secondPrompt, /\d+ lines truncated due to per-tool context limit\./u);
+      assert.match(secondPrompt, /Cut by the per-tool context limit: showing the first \d+ of \d+ lines\. Continue with startLine=\d+\./u);
       assert.doesNotMatch(secondPrompt, /Error: tool call results in \d+ tokens/u);
     }, {
       config: plannerConfig,
@@ -1206,7 +1206,7 @@ test('planner advances repeated read_lines calls from fitted returned lines only
       assert.equal(server.state.chatRequests.length, 3);
       const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       const thirdPrompt = getChatRequestText(server.state.chatRequests[2]);
-      assert.match(secondPrompt, /\d+ lines truncated due to per-tool context limit\./u);
+      assert.match(secondPrompt, /Cut by the per-tool context limit: showing the first \d+ of \d+ lines\. Continue with startLine=\d+\./u);
       const returnedLines = secondPrompt.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line));
       assert.ok(returnedLines.length > 0);
       const lastReturnedLine = Number(/^(\d+):/u.exec(returnedLines[returnedLines.length - 1] || '')?.[1] || 0);
@@ -1309,7 +1309,7 @@ test('planner fits oversized find_text output and reports omitted results', asyn
       assert.equal(server.state.chatRequests.length, 2);
       const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.match(secondPrompt, /find_text mode=literal query="needle" hitCount=\d+ returnedHits=\d+ truncated=true/u);
-      assert.match(secondPrompt, /\d+ results truncated due to per-tool context limit\./u);
+      assert.match(secondPrompt, /Cut by the per-tool context limit: showing the first \d+ of \d+ results\./u);
       assert.doesNotMatch(secondPrompt, /Error: tool call results in \d+ tokens/u);
     }, {
       config: plannerConfig,

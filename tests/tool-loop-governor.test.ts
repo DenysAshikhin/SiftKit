@@ -5,6 +5,7 @@ import {
   buildRepeatedToolCallSummary,
   buildGitPromptToolResult,
   buildPromptToolResult,
+  buildRunPromptToolResult,
   buildToolReplayFingerprint,
   classifyToolOutputNovelty,
   evaluateFinishAttempt,
@@ -26,7 +27,7 @@ test('Git governor paths fail loudly when typed arguments were lost', () => {
   );
   assert.throws(
     () => buildPromptToolResult({
-      toolName: 'git', args: { command: 'git status' }, exitCode: 0, output: '',
+      toolName: 'git', args: { command: 'git status' }, output: '',
     }),
     /operation|invalid/iu,
   );
@@ -108,6 +109,17 @@ test('buildPromptToolResult keeps non-zero exit code but strips exit_code=0', ()
 
   assert.equal(okResult, 'hitCount=0');
   assert.match(errorResult, /^exit_code=1/mu);
+});
+
+test('a run result shows a failing exit code and says what an empty result means', () => {
+  assert.equal(buildRunPromptToolResult({ exitCode: 0, output: 'ok\n' }), 'ok');
+  assert.equal(buildRunPromptToolResult({ exitCode: 2, output: 'boom\r\n' }), 'exit_code=2\nboom');
+  assert.equal(buildRunPromptToolResult({ exitCode: 0, output: ' \n' }), 'exit_code=0 (no output: the command succeeded silently)');
+  assert.equal(
+    buildRunPromptToolResult({ exitCode: 1, output: '' }),
+    'exit_code=1 (no output: usually a missing path, or an error hidden by -ErrorAction SilentlyContinue or 2>$null)',
+  );
+  assert.throws(() => buildPromptToolResult({ toolName: 'run', output: 'ok' }), /use buildRunPromptToolResult/u);
 });
 
 test('buildPromptToolResult strips http_client stderr logs from repo-search output', () => {
@@ -314,4 +326,12 @@ test('classifyToolOutputNovelty treats the no-output marker as carrying no evide
 
   assert.deepEqual(novelty.evidenceKeys, []);
   assert.equal(novelty.hasNewEvidence, false);
+  for (const exitCode of [0, 1]) {
+    const runNovelty = classifyToolOutputNovelty({
+      baseOutput: '',
+      promptResultText: buildRunPromptToolResult({ exitCode, output: '' }),
+      recentEvidenceKeys: new Set<string>(),
+    });
+    assert.deepEqual(runNovelty.evidenceKeys, [], `exit ${String(exitCode)}`);
+  }
 });

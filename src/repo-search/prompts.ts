@@ -445,6 +445,7 @@ export function buildCompactionSummaryInstruction(): string {
     '4. Decisions made — choices already settled, and why, so they are not relitigated.',
     '5. Tool results that still matter — reproduce exact error text, command output and identifiers verbatim.',
     '6. In-flight work — pending edits, the current hypothesis, and the next intended command.',
+    '7. Checks — each test, typecheck and lint command run, its latest result (passed or failed, with counts), and whether a file was edited after it ran, so a passing check is not re-run without cause.',
     'Rules:',
     '- Write for the model that must continue the work, not for a reader looking back.',
     '- Never invent a path, line number, symbol or result that is not in the conversation.',

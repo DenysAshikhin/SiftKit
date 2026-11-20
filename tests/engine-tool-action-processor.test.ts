@@ -27,8 +27,8 @@ import { digestOutput } from '../src/output-digest/digest.ts';
 import { estimateTokenCount } from '../src/lib/token-estimate.ts';
 import { OUTPUT_TAIL_CAP_TOKENS } from '../src/repo-search/engine/turn-budget.ts';
 import { readDigestFixture } from './helpers/output-digest-fixtures.ts';
-import { asObject } from './helpers/dashboard-http.ts';
 import { parseJsonValueText } from '../src/lib/json.ts';
+import { formatRejectedCallCut } from '../src/planner-protocol/native-actions.ts';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 const NOISY_VALIDATION_OUTPUT = Array.from(
@@ -618,7 +618,7 @@ test('an approval-denied granted retry is consumed', async () => {
   assert.equal(commands[2]?.reason, 'duplicate command');
 });
 
-test('an approval-denied call keeps its whole arguments in the transcript, while other large rejections are elided', async () => {
+test('an approval-denied call keeps its whole arguments in the transcript, while other large rejections are shortened', async () => {
   let requestCount = 0;
   const approvalGate: ApprovalRequester = {
     request(): Promise<{ kind: 'approve' } | { kind: 'deny'; reason: string }> {
@@ -636,8 +636,9 @@ test('an approval-denied call keeps its whole arguments in the transcript, while
   await processor.executeBatch(2, [{ kind: 'tool', callId: 'missed_1', toolName: 'edit', args: missedArgs }], '', 0, false);
 
   const callArguments = transcript.getMessages().flatMap((message) => message.tool_calls ?? []).map((call) => call.function.arguments);
-  assert.deepEqual(callArguments.map((value) => Object.keys(asObject(parseJsonValueText(value)))), [['path', 'edits'], ['elided']]);
   assert.deepEqual(parseJsonValueText(callArguments[0] ?? ''), deniedArgs);
+  assert.deepEqual(parseJsonValueText(callArguments[1] ?? ''),
+    { path: 'a.ts', edits: [{ oldText: 'absent', newText: `${'c'.repeat(40)}${formatRejectedCallCut(560)}` }] });
 });
 
 test('a non-run tool between downgrade and retry preserves the full grant', async () => {

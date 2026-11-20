@@ -2,7 +2,7 @@ import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorde
 import type { SiftConfig } from '../../config/index.ts';
 import { estimateTokenCount } from '../../lib/token-estimate.ts';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.ts';
-import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
+import { ToolOutputFitter, type ToolOutputContinueArgument, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
 import { OUTPUT_TAIL_CAP_TOKENS, type AvailableToolResultCapacity } from './turn-budget.ts';
 
 export type FittedToolResult = {
@@ -59,6 +59,7 @@ export class ToolResultBudgeter {
     commandSucceededForFitting: boolean;
     outputUnit: ToolOutputTruncationUnit;
     keep: ToolOutputKeep;
+    continueArgument: ToolOutputContinueArgument | null;
     /** A rendered digest of the whole command output, which leads the result; null when no parser recognised it. */
     digest: string | null;
     /** The model asked for the raw output, so a digest does not cut a succeeded command's output to a tail. */
@@ -103,7 +104,7 @@ export class ToolResultBudgeter {
       let headerTokenCount = digestTokenCount;
       if (options.digest !== null && digestTokenCount > digestBudgetTokens) {
         headerText = (await fitter.fitSegments({
-          segments: options.digest.split('\n'), separator: '\n', maxTokens: digestBudgetTokens, unit: 'lines', keep: 'head',
+          segments: options.digest.split('\n'), separator: '\n', maxTokens: digestBudgetTokens, unit: 'lines', keep: 'head', continueArgument: null,
         })).visibleText;
         headerTokenCount = await this.countTokenValue(headerText);
       }
@@ -113,6 +114,7 @@ export class ToolResultBudgeter {
         maxTokens: Math.max(1, Math.min(outputBudgetTokens, successBudgetTokens - headerTokenCount)),
         unit: options.outputUnit,
         keep: fullOutput ? options.keep : 'tail',
+        continueArgument: options.continueArgument,
       });
       fittedReturnedSegmentCount = fitResult.returnedLineCount;
       resultText = headerText === undefined ? fitResult.visibleText : `${headerText}\n${fitResult.visibleText}`;

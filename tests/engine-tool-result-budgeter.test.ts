@@ -24,7 +24,7 @@ test('result under both caps passes through unchanged', async () => {
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText, rawResultText: resultText,
     capacity: { kind: 'available', perToolCapTokens: 10_000, remainingTokenAllowance: 10_000 },
-    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false,
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false, continueArgument: null,
   });
   assert.equal(fitted.resultText, resultText);
   assert.equal(fitted.resultTokenCount, estimateTokenCount(undefined, resultText));
@@ -40,7 +40,7 @@ test('oversized successful output is fitted down to the cap with a truncation ma
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
     capacity: { kind: 'available', perToolCapTokens: 50, remainingTokenAllowance: 10_000 },
-    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false,
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false, continueArgument: null,
   });
   assert.ok(fitted.fittedReturnedSegmentCount !== null);
   assert.ok(fitted.fittedReturnedSegmentCount < 200);
@@ -57,7 +57,7 @@ test('timing spans are recorded for raw/prompt/fit tokenization paths', async ()
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
     capacity: { kind: 'available', perToolCapTokens: 50, remainingTokenAllowance: 10_000 },
-    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false,
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false, continueArgument: null,
   });
   assert.equal(fittedOk.resultTokenCountEstimated, true);
   assert.ok(fittedOk.fittedReturnedSegmentCount !== null);
@@ -65,10 +65,10 @@ test('timing spans are recorded for raw/prompt/fit tokenization paths', async ()
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: 'x'.repeat(5_000), rawResultText: 'x'.repeat(5_000),
     capacity: { kind: 'available', perToolCapTokens: 10, remainingTokenAllowance: 20 },
-    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false,
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false, continueArgument: null,
   });
   // A single 5000-char segment cannot fit a 10-token budget, so only the notice survives.
-  assert.match(fittedFailed.resultText, /^1 lines truncated due to per-tool context limit\./u);
+  assert.match(fittedFailed.resultText, /^Cut by the per-tool context limit: the first 1 of 1 lines are not shown\./u);
   assert.equal(fittedFailed.resultTokenCountEstimated, true);
 });
 
@@ -81,14 +81,14 @@ test('oversized failed output keeps a tail within the output tail cap', async ()
     taskId: 't1', turn: 1, toolName: 'run',
     resultText, rawResultText: resultText,
     capacity: { kind: 'available', perToolCapTokens: 100_000, remainingTokenAllowance: 100_000 },
-    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false,
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head', digest: null, fullOutputRequested: false, continueArgument: null,
   });
   // Failing output over the output tail cap is trimmed even though it is far
   // under the per-tool cap, and the tail is kept regardless of the head keep hint.
   assert.ok(fitted.fittedReturnedSegmentCount !== null);
   assert.ok(fitted.fittedReturnedSegmentCount < 400);
   assert.ok(fitted.resultTokenCount <= OUTPUT_TAIL_CAP_TOKENS);
-  assert.match(fitted.resultText, /^\d+ lines truncated due to per-tool context limit\./u);
+  assert.match(fitted.resultText, /^Cut by the per-tool context limit: the first \d+ of 400 lines are not shown\./u);
   assert.ok(fitted.resultText.includes('fail-line-399'));
   assert.ok(!fitted.resultText.includes('fail-line-0:'));
 });
@@ -100,7 +100,7 @@ test('failed output under the output tail cap passes through unchanged', async (
     taskId: 't1', turn: 1, toolName: 'run',
     resultText, rawResultText: resultText,
     capacity: { kind: 'available', perToolCapTokens: 10_000, remainingTokenAllowance: 10_000 },
-    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail', digest: null, fullOutputRequested: false,
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail', digest: null, fullOutputRequested: false, continueArgument: null,
   });
   assert.equal(fitted.resultText, resultText);
   assert.equal(fitted.fittedReturnedSegmentCount, null);
@@ -113,10 +113,10 @@ test('failed output tail is clamped by the remaining allowance when it is smalle
     taskId: 't1', turn: 1, toolName: 'run',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
     capacity: { kind: 'available', perToolCapTokens: 100_000, remainingTokenAllowance: 20 },
-    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail', digest: null, fullOutputRequested: false,
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail', digest: null, fullOutputRequested: false, continueArgument: null,
   });
   assert.ok(fitted.resultTokenCount <= 20);
-  assert.match(fitted.resultText, /lines truncated due to per-tool context limit\./u);
+  assert.match(fitted.resultText, /Cut by the per-tool context limit: the first \d+ of 200 lines are not shown\./u);
 });
 
 const ROOMY = { kind: 'available', perToolCapTokens: 100_000, remainingTokenAllowance: 100_000 } as const;
@@ -126,7 +126,7 @@ test('a result that fits leads with its digest, then the whole output', async ()
   const digest = 'Digest of the whole output:\nnode:test: passed (1 tests, 1 pass)';
   const fitted = await makeBudgeter().fit({
     taskId: 't1', turn: 1, toolName: 'run', resultText, rawResultText: resultText, capacity: ROOMY,
-    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: false,
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: false, continueArgument: null,
   });
   assert.equal(fitted.resultText, `${digest}\n${resultText}`);
   assert.equal(fitted.fittedReturnedSegmentCount, null);
@@ -142,7 +142,7 @@ async function fitRun(output: string, exitCode: number | null) {
   const digest = digestOutput(output)?.text ?? null;
   const fitted = await makeBudgeter().fit({
     taskId: 't1', turn: 1, toolName: 'run', resultText, rawResultText: resultText, capacity: REAL_CAPACITY,
-    commandSucceededForFitting: exitCode === 0, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: false,
+    commandSucceededForFitting: exitCode === 0, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: false, continueArgument: null,
   });
   return { digest, fitted };
 }
@@ -177,7 +177,7 @@ test('a real failing run shows every failure whole, ahead of a capped tail', asy
   for (const failure of digestToolOutput(output).flatMap((entry) => entry.failures)) {
     for (const line of failure.message) assert.ok(fitted.resultText.includes(line), line);
   }
-  assert.match(fitted.resultText.slice(digest.length), /^\n\d+ lines truncated due to per-tool context limit\.\n/u);
+  assert.match(fitted.resultText.slice(digest.length), /^\nCut by the per-tool context limit: the first \d+ of \d+ lines are not shown\.\n/u);
 });
 
 test('only a digest that alone overflows the result budget is cut, from its end', async () => {
@@ -187,7 +187,7 @@ test('only a digest that alone overflows the result budget is cut, from its end'
   const fitted = await makeBudgeter().fit({
     taskId: 't1', turn: 1, toolName: 'run', resultText, rawResultText: resultText,
     capacity: { kind: 'available', perToolCapTokens: 3_000, remainingTokenAllowance: 3_000 },
-    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: false,
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: false, continueArgument: null,
   });
   assert.ok(fitted.resultTokenCount <= 3_000, String(fitted.resultTokenCount));
   assert.ok(fitted.resultText.startsWith('Digest of the whole output:\nnode:test: FAILED (300 tests, 0 pass, 300 fail)\n'
@@ -203,7 +203,7 @@ test('a succeeded run that asked for its full output keeps it under the per-tool
   assert.ok(digest !== null);
   const fitted = await makeBudgeter().fit({
     taskId: 't1', turn: 1, toolName: 'run', resultText, rawResultText: resultText, capacity: ROOMY,
-    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: true,
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'tail', digest, fullOutputRequested: true, continueArgument: null,
   });
   assert.equal(fitted.resultText, `${digest}\n${resultText}`);
 });

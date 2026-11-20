@@ -1218,6 +1218,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       maxTokens: Math.max(1, Math.floor(remainingPromptTokens * 0.7)),
       unit,
       keep: 'head',
+      continueArgument: effectiveToolAction.toolName === 'read_lines' ? 'startLine' : null,
     });
     const promptResultText = buildPromptToolResult({
       toolName: effectiveToolAction.toolName,

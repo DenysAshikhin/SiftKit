@@ -7,8 +7,18 @@ import { InferenceToolCallParser } from '../llm-protocol/tool-call-parser.ts';
 import type { LiveContentClassification, InferenceToolCall } from '../llm-protocol/types.ts';
 import type { PlannerToolDefinition } from './json-schema.ts';
 
-/** Sole argument key of the placeholder that replaces a large rejected call's arguments in history. */
-export const ELIDED_ARGUMENTS_KEY = 'elided';
+/** Ends each string SiftKit shortened in the history copy of a large rejected call. */
+export function formatRejectedCallCut(cutChars: number): string {
+  return `…[+${cutChars.toLocaleString('en-US')} chars cut from this rejected call]`;
+}
+
+const REJECTED_CALL_CUT = /…\[\+[\d,]+ chars cut from this rejected call\]/u;
+
+function containsRejectedCallCut(value: JsonValue): boolean {
+  if (typeof value === 'string') return REJECTED_CALL_CUT.test(value);
+  if (Array.isArray(value)) return value.some(containsRejectedCallCut);
+  return isJsonObject(value) && Object.values(value).some(containsRejectedCallCut);
+}
 
 export class NativePlannerResponseError extends Error {
   constructor(message: string) {
@@ -267,9 +277,9 @@ function parseToolAction(
     const allowed = options.toolDefinitions.map((candidate) => candidate.function.name).join(', ');
     throw new NativePlannerToolCallError(`Unknown or disallowed tool "${toolName}". Allowed tools: ${allowed}.`, toolCall, args);
   }
-  if (Object.keys(args).length === 1 && typeof args[ELIDED_ARGUMENTS_KEY] === 'string') {
+  if (containsRejectedCallCut(args)) {
     throw new NativePlannerToolCallError(
-      `Tool "${toolName}" was called with the placeholder SiftKit put in your history for a rejected call; re-send the call with its complete arguments.`,
+      `Tool "${toolName}" was called with the shortened copy SiftKit keeps of a rejected call; re-send the call with its complete arguments.`,
       toolCall,
       args,
     );

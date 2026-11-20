@@ -222,6 +222,24 @@ test('run declares tail-biased output truncation on its execution result', async
   assert.equal(result.outputKeep, 'tail');
 });
 
+test('run keeps the start of a diff, log or file dump, whose meaning is at the top', async () => {
+  const root = makeRepo();
+  const headFirst = [
+    "Write-Output 'diff --git a/src/a.ts b/src/a.ts'", 'git --no-pager log -3', 'git -c core.pager=cat show HEAD',
+    'git -C . log -p -3', 'cd .; git log', 'Get-Content README.md', 'cat README.md | Select-Object -First 5',
+  ];
+  for (const command of headFirst) {
+    const result = await executeRepoTool(nativeCall('run', { command }), makeContext(root));
+    assert.ok(result.ok, command);
+    assert.equal(result.outputKeep, 'head', command);
+  }
+  for (const command of ['git status', 'Write-Output done', 'Write-Output catalog | Select-String cat']) {
+    const result = await executeRepoTool(nativeCall('run', { command }), makeContext(root));
+    assert.ok(result.ok, command);
+    assert.equal(result.outputKeep, 'tail', command);
+  }
+});
+
 test('run returns raw validation output for runtime-profile processing', async () => {
   const root = makeRepo();
   try {

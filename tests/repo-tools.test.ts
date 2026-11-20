@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { buildIgnorePolicy } from '../src/repo-search/command-safety.ts';
+import { formatRejectedCallCut } from '../src/planner-protocol/native-actions.ts';
 import {
   buildRepoToolRequestedCommand,
   buildEffectiveTranscriptAction,
   buildRejectedTranscriptAction,
-  REJECTED_ARGS_ELISION_LIMIT,
+  REJECTED_ARGS_SHORTEN_LIMIT,
   buildReadCommand,
   buildReadExecution,
   executeRepoTool,
@@ -120,30 +121,31 @@ test('buildRejectedTranscriptAction keeps small argument payloads intact', () =>
   assert.deepEqual(action, { toolName: 'git', args: { operation: 'status' } });
 });
 
-test('buildRejectedTranscriptAction elides an oversized argument payload', () => {
-  const oldText = 'a'.repeat(25_448);
-  const newText = 'b'.repeat(25_802);
+test('buildRejectedTranscriptAction keeps a shortened real copy of an oversized payload', () => {
   const action = buildRejectedTranscriptAction({
     toolName: 'edit',
-    rawArgs: { path: 'src/summary/core-runner.ts', oldText, newText },
+    rawArgs: { path: 'src/summary/core-runner.ts', edits: [{ oldText: 'a'.repeat(25_448), newText: 'b'.repeat(25_802) }] },
     commandToRun: 'edit path="src/summary/core-runner.ts"',
   });
-  assert.equal(action.toolName, 'edit');
-  assert.deepEqual(Object.keys(action.args), ['elided']);
-  assert.match(String(action.args.elided), /^rejected edit call; 51,3\d\d chars of arguments discarded — the tool result states why$/u);
-  assert.ok(JSON.stringify(action.args).length < REJECTED_ARGS_ELISION_LIMIT);
+  assert.deepEqual(action, {
+    toolName: 'edit',
+    args: {
+      path: 'src/summary/core-runner.ts',
+      edits: [{ oldText: `${'a'.repeat(40)}${formatRejectedCallCut(25_408)}`, newText: `${'b'.repeat(40)}${formatRejectedCallCut(25_762)}` }],
+    },
+  });
 });
 
-test('buildRejectedTranscriptAction elides exactly above the limit', () => {
+test('buildRejectedTranscriptAction shortens only above the limit, and only the long strings', () => {
   const build = (padding: number) => buildRejectedTranscriptAction({
-    toolName: 'run_repo_cmd',
-    rawArgs: { command: 'x'.repeat(padding) },
+    toolName: 'run',
+    rawArgs: { command: 'x'.repeat(padding), timeoutMs: 1000, label: 'short label' },
     commandToRun: 'x'.repeat(padding),
   });
-  const atLimit = build(REJECTED_ARGS_ELISION_LIMIT - 20);
-  const overLimit = build(REJECTED_ARGS_ELISION_LIMIT);
-  assert.deepEqual(Object.keys(atLimit.args), ['command']);
-  assert.deepEqual(Object.keys(overLimit.args), ['elided']);
+  assert.deepEqual(build(REJECTED_ARGS_SHORTEN_LIMIT - 60).args, { command: 'x'.repeat(REJECTED_ARGS_SHORTEN_LIMIT - 60), timeoutMs: 1000, label: 'short label' });
+  assert.deepEqual(build(REJECTED_ARGS_SHORTEN_LIMIT).args, {
+    command: `${'x'.repeat(40)}${formatRejectedCallCut(REJECTED_ARGS_SHORTEN_LIMIT - 40)}`, timeoutMs: 1000, label: 'short label',
+  });
 });
 
 // ---------------------------------------------------------------------------

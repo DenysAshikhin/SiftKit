@@ -4,13 +4,14 @@ import { join, dirname, posix } from 'node:path';
 import { z } from 'zod';
 import { type IgnorePolicy } from '../command-safety.ts';
 import { estimateTokenCount } from '../../lib/token-estimate.ts';
-import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
+import { findContiguousUnreadRange, type ToolOutputContinueArgument, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.ts';
 import { buildReadPathKey, getOrCreateFileReadState, type FileReadState } from './read-overlap.ts';
 import { parseJsonValueText } from '../../lib/json.ts';
 import { applyEolStyle, detectEolStyle, readTextFileWithEncoding, toLfText } from '../../lib/text-encoding.ts';
-import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.ts';
+import { isJsonObject, type JsonObject, type JsonValue, type OptionalJsonValue } from '../../lib/json-types.ts';
 import type { ToolTranscriptAction } from '../../tool-call-messages.ts';
-import { ELIDED_ARGUMENTS_KEY } from '../../planner-protocol/native-actions.ts';
+import { formatRejectedCallCut } from '../../planner-protocol/native-actions.ts';
+import { containsUnifiedDiff } from '../../tool-loop-governor.ts';
 import { spawnDirectCommand } from '../../lib/command-spawn.ts';
 import { buildAgentRunEnv } from '../../lib/agent-run-marker.ts';
 import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.ts';
@@ -62,9 +63,11 @@ export type RepoToolExecution =
      */
     mutatedPath?: string;
     outputUnit?: ToolOutputTruncationUnit;
-    // Which end survives per-tool truncation. Omitted → 'head'. Command output
-    // (`run`) sets 'tail' so the trailing summary/errors survive.
+    // Which end survives per-tool truncation. Omitted → 'head'. `run` sets 'tail' so a trailing
+    // summary or error survives, except for diffs, logs and file dumps.
     outputKeep?: ToolOutputKeep;
+    /** Set by a numbered `read`, so a cut result names the offset that continues it. */
+    continueArgument?: ToolOutputContinueArgument;
     /** `run` only: the digest of the raw output, taken before validation shaping cuts it; absent when no parser recognised it. */
     digest?: string;
     lineReadStats?: {
@@ -338,15 +341,34 @@ export function buildEffectiveTranscriptAction(options: {
 }
 
 /**
- * Serialized-argument size above which a refused call's arguments are dropped: they are re-sent on
- * every later turn, and small payloads are cheaper to keep than to describe. Approval denials keep
- * theirs, since the model retries those calls.
+ * Serialized-argument size above which a refused call's long strings are shortened: its arguments
+ * are re-sent on every later turn. Approval denials keep theirs, since the model retries those calls.
  */
-export const REJECTED_ARGS_ELISION_LIMIT = 512;
+export const REJECTED_ARGS_SHORTEN_LIMIT = 512;
+
+/** Leading chars kept of each long string; a real excerpt, unlike a placeholder, is not copied back as a call. */
+const REJECTED_ARGS_EXCERPT_CHARS = 40;
+
+/** Strings up to this length stay whole: cutting them would save less than the cut marker costs. */
+const REJECTED_ARGS_KEEP_WHOLE_CHARS = REJECTED_ARGS_EXCERPT_CHARS * 2;
+
+function shortenRejectedValue(value: JsonValue): JsonValue {
+  if (typeof value === 'string') {
+    return value.length <= REJECTED_ARGS_KEEP_WHOLE_CHARS
+      ? value
+      : `${value.slice(0, REJECTED_ARGS_EXCERPT_CHARS)}${formatRejectedCallCut(value.length - REJECTED_ARGS_EXCERPT_CHARS)}`;
+  }
+  if (Array.isArray(value)) return value.map(shortenRejectedValue);
+  return isJsonObject(value) ? shortenRejectedObject(value) : value;
+}
+
+function shortenRejectedObject(value: JsonObject): JsonObject {
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, shortenRejectedValue(entry)]));
+}
 
 /**
  * Transcript action for a call that was rejected before execution. Identical to the effective
- * action while the payload is small, and an elision marker once it is not.
+ * action while the payload is small, and a copy with every long string shortened once it is not.
  */
 export function buildRejectedTranscriptAction(options: {
   toolName: string;
@@ -354,16 +376,10 @@ export function buildRejectedTranscriptAction(options: {
   commandToRun: string;
 }): ToolTranscriptAction {
   const effective = buildEffectiveTranscriptAction(options);
-  const serializedLength = JSON.stringify(effective.args).length;
-  if (serializedLength <= REJECTED_ARGS_ELISION_LIMIT) {
+  if (JSON.stringify(effective.args).length <= REJECTED_ARGS_SHORTEN_LIMIT) {
     return effective;
   }
-  return {
-    toolName: effective.toolName,
-    args: {
-      [ELIDED_ARGUMENTS_KEY]: `rejected ${effective.toolName} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded — the tool result states why`,
-    },
-  };
+  return { toolName: effective.toolName, args: shortenRejectedObject(effective.args) };
 }
 
 function failure(toolType: string, command: string, reason: string): RepoToolExecution {
@@ -596,6 +612,7 @@ export function buildReadExecution(
       : numberedText),
     toolType: toolName,
     outputUnit: 'lines',
+    continueArgument: 'offset',
     readFile,
     lineReadStats: {
       lineReadCalls: 1,
@@ -951,8 +968,16 @@ async function executeRun(args: RunToolArgs, context: RepoToolContext): Promise<
   });
   return {
     ok: true, requestedCommand: command, command,
-    exitCode: result.exitCode, output: result.output, toolType: 'run', outputUnit: 'lines', outputKeep: 'tail',
+    exitCode: result.exitCode, output: result.output, toolType: 'run', outputUnit: 'lines', outputKeep: runOutputKeep(args.command, result.output),
   };
+}
+
+/** Git history and file dumps, as a statement of their own; git global options may precede the subcommand. */
+const HEAD_FIRST_COMMAND = /(?:^|;|&&)\s*(?:git(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?))*\s+(?:log|show)\b|(?:Get-Content|gc|cat|type)\s)/iu;
+
+/** A diff, log or file dump means most at its start; other commands put their verdict and errors last. */
+function runOutputKeep(command: string, output: string): ToolOutputKeep {
+  return containsUnifiedDiff(output) || HEAD_FIRST_COMMAND.test(command) ? 'head' : 'tail';
 }
 
 // ---------------------------------------------------------------------------

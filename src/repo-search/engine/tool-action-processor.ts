@@ -19,6 +19,7 @@ import {
   buildRepeatedToolCallSummary,
   buildGitPromptToolResult,
   buildPromptToolResult,
+  buildRunPromptToolResult,
   classifyToolOutputNovelty,
   fingerprintGitToolCall,
   fingerprintToolCall,
@@ -1212,19 +1213,19 @@ export class ToolActionProcessor {
     let { commandToRun } = context;
 
     const rawResultText = `exit_code=${executed.exitCode}\n${baseOutput}`.trim();
-    let resultText = context.nativeCall.toolName === 'git'
-      ? buildGitPromptToolResult({
-        args: context.nativeCall.args,
-        exitCode: executed.exitCode,
-        output: baseOutput,
-      })
-      : buildPromptToolResult({
+    let resultText: string;
+    if (context.nativeCall.toolName === 'git') {
+      resultText = buildGitPromptToolResult({ args: context.nativeCall.args, exitCode: executed.exitCode, output: baseOutput });
+    } else if (normalizedToolName === 'run') {
+      resultText = buildRunPromptToolResult({ exitCode: executed.exitCode, output: baseOutput });
+    } else {
+      resultText = buildPromptToolResult({
         toolName: normalizedToolName,
         command: commandToRun,
         args: context.toolAction.args,
-        exitCode: executed.exitCode,
         output: baseOutput,
       });
+    }
     if (zeroOutputWarningText) {
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
     }
@@ -1241,6 +1242,7 @@ export class ToolActionProcessor {
       outputUnit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit ? nativeExecution.outputUnit : 'lines',
       keep: nativeExecution && nativeExecution.ok && nativeExecution.outputKeep ? nativeExecution.outputKeep : 'head',
       digest: nativeExecution && nativeExecution.ok ? nativeExecution.digest ?? null : null,
+      continueArgument: nativeExecution && nativeExecution.ok ? nativeExecution.continueArgument ?? null : null,
       fullOutputRequested: requestsFullOutput(context.runFullOutputDecision),
     });
     resultText = fitted.resultText;

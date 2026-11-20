@@ -579,7 +579,7 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
     assert.equal(task.commands.length, 2);
     assert.equal(task.commands[1].safe, true);
     assert.match(task.commands[1].command, /^read path="src\/big\.ts" offset=300 limit=\d+$/u);
-    assert.match(task.commands[1].output, /\d+ lines truncated due to per-tool context limit\./u);
+    assert.match(task.commands[1].output, /Cut by the per-tool context limit: showing the first \d+ of \d+ lines\. Continue with offset=\d+\./u);
     assert.match(task.commands[1].output, /^300: /mu);
   });
 });

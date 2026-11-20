@@ -956,7 +956,7 @@ test('repo-search transcript artifact replays the fitted read range using per-to
       assert.equal(firstCallArgs.offset, 300);
       assert.equal(typeof firstCallArgs.limit, 'number');
       assert.equal(Number(firstCallArgs.limit) < 601, true);
-      assert.match(String(toolMessage?.content || ''), /\d+ lines truncated due to per-tool context limit\./u);
+      assert.match(String(toolMessage?.content || ''), /Cut by the per-tool context limit: showing the first \d+ of \d+ lines\. Continue with offset=\d+\./u);
     } finally {
       database.close();
     }

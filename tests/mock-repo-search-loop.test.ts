@@ -496,7 +496,7 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
   assert.equal(commandEvent?.perToolCapTokens, baselinePerToolCapTokens);
   assert.equal(Number(commandEvent?.resultTokenCount) <= Number(commandEvent?.perToolCapTokens), true);
   assert.match(String(commandEvent?.insertedResultText || ''), /^src\/example-1\.ts:1:/u);
-  assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
+  assert.match(String(commandEvent?.insertedResultText || ''), /Cut by the per-tool context limit: showing the first \d+ of \d+ lines\.(?! Continue)/u);
   assert.equal(result.reason, 'finish');
 });
 
@@ -654,7 +654,7 @@ test('runTaskLoop replays only the returned read range after fitting an oversize
   assert.match(String(commandEvents[1]?.requestedCommand || ''), /offset=300 limit=601/u);
   assert.match(String(commandEvents[1]?.executedCommand || ''), /offset=300 limit=\d+/u);
   assert.notEqual(String(commandEvents[1]?.requestedCommand || ''), String(commandEvents[1]?.executedCommand || ''));
-  assert.match(String(commandEvents[1]?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
+  assert.match(String(commandEvents[1]?.insertedResultText || ''), /Cut by the per-tool context limit: showing the first \d+ of \d+ lines\. Continue with offset=\d+\./u);
 
   const turn3 = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
   const messages = asObjectArray(turn3?.messages);
@@ -840,7 +840,7 @@ test('runTaskLoop truncates oversized find output with omitted file count', asyn
 
   const commandEvent = events.find((event) => event.kind === 'turn_command_result');
   assert.match(String(commandEvent?.insertedResultText || ''), /^file-001\.ts/mu);
-  assert.match(String(commandEvent?.insertedResultText || ''), /\d+ files truncated due to per-tool context limit\./u);
+  assert.match(String(commandEvent?.insertedResultText || ''), /Cut by the per-tool context limit: showing the first \d+ of \d+ files\./u);
 });
 
 test('runTaskLoop records line-read stats for the lines a fitted read actually returned', async () => {
@@ -1221,7 +1221,7 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       remainingTokenAllowance: commandEvent?.remainingTokenAllowance,
     }),
   );
-  assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
+  assert.match(String(commandEvent?.insertedResultText || ''), /Cut by the per-tool context limit: showing the first \d+ of \d+ lines\.(?! Continue)/u);
   assert.equal(result.reason, 'finish');
 });
 
@@ -2506,7 +2506,7 @@ test('a repo-agent prompt inside the former 129k-140k blind zone still receives 
   assert.equal(command?.safe, true);
   assert.equal(command?.exitCode, 0);
   assert.match(command?.output ?? '', /planner hit/u);
-  assert.doesNotMatch(command?.output ?? '', /truncated due to per-tool context limit/u);
+  assert.doesNotMatch(command?.output ?? '', /Cut by the per-tool context limit/u);
   assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), false);
   assert.equal(result.reason, 'finish');
 });
