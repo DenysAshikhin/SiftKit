@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { ArsenalRamDiskDriver, RAM_DISK_WATCH_SCRIPT, vendoredAimLlPath } from '../../src/status-server/arsenal-ram-disk-driver.ts';
+import {
+  ArsenalRamDiskDriver, RAM_DISK_WATCH_SCRIPT, startAndWait, vendoredAimLlPath,
+} from '../../src/status-server/arsenal-ram-disk-driver.ts';
 import { RecordingRunner } from '../helpers/recording-powershell-runner.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
@@ -41,4 +43,29 @@ test('every RAM disk script, and the watcher, parses as PowerShell', async () =>
     { windowsHide: true, encoding: 'utf8' }).trim();
     assert.equal(errors, '0', `script ${String(index)} has PowerShell parse errors`);
   }
+});
+
+test('a launch waits for its script, not for a process the script leaves running, and exits with the script\'s code', () => {
+  const root = createManagedTempDir('siftkit-ram-disk-launch-');
+  const script = path.join(root, 'leaves-child.ps1');
+  const childPid = path.join(root, 'child.pid');
+  // The script starts a long-lived child, as the create script starts the disk watcher, then exits 3.
+  fs.writeFileSync(script, [
+    `$child = Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile -Command Start-Sleep -Seconds 60' -PassThru`,
+    `Set-Content -LiteralPath '${childPid}' -Value $child.Id`,
+    'exit 3',
+  ].join('\r\n'), 'utf8');
+  const started = Date.now();
+  let code = 0;
+  try {
+    execFileSync('powershell.exe', ['-NoProfile', '-Command',
+      startAndWait(`powershell -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${script}"'`)],
+    { windowsHide: true, timeout: 45_000 });
+  } catch (error) {
+    code = error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : -1;
+  } finally {
+    if (fs.existsSync(childPid)) process.kill(Number(fs.readFileSync(childPid, 'utf8').trim()));
+  }
+  assert.equal(code, 3, 'the launch exits with the script\'s exit code');
+  assert.ok(Date.now() - started < 30_000, 'the launch returned without waiting for the 60-second child');
 });

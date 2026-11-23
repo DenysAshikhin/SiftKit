@@ -87,5 +87,5 @@ test('the elevated launch quotes the script and job paths for PowerShell and exi
   assert.equal(powerShellFileArguments(String.raw`C:\t\a.ps1`, String.raw`C:\t\a.json`),
     String.raw`-NoProfile -ExecutionPolicy Bypass -File "C:\t\a.ps1" -JobPath "C:\t\a.json"`);
   assert.equal(elevatedLaunch(String.raw`C:\Users\O'Neil\a.ps1`, String.raw`C:\Users\O'Neil\a.json`),
-    String.raw`$p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "C:\Users\O''Neil\a.ps1" -JobPath "C:\Users\O''Neil\a.json"' -Wait -PassThru; exit $p.ExitCode`);
+    String.raw`$p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "C:\Users\O''Neil\a.ps1" -JobPath "C:\Users\O''Neil\a.json"' -PassThru; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode`);
 });

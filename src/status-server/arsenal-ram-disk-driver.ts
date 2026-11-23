@@ -28,10 +28,19 @@ export function powerShellFileArguments(scriptPath: string, jobPath: string): st
   return `-NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" -JobPath "${jobPath}"`;
 }
 
+/**
+ * A -Command that runs `Start-Process <startArguments>`, waits for that process alone, and exits with its exit code.
+ * Not `-Wait`: Windows PowerShell's `-Wait` also waits for every process it leaves running, such as the disk watcher.
+ * Reading `Handle` first keeps the exit code readable once the process has exited.
+ */
+export function startAndWait(startArguments: string): string {
+  return `$p = Start-Process ${startArguments} -PassThru; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode`;
+}
+
 /** The -Command that starts `scriptPath` elevated through UAC and exits with the script's exit code. */
 export function elevatedLaunch(scriptPath: string, jobPath: string): string {
   const quoted = powerShellFileArguments(scriptPath, jobPath).replaceAll("'", "''");
-  return `$p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '${quoted}' -Wait -PassThru; exit $p.ExitCode`;
+  return startAndWait(`powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '${quoted}'`);
 }
 
 /** Runs a PowerShell script with a job file; `admin` scripts run elevated, through UAC when this process is not. */
