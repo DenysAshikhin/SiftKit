@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { spawnDirectCommand, type DirectCommandResult } from '../lib/command-spawn.ts';
@@ -89,6 +89,60 @@ export async function diffWorkspace(repoRoot: string, baseline: WorkspaceSnapsho
 async function headContent(repoRoot: string, path: string): Promise<Buffer | null> {
   const result = await runGit(repoRoot, ['cat-file', '-p', `HEAD:${path}`]);
   return result.exitCode === 0 ? Buffer.from(result.stdout) : null;
+}
+
+/** The tree at one moment, restorable: its dirty files, and the commit they are dirty against (null before any commit). */
+export type WorkspaceCheckpoint = { head: string | null; files: WorkspaceSnapshot };
+
+async function headCommit(repoRoot: string): Promise<string | null> {
+  const result = await runGit(repoRoot, ['rev-parse', '--verify', '--quiet', 'HEAD']);
+  return result.exitCode === 0 ? result.stdout.trim() : null;
+}
+
+export async function checkpointWorkspace(repoRoot: string): Promise<WorkspaceCheckpoint> {
+  return { head: await headCommit(repoRoot), files: await captureWorkspace(repoRoot) };
+}
+
+/** How many paths one `git restore` takes, to stay under the Windows command-line limit. */
+const RESTORE_BATCH = 50;
+
+/**
+ * Puts every file that changed since `checkpoint` back as it was and returns those paths. Files git ignores are not
+ * part of a checkpoint, and a commit made since refuses the restore.
+ */
+export async function restoreWorkspace(repoRoot: string, checkpoint: WorkspaceCheckpoint): Promise<string[]> {
+  const head = await headCommit(repoRoot);
+  if (head !== checkpoint.head) {
+    throw new Error(`Cannot roll back: HEAD is ${head ?? 'unborn'}, but the approach began at ${checkpoint.head ?? 'no commit'}.`);
+  }
+  const changed = (await diffWorkspace(repoRoot, checkpoint.files)).paths;
+  const fromHead: string[] = [];
+  for (const path of changed) {
+    const recorded = checkpoint.files.get(path);
+    if (recorded !== undefined) writeOrRemove(repoRoot, path, recorded);
+    // Clean at the checkpoint: the file is HEAD's version, or did not exist.
+    else if ((await runGit(repoRoot, ['cat-file', '-e', `HEAD:${path}`])).exitCode === 0) fromHead.push(path);
+    else writeOrRemove(repoRoot, path, null);
+  }
+  for (let index = 0; index < fromHead.length; index += RESTORE_BATCH) {
+    await git(repoRoot, ['restore', '--source=HEAD', '--worktree', '--', ...fromHead.slice(index, index + RESTORE_BATCH)]);
+  }
+  return changed;
+}
+
+/** Writes `content` to `path`; null deletes the file and every folder the deletion leaves empty, up to the root. */
+function writeOrRemove(repoRoot: string, path: string, content: Buffer | null): void {
+  const absolute = join(repoRoot, path);
+  if (content !== null) {
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, content);
+    return;
+  }
+  rmSync(absolute, { force: true });
+  for (let folder = dirname(absolute); isWithin(resolve(repoRoot), folder) && existsSync(folder) && readdirSync(folder).length === 0;
+    folder = dirname(folder)) {
+    rmdirSync(folder);
+  }
 }
 
 /** One changed path's line counts against its baseline; null counts mean a binary file. */

@@ -1,8 +1,8 @@
 import {
   ORCHESTRATOR_MAX_ATTEMPTS,
-  ORCHESTRATOR_MAX_FINISH_ATTEMPTS,
   ORCHESTRATOR_MAX_RESUBMITS,
   type ApprovalMode,
+  type OrchestratorBudget,
   type OrchestratorChildWork,
   type OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
@@ -39,6 +39,7 @@ export type OrchestratorBrief = {
   workers: readonly PlanWorker[];
   preexistingDirtyPaths: readonly string[];
   approval: ApprovalMode;
+  budget: OrchestratorBudget;
 };
 
 export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
@@ -52,6 +53,8 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
       : [`Supplied plan (${brief.suppliedPlan.path}):`, '<<<PLAN', brief.suppliedPlan.markdown, 'PLAN>>>']),
     'Worker presets (never another orchestrator):', ...brief.workers.map(describeWorker),
     CHECK_SHELL_RULE,
+    `Budget: this run may start ${brief.budget.dispatches} children and run ${brief.budget.minutes} minutes, waits included. Every ledger`
+      + ' shows what is left. The run is stopped when the minutes are spent.',
     `Uncommitted changes that predate this run (never count them against any task): ${brief.preexistingDirtyPaths.join(', ') || 'none'}.`,
     'The repository file listing in your instructions was taken when this run started; use ls and find for the current state.',
     '',
@@ -88,11 +91,22 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
     '   preferences. A task whose checks failed cannot pass.',
     `5. After a failed review, dispatch a fix (repairs the current changes) or a fresh implementation; each task allows ${ORCHESTRATOR_MAX_ATTEMPTS}`,
     '   of each. A completed task can also take a fix later. To split, reorder, add, or widen work, call update_tasks with',
-    '   only the fields that change; tasks that already ran keep their ids. writePaths are guidance, not a limit: judge',
-    '   changes to other files on their merits, and move work the plan gives a later task with update_tasks.',
-    '6. When every task is complete, finish with only {"status":"completed","summary":"what was done"}. Code then runs the',
-    `   final verification and returns failures for you to fix (at most ${ORCHESTRATOR_MAX_FINISH_ATTEMPTS} finishes). If the work cannot be`,
-    '   completed, finish with only {"status":"blocked","reason":"why"}.',
+    '   only the fields that change. writePaths are guidance, not a limit: judge changes to other files on their merits,',
+    '   and move work the plan gives a later task with update_tasks.',
+    '6. Keep going until the goal is met. A task out of attempts, or a final verification that still fails after fixes,',
+    '   means the plan was wrong, not that the work is impossible:',
+    '   - Retire the task with update_tasks (retire: [{taskId, reason}]) and add its replacement under a new id, with what',
+    '     the failure taught you written into its steps.',
+    '   - When the design itself is the problem, call change_approach: give the lesson (what was tried and why it did not',
+    '     work), choose rollback true to put the files back as they were when this approach began or false to keep its',
+    '     work, and name the next approach. Then add its tasks with update_tasks.',
+    '   Never repeat a task or an approach that a lesson already ruled out. A task completed in an earlier approach is',
+    '   closed: further work on it is a new task. Start a new approach whenever the work so far is worth keeping and what',
+    '   comes next might have to be thrown away.',
+    '7. When every task is complete, finish with only {"status":"completed","summary":"what was done"}. Code then runs the',
+    '   final verification and returns failures for you to act on; after a failed finish a child must run before you finish again.',
+    '   Finish with only {"status":"blocked","reason":"why"} only when no approach can meet the goal (a missing credential,',
+    '   a requirement that contradicts itself) or the budget is nearly spent with the goal unmet; say what was tried.',
     'Use run_check to run tests, typecheck, lint, or a command that reproduces a problem; never to change files, install',
     'packages, or commit: that is a child\'s work. Read and search code with your read tools, not run_check.',
     'find and ls report each file\'s line count; use them to size files, not run_check.',

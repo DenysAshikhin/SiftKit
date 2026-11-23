@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
-import { OrchestratorRunStateSchema } from '@siftkit/contracts';
 import { HeadlessChrome, bundleBrowserPage, bundleResponse } from '../helpers/browser-page.ts';
+import { makeOrchestratorRequest, makeOrchestratorRunState, makeTaskState } from '../helpers/orchestrator-plan.ts';
 import { HOSTILE_PATH, OVERFLOW_PRESENT, OverflowReportSchema, UNBROKEN } from '../../dashboard/tests/chat-overflow-content.ts';
 
 const AT = '2026-09-23T12:00:00.000Z';
@@ -12,13 +12,13 @@ const TASK = { id: 'task', title: UNBROKEN, dependsOn: [], workerPresetId: 'repo
   steps: [{ instruction: 'Write it.', expectedResult: 'It exists.' }], verification: [CHECK], acceptance: ['Done.'], temporaryPaths: [] };
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const CHILD_ID = '00000000-0000-4000-8000-000000000002';
-const RUN = OrchestratorRunStateSchema.parse({
-  runId: RUN_ID, request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: UNBROKEN, planPath: null },
+const RUN = makeOrchestratorRunState({
+  runId: RUN_ID, request: makeOrchestratorRequest({ submissionId: RUN_ID, repoRoot: 'C:/repo', approval: 'interactive', task: UNBROKEN }),
   revision: 3, phase: 'approval_required', planPath: `C:/repo/${HOSTILE_PATH}plan.md`, planHash: 'h',
   plan: { goal: UNBROKEN, constraints: [], tasks: [TASK], finalVerification: [CHECK] },
-  tasks: [{ taskId: TASK.id, status: 'reviewing', review: { attempt: 1, purpose: 'implementation', verdict: 'fail',
+  tasks: [makeTaskState(TASK.id, 'reviewing', { review: { attempt: 1, purpose: 'implementation', verdict: 'fail',
     criteria: [{ index: 0, met: false, evidence: [{ path: HOSTILE_PATH, line: 1, snippet: UNBROKEN }] }],
-    findings: [{ path: HOSTILE_PATH, line: 1, issue: UNBROKEN }] } }],
+    findings: [{ path: HOSTILE_PATH, line: 1, issue: UNBROKEN }] } })],
   attempts: [{ taskId: TASK.id, purpose: 'implementation', attempt: 1, childRunId: CHILD_ID, reservedAtUtc: AT,
     work: { kind: 'implementation', planPath: 'plan.md', planHash: 'h', task: TASK, instruction: UNBROKEN }, status: 'settled',
     result: { taskId: TASK.id, purpose: 'implementation', attempt: 1, childRunId: CHILD_ID, workerStatus: 'completed', workerOutput: UNBROKEN,

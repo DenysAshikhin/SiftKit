@@ -10,7 +10,7 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     '  siftkit summary --question "..." [--text "..."] [--file path]',
     `  ${REPO_SEARCH_SYNOPSIS}`,
     `  ${REPO_AGENT_CANONICAL_INVOCATION}`,
-    '  siftkit orchestrator [--plan <path>] [--preset <id>] [--approval auto|interactive|off] [--repo <root>] "<task>"',
+    '  siftkit orchestrator [--plan <path>] [--preset <id>] [--approval auto|interactive|off] [--minutes <n>] [--dispatches <n>] [--repo <root>] "<task>"',
     '  siftkit orchestrator <attach [--after N]|status|abort> <runId>',
     '  siftkit orchestrator decide <runId> <approvalId> <approve|deny --reason "<why>"|abort>',
     '  siftkit preset list',

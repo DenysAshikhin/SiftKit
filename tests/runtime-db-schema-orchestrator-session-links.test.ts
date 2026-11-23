@@ -7,6 +7,7 @@ import { JsonObjectSchema } from '../src/lib/json-types.ts';
 import { z } from '../src/lib/zod.ts';
 import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { CURRENT_SCHEMA_VERSION, closeAllRuntimeDatabases, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
+import { makeOrchestratorRequest } from './helpers/orchestrator-plan.ts';
 import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
@@ -17,10 +18,9 @@ const ColumnRowsSchema = z.array(z.object({ name: z.string() }));
 function seedSchema82(sessionId: string | undefined): { dbPath: string; runId: string } {
   const repoRoot = createManagedTempDir('siftkit-session-links-repo-');
   const dbPath = path.join(createManagedTempDir('siftkit-session-links-'), 'runtime.sqlite');
-  const run = new OrchestratorRunStore(getRuntimeDatabase(dbPath)).create({
-    submissionId: randomUUID(), sessionId: sessionId ?? null, repoRoot, presetId: 'orchestrator', approval: 'auto',
-    task: 'Inspect the README.', planPath: null,
-  });
+  const run = new OrchestratorRunStore(getRuntimeDatabase(dbPath)).create(
+    makeOrchestratorRequest({ sessionId: sessionId ?? null, repoRoot }),
+  );
   closeAllRuntimeDatabases();
   withRuntimeDatabaseConnection(dbPath, (database) => {
     // Schema 82 named the parent's runs `phaseRunIds`; the 83 -> 84 step renames them.

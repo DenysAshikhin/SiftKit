@@ -1,6 +1,7 @@
 import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.ts';
 import {
   CHAT_QUESTION_MAX_CHOICES,
+  OrchestratorChangeApproachArgsSchema,
   OrchestratorDecideArgsSchema,
   OrchestratorDispatchArgsSchema,
   OrchestratorRecordReviewArgsSchema,
@@ -181,6 +182,7 @@ export const REPO_TOOL_ARGUMENT_SCHEMAS = {
   show_image: ShowImageToolArgsSchema,
   save_plan: OrchestratorSavePlanArgsSchema,
   update_tasks: OrchestratorUpdateTasksArgsSchema,
+  change_approach: OrchestratorChangeApproachArgsSchema,
   dispatch: OrchestratorDispatchArgsSchema,
   decide: OrchestratorDecideArgsSchema,
   run_check: OrchestratorRunCheckArgsSchema,
@@ -209,6 +211,7 @@ export const RepoExecutableToolCallSchema = z.discriminatedUnion('toolName', REP
 const ORCHESTRATOR_TOOL_CALLS = [
   z.object({ toolName: z.literal('save_plan'), args: OrchestratorSavePlanArgsSchema }).strict(),
   z.object({ toolName: z.literal('update_tasks'), args: OrchestratorUpdateTasksArgsSchema }).strict(),
+  z.object({ toolName: z.literal('change_approach'), args: OrchestratorChangeApproachArgsSchema }).strict(),
   z.object({ toolName: z.literal('dispatch'), args: OrchestratorDispatchArgsSchema }).strict(),
   z.object({ toolName: z.literal('decide'), args: OrchestratorDecideArgsSchema }).strict(),
   z.object({ toolName: z.literal('run_check'), args: OrchestratorRunCheckArgsSchema }).strict(),

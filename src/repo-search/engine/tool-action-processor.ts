@@ -1441,7 +1441,8 @@ export class ToolActionProcessor {
       this.deps.duplicates.forgetSuccesses();
     }
     // Commands and children can rewrite any file, so every earlier read is stale.
-    if (normalizedToolName === 'run' || normalizedToolName === 'run_check' || normalizedToolName === 'dispatch' || normalizedToolName === 'decide') {
+    if (normalizedToolName === 'run' || normalizedToolName === 'run_check' || normalizedToolName === 'dispatch' || normalizedToolName === 'decide'
+      || normalizedToolName === 'change_approach') {
       this.deps.readWindows.invalidateAll();
       return;
     }

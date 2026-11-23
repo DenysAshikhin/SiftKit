@@ -13,8 +13,18 @@ import {
 export const ORCHESTRATOR_MAX_ATTEMPTS = 2;
 /** Fixed policy: how often one child may resubmit after its checks fail, inside its own session. */
 export const ORCHESTRATOR_MAX_RESUBMITS = 2;
-/** Fixed policy: how often the orchestrator may try to finish while final verification fails. */
-export const ORCHESTRATOR_MAX_FINISH_ATTEMPTS = 3;
+
+/** Two weeks; it also keeps a run's deadline inside one timer. */
+export const ORCHESTRATOR_MAX_BUDGET_MINUTES = 20_160;
+
+/** A run's whole allowance: the minutes after which it is stopped, and how many children it may start. */
+export const OrchestratorBudgetSchema = z.object({
+  minutes: z.number().positive().max(ORCHESTRATOR_MAX_BUDGET_MINUTES), dispatches: z.number().int().positive(),
+}).strict();
+export type OrchestratorBudget = z.infer<typeof OrchestratorBudgetSchema>;
+
+/** What a start uses when it names no budget: room for a long multi-task run. */
+export const DEFAULT_ORCHESTRATOR_BUDGET: OrchestratorBudget = { minutes: 720, dispatches: 80 };
 
 /** `implementation` builds a task; `fix` repairs a task the orchestrator's review failed. */
 export const OrchestratorChildPurposeSchema = z.enum(['implementation', 'fix']);
@@ -52,9 +62,10 @@ export const OrchestratorTaskSchema = z.object({
 }).strict();
 export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>;
 
+/** The stored plan. After a rollback it may hold no task until the next approach adds some. */
 export const OrchestratorPlanSchema = z.object({
   goal: z.string().trim().min(1), constraints: z.array(z.string().min(1)),
-  tasks: z.array(OrchestratorTaskSchema).min(1),
+  tasks: z.array(OrchestratorTaskSchema),
   finalVerification: z.array(OrchestratorVerificationCheckSchema).min(1),
 }).strict();
 export type OrchestratorPlan = z.infer<typeof OrchestratorPlanSchema>;
@@ -87,6 +98,7 @@ export const OrchestratorStartRequestSchema = z.object({
   repoRoot: z.string().trim().min(1),
   presetId: z.string().trim().min(1),
   approval: ApprovalModeSchema,
+  budget: OrchestratorBudgetSchema,
   task: z.string().trim().min(1).nullable(),
   planPath: z.string().trim().min(1).nullable(),
 }).strict().refine((request) => request.task !== null || request.planPath !== null, {
@@ -174,6 +186,12 @@ export const OrchestratorAttemptSchema = z.object({
 }).strict();
 export type OrchestratorAttempt = z.infer<typeof OrchestratorAttemptSchema>;
 
+/** Whether `taskId` has used every attempt of `purpose`. Attempts are never refunded. */
+export function orchestratorAttemptsSpent(attempts: readonly Pick<OrchestratorAttempt, 'taskId' | 'purpose'>[], taskId: string,
+  purpose: OrchestratorChildPurpose): boolean {
+  return attempts.filter((attempt) => attempt.taskId === taskId && attempt.purpose === purpose).length >= ORCHESTRATOR_MAX_ATTEMPTS;
+}
+
 /** The run's one pending approval: a child's escalated tool call, or one orchestrator check command. */
 export const OrchestratorPendingApprovalSchema = z.discriminatedUnion('kind', [
   RepoAgentApprovalSchema.extend({ kind: z.literal('child'), childRunId: z.string().uuid(), taskId: z.string().min(1) }).strict(),
@@ -184,7 +202,7 @@ export type OrchestratorPendingApproval = z.infer<typeof OrchestratorPendingAppr
 
 export const OrchestratorFailureCodeSchema = z.enum([
   'aborted', 'interrupted', 'internal_error', 'infrastructure_failed', 'blocked', 'cleanup_failed',
-  'plan_not_found', 'orchestrator_incomplete', 'final_verification_failed',
+  'plan_not_found', 'orchestrator_incomplete', 'budget_exhausted',
 ]);
 export type OrchestratorFailureCode = z.infer<typeof OrchestratorFailureCodeSchema>;
 
@@ -208,8 +226,27 @@ export const OrchestratorReviewRecordSchema = z.object({
 }).strict();
 export type OrchestratorReviewRecord = z.infer<typeof OrchestratorReviewRecordSchema>;
 
+/** One way of reaching the goal: the tasks added while it was active, and how it ended. */
+export const OrchestratorApproachSchema = z.object({
+  number: z.number().int().positive(), title: z.string().trim().min(1), startedAtUtc: z.string().datetime(),
+  /** Null while active; `rolled_back` put the files back as they were when the approach began. */
+  outcome: z.object({
+    kind: z.enum(['kept', 'rolled_back']), lesson: z.string().trim().min(1), endedAtUtc: z.string().datetime(),
+  }).strict().nullable(),
+}).strict();
+export type OrchestratorApproach = z.infer<typeof OrchestratorApproachSchema>;
+
+/** A task taken out of the plan after it ran, kept so the same thing is not tried twice unknowingly. */
+export const OrchestratorRetiredTaskSchema = z.object({
+  taskId: z.string().min(1), title: z.string().trim().min(1), approach: z.number().int().positive(),
+  status: OrchestratorTaskStatusSchema, reason: z.string().trim().min(1), retiredAtUtc: z.string().datetime(),
+}).strict();
+export type OrchestratorRetiredTask = z.infer<typeof OrchestratorRetiredTaskSchema>;
+
 export const OrchestratorTaskStateSchema = z.object({
   taskId: z.string().min(1), status: OrchestratorTaskStatusSchema, review: OrchestratorReviewRecordSchema.nullable(),
+  /** The approach that was active when the task was added, or the one it was carried into. */
+  approach: z.number().int().positive(),
 }).strict();
 export type OrchestratorTaskState = z.infer<typeof OrchestratorTaskStateSchema>;
 
@@ -217,6 +254,7 @@ export const OrchestratorRunStateSchema = z.object({
   runId: z.string().uuid(), request: OrchestratorStartRequestSchema, revision: z.number().int().nonnegative(),
   phase: OrchestratorPhaseSchema, planPath: z.string().min(1).nullable(), planHash: z.string().min(1).nullable(),
   plan: OrchestratorPlanSchema.nullable(), tasks: z.array(OrchestratorTaskStateSchema),
+  approaches: z.array(OrchestratorApproachSchema), retiredTasks: z.array(OrchestratorRetiredTaskSchema),
   attempts: z.array(OrchestratorAttemptSchema), parentRunIds: z.array(z.string().uuid()),
   approval: OrchestratorPendingApprovalSchema.nullable(), failure: OrchestratorFailureSchema.nullable(),
   createdAtUtc: z.string().datetime(), updatedAtUtc: z.string().datetime(),
@@ -240,19 +278,28 @@ export type OrchestratorProgress = z.infer<typeof OrchestratorProgressSchema>;
 
 // ---- the orchestrator's own tools ----
 
-export const OrchestratorSavePlanArgsSchema = z.object({ plan: OrchestratorPlanSchema }).strict();
+/** The first plan, as save_plan takes it: at least one task. */
+export const OrchestratorSavePlanArgsSchema = z.object({
+  plan: OrchestratorPlanSchema.extend({ tasks: OrchestratorPlanSchema.shape.tasks.min(1) }).strict(),
+}).strict();
 export type OrchestratorSavePlanArgs = z.infer<typeof OrchestratorSavePlanArgsSchema>;
 
-/** Revises the saved plan in place: patch tasks by id, add or remove tasks, or replace the final verification. */
+/** Revises the saved plan in place: patch tasks by id, add tasks, retire tasks with the reason each leaves, or replace the final verification. */
 export const OrchestratorUpdateTasksArgsSchema = z.object({
   update: z.array(z.object({
     taskId: z.string().min(1), set: OrchestratorTaskSchema.omit({ id: true }).partial().strict(),
   }).strict()).default([]),
   add: z.array(OrchestratorTaskSchema).default([]),
-  remove: z.array(z.string().min(1)).default([]),
+  retire: z.array(z.object({ taskId: z.string().min(1), reason: z.string().trim().min(1) }).strict()).default([]),
   finalVerification: OrchestratorPlanSchema.shape.finalVerification.optional(),
 }).strict();
 export type OrchestratorUpdateTasksArgs = z.infer<typeof OrchestratorUpdateTasksArgsSchema>;
+
+/** Ends the active approach with what it taught, keeps or rolls back its changes, and names the next approach. */
+export const OrchestratorChangeApproachArgsSchema = z.object({
+  lesson: z.string().trim().min(1), rollback: z.boolean(), title: z.string().trim().min(1),
+}).strict();
+export type OrchestratorChangeApproachArgs = z.infer<typeof OrchestratorChangeApproachArgsSchema>;
 
 /** Starts one fresh child for one saved task; children run one at a time. */
 export const OrchestratorDispatchArgsSchema = z.object({

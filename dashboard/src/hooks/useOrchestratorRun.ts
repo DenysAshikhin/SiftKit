@@ -2,10 +2,10 @@ import React from 'react';
 
 import {
   isOrchestratorTerminalPhase,
-  type ApprovalMode,
   type OrchestratorActivity,
   type OrchestratorPhase,
   type OrchestratorRunState,
+  type OrchestratorStartRequest,
   type RepoAgentDecision,
 } from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.ts';
@@ -17,14 +17,8 @@ import {
   startOrchestrator,
 } from '../orchestrator-api.ts';
 
-export type OrchestratorStartInput = {
-  sessionId: string;
-  repoRoot: string;
-  presetId: string;
-  approval: ApprovalMode;
-  task: string | null;
-  planPath: string | null;
-};
+/** A start as the dashboard makes it: always from a session; the hook adds the submission id. */
+export type OrchestratorStartInput = Omit<OrchestratorStartRequest, 'submissionId' | 'sessionId'> & { sessionId: string };
 
 /**
  * Shows one session's own parent run, by the run ID that session records, and follows its progress and

@@ -12,7 +12,7 @@ import {
 import { getActiveModelPreset } from '../src/config/getters.ts';
 import { describeSchedule, dispatchProblem, orchestratorWorkers, type DispatchRequest } from '../src/orchestrator/scheduler.ts';
 import { getDefaultConfig } from '../src/status-server/config-store.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorTask, makeTaskState } from './helpers/orchestrator-plan.ts';
 
 const WRITE = makeOrchestratorTask({ id: 'write', workerPresetId: 'repo-agent', writePaths: ['src/a.ts'] });
 const WRITE_2 = makeOrchestratorTask({ id: 'write-2', workerPresetId: 'repo-agent', writePaths: ['src/b.ts'] });
@@ -21,7 +21,7 @@ const PLAN = makeOrchestratorPlan([WRITE, WRITE_2, AFTER_WRITE]);
 const CONFIG = getDefaultConfig();
 
 function states(overrides: Record<string, OrchestratorTaskStatus> = {}): OrchestratorTaskState[] {
-  return PLAN.tasks.map((task) => ({ taskId: task.id, status: overrides[task.id] ?? 'pending', review: null }));
+  return PLAN.tasks.map((task) => makeTaskState(task.id, overrides[task.id] ?? 'pending'));
 }
 
 function attempt(task: OrchestratorTask, purpose: OrchestratorChildPurpose, number: number, status: OrchestratorAttempt['status']): OrchestratorAttempt {
@@ -32,8 +32,10 @@ function attempt(task: OrchestratorTask, purpose: OrchestratorChildPurpose, numb
   });
 }
 
-function dispatch(input: { request: DispatchRequest; statuses?: Record<string, OrchestratorTaskStatus>; attempts?: OrchestratorAttempt[] }) {
-  return dispatchProblem({ taskStates: states(input.statuses), attempts: input.attempts ?? [], request: input.request });
+function dispatch(input: { request: DispatchRequest; statuses?: Record<string, OrchestratorTaskStatus>; attempts?: OrchestratorAttempt[];
+  activeApproach?: number; }) {
+  return dispatchProblem({ taskStates: states(input.statuses), attempts: input.attempts ?? [], activeApproach: input.activeApproach ?? 1,
+    request: input.request });
 }
 
 const implement = (task: OrchestratorTask): DispatchRequest => ({ task, purpose: 'implementation' });
@@ -86,4 +88,12 @@ test('the schedule records the claim of every task on its worker model and the u
 
 test('a task whose preset is not a worker fails the schedule loudly', () => {
   assert.throws(() => describeSchedule([], PLAN, states()), /Task 'write' selects preset 'repo-agent', which is not a worker\./u);
+});
+
+test('a task completed in an approach that has ended takes no more work', () => {
+  const fix: DispatchRequest = { task: WRITE, purpose: 'fix' };
+  const attempts = [attempt(WRITE, 'implementation', 1, 'settled')];
+  assert.equal(dispatch({ request: fix, statuses: { write: 'completed' }, attempts }), null, 'in the active approach a completed task takes a fix');
+  assert.equal(dispatch({ request: fix, statuses: { write: 'completed' }, attempts, activeApproach: 2 }),
+    "Task 'write' was completed in approach 1, which has ended; add a task to the current approach for further work on it.");
 });

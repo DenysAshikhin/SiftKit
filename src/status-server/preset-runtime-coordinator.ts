@@ -5,12 +5,11 @@ import type {
   ModelLifecycleActionResult,
 } from '@siftkit/contracts';
 import type { Exl3EngineConfig, ModelRuntimePreset, SiftConfig } from '../config/types.ts';
+import { getModelPresetsInUse } from '../config/getters.ts';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.ts';
 import type { ModelRequestLock } from './server-types.ts';
 import type { AppliedModelPresetState } from './applied-model-preset-state.ts';
 import { persistAppliedModelSelection, readConfig, restorePreviousModelSelection } from './config-store.ts';
-import { serverLogger } from './server-logger.ts';
-import { toError } from '../lib/errors.ts';
 
 const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is in progress; retry once it completes.';
 
@@ -312,20 +311,14 @@ export class PresetRuntimeCoordinator {
         // Continue with best-effort process shutdown after a failed model unload.
       }
     }
+    // The RAM disk outlives this: the watcher its creation started removes it once the server process exits.
     await runtime.stopProcess();
-    // An unelevated server shows a UAC prompt here; a declined one leaves the disk to the next start.
-    try {
-      await runtime.releaseRamDisk();
-    } catch (error) {
-      serverLogger.warning({ scope: 'exl3', id: 'ram-disk', event: 'ram_disk_release_failed', fields: '',
-        alert: `Could not remove the RAM disk: ${toError(error).message}` });
-    }
     this.pendingSwitch = null;
   }
 
-  /** Every load sees the presets as configured now, so a RAM-disk preset sizes the shared disk from all of them. */
+  /** Every load sees the presets in use as configured now, so the shared RAM disk is sized for what will run, not for every preset. */
   private async readyRuntime(preset: ModelRuntimePreset): Promise<void> {
-    this.runtime.replaceModelPresets(readConfig(this.configPath).Server.ModelPresets.Presets);
+    this.runtime.replaceModelPresets(getModelPresetsInUse(readConfig(this.configPath), preset));
     await this.runtime.ensurePresetReady(preset);
   }
 

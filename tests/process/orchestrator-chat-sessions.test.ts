@@ -11,13 +11,13 @@ import {
   ChatSessionResponseSchema,
   ChatSessionSummarySchema,
   OrchestratorRunStateSchema,
-  OrchestratorStartRequestSchema,
   isOrchestratorTerminalPhase,
 } from '@siftkit/contracts';
 import { OrchestratorRunStore } from '../../src/orchestrator/run-store.ts';
 import { parseJsonText } from '../../src/lib/json.ts';
 import { getRuntimeDatabase } from '../../src/state/runtime-db.ts';
 import { linkChatSessionToOrchestratorRun, listActiveChatSessionOrchestratorRuns } from '../../src/state/chat-sessions.ts';
+import { makeOrchestratorRequest } from '../helpers/orchestrator-plan.ts';
 import { seedRunLogThroughput } from '../helpers/run-log-throughput.ts';
 import { startHarness, type StreamedOperationHarness } from '../helpers/streamed-op-harness.ts';
 
@@ -37,8 +37,7 @@ async function postStart(
 
 /** A run request of the shape both clients send; `sessionId: null` is the CLI's, a real id the dashboard's. */
 function startRequest(overrides: Partial<OrchestratorStartRequest> = {}): OrchestratorStartRequest {
-  return OrchestratorStartRequestSchema.parse({ submissionId: randomUUID(), sessionId: null, repoRoot: process.cwd(),
-    presetId: 'orchestrator', approval: 'auto', task: 'Add a greeting module.', planPath: null, ...overrides });
+  return makeOrchestratorRequest({ task: 'Add a greeting module.', ...overrides });
 }
 
 /** The session rail, read exactly as the dashboard reads it. */

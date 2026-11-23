@@ -9,11 +9,32 @@ const APPROVAL_ID = '00000000-0000-4000-8000-000000000002';
 test('a start takes a task, a plan, or both, with the default orchestrator preset and approval', () => {
   assert.deepEqual(parseOrchestratorInvocation(['Add', 'a', 'greeting'], 'C:/repo'), {
     kind: 'start', task: 'Add a greeting', planPath: null, presetId: 'orchestrator', approval: 'auto', repoRoot: 'C:/repo',
+    budget: { minutes: 720, dispatches: 80 },
   });
   assert.deepEqual(parseOrchestratorInvocation(['--plan', 'docs/plan.md', '--preset', 'my-orch', '--approval', 'interactive',
     '--repo', 'D:/other'], 'C:/repo'), {
     kind: 'start', task: null, planPath: 'docs/plan.md', presetId: 'my-orch', approval: 'interactive', repoRoot: 'D:/other',
+    budget: { minutes: 720, dispatches: 80 },
   });
+});
+
+test('--minutes and --dispatches replace each budget limit, and a bad value fails with a precise message', () => {
+  const budgetOf = (tokens: string[]) => {
+    const invocation = parseOrchestratorInvocation(tokens, 'C:/repo');
+    return invocation.kind === 'start' ? invocation.budget : null;
+  };
+  assert.deepEqual(budgetOf(['--minutes', '90', '--dispatches', '12', 'Go']), { minutes: 90, dispatches: 12 });
+  assert.deepEqual(budgetOf(['Go', '--minutes', '0.5']), { minutes: 0.5, dispatches: 80 });
+  assert.deepEqual(budgetOf(['--dispatches', '3', 'Go']), { minutes: 720, dispatches: 3 });
+  for (const value of ['0', 'soon', '20161']) {
+    assert.throws(() => budgetOf(['--minutes', value, 'Go']),
+      new RegExp(`Invalid --minutes value: ${value}\\. Expected a number above 0 and at most 20160\\.`, 'u'));
+  }
+  for (const value of ['0', '1.5', 'many']) {
+    assert.throws(() => budgetOf(['--dispatches', value, 'Go']),
+      new RegExp(`Invalid --dispatches value: ${value}\\. Expected a whole number above 0\\.`, 'u'));
+  }
+  assert.throws(() => budgetOf(['Go', '--minutes']), /Missing value for --minutes/u);
 });
 
 test('invalid starts and flags fail with a precise message', () => {

@@ -27,6 +27,7 @@ function deriveActivityKind(call: RepoNativeToolCall): ToolActivityKind {
       return 'image';
     case 'save_plan':
     case 'update_tasks':
+    case 'change_approach':
     case 'dispatch':
     case 'decide':
     case 'run_check':
@@ -66,6 +67,7 @@ function getActivitySubject(call: RepoNativeToolCall): ToolActivitySubject {
     case 'ask_user':
     case 'save_plan':
     case 'update_tasks':
+    case 'change_approach':
     case 'dispatch':
     case 'decide':
     case 'run_check':

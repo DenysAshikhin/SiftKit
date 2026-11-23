@@ -31,6 +31,7 @@ test('the first RAM-disk load creates the disk for every RAM-disk budget, marks 
   assert.deepEqual(driver.calls, ['find', `create S ${String(requiredRamDiskBytes([11, 11]))}`]);
   const root = driver.disk?.root ?? '';
   assert.equal(OwnerFileSchema.parse(JSON.parse(fs.readFileSync(path.join(root, 'siftkit-owner.json'), 'utf8'))).pid, process.pid);
+  assert.equal(driver.watchedOwnerPid, process.pid, 'the watcher waits on the pid the marker names');
   assert.ok(fs.statSync(path.join(root, 'flash-next')).isDirectory());
 });
 
@@ -159,12 +160,4 @@ test('without a disk, release looks for a leftover once and then does nothing', 
   await cache.release();
   await cache.release();
   assert.deepEqual(driver.calls, ['find']);
-});
-
-test('the process-exit path starts the removal without waiting', async () => {
-  const driver = new FakeRamDiskDriver();
-  const cache = new RamDiskCache(driver);
-  await cache.prepare(CONFIG, [NEXT], NEXT);
-  cache.releaseForProcessExitSync();
-  assert.equal(driver.calls.at(-1), 'remove-detached S');
 });

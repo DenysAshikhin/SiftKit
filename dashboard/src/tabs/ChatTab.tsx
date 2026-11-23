@@ -30,7 +30,7 @@ import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar.
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard.tsx';
 import type { RepoAgentDecision } from '../api.ts';
 import {
-  REPO_AGENT_DEFAULT_MAX_TURNS, countMemoryNotes, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply, type OrchestratorParentActivity,
+  DEFAULT_ORCHESTRATOR_BUDGET, OrchestratorBudgetSchema, REPO_AGENT_DEFAULT_MAX_TURNS, countMemoryNotes, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply, type OrchestratorParentActivity,
 } from '@siftkit/contracts';
 import { ChatQuestionCard } from '../components/ChatQuestionCard.tsx';
 import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl.tsx';
@@ -259,6 +259,11 @@ export function ChatTab({
   const orchestrator = useOrchestratorRun(chatMode === 'orchestrator' ? selectedSession?.orchestratorRunId ?? null : null);
   const [orchestratorApproval, setOrchestratorApproval] = React.useState<ApprovalMode>('auto');
   const [orchestratorPlanPath, setOrchestratorPlanPath] = React.useState('');
+  const [orchestratorMinutes, setOrchestratorMinutes] = React.useState(String(DEFAULT_ORCHESTRATOR_BUDGET.minutes));
+  const [orchestratorDispatches, setOrchestratorDispatches] = React.useState(String(DEFAULT_ORCHESTRATOR_BUDGET.dispatches));
+  // An empty or out-of-range field fails the schema, and that blocks the start.
+  const orchestratorBudget = OrchestratorBudgetSchema.safeParse(
+    { minutes: Number(orchestratorMinutes), dispatches: Number(orchestratorDispatches) });
   const orchestratorLive = orchestrator.state !== null && !isOrchestratorTerminalPhase(orchestrator.state.phase);
   const liveContext: LiveContextProps = { runtimeHub, sessionId: selectedSessionId, runtime, busy: selectedSessionBusy,
     orchestratorParent: chatMode === 'orchestrator' ? orchestrator.activity?.parent ?? null : null };
@@ -269,7 +274,8 @@ export function ChatTab({
   }, [orchestratorRevision]);
   // The orchestrator needs a saved repository and accepts a task, a plan path, or both.
   const sendBlocked = sessionPreferencesSaving || (chatMode === 'orchestrator'
-    ? savedRepoRoot === '' || orchestratorLive || selectedChatPreset === null || (!draft.trim() && !orchestratorPlanPath.trim())
+    ? savedRepoRoot === '' || orchestratorLive || selectedChatPreset === null || !orchestratorBudget.success
+      || (!draft.trim() && !orchestratorPlanPath.trim())
     : recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0));
 
   const [compactingSessionId, setCompactingSessionId] = React.useState<string | null>(null);
@@ -327,7 +333,7 @@ export function ChatTab({
   }
 
   function startOrchestratorRun(): void {
-    if (sendBlocked || selectedChatPreset === null || selectedSession === null || savedRepoRoot === '') return;
+    if (sendBlocked || !orchestratorBudget.success || selectedChatPreset === null || selectedSession === null || savedRepoRoot === '') return;
     const task = draft.trim();
     const planPath = orchestratorPlanPath.trim();
     void orchestrator.start({
@@ -335,6 +341,7 @@ export function ChatTab({
       repoRoot: savedRepoRoot,
       presetId: selectedChatPreset.id,
       approval: orchestratorApproval,
+      budget: orchestratorBudget.data,
       task: task || null,
       planPath: planPath || null,
     }).then(() => {
@@ -599,6 +606,16 @@ export function ChatTab({
                         onChange={(event) => setOrchestratorPlanPath(event.target.value)}
                         disabled={orchestratorLive}
                       />
+                      <label className="orch-budget" title="The run is stopped after this many minutes, waits included">
+                        minutes
+                        <input aria-label="Budget minutes" type="number" value={orchestratorMinutes}
+                          onChange={(event) => setOrchestratorMinutes(event.target.value)} disabled={orchestratorLive} />
+                      </label>
+                      <label className="orch-budget" title="How many subagents the run may start">
+                        dispatches
+                        <input aria-label="Budget dispatches" type="number" value={orchestratorDispatches}
+                          onChange={(event) => setOrchestratorDispatches(event.target.value)} disabled={orchestratorLive} />
+                      </label>
                     </>
                   ) : null}
                 </div>

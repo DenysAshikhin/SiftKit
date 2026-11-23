@@ -7,7 +7,6 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.ts';
 import { readConfig, writeConfig } from '../src/status-server/config-store.ts';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
-import { serverLogger } from '../src/status-server/server-logger.ts';
 import type { ModelRequestLock } from '../src/status-server/server-types.ts';
 import type { ModelRequestContext } from '../src/status-server/model-request-context.ts';
 import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.ts';
@@ -142,32 +141,40 @@ async function applyAltPreset(fixture: CoordinatorFixture): Promise<void> {
   assert.equal(fixture.coordinator.getStatus().activePresetId, 'exl3-alt');
 }
 
-test('every load hands the runtime the configured presets first, and shutdown releases the RAM disk after the engine stops', async () => {
+test('every load hands the runtime the presets first, and shutdown stops the engine but leaves the RAM disk to its watcher', async () => {
   const fixture = createCoordinator();
   const { coordinator, runtime } = fixture;
   try {
     await coordinator.initialize();
     await coordinator.shutdown();
-    assert.deepEqual(runtime.callOrder, ['presets', 'ensure exl3-main', 'stop', 'release']);
+    assert.deepEqual(runtime.callOrder, ['presets', 'ensure exl3-main', 'stop']);
   } finally {
     await disposeCoordinator(fixture);
   }
 });
 
-test('a RAM disk that cannot be removed at shutdown is warned about and does not fail the shutdown', async (t) => {
-  const warnings = t.mock.method(serverLogger, 'warning', () => {});
+test('a load hands the runtime only the presets in use: the active one, those task presets name, and the one loading', async () => {
   const fixture = createCoordinator();
-  const { coordinator, runtime } = fixture;
-  t.mock.method(runtime, 'releaseRamDisk', async () => { throw new Error('The operation was canceled by the user.'); });
+  const { coordinator, runtime, configPath } = fixture;
   try {
+    const config = readConfig(configPath);
+    const main = config.Server.ModelPresets.Presets.find((preset) => preset.id === 'exl3-main');
+    assert.ok(main);
+    const extra = { ...main, id: 'exl3-extra', label: 'EXL3 extra', Model: 'extra-model' };
+    config.Server.ModelPresets.Presets.push(extra);
+    config.Presets = config.Presets.map((preset) => (preset.id === 'repo-agent' ? { ...preset, modelPresetId: 'exl3-alt' } : preset));
+    writeConfig(configPath, config);
+
     await coordinator.initialize();
-    await coordinator.shutdown();
-    assert.deepEqual(warnings.mock.calls.map((call) => [call.arguments[0]?.event, call.arguments[0]?.alert]),
-      [['ram_disk_release_failed', 'Could not remove the RAM disk: The operation was canceled by the user.']]);
+    assert.deepEqual(runtime.replacedPresetIds, ['exl3-main', 'exl3-alt'], 'unused presets do not size the RAM disk');
+
+    await coordinator.ensureRequestPresetReady(extra, true);
+    assert.deepEqual(runtime.replacedPresetIds, ['exl3-main', 'exl3-alt', 'exl3-extra'], 'a preset outside the set joins it when it loads');
   } finally {
     await disposeCoordinator(fixture);
   }
 });
+
 
 test('preset coordinator drains by preset and swaps the resident model without a process restart', async () => {
   const fixture = createCoordinator();

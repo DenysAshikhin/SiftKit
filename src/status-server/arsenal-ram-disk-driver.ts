@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -9,7 +9,7 @@ import { toError } from '../lib/errors.ts';
 import { parseJsonValueText } from '../lib/json.ts';
 import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.ts';
 import { z } from '../lib/zod.ts';
-import type { RamDisk, RamDiskDriver } from './ram-disk-cache.ts';
+import { OWNER_FILE, type RamDisk, type RamDiskDriver } from './ram-disk-cache.ts';
 
 const execFileAsync = promisify(execFile);
 type Job = Record<string, string | number>;
@@ -23,26 +23,28 @@ export function vendoredAimLlPath(): string {
   return path.join(root, 'vendor', 'arsenal-image-mounter', 'aim_ll.exe');
 }
 
-/** The -Command that starts `scriptPath` elevated through UAC; a waited launch exits with the script's exit code. */
-export function elevatedLaunch(scriptPath: string, jobPath: string, wait: boolean): string {
-  const quote = (text: string): string => text.replaceAll("'", "''");
-  const launch = `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${quote(scriptPath)}" -JobPath "${quote(jobPath)}"'`;
-  return wait ? `$p = ${launch} -Wait -PassThru; exit $p.ExitCode` : launch;
+/** The powershell.exe arguments that run `scriptPath` with its job, as one Start-Process -ArgumentList string. */
+export function powerShellFileArguments(scriptPath: string, jobPath: string): string {
+  return `-NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" -JobPath "${jobPath}"`;
+}
+
+/** The -Command that starts `scriptPath` elevated through UAC and exits with the script's exit code. */
+export function elevatedLaunch(scriptPath: string, jobPath: string): string {
+  const quoted = powerShellFileArguments(scriptPath, jobPath).replaceAll("'", "''");
+  return `$p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '${quoted}' -Wait -PassThru; exit $p.ExitCode`;
 }
 
 /** Runs a PowerShell script with a job file; `admin` scripts run elevated, through UAC when this process is not. */
 export interface PowerShellRunner {
   /** Returns what the script wrote to its result file. */
   run(script: string, job: Job, admin: boolean): Promise<string>;
-  /** Starts an admin script without waiting, for the process-exit path. */
-  start(script: string, job: Job): void;
 }
 
 const FoundSchema = z.object({ disk: z.object({ letter: z.string().regex(/^[A-Z]$/u), sizeBytes: z.number().int().positive() }).nullable() });
 const DoneSchema = z.union([z.object({ ok: z.literal(true) }), z.object({ error: z.string() })]);
 
-// Every script reads its job, writes JSON to $job.resultPath (a detached run has none), and reports a thrown error as {"error": ...}.
-// It deletes its own job and script files, which a detached run would otherwise leave behind.
+// Every script reads its job, writes JSON to $job.resultPath (the watcher has none), and reports a thrown error as {"error": ...}.
+// It deletes its own job and script files, which the watcher would otherwise leave behind.
 const PRELUDE = String.raw`param([string]$JobPath)
 $ErrorActionPreference = 'Stop'
 $job = Get-Content -Raw -Encoding utf8 $JobPath | ConvertFrom-Json
@@ -75,9 +77,13 @@ const FIND = String.raw`
   Write-Result @{ disk = $found }
 `;
 
+// The watcher is started (elevated, so no later UAC prompt) before the disk is mounted, so no disk exists without one.
 const CREATE = String.raw`
   $root = "$($job.letter):\"
   if (Test-Path $root) { throw "Drive $($job.letter): is already in use." }
+  Set-Content -Encoding utf8 -LiteralPath $job.watchScriptPath -Value $job.watchScript
+  ConvertTo-Json -Compress -InputObject @{ tool = $job.tool; letter = $job.letter; ownerPid = $job.ownerPid } | Set-Content -Encoding utf8 -LiteralPath $job.watchJobPath
+  Start-Process powershell -WindowStyle Hidden -ArgumentList $job.watchArguments
   $code = (Invoke-Aim @('-a', '-t', 'file', '-o', 'awe', '-s', "$($job.sizeBytes)", '-m', "$($job.letter):", '-p', '/fs:ntfs /q /y /v:${VOLUME_LABEL}')).Code
   if ($code -ne 0) { throw "aim_ll -a exited $code." }
   for ($try = 0; $try -lt 40 -and -not (Test-Path $root); $try++) { Start-Sleep -Milliseconds 500 }
@@ -112,7 +118,19 @@ const REMOVE = String.raw`
   Write-Result @{ ok = $true }
 `;
 
+// Waits for the server that created the disk to exit however it exits, then lets REMOVE run only while the drive is still
+// SiftKit's (label) and still that server's (owner file); a later server's disk or another tool's is left alone.
+const WATCH_GUARD = String.raw`
+  try { Wait-Process -Id $job.ownerPid -ErrorAction Stop } catch {}
+  $volume = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($job.letter):'"
+  if (-not $volume -or $volume.VolumeName -ne '${VOLUME_LABEL}') { return }
+  $owner = $null
+  try { $owner = (Get-Content -Raw -LiteralPath (Join-Path "$($job.letter):" '${OWNER_FILE}') | ConvertFrom-Json).pid } catch {}
+  if ($owner -ne $job.ownerPid) { return }
+`;
+
 const script = (body: string): string => `${PRELUDE}${body}${POSTLUDE}`;
+export const RAM_DISK_WATCH_SCRIPT = script(`${WATCH_GUARD}${REMOVE}`);
 const mounted = (letter: string, sizeBytes: number): RamDisk => ({ letter, root: `${letter}:\\`, sizeBytes });
 const tempBase = (): string => path.join(os.tmpdir(), `siftkit-ram-disk-${randomUUID()}`);
 
@@ -131,8 +149,13 @@ export class ArsenalRamDiskDriver implements RamDiskDriver {
     return found === null ? null : mounted(found.letter, found.sizeBytes);
   }
 
-  async create(letter: string, sizeBytes: number): Promise<RamDisk> {
-    await this.admin('create', CREATE, { letter, sizeBytes });
+  async create(letter: string, sizeBytes: number, ownerPid: number): Promise<RamDisk> {
+    const base = tempBase();
+    const watch = { script: `${base}.watch.ps1`, job: `${base}.watch.json` };
+    await this.admin('create', CREATE, {
+      letter, sizeBytes, ownerPid, watchScript: RAM_DISK_WATCH_SCRIPT, watchScriptPath: watch.script, watchJobPath: watch.job,
+      watchArguments: powerShellFileArguments(watch.script, watch.job),
+    });
     return mounted(letter, sizeBytes);
   }
 
@@ -143,10 +166,6 @@ export class ArsenalRamDiskDriver implements RamDiskDriver {
 
   async remove(disk: RamDisk): Promise<void> {
     await this.admin('remove', REMOVE, { letter: disk.letter });
-  }
-
-  removeDetached(disk: RamDisk): void {
-    this.runner.start(script(REMOVE), { tool: this.aimLlPath, letter: disk.letter });
   }
 
   /** Checks aim_ll first, so a missing copy fails before the UAC prompt rather than inside the elevated script. */
@@ -169,7 +188,7 @@ export class SystemPowerShellRunner implements PowerShellRunner {
       const elevate = admin && !await this.isElevated();
       // A declined UAC prompt makes Start-Process throw, so the outer PowerShell exits non-zero.
       const args = elevate
-        ? ['-NoProfile', '-Command', elevatedLaunch(files.script, files.job, true)]
+        ? ['-NoProfile', '-Command', elevatedLaunch(files.script, files.job)]
         :['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', files.script, '-JobPath', files.job];
       try {
         await execFileAsync('powershell.exe', args, { windowsHide: true });
@@ -182,13 +201,6 @@ export class SystemPowerShellRunner implements PowerShellRunner {
       // The script deletes its own files; one that never ran (a declined UAC prompt) leaves them here.
       for (const file of [files.script, files.job, result]) fs.rmSync(file, { force: true });
     }
-  }
-
-  start(script: string, job: Job): void {
-    const files = this.write(tempBase(), script, job);
-    const child = spawn('powershell.exe', ['-NoProfile', '-Command', elevatedLaunch(files.script, files.job, false)],
-      { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
   }
 
   private write(base: string, script: string, job: Job): { script: string; job: string } {

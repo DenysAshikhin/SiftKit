@@ -1,4 +1,7 @@
-import { ApprovalModeSchema, DEFAULT_APPROVAL_MODE, type ApprovalMode } from '@siftkit/contracts';
+import {
+  ApprovalModeSchema, DEFAULT_APPROVAL_MODE, DEFAULT_ORCHESTRATOR_BUDGET, ORCHESTRATOR_MAX_BUDGET_MINUTES, OrchestratorBudgetSchema,
+  type ApprovalMode, type OrchestratorBudget,
+} from '@siftkit/contracts';
 
 import { z } from '../lib/zod.ts';
 
@@ -6,7 +9,7 @@ const RunIdSchema = z.string().uuid();
 
 export const OrchestratorInvocationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('start'), task: z.string().trim().min(1).nullable(), planPath: z.string().trim().min(1).nullable(),
-    presetId: z.string().trim().min(1), approval: ApprovalModeSchema, repoRoot: z.string().min(1) }).strict()
+    presetId: z.string().trim().min(1), approval: ApprovalModeSchema, budget: OrchestratorBudgetSchema, repoRoot: z.string().min(1) }).strict()
     .refine((invocation) => invocation.task !== null || invocation.planPath !== null, {
       message: 'siftkit orchestrator needs a task, --plan <path>, or both.',
     }),
@@ -23,6 +26,20 @@ function readValue(tokens: readonly string[], index: number, option: string): st
   const value = tokens[index + 1];
   if (value === undefined || value.startsWith('--')) throw new Error(`Missing value for ${option}.`);
   return value;
+}
+
+/** What each budget flag accepts, as its error message says it. */
+const BUDGET_FLAG_EXPECTATIONS = {
+  '--minutes': `a number above 0 and at most ${ORCHESTRATOR_MAX_BUDGET_MINUTES}`,
+  '--dispatches': 'a whole number above 0',
+} as const;
+
+function readBudgetLimit(tokens: readonly string[], index: number, option: keyof typeof BUDGET_FLAG_EXPECTATIONS): number {
+  const value = readValue(tokens, index, option);
+  const limit = option === '--minutes' ? OrchestratorBudgetSchema.shape.minutes : OrchestratorBudgetSchema.shape.dispatches;
+  const parsed = limit.safeParse(Number(value));
+  if (!parsed.success) throw new Error(`Invalid ${option} value: ${value}. Expected ${BUDGET_FLAG_EXPECTATIONS[option]}.`);
+  return parsed.data;
 }
 
 function parseRunId(raw: string | undefined): string {
@@ -57,9 +74,16 @@ export function parseOrchestratorInvocation(tokens: readonly string[], cwd: stri
   let planPath: string | null = null;
   let presetId = 'orchestrator';
   let approval: ApprovalMode = DEFAULT_APPROVAL_MODE;
+  let budget: OrchestratorBudget = DEFAULT_ORCHESTRATOR_BUDGET;
   let repoRoot = cwd;
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index] ?? '';
+    if (token === '--minutes' || token === '--dispatches') {
+      const limit = readBudgetLimit(tokens, index, token);
+      index += 1;
+      budget = token === '--minutes' ? { ...budget, minutes: limit } : { ...budget, dispatches: limit };
+      continue;
+    }
     if (token === '--plan' || token === '--preset' || token === '--approval' || token === '--repo') {
       const value = readValue(tokens, index, token);
       index += 1;
@@ -77,5 +101,5 @@ export function parseOrchestratorInvocation(tokens: readonly string[], cwd: stri
     taskTokens.push(token);
   }
   const task = taskTokens.join(' ').trim();
-  return parseOrThrow({ kind: 'start', task: task.length === 0 ? null : task, planPath, presetId, approval, repoRoot });
+  return parseOrThrow({ kind: 'start', task: task.length === 0 ? null : task, planPath, presetId, approval, budget, repoRoot });
 }

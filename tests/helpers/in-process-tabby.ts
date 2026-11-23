@@ -449,8 +449,5 @@ export const NEVER_LAUNCHING_ENGINE_HOST: ManagedEngineHost = {
     remove() {
       throw new Error('Unexpected RAM disk removal.');
     },
-    removeDetached() {
-      throw new Error('Unexpected RAM disk removal.');
-    },
   },
 };

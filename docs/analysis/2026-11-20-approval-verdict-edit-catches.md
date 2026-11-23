@@ -33,6 +33,14 @@ catches these), 3 invalid TypeScript or missing symbols (typecheck would catch),
 var a CLI test guard relies on, 3 orchestrator rejections not yet inspected. The other 58 `unsure` were
 mostly "cannot verify without the file" noise and were approved by the orchestrator.
 
+### Full run 60dc585d (27B workers, Flash-Next orchestrator, 18 worker attempts)
+
+- 502 verdicts on all tools: 498 approve, 4 unsure, 0 deny. The orchestrator approved all 4 escalations
+  (two test-file edits, a test run, a probe-file cleanup), so 27B's self-check stopped nothing all run.
+- Total cost: 32.2 min of a 346 min worker total (9%).
+- Review still caught real defects; the check did not: a broken production build (`prompt-section`), a
+  browser overflow regression (`board-tree`, drift gate), a leftover misplaced comment (`agent-endpoints`).
+
 ## Cost of the check (27B, run 60dc585d workers 43ef8d97 + 416e2289)
 
 - 70 verdicts, 295 s total, mean 4.2 s, p90 7.4 s; 64% decode (~270 tokens at ~105 tok/s), 36% prefill

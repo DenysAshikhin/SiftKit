@@ -20,7 +20,7 @@ test('with the RAM disk on, its size field replaces every other cache control an
   for (const hidden of [CACHE_AUTO_LABEL, 'CacheRam', 'CacheRecurrentRam']) assert.equal(screen.queryByLabelText(hidden), null, hidden);
   assert.equal(screen.queryByText('Disk cache directory'), null);
   assert.ok(screen.getByText('≈ 10.4 GiB per full 200k context: 5.0 GiB KV + 5.4 GiB of snapshots every 2048 tokens. '
-    + 'All RAM-disk presets share one RAM disk, sized to their total.'));
+    + 'The RAM-disk presets in use (active, and those task presets name) share one RAM disk, sized to their total.'));
 });
 
 test('without a profile the help asks for one; turning the RAM disk off brings the cache controls back', () => {

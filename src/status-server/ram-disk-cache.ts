@@ -20,11 +20,10 @@ export type RamDisk = { readonly letter: string; readonly root: string; readonly
 /** Finds, creates, grows, and removes SiftKit's RAM disk; every call but `find` may need elevation. */
 export interface RamDiskDriver {
   find(): Promise<RamDisk | null>;
-  create(letter: string, sizeBytes: number): Promise<RamDisk>;
+  /** Also starts a watcher that removes the disk once process `ownerPid` exits, however it exits. */
+  create(letter: string, sizeBytes: number, ownerPid: number): Promise<RamDisk>;
   grow(disk: RamDisk, sizeBytes: number): Promise<RamDisk>;
   remove(disk: RamDisk): Promise<void>;
-  /** Starts the removal and returns at once, for the synchronous process-exit path. */
-  removeDetached(disk: RamDisk): void;
 }
 
 function isAlive(pid: number): boolean {
@@ -56,7 +55,7 @@ function directoryBytes(directory: string): number {
     .reduce((sum, entry) => sum + fs.statSync(path.join(entry.parentPath, entry.name)).size, 0);
 }
 
-/** Keeps SiftKit's RAM disk sized for every RAM-disk preset; runs only while no engine uses the disk. */
+/** Keeps SiftKit's RAM disk sized for the RAM-disk presets in use; runs only while no engine uses the disk. */
 export class RamDiskCache {
   private disk: RamDisk | null = null;
   /** Set once no disk is found or a found one was claimed as a leftover; a live owner's disk is looked up again. */
@@ -84,18 +83,12 @@ export class RamDiskCache {
     fs.mkdirSync(path.join(disk.root, preset.id), { recursive: true });
   }
 
-  /** Removes SiftKit's disk, if any, once no engine caches on it; a leftover found at the first check goes too. */
+  /** For a switch to a preset without the disk: removes it once no engine caches on it; a leftover found at the first check goes too. */
   async release(): Promise<void> {
     await this.removeLeftover(false);
     const disk = this.disk;
     if (disk === null) return;
     await this.driver.remove(disk);
-    this.disk = null;
-  }
-
-  releaseForProcessExitSync(): void {
-    if (this.disk === null) return;
-    this.driver.removeDetached(this.disk);
     this.disk = null;
   }
 
@@ -115,9 +108,11 @@ export class RamDiskCache {
     await this.driver.remove(found);
   }
 
+  /** One owner pid for the marker and the driver's watcher, which removes the disk only while the two agree. */
   private async create(letter: string, sizeBytes: number): Promise<RamDisk> {
-    const disk = await this.driver.create(letter, sizeBytes);
-    fs.writeFileSync(path.join(disk.root, OWNER_FILE), JSON.stringify({ pid: process.pid }));
+    const ownerPid = process.pid;
+    const disk = await this.driver.create(letter, sizeBytes, ownerPid);
+    fs.writeFileSync(path.join(disk.root, OWNER_FILE), JSON.stringify({ pid: ownerPid }));
     return disk;
   }
 

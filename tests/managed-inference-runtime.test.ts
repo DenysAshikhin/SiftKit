@@ -17,8 +17,6 @@ class TestRuntime extends ManagedInferenceRuntime {
 
   replaceModelPresets(): void {}
 
-  async releaseRamDisk(): Promise<void> {}
-
   async startProcess(): Promise<void> {
     this.transitionProcessTo('starting');
     this.transitionProcessTo('ready');

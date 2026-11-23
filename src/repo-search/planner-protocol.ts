@@ -168,8 +168,13 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   }),
   update_tasks: buildRepoToolDefinition({
     toolName: 'update_tasks',
-    description: 'Revise the saved plan: patch tasks by id with only the fields that change, add tasks, remove tasks that never ran, or replace the final verification. The whole plan is validated again and plan.md is rewritten.',
-    exampleArgs: { update: [{ taskId: 'greeting', set: { writePaths: ['src/greeting.ts', 'tests/greeting.test.ts'] } }], add: [], remove: [] },
+    description: 'Revise the saved plan: patch tasks by id with only the fields that change, add tasks, retire tasks with the reason each is dropped, or replace the final verification. A retired task that already ran stays on record and its id cannot be reused; give its replacement a new id. The whole plan is validated again and plan.md is rewritten.',
+    exampleArgs: { update: [{ taskId: 'greeting', set: { writePaths: ['src/greeting.ts', 'tests/greeting.test.ts'] } }], add: [], retire: [] },
+  }),
+  change_approach: buildRepoToolDefinition({
+    toolName: 'change_approach',
+    description: 'End the current approach and begin the next. Give the lesson: what was tried and why it did not work. rollback true puts every file back as it was when the approach began and drops its tasks; rollback false keeps its work, closes its completed tasks, and carries the rest over. Files git ignores are never restored. Afterwards add the next tasks with update_tasks.',
+    exampleArgs: { lesson: 'Caching whole responses broke invalidation: the keys cannot see request headers.', rollback: true, title: 'Cache only the parsed index' },
   }),
   dispatch: buildRepoToolDefinition({
     toolName: 'dispatch',
@@ -200,7 +205,7 @@ const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGI
  * answer and must not be rejected as a repeat. Typed Git is deliberately absent because its fixed
  * native operations cannot mutate the working tree.
  */
-const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit', 'dispatch', 'decide', 'run_check']);
+const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit', 'dispatch', 'decide', 'run_check', 'change_approach']);
 
 export function normalizeToolName(toolName: string): string {
   return String(toolName || '').trim().toLowerCase();

@@ -32,6 +32,7 @@ export const CACHE_AUTO_LABEL = 'Auto-size caches';
 export const CACHE_CONTEXTS_LABEL = 'Full contexts in RAM';
 export const RAM_DISK_CACHE_LABEL = 'RAM disk cache';
 export const RAM_DISK_SIZE_LABEL = 'RAM disk size (GiB)';
+export const RAM_DISK_SHARING_NOTE = 'The RAM-disk presets in use (active, and those task presets name) share one RAM disk, sized to their total.';
 
 export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'general',
@@ -137,7 +138,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'CacheRam', layout: 'quarter', helpText: 'Host RAM reserved for the exllamav3 pinned second-tier page cache (`TABBY_MEMORY_SYSMEM_KV_CACHE`), which tensor parallel rejects. Counts as shared GPU memory on Windows because the tier is page-locked. Disabled while Auto-size caches is on.' },
       { label: 'CacheRecurrentRam', layout: 'quarter', helpText: 'Host RAM for exllamav3 recurrent (linear-attention) states, in MiB; maps to `TABBY_MEMORY_SYSMEM_RECURRENT_CACHE`. Only allocated for hybrid/linear-attention models, which need one state per ParallelSlots lane, so raise it alongside ParallelSlots. Disabled while Auto-size caches is on; raise Full contexts in RAM instead.' },
       { label: RAM_DISK_CACHE_LABEL, layout: 'quarter', helpText: 'Keeps this preset\'s prompt cache on a SiftKit-managed RAM disk (Arsenal Image Mounter) instead of the RAM tiers, so swapping between models keeps both caches. Replaces the other cache controls while on. Mounting needs administrator approval.' },
-      { label: RAM_DISK_SIZE_LABEL, layout: 'quarter', helpText: 'This preset\'s share of the RAM disk in GiB. Size it to at least one full context of this model; all RAM-disk presets share one disk sized to their total.' },
+      { label: RAM_DISK_SIZE_LABEL, layout: 'quarter', helpText: `This preset's share of the RAM disk in GiB. Size it to at least one full context of this model. ${RAM_DISK_SHARING_NOTE}` },
       { label: CACHE_AUTO_LABEL, layout: 'quarter', helpText: 'Sizes CacheRam and CacheRecurrentRam from the model\'s config.json so the RAM tiers hold "Full contexts in RAM" contexts of NumCtx tokens. The manual values are kept for when this is off.' },
       { label: CACHE_CONTEXTS_LABEL, layout: 'quarter', helpText: 'Recommended: 1.1 for a single conversation. 1.5 when two alternate (e.g. orchestrator and worker): only the idle conversation\'s KV moves to RAM, but its last snapshot must outlast every per-request snapshot the active one makes. Models without linear-attention layers keep no snapshots, so 1.1 covers two alternating conversations. Auto ignores ParallelSlots: count each lane\'s conversation.' },
       { label: 'Disk cache directory', layout: 'half', helpText: 'Persistent third cache tier on disk (`TABBY_MEMORY_DISK_CACHE_DIR`). KV pages and recurrent checkpoints survive Tabby restarts, so a reloaded model reuses earlier prompt prefixes. Empty turns it off. Needs CacheRam above 0 and a SiftKit-managed launch. SiftKit drains it to disk before every stop.' },

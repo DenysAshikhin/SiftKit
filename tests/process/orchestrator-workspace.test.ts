@@ -6,11 +6,13 @@ import test from 'node:test';
 
 import {
   captureWorkspace,
+  checkpointWorkspace,
   cleanupScratch,
   diffWorkspace,
   diffstatWorkspace,
   orchestratorScratchDir,
   removeOwnedTemporaryPath,
+  restoreWorkspace,
 } from '../../src/orchestrator/workspace.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
@@ -91,4 +93,42 @@ test('cleanup removes only owned scratch files and rejects escapes without delet
   assert.equal(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8'), 'keep', 'a linked target survives');
   assert.equal(fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8'), 'dirty user change\n');
   assert.ok(fs.existsSync(`${scratch}-sibling`));
+});
+
+test('a restore puts back edited, deleted, and already-dirty files, removes new ones with their empty folders, and leaves ignored files', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, '.gitignore'), 'build/\n');
+  fs.writeFileSync(path.join(root, 'src', 'c.ts'), 'export const c = 1;\n');
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '--quiet', '-m', 'more'], { cwd: root });
+  fs.writeFileSync(path.join(root, 'README.md'), '# Repo\nuser edit\n');
+  fs.writeFileSync(path.join(root, 'notes.txt'), 'mine');
+  const checkpoint = await checkpointWorkspace(root);
+
+  fs.writeFileSync(path.join(root, 'README.md'), '# Repo\nagent edit\n');
+  fs.writeFileSync(path.join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+  fs.rmSync(path.join(root, 'src', 'c.ts'));
+  fs.rmSync(path.join(root, 'notes.txt'));
+  fs.mkdirSync(path.join(root, 'src', 'new'));
+  fs.writeFileSync(path.join(root, 'src', 'new', 'b.ts'), 'export const b = 1;\n');
+  fs.mkdirSync(path.join(root, 'build'));
+  fs.writeFileSync(path.join(root, 'build', 'out.txt'), 'built');
+
+  assert.deepEqual(await restoreWorkspace(root, checkpoint), ['README.md', 'notes.txt', 'src/a.ts', 'src/c.ts', 'src/new/b.ts']);
+  assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), '# Repo\nuser edit\n', 'an edit that predates the checkpoint is kept');
+  assert.equal(fs.readFileSync(path.join(root, 'notes.txt'), 'utf8'), 'mine');
+  assert.equal(fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8'), 'export const a = 1;\n');
+  assert.equal(fs.readFileSync(path.join(root, 'src', 'c.ts'), 'utf8'), 'export const c = 1;\n');
+  assert.equal(fs.existsSync(path.join(root, 'src', 'new')), false, 'a folder the restore emptied is removed');
+  assert.equal(fs.readFileSync(path.join(root, 'build', 'out.txt'), 'utf8'), 'built', 'ignored files are not part of a checkpoint');
+  assert.deepEqual(await diffWorkspace(root, checkpoint.files), { paths: [], digest: null });
+  assert.deepEqual(await restoreWorkspace(root, checkpoint), [], 'a second restore finds nothing to do');
+});
+
+test('a restore refuses once a commit has been made since the checkpoint', async () => {
+  const root = makeRepo();
+  const checkpoint = await checkpointWorkspace(root);
+  fs.writeFileSync(path.join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+  execFileSync('git', ['commit', '--quiet', '-am', 'moved'], { cwd: root });
+  await assert.rejects(restoreWorkspace(root, checkpoint), /Cannot roll back: HEAD is [0-9a-f]{40}, but the approach began at [0-9a-f]{40}\./u);
 });

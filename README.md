@@ -80,6 +80,7 @@ The orchestrator takes a task, a Markdown plan, or both. It works in this order:
 ```powershell
 siftkit orchestrator "add a greeting endpoint with tests"
 siftkit orchestrator --plan docs/plan.md --approval interactive
+siftkit orchestrator --minutes 240 --dispatches 30 "make the import twice as fast; npm run bench:import is the measure"
 siftkit orchestrator attach <runId> --after 12
 siftkit orchestrator status <runId>
 siftkit orchestrator decide <runId> <approvalId> deny --reason "out of scope"
@@ -102,7 +103,17 @@ siftkit orchestrator abort <runId>
 - Each task gets at most two implementation attempts. The second attempt is given the real failed-check output from the first.
 - Drift correction has its own separate budget of two attempts.
 - A worker reporting "completed" does not complete the task. The task completes only when the orchestrator's own checks, the drift review, and cleanup all pass.
-- When a task fails, scheduling stops and dependent tasks never start.
+- A task that runs out of attempts stays `failed`. The orchestrator retires it and adds a replacement that does the work differently, so a failed task does not end the run.
+
+**Run budget and approaches**
+
+- A run keeps working until its final verification passes or its budget is spent. The budget is `--minutes` (default 720, wall-clock time, waits included) and `--dispatches` (default 80, workers started).
+- When the dispatches are spent, no new worker starts, and the next failing final verification ends the run. When the minutes are spent, the run stops wherever it is. Both end as `failed` with the code `budget_exhausted`.
+- There is no limit on final verification attempts. After one fails, a worker must run before the orchestrator can try again.
+- The orchestrator's work is divided into approaches. When a design does not work, it ends the approach with a lesson and starts the next. It can roll the files back to how they were when the approach began, or keep them.
+- A rollback restores every file git does not ignore. It is refused when a commit was made since the approach began.
+- Retired tasks and ended approaches stay on the run's record with their reasons, so the same thing is not tried twice.
+- The orchestrator ends a run as `blocked` only when no approach can meet the goal, for example a missing credential.
 
 **Drift review**
 
@@ -124,9 +135,11 @@ siftkit orchestrator abort <runId>
 - A run that was active when the server restarted is marked `interrupted` and is never re-dispatched automatically.
 - Task temp files go in the run's `scratch/` directory and are removed at the end. The plan and the run record are kept.
 
-In the dashboard, pick the **Orchestrator** preset in a chat, save a repo folder, and press **Run orchestrator**. The panel shows:
+In the dashboard, pick the **Orchestrator** preset in a chat, save a repo folder, set the budget if the default does not suit, and press **Run orchestrator**. The panel shows:
 
 - the phase and plan path
+- the budget used and the active approach
+- what each earlier approach taught, and the retired tasks
 - each task's `Implementation attempt n of 2` or `Drift correction n of 2`
 - failed checks
 - pending approvals

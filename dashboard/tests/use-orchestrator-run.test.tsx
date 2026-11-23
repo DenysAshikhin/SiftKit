@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { OrchestratorRunStateSchema, type OrchestratorActivity, type OrchestratorRunState } from '@siftkit/contracts';
+import { type OrchestratorActivity, type OrchestratorRunState } from '@siftkit/contracts';
 import { renderHook, waitFor } from './react-test-environment.ts';
 import { useOrchestratorRun } from '../src/hooks/useOrchestratorRun.ts';
+import { orchestratorRunState } from './orchestrator-fixture.ts';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const SESSION_ID = '00000000-0000-4000-8000-000000000002';
@@ -10,12 +11,7 @@ const APPROVAL_ID = '00000000-0000-4000-8000-000000000003';
 const AT = '2026-09-23T12:00:00.000Z';
 
 function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunState {
-  return OrchestratorRunStateSchema.parse({
-    runId: RUN_ID,
-    request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'Greet', planPath: null },
-    revision: 1, phase: 'executing', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], parentRunIds: [],
-    approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: AT, ...overrides,
-  });
+  return orchestratorRunState({ createdAtUtc: AT, updatedAtUtc: AT, ...overrides });
 }
 
 const EVENT = { runId: RUN_ID, sequence: 1, atUtc: AT, phase: 'executing', message: 'Task started.', taskId: null, purpose: null, attempt: null, childRunId: null };
@@ -126,7 +122,8 @@ test('a session with no run of its own looks nothing up, and a start names the s
     const { result } = renderHook(() => useOrchestratorRun(null));
     assert.equal(result.current.state, null);
     assert.equal(fetches.calls.length, 0, 'no session run means no lookup, and no run for the folder either');
-    await result.current.start({ sessionId: SESSION_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'Greet', planPath: null });
+    await result.current.start({ sessionId: SESSION_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'Greet', planPath: null,
+      budget: { minutes: 90, dispatches: 12 } });
     const post = fetches.calls.find((call) => call.url === '/orchestrator');
     const body = post?.body === undefined || post.body === null ? null : JSON.parse(post.body);
     assert.ok(body);
@@ -136,6 +133,7 @@ test('a session with no run of its own looks nothing up, and a start names the s
     assert.equal(body.approval, 'auto');
     assert.equal(body.task, 'Greet');
     assert.equal(body.planPath, null);
+    assert.deepEqual(body.budget, { minutes: 90, dispatches: 12 }, 'the budget is the one the caller chose, not a default');
     assert.match(String(body.submissionId), /^[0-9a-f-]{36}$/u);
     await waitFor(() => assert.equal(result.current.state?.phase, 'completed'));
   } finally { fetches.restore(); }

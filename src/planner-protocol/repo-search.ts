@@ -27,6 +27,7 @@ export const WEB_CHAT_TOOL_NAMES = [
 export const ORCHESTRATOR_TOOL_NAMES = [
   'save_plan',
   'update_tasks',
+  'change_approach',
   'dispatch',
   'decide',
   'run_check',

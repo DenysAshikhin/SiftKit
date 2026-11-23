@@ -4,7 +4,7 @@ import { onTestFinished, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChatSessionResponseSchema, DurableChatApprovalSchema, OrchestratorActivitySchema, OrchestratorRunStateSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, DurableChatApprovalSchema, OrchestratorActivitySchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import { fireEvent, notifyResize, render as renderComponent, screen, waitFor } from './react-test-environment.ts';
 import { countRenders } from './render-tracker.ts';
 import { ChatRuntimeHub } from '../src/lib/chat-runtime-hub.ts';
@@ -24,6 +24,7 @@ import { buildUsageFrame } from './usage-frame.ts';
 import { chatSnapshot } from './chat-snapshot-fixture.ts';
 import { applyLiveTranscript, liveTranscriptSnapshot, type LiveTranscriptStep } from './live-transcript-fixture.ts';
 import { ORCHESTRATOR_RUN_ID, ORCHESTRATOR_SESSION, PRESET, REPO_AGENT_PRESET, SESSION_A, SESSION_B, buildDefaultStore, buildProps, msg, orchestratorProps, type ChatTabProps } from './chat-tab-fixture.ts';
+import { orchestratorRequest, orchestratorRunState, orchestratorTaskState } from './orchestrator-fixture.ts';
 import { createLiveMessage } from '../src/lib/chat-live-messages.ts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -532,11 +533,10 @@ test('orchestrator mode starts a run for the saved repository and shows its live
   const originalFetch = globalThis.fetch;
   const drafts: string[] = [];
   const refreshes: number[] = [];
-  const running = OrchestratorRunStateSchema.parse({
+  const running = orchestratorRunState({
     runId: ORCHESTRATOR_RUN_ID,
-    request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
-    revision: 1, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], parentRunIds: [],
-    approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
+    request: orchestratorRequest({ submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, task: 'hi' }),
+    phase: 'preparing_plan', createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
   });
   globalThis.fetch = async (input, init) => {
     const url = String(input);
@@ -557,12 +557,15 @@ data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
     })} />);
     await act(async () => { await Promise.resolve(); });
     fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    fireEvent.change(screen.getByLabelText('Budget minutes'), { target: { value: '90' } });
+    fireEvent.change(screen.getByLabelText('Budget dispatches'), { target: { value: '12' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Run orchestrator' })); });
     await screen.findByText('interrupted');
     const start = bodies.find(([url]) => url === '/orchestrator');
     const request = JSON.parse(start?.[1] ?? '{}');
     assert.deepEqual({ ...request, submissionId: null },
-      { submissionId: null, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null });
+      { submissionId: null, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive',
+        budget: { minutes: 90, dispatches: 12 }, task: 'hi', planPath: null });
     assert.deepEqual(drafts, ['']);
     assert.deepEqual(refreshes, [1], 'the started session is re-read, so its rail row picks up the new run');
   } finally { globalThis.fetch = originalFetch; }
@@ -574,13 +577,13 @@ test('orchestrator mode hands the live activity and the last work phase to the r
   const check = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
   const task = { id: 'greet', title: 'Greet', dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: ['src/a.ts'],
     steps: [{ instruction: 'Write it.', expectedResult: 'It exists.' }], verification: [check], acceptance: ['Greets.'], temporaryPaths: [] };
-  const running = OrchestratorRunStateSchema.parse({
+  const running = orchestratorRunState({
     runId: ORCHESTRATOR_RUN_ID,
-    request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
+    request: orchestratorRequest({ submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, task: 'hi' }),
     revision: 2, phase: 'approval_required', planPath: 'plan.md', planHash: 'h',
     plan: { goal: 'Greet', constraints: [], tasks: [task], finalVerification: [check] },
-    tasks: [{ taskId: 'greet', status: 'running', review: null }], attempts: [], parentRunIds: [],
-    approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
+    tasks: [orchestratorTaskState('greet', 'running')],
+    createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
   });
   const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'executing', message: 'Executing.',
     taskId: null, purpose: null, attempt: null, childRunId: null };
@@ -612,11 +615,10 @@ test('orchestrator mode hands the live activity and the last work phase to the r
 test('orchestrator mode re-reads its session each time the run commits a new revision', async () => {
   const originalFetch = globalThis.fetch;
   const refreshes: number[] = [];
-  const running = OrchestratorRunStateSchema.parse({
+  const running = orchestratorRunState({
     runId: ORCHESTRATOR_RUN_ID,
-    request: { submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'hi', planPath: null },
-    revision: 2, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], parentRunIds: [],
-    approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
+    request: orchestratorRequest({ submissionId: ORCHESTRATOR_RUN_ID, sessionId: ORCHESTRATOR_SESSION.id, approval: 'auto', task: 'hi' }),
+    revision: 2, phase: 'preparing_plan', createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
   });
   const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'completed', message: 'Done.',
     taskId: null, purpose: null, attempt: null, childRunId: null };
@@ -644,6 +646,26 @@ test('orchestrator mode cannot start without a saved repository folder', () => {
   try {
     renderComponent(<ChatTab {...orchestratorProps({ selectedSession: { ...SESSION_A, planRepoRoot: '' } })} />);
     assert.equal(screen.getByRole('button', { name: 'Run orchestrator' }).hasAttribute('disabled'), true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('orchestrator mode shows the default budget and cannot start with an invalid one', () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => { throw new Error(`Unexpected fetch ${String(input)}`); };
+  try {
+    renderComponent(<ChatTab {...orchestratorProps({ selectedSession: { ...ORCHESTRATOR_SESSION, orchestratorRunId: null } })} />);
+    const blocked = () => screen.getByRole('button', { name: 'Run orchestrator' }).hasAttribute('disabled');
+    const field = (label: string) => screen.getByLabelText(label);
+    const shown = (label: string) => { const input = field(label); return input instanceof window.HTMLInputElement ? input.value : null; };
+    assert.deepEqual([shown('Budget minutes'), shown('Budget dispatches')], ['720', '80']);
+    assert.equal(blocked(), false);
+    for (const [label, bad, good] of [['Budget minutes', '0', '45'], ['Budget minutes', '', '0.5'],
+      ['Budget dispatches', '1.5', '3'], ['Budget dispatches', '', '80']] as const) {
+      fireEvent.change(field(label), { target: { value: bad } });
+      assert.equal(blocked(), true, `${label} "${bad}" blocks the start`);
+      fireEvent.change(field(label), { target: { value: good } });
+      assert.equal(blocked(), false, `${label} "${good}" allows it`);
+    }
   } finally { globalThis.fetch = originalFetch; }
 });
 

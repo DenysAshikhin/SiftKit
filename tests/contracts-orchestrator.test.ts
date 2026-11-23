@@ -2,13 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DEFAULT_ORCHESTRATOR_BUDGET,
   ORCHESTRATOR_MAX_ATTEMPTS,
+  ORCHESTRATOR_MAX_BUDGET_MINUTES,
   OPERATION_STREAM_EVENTS,
   ORCHESTRATOR_ACTIVITY_FRAME,
   ORCHESTRATOR_RECENT_TOOL_LIMIT,
   OrchestratorActivitySchema,
+  OrchestratorApproachSchema,
+  OrchestratorChangeApproachArgsSchema,
   OrchestratorChildActivitySchema,
   OrchestratorPhaseSchema,
+  OrchestratorPlanSchema,
+  OrchestratorSavePlanArgsSchema,
   OrchestratorTaskStatusSchema,
   OrchestratorScheduleSchema,
   isOrchestratorOpenTaskStatus,
@@ -20,17 +26,19 @@ import {
   OrchestratorFailureSchema,
   OrchestratorPendingApprovalSchema,
   OrchestratorRecordReviewArgsSchema,
+  OrchestratorRetiredTaskSchema,
   OrchestratorStartRequestSchema,
   OrchestratorTaskSchema,
   OrchestratorUpdateTasksArgsSchema,
   OrchestratorVerificationCheckSchema,
   SiftPresetCollectionSchema,
   orchestratorCheckFailure,
+  orchestratorAttemptsSpent,
   SiftPresetSchema,
   type OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
 import { PresetCatalog } from '../src/preset-catalog.ts';
-import { makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 
 
 test('the default orchestrator inherits the model', () => {
@@ -104,7 +112,7 @@ test('the orchestrator finishes completed with a summary or blocked with a reaso
 
 test('a start request needs a task or a plan path and states which session it came from', () => {
   const request = { submissionId: '6f9f2d7c-3b2e-4c0a-9a1f-2d3e4f5a6b7c', sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator',
-    approval: 'interactive', task: null, planPath: null };
+    approval: 'interactive', budget: DEFAULT_ORCHESTRATOR_BUDGET, task: null, planPath: null };
   assert.equal(OrchestratorStartRequestSchema.safeParse(request).success, false);
   assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, task: 'Do it.' }).success, true);
   assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, planPath: 'docs/plan.md' }).success, true);
@@ -191,4 +199,55 @@ test('the retired plan validation and drift phases are not run phases', () => {
 
 test('the orchestrator stream names every frame from the shared contract', () => {
   assert.deepEqual([OPERATION_STREAM_EVENTS.progress, ORCHESTRATOR_ACTIVITY_FRAME, OPERATION_STREAM_EVENTS.result], ['progress', 'activity', 'result']);
+});
+
+test('a purpose is spent for a task after two attempts, counted per task and per purpose', () => {
+  const attempts = [
+    { taskId: 'a', purpose: 'implementation' }, { taskId: 'a', purpose: 'implementation' },
+    { taskId: 'a', purpose: 'fix' }, { taskId: 'b', purpose: 'fix' },
+  ] as const;
+  assert.equal(orchestratorAttemptsSpent(attempts, 'a', 'implementation'), true);
+  assert.equal(orchestratorAttemptsSpent(attempts, 'a', 'fix'), false);
+  assert.equal(orchestratorAttemptsSpent(attempts, 'b', 'implementation'), false);
+});
+
+test('a start request carries its budget: positive minutes up to two weeks, and a whole number of dispatches', () => {
+  const request = { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto',
+    task: 'Do it.', planPath: null };
+  assert.equal(OrchestratorStartRequestSchema.safeParse(request).success, false, 'a start without a budget is not a start');
+  assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, budget: DEFAULT_ORCHESTRATOR_BUDGET }).success, true);
+  assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, budget: { minutes: 0.5, dispatches: 1 } }).success, true);
+  for (const budget of [{ minutes: 0, dispatches: 1 }, { minutes: 10, dispatches: 0 }, { minutes: 10, dispatches: 1.5 },
+    { minutes: ORCHESTRATOR_MAX_BUDGET_MINUTES + 1, dispatches: 1 }, { minutes: 10 }]) {
+    assert.equal(OrchestratorStartRequestSchema.safeParse({ ...request, budget }).success, false, JSON.stringify(budget));
+  }
+});
+
+test('an approach is active until it ends kept or rolled back with a lesson; a retired task records why it left', () => {
+  const approach = { number: 1, title: 'Initial plan', startedAtUtc: '2026-11-21T10:00:00.000Z', outcome: null };
+  assert.equal(OrchestratorApproachSchema.safeParse(approach).success, true);
+  const ended = { kind: 'rolled_back', lesson: 'The cache cannot see headers.', endedAtUtc: '2026-11-21T11:00:00.000Z' };
+  assert.equal(OrchestratorApproachSchema.safeParse({ ...approach, outcome: ended }).success, true);
+  assert.equal(OrchestratorApproachSchema.safeParse({ ...approach, outcome: { ...ended, lesson: ' ' } }).success, false);
+  assert.equal(OrchestratorApproachSchema.safeParse({ ...approach, outcome: { ...ended, kind: 'abandoned' } }).success, false);
+  const retired = { taskId: 'cache', title: 'Cache responses', approach: 1, status: 'failed', reason: 'Out of attempts.',
+    retiredAtUtc: '2026-11-21T11:00:00.000Z' };
+  assert.equal(OrchestratorRetiredTaskSchema.safeParse(retired).success, true);
+  assert.equal(OrchestratorRetiredTaskSchema.safeParse({ ...retired, reason: '' }).success, false);
+});
+
+test('a run can fail because its budget is spent; the old finish-limit failure code is gone', () => {
+  assert.equal(OrchestratorFailureSchema.safeParse({ code: 'budget_exhausted', message: 'Spent.', taskId: null }).success, true);
+  assert.equal(OrchestratorFailureSchema.safeParse({ code: 'final_verification_failed', message: 'x', taskId: null }).success, false);
+});
+
+test('a stored plan may hold no task after a rollback, but save_plan needs at least one; change_approach names all three fields', () => {
+  const empty = { goal: 'Go.', constraints: [], tasks: [], finalVerification: [{ kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 }] };
+  assert.equal(OrchestratorPlanSchema.safeParse(empty).success, true);
+  assert.equal(OrchestratorSavePlanArgsSchema.safeParse({ plan: empty }).success, false);
+  assert.equal(OrchestratorSavePlanArgsSchema.safeParse({ plan: makeOrchestratorPlan([makeOrchestratorTask()]) }).success, true);
+  const change = { lesson: 'The cache cannot see headers.', rollback: true, title: 'Cache the index' };
+  assert.equal(OrchestratorChangeApproachArgsSchema.safeParse(change).success, true);
+  assert.equal(OrchestratorChangeApproachArgsSchema.safeParse({ lesson: change.lesson, title: change.title }).success, false);
+  assert.equal(OrchestratorChangeApproachArgsSchema.safeParse({ ...change, lesson: ' ' }).success, false);
 });

@@ -33,6 +33,15 @@ export function getActiveModelPreset(config: SiftConfig): ModelRuntimePreset {
   return preset;
 }
 
+/** The model presets that will run: the active one, those task presets name, and `loading` (as given), in config order. */
+export function getModelPresetsInUse(config: SiftConfig, loading: ModelRuntimePreset): ModelRuntimePreset[] {
+  const ids = new Set([config.Server.ModelPresets.ActivePresetId, loading.id]);
+  for (const preset of config.Presets) if (preset.modelPresetId !== null) ids.add(preset.modelPresetId);
+  return config.Server.ModelPresets.Presets
+    .filter((preset) => ids.has(preset.id))
+    .map((preset) => (preset.id === loading.id ? loading : preset));
+}
+
 export function getActiveInferenceBackend(config: SiftConfig): InferenceBackendId {
   return getActiveModelPreset(config).Backend;
 }

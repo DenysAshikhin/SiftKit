@@ -291,6 +291,9 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
   if (toolName === 'show_image') {
     return formatToolCommand('show_image', [['path', readString(args.path)]]);
   }
+  if (toolName === 'change_approach') {
+    return formatToolCommand('change_approach', [['title', readString(args.title)], ['rollback', optionalBoolean(args.rollback)]]);
+  }
   if (toolName === 'run_check') {
     return formatToolCommand('run_check', [['command', readString(args.command)], ['cwd', readString(args.cwd)]]);
   }

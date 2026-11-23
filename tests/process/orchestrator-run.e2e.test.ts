@@ -18,6 +18,7 @@ import {
   type OrchestratorPlan,
   type OrchestratorRecordReviewArgs,
   type OrchestratorRunState,
+  type OrchestratorStartRequest,
   type OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
 import { runCli } from '../../src/cli/dispatch.ts';
@@ -29,7 +30,7 @@ import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-r
 import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from '../helpers/dashboard-model-queue-harness.ts';
 import { requestJson } from '../helpers/dashboard-http.ts';
 import { readStatusModelRequests } from '../helpers/model-request-status.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from '../helpers/orchestrator-plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorRequest, makeOrchestratorTask } from '../helpers/orchestrator-plan.ts';
 import { APPROVING_VERDICT, ESCALATING_VERDICTS, ScriptedEngineService, type ParentTurn } from '../helpers/scripted-engine-service.ts';
 import { requestSse } from '../helpers/sse-http.ts';
 import { createManagedTempDir } from '../helpers/temp-dirs.ts';
@@ -132,10 +133,9 @@ async function startHarness(t: TestContext, prefix: string): Promise<Harness> {
   return { harness, engine, repo: makeRepo(), baseUrl: harness.getBaseUrl() };
 }
 
-async function startRun(context: Harness, approval: ApprovalMode, submissionId = randomUUID()): Promise<OrchestratorRunState> {
-  const response = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId, sessionId: null, repoRoot: context.repo, presetId: 'orchestrator', approval, task: 'Add a greeting module.', planPath: null,
-  }) });
+async function startRun(context: Harness, approval: ApprovalMode, overrides: Partial<OrchestratorStartRequest> = {}): Promise<OrchestratorRunState> {
+  const response = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify(
+    makeOrchestratorRequest({ repoRoot: context.repo, approval, task: 'Add a greeting module.', ...overrides })) });
   assert.equal(response.statusCode, 202, JSON.stringify(response.body));
   return OrchestratorRunStateSchema.parse(response.body);
 }
@@ -344,7 +344,7 @@ test('update_tasks revises the saved plan and its Markdown, and save_plan only m
   const { engine } = context;
   engine.parent.push([savePlan(),
     tool('update_tasks', { update: [{ taskId: 'greeting', set: { title: 'Write the greeting module' } }], add: [FAREWELL_TASK] }),
-    savePlan(), tool('update_tasks', { remove: ['nowhere'] }), dispatch({ taskId: 'farewell' }),
+    savePlan(), tool('update_tasks', { retire: [{ taskId: 'nowhere', reason: 'Never planned.' }] }), dispatch({ taskId: 'farewell' }),
     { content: '{"status":"blocked","reason":"Stop after the farewell."}' }]);
   engine.children.push(FAREWELL_WRITER);
 
@@ -406,8 +406,8 @@ test('a supplied plan is quoted to the orchestrator, and a missing one fails bef
   fs.writeFileSync(path.join(context.repo, 'docs', 'plan.md'), '# Greeting plan\nWrite src/greeting.ts.\n');
   engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'), COMPLETE]);
   engine.children.push(WRITER);
-  const start = (planPath: string) => requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId: randomUUID(), sessionId: null, repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: null, planPath }) });
+  const start = (planPath: string) => requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify(makeOrchestratorRequest({
+    repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: null, planPath })) });
 
   const { state } = await followRun(context, OrchestratorRunStateSchema.parse((await start('docs/plan.md')).body).runId);
   assertCompleted(state, engine);
@@ -416,8 +416,8 @@ test('a supplied plan is quoted to the orchestrator, and a missing one fails bef
   const missing = await followRun(context, OrchestratorRunStateSchema.parse((await start('docs/missing.md')).body).runId);
   assert.equal(missing.state.failure?.code, 'plan_not_found');
   assert.equal(engine.prompts('parent').length, 1, 'no conversation for a missing plan');
-  const rejected = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId: randomUUID(), sessionId: null, repoRoot: context.repo, presetId: 'repo-agent', approval: 'off', task: 'x', planPath: null }) });
+  const rejected = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify(makeOrchestratorRequest({
+    repoRoot: context.repo, presetId: 'repo-agent', approval: 'off', task: 'x' })) });
   assert.equal(rejected.statusCode, 400);
   assert.match(String(rejected.body.error), /not an orchestrator/u);
 });
@@ -549,19 +549,43 @@ test('a failing final verification rejects the finish with its output, and a fix
   assert.equal(events.filter((event) => event.message === 'Running final verification.').length, 2);
 });
 
-test('a final verification that fails on every finish fails the run after the last one', async (t) => {
-  const context = await startHarness(t, 'siftkit-orchestrator-final-failed-');
+test('a failed finish needs a child to run before the next one, and a spent dispatch budget ends the run on a failing finish', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-dispatch-budget-');
   const { engine } = context;
   const failing: OrchestratorVerificationCheck = { kind: 'command', command: 'exit 1', cwd: '.', expectedExitCode: 0 };
   engine.parent.push([savePlan(planOf([WRITE_TASK], [failing])), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'),
-    COMPLETE, COMPLETE, COMPLETE]);
-  engine.children.push(WRITER);
+    COMPLETE, COMPLETE,
+    dispatch({ taskId: 'greeting', purpose: 'fix' }), review('greeting', 'pass'),
+    dispatch({ taskId: 'greeting', purpose: 'fix' }), COMPLETE]);
+  engine.children.push(WRITER, [writeFile('export const greeting = "hey";\n'), APPROVING_VERDICT, AGENT_REPORT]);
 
-  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+  const { state, events } = await followRun(context,
+    (await startRun(context, 'off', { budget: { minutes: 60, dispatches: 2 } })).runId);
 
   assert.equal(state.phase, 'failed');
-  assert.equal(state.failure?.code, 'final_verification_failed');
-  assert.match(state.failure?.message ?? '', /Final verification failed 3 times: Check `exit 1` exited 1; expected 0\./u);
+  assert.equal(state.failure?.code, 'budget_exhausted');
+  assert.match(state.failure?.message ?? '',
+    /^Final verification still fails and the dispatch budget is spent \(2 of 2\): Check `exit 1` exited 1; expected 0\./u);
+  assert.equal(events.filter((event) => event.message === 'Running final verification.').length, 2,
+    'the second finish was refused before any check ran, because no child had run since the first');
+  assert.equal(state.attempts.length, 2, 'the third dispatch started no child');
+  assert.ok(engine.parentToolOutputs().some((output) => /The run's dispatch budget is spent \(2 of 2\)\. Finish now/u.test(output)));
+});
+
+test('a run that outlives its time budget stops as budget_exhausted, even while it waits on a person', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-deadline-');
+  const { engine } = context;
+  engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' })]);
+  engine.children.push(WRITER);
+
+  // Interactive approval parks the child's check on a person who never answers, so only the deadline can end the run.
+  const { state } = await followRun(context,
+    (await startRun(context, 'interactive', { budget: { minutes: 0.05, dispatches: 5 } })).runId);
+
+  assert.equal(state.phase, 'failed');
+  assert.deepEqual(state.failure, { code: 'budget_exhausted', message: "The run's time budget of 0.05 minutes is spent.", taskId: null });
+  assert.equal(state.approval, null, 'the pending approval is cleared');
+  assert.equal(state.tasks.some((task) => task.status === 'running' || task.status === 'reviewing'), false, 'no task is left looking live');
 });
 
 test('run_check leads its result with the digest of the whole check output', async (t) => {
@@ -615,10 +639,10 @@ test('a duplicate submission returns the same run and abort stops a parked child
   engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' }), COMPLETE]);
   engine.children.push(ESCALATING_WRITER);
   const submissionId = randomUUID();
-  const started = await startRun(context, 'interactive', submissionId);
-  assert.equal((await startRun(context, 'interactive', submissionId)).runId, started.runId);
-  const conflicting = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify({
-    submissionId, sessionId: null, repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: 'Something else.', planPath: null }) });
+  const started = await startRun(context, 'interactive', { submissionId });
+  assert.equal((await startRun(context, 'interactive', { submissionId })).runId, started.runId);
+  const conflicting = await requestJson(`${context.baseUrl}/orchestrator`, { method: 'POST', body: JSON.stringify(makeOrchestratorRequest({
+    submissionId, repoRoot: context.repo, presetId: 'orchestrator', approval: 'off', task: 'Something else.' })) });
   assert.equal(conflicting.statusCode, 400);
 
   await waitForApproval(context, started.runId);
@@ -767,4 +791,81 @@ test('the orchestrator is told which uncommitted changes predate the run', async
   await followRun(context, (await startRun(context, 'off')).runId);
 
   assert.match(engine.prompts('parent')[0] ?? '', /Uncommitted changes that predate this run \(never count them against any task\): src\/app\.ts\./u);
+});
+
+/** A child that never creates the target: it reads, then reports until its resubmits run out. */
+function neverWrites(): MockPlannerResponseInput[] {
+  return [tool('read', { path: 'src/app.ts' }), AGENT_REPORT, AGENT_REPORT, AGENT_REPORT];
+}
+
+test('a task out of attempts blocks the finish until it is retired and replaced under a new id; the run then completes', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-retire-');
+  const { engine } = context;
+  const failing = (purpose: OrchestratorChildPurpose) => [dispatch({ taskId: 'greeting', purpose }), review('greeting', 'fail')];
+  engine.parent.push([savePlan(), ...failing('implementation'), ...failing('implementation'), ...failing('fix'), ...failing('fix'),
+    COMPLETE,
+    tool('update_tasks', { retire: [{ taskId: 'greeting', reason: 'Four children never created the file.' }],
+      add: [{ ...WRITE_TASK, id: 'greeting-2' }] }),
+    dispatch({ taskId: 'greeting-2' }), review('greeting-2', 'pass'), COMPLETE]);
+  engine.children.push(neverWrites(), neverWrites(), neverWrites(), neverWrites(), WRITER);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['greeting-2', 'completed']]);
+  assert.deepEqual(state.retiredTasks.map((task) => [task.taskId, task.status, task.approach, task.reason]),
+    [['greeting', 'failed', 1, 'Four children never created the file.']]);
+  assert.equal(state.attempts.length, 5, 'the retired task keeps its four attempts on record');
+  const outputs = engine.parentToolOutputs();
+  assert.ok(outputs.some((output) => /Recorded fail for greeting; it is now failed\. It is out of attempts: retire it/u.test(output)));
+  assert.ok(outputs.some((output) => /^Plan updated: .*plan\.md now has 1 task\(s\)\./u.test(output)));
+  assert.doesNotMatch(fs.readFileSync(path.join(context.repo, state.planPath ?? ''), 'utf8'), /## Task greeting:/u);
+});
+
+function changeApproachTo(title: string, lesson: string, rollback: boolean) {
+  return tool('change_approach', { title, lesson, rollback });
+}
+
+test('change_approach with rollback puts the files back, records the dropped task with the lesson, and the next approach completes the run', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-rollback-');
+  const { engine } = context;
+  const lesson = 'A constant greeting cannot be localised.';
+  engine.parent.push([savePlan(), dispatch({ taskId: 'greeting' }), review('greeting', 'fail'),
+    changeApproachTo('Farewell first', lesson, true), tool('update_tasks', { add: [FAREWELL_TASK] }),
+    dispatch({ taskId: 'farewell' }), review('farewell', 'pass'), COMPLETE]);
+  engine.children.push(WRITER, FAREWELL_WRITER);
+
+  const { state, events } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  assert.equal(fs.existsSync(path.join(context.repo, TARGET)), false, 'the rolled-back approach left no file behind');
+  assert.ok(fs.existsSync(path.join(context.repo, 'src', 'farewell.ts')));
+  assert.deepEqual(state.approaches.map((approach) => [approach.number, approach.title, approach.outcome?.kind ?? 'active', approach.outcome?.lesson ?? null]),
+    [[1, 'Initial plan', 'rolled_back', lesson], [2, 'Farewell first', 'active', null]]);
+  assert.deepEqual(state.retiredTasks.map((task) => [task.taskId, task.status, task.approach, task.reason]), [['greeting', 'reviewing', 1, lesson]]);
+  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status, task.approach]), [['farewell', 'completed', 2]]);
+  const changed = engine.parentToolOutputs().find((output) => output.startsWith('Approach 1 ended')) ?? '';
+  assert.match(changed, /^Approach 1 ended, rolled back \(\d+ file\(s\) restored\)\. Approach 2 is active: Farewell first\./u);
+  assert.match(changed, /Restored: .*src\/greeting\.ts/u);
+  assert.ok(events.some((event) => /^Approach 1 rolled back \(\d+ file\(s\) restored\); approach 2 began: Farewell first\.$/u.test(event.message)));
+});
+
+test('change_approach without rollback keeps the files, closes completed tasks, and carries open tasks into the next approach', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-keep-');
+  const { engine } = context;
+  engine.parent.push([savePlan(planOf([WRITE_TASK, FAREWELL_TASK])), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'),
+    changeApproachTo('Second design', 'The greeting works; the farewell needs another design.', false),
+    dispatch({ taskId: 'greeting', purpose: 'fix' }), dispatch({ taskId: 'farewell' }), review('farewell', 'pass'), COMPLETE]);
+  engine.children.push(WRITER, FAREWELL_WRITER);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  assert.equal(fs.readFileSync(path.join(context.repo, TARGET), 'utf8'), GREETING, 'a kept approach keeps its files');
+  assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status, task.approach]), [['greeting', 'completed', 1], ['farewell', 'completed', 2]]);
+  assert.deepEqual(state.approaches.map((approach) => approach.outcome?.kind ?? 'active'), ['kept', 'active']);
+  assert.deepEqual(state.retiredTasks, []);
+  assert.ok(engine.parentToolOutputs().some((output) => /Task 'greeting' was completed in approach 1, which has ended/u.test(output)),
+    'a closed task takes no fix');
+  assert.equal(state.attempts.length, 2, 'the refused fix started no child');
 });

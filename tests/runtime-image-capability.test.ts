@@ -20,8 +20,6 @@ class FakeRuntime extends ManagedInferenceRuntime {
 
   replaceModelPresets(): void {}
 
-  async releaseRamDisk(): Promise<void> {}
-
   async stopProcess(): Promise<void> {
     this.transitionModelTo('unloaded');
     this.transitionProcessTo('stopped');

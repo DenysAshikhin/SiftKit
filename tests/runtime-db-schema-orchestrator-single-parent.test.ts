@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { CURRENT_SCHEMA_VERSION, closeAllRuntimeDatabases, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorRequest, makeOrchestratorTask, makeTaskState } from './helpers/orchestrator-plan.ts';
 import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
@@ -23,9 +23,9 @@ function legacyResult(purpose: string, childRunId: string, passed: boolean) {
 function seedSchema83(): { dbPath: string; runId: string; parentRunId: string } {
   const repoRoot = createManagedTempDir('siftkit-single-parent-repo-');
   const dbPath = path.join(createManagedTempDir('siftkit-single-parent-'), 'runtime.sqlite');
-  const run = new OrchestratorRunStore(getRuntimeDatabase(dbPath)).create({
-    submissionId: randomUUID(), sessionId: null, repoRoot, presetId: 'orchestrator', approval: 'off', task: 'Add greeting.', planPath: null,
-  });
+  const run = new OrchestratorRunStore(getRuntimeDatabase(dbPath)).create(
+    makeOrchestratorRequest({ repoRoot, approval: 'off', task: 'Add greeting.' }),
+  );
   closeAllRuntimeDatabases();
   const parentRunId = randomUUID();
   const implementation = randomUUID();
@@ -71,7 +71,7 @@ test('the 83 to 84 upgrade turns a state-machine run into a readable single-orch
   const store = new OrchestratorRunStore(database);
   const state = store.read(runId);
   assert.deepEqual(state.parentRunIds, [parentRunId]);
-  assert.deepEqual(state.tasks, [{ taskId: 'greeting', status: 'failed', review: null }]);
+  assert.deepEqual(state.tasks, [makeTaskState('greeting', 'failed')]);
   assert.deepEqual(state.failure, { code: 'blocked', message: 'Task greeting still has drift.', taskId: 'greeting' });
   const [implementation, fix] = state.attempts;
   assert.equal(implementation?.result?.outcome, 'passed');

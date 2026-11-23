@@ -20,7 +20,7 @@ const task = makeOrchestratorTask({ id: 'greeting', title: 'Add greeting', write
 function brief(overrides: Partial<OrchestratorBrief> = {}): OrchestratorBrief {
   assert.ok(model && worker);
   return { task: 'Add a greeting module.', suppliedPlan: null, workers: [{ preset: worker, model }],
-    repoRoot: 'C:/work/repo', preexistingDirtyPaths: ['README.md'], approval: 'auto', ...overrides };
+    repoRoot: 'C:/work/repo', preexistingDirtyPaths: ['README.md'], approval: 'auto', budget: { minutes: 90, dispatches: 12 }, ...overrides };
 }
 
 function work(kind: OrchestratorChildWork['kind']): OrchestratorChildWork {
@@ -42,9 +42,25 @@ test('the orchestrator prompt states the task, the workers, the run baseline, an
   assert.ok(prompt.includes(`- repo-agent (model ${model.id}, ${model.NumCtx} context tokens): `), prompt);
   assert.match(prompt, /Command checks run in PowerShell/u);
   assert.match(prompt, /Uncommitted changes that predate this run \(never count them against any task\): README\.md\./u);
-  for (const tool of ['save_plan', 'update_tasks', 'dispatch', 'record_review', 'run_check']) assert.ok(prompt.includes(tool), tool);
+  for (const tool of ['save_plan', 'update_tasks', 'dispatch', 'record_review', 'run_check', 'change_approach']) assert.ok(prompt.includes(tool), tool);
   assert.match(prompt, /\{"status":"completed","summary":"what was done"\}/u);
   assert.match(prompt, /\{"status":"blocked","reason":"why"\}/u);
+});
+
+test('the orchestrator prompt states the budget and tells the model to keep going by replacing tasks and changing approach', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  for (const rule of [
+    'Budget: this run may start 12 children and run 90 minutes',
+    'Keep going until the goal is met',
+    'retire: [{taskId, reason}]',
+    'call change_approach',
+    'Never repeat a task or an approach that a lesson already ruled out',
+    'a child must run before you finish again',
+    'only when no approach can meet the goal',
+  ]) {
+    assert.ok(prompt.includes(rule), rule);
+  }
+  assert.doesNotMatch(prompt, /If the work cannot be\s+completed, finish/u, 'a failed approach is no longer a reason to stop');
 });
 
 test('the orchestrator prompt names the repository root and forbids naming any other repository path', () => {

@@ -64,3 +64,7 @@
 .orch-parent-turn-head { font-size: 0.68rem; color: var(--dim); }
 .orch-parent-tool summary { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; }
 .orch-parent-tool.failed summary { color: var(--bad); }
+.orch-history { list-style: none; margin: 0; padding: 6px 12px; font-size: 0.68rem; color: var(--dim); border-bottom: 1px solid var(--line); }
+.orch-history b { color: var(--ink); font-weight: 500; }
+.orch-budget { display: inline-flex; align-items: center; gap: 4px; font-size: 0.68rem; color: var(--dim); }
+.orch-budget input { width: 5.5em; }

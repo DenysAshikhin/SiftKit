@@ -61,7 +61,14 @@ test('update_tasks reaches the host with omitted lists defaulted to empty', asyn
   const host = new RecordingHost(() => ({ ok: true, output: 'Plan updated.' }));
   const update = [{ taskId: 'greeting', set: { writePaths: ['src/greeting.ts', 'tests/greeting.test.ts'] } }];
   await run(host, [{ toolCalls: [{ name: 'update_tasks', arguments: { update } }] }, { content: 'done' }, { content: 'done' }]);
-  assert.deepEqual(host.calls, [{ toolName: 'update_tasks', args: { update, add: [], remove: [] } }]);
+  assert.deepEqual(host.calls, [{ toolName: 'update_tasks', args: { update, add: [], retire: [] } }]);
+});
+
+test('change_approach reaches the host parsed', async () => {
+  const host = new RecordingHost(() => ({ ok: true, output: 'Approach 2 is active.' }));
+  const args = { lesson: 'The cache cannot see headers.', rollback: true, title: 'Cache the index' };
+  await run(host, [{ toolCalls: [{ name: 'change_approach', arguments: args }] }, { content: 'done' }, { content: 'done' }]);
+  assert.deepEqual(host.calls, [{ toolName: 'change_approach', args }]);
 });
 
 test('a host refusal is a failed tool result the model reads, and invalid arguments never reach the host', async () => {

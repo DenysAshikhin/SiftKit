@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import test from 'node:test';
 
 import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { CURRENT_SCHEMA_VERSION, closeAllRuntimeDatabases, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorRequest, makeOrchestratorTask, savePlanned } from './helpers/orchestrator-plan.ts';
 import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
@@ -17,9 +16,9 @@ const AGENT_REPORT = { kind: 'agent', status: 'completed', deviations: [] };
 function seedSchema85(): { dbPath: string; runId: string } {
   const dbPath = path.join(createManagedTempDir('siftkit-search-reports-'), 'runtime.sqlite');
   const store = new OrchestratorRunStore(getRuntimeDatabase(dbPath));
-  const created = store.create({ submissionId: randomUUID(), sessionId: null, repoRoot: createManagedTempDir('siftkit-search-reports-repo-'),
-    presetId: 'orchestrator', approval: 'off', task: 'Add greeting.', planPath: null });
-  const state = store.savePlan(created.runId, created.revision, makeOrchestratorPlan([SURVEY, WRITE]), 'docs/plan.md', 'hash');
+  const created = store.create(makeOrchestratorRequest({ repoRoot: createManagedTempDir('siftkit-search-reports-repo-'),
+    approval: 'off', task: 'Add greeting.' }));
+  const state = savePlanned(store, created, makeOrchestratorPlan([SURVEY, WRITE]));
   const survey = store.reserveAttempt(state.runId, state.revision, 'survey',
     { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task: SURVEY, instruction: 'Find it.' });
   const write = store.reserveAttempt(state.runId, store.read(state.runId).revision, 'greeting',

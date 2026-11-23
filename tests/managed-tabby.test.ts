@@ -17,7 +17,6 @@ import { FakeTabbyModelState, writeFakeEngineHost } from './helpers/tabby-fake.t
 import { launchEngineVariables, NEVER_LAUNCHING_ENGINE_HOST, type FakeTabbyOptions } from './helpers/in-process-tabby.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 import type { GpuMemory, GpuMemoryProbe } from '../src/status-server/gpu-memory.ts';
-import type { EngineProcess } from '../src/status-server/engine-process.ts';
 
 const FIXTURE_ENTRYPOINT = 'tabby-main.py';
 // The default fake rejects /v1/model/load and announces MTP drafting on stdout at once.
@@ -876,7 +875,7 @@ test('a RAM-disk preset readies the disk before its engine launches and caches i
   });
 });
 
-test('switching to a preset without the RAM disk removes it once the old engine stopped; shutdown releases it', async () => {
+test('switching to a preset without the RAM disk removes it once the old engine stopped', async () => {
   await withTempEnv(async (root) => {
     writeRamDiskModelConfig(root);
     await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-ram-disk-off');
@@ -887,26 +886,21 @@ test('switching to a preset without the RAM disk removes it once the old engine 
     await fixture.runtime.ensurePresetReady(plain);
     assert.equal(fixture.ramDisk.calls.at(-1), 'remove S');
     assert.deepEqual(fixture.launcher.events.slice(-2), ['unload', 'terminate'], 'the RAM-disk engine drained its cache first');
-    await fixture.runtime.ensurePresetReady(ramDiskPreset);
-    await fixture.runtime.stopProcess();
-    await fixture.runtime.releaseRamDisk();
-    assert.equal(fixture.ramDisk.disk, null);
   });
 });
 
-test('the process-exit path stops the engine, then starts the RAM disk removal without waiting', async (t) => {
+test('stopping the engine, or the process-exit path, leaves the RAM disk to the watcher its creation started', async () => {
   await withTempEnv(async (root) => {
     writeRamDiskModelConfig(root);
     await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-ram-disk-exit');
     const preset = { ...fixture.exl3Preset, ...RAM_DISK, id: 'next' };
     fixture.runtime.replaceModelPresets([preset]);
     await fixture.runtime.ensurePresetReady(preset);
-    const order: string[] = [];
-    const terminate = fixture.launcher.terminate.bind(fixture.launcher);
-    t.mock.method(fixture.launcher, 'terminate', (child: EngineProcess) => { order.push('terminate'); terminate(child); });
-    t.mock.method(fixture.ramDisk, 'removeDetached', () => { order.push('remove-detached'); });
+    const calls = [...fixture.ramDisk.calls];
+    await fixture.runtime.stopProcess();
     fixture.runtime.stopForProcessExitSync();
-    assert.deepEqual(order, ['terminate', 'remove-detached']);
+    assert.deepEqual(fixture.ramDisk.calls, calls);
+    assert.notEqual(fixture.ramDisk.disk, null);
   });
 });
 

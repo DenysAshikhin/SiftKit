@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -8,7 +7,7 @@ import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { CURRENT_SCHEMA_VERSION, closeAllRuntimeDatabases, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.ts';
 import { writeConfig } from '../src/status-server/config-store.ts';
 import { getDefaultServerConfig } from './helpers/mock-config.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorRequest, makeOrchestratorTask, savePlanned } from './helpers/orchestrator-plan.ts';
 import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
@@ -21,9 +20,9 @@ function seedSchema89(checks: JsonValue): { dbPath: string; runId: string } {
   const dbPath = path.join(createManagedTempDir('siftkit-check-digests-'), 'runtime.sqlite');
   writeConfig(dbPath, getDefaultServerConfig());
   const store = new OrchestratorRunStore(getRuntimeDatabase(dbPath));
-  const created = store.create({ submissionId: randomUUID(), sessionId: null, repoRoot: createManagedTempDir('siftkit-check-digests-repo-'),
-    presetId: 'orchestrator', approval: 'off', task: 'Add greeting.', planPath: null });
-  const state = store.savePlan(created.runId, created.revision, makeOrchestratorPlan([WRITE]), 'docs/plan.md', 'hash');
+  const created = store.create(makeOrchestratorRequest({ repoRoot: createManagedTempDir('siftkit-check-digests-repo-'),
+    approval: 'off', task: 'Add greeting.' }));
+  const state = savePlanned(store, created, makeOrchestratorPlan([WRITE]));
   const attempt = store.reserveAttempt(state.runId, state.revision, 'greeting',
     { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task: WRITE, instruction: 'Write it.' });
   closeAllRuntimeDatabases();

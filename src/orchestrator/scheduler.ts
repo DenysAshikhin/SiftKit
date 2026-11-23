@@ -1,5 +1,6 @@
 import {
   ORCHESTRATOR_MAX_ATTEMPTS,
+  orchestratorAttemptsSpent,
   type OrchestratorAttempt,
   type OrchestratorChildPurpose,
   type OrchestratorPlan,
@@ -36,20 +37,26 @@ const DISPATCHABLE_STATUSES: Record<OrchestratorChildPurpose, readonly Orchestra
 
 export type DispatchRequest = { task: OrchestratorTask; purpose: OrchestratorChildPurpose };
 
-/** Why the requested child cannot start: a task status its purpose disallows, no attempt left, or incomplete dependencies. */
+/** Why the requested child cannot start: a closed task, a status its purpose disallows, no attempt left, or incomplete dependencies. */
 export function dispatchProblem(input: {
   taskStates: readonly OrchestratorTaskState[];
   attempts: readonly OrchestratorAttempt[];
+  /** The number of the approach that work may be added to. */
+  activeApproach: number;
   request: DispatchRequest;
 }): string | null {
   const { task, purpose } = input.request;
+  const own = input.taskStates.find((state) => state.taskId === task.id);
+  if (own !== undefined && own.approach !== input.activeApproach) {
+    return `Task '${task.id}' was completed in approach ${own.approach}, which has ended; add a task to the current approach for further work on it.`;
+  }
   const status = new Map(input.taskStates.map((state) => [state.taskId, state.status]));
-  const current = status.get(task.id) ?? 'pending';
+  const current = own?.status ?? 'pending';
   const allowed = DISPATCHABLE_STATUSES[purpose];
   if (!allowed.includes(current)) return `Task '${task.id}' is ${current}; ${purpose} work needs it ${allowed.join(' or ')}.`;
   const attempts = input.attempts.filter((attempt) => attempt.taskId === task.id);
   if (purpose === 'fix' && !attempts.some((attempt) => attempt.status === 'settled')) return `Task '${task.id}' has no settled attempt to fix.`;
-  if (attempts.filter((attempt) => attempt.purpose === purpose).length >= ORCHESTRATOR_MAX_ATTEMPTS) {
+  if (orchestratorAttemptsSpent(input.attempts, task.id, purpose)) {
     return `Task '${task.id}' used all ${ORCHESTRATOR_MAX_ATTEMPTS} ${purpose} attempts.`;
   }
   const unmet = unmetDependencies(task, status);

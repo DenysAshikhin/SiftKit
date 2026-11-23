@@ -3,10 +3,13 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 
-import type { OrchestratorChildWork, OrchestratorStartRequest } from '@siftkit/contracts';
+import { DEFAULT_ORCHESTRATOR_BUDGET, type OrchestratorChildWork, type OrchestratorStartRequest } from '@siftkit/contracts';
+import { reviseTasks } from '../src/orchestrator/plan-state.ts';
 import { OrchestratorRunStore } from '../src/orchestrator/run-store.ts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import {
+  makeOrchestratorPlan, makeOrchestratorRequest, makeOrchestratorTask, makeTaskState, savePlanned, storeTransition,
+} from './helpers/orchestrator-plan.ts';
 import { seedRunLogThroughput } from './helpers/run-log-throughput.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
@@ -19,10 +22,10 @@ function openStore(t: TestContext): { store: OrchestratorRunStore; dbPath: strin
 const REPO = createManagedTempDir('siftkit-orchestrator-store-repo-');
 
 function startRequest(overrides: Partial<OrchestratorStartRequest> = {}): OrchestratorStartRequest {
-  return { submissionId: randomUUID(), sessionId: null, repoRoot: REPO, presetId: 'orchestrator', approval: 'auto',
-    task: 'Inspect the README.', planPath: null, ...overrides };
+  return makeOrchestratorRequest({ repoRoot: REPO, ...overrides });
 }
 
+const NOW = '2026-11-21T10:00:00.000Z';
 const PLAN = makeOrchestratorPlan([makeOrchestratorTask(), makeOrchestratorTask({ id: 'follow-up', dependsOn: ['inspect'] })]);
 
 function work(kind: OrchestratorChildWork['kind'] = 'implementation', taskId = 'inspect'): OrchestratorChildWork {
@@ -33,7 +36,7 @@ function work(kind: OrchestratorChildWork['kind'] = 'implementation', taskId = '
 
 function planned(store: OrchestratorRunStore, request = startRequest()) {
   const created = store.create(request);
-  return store.savePlan(created.runId, created.revision, PLAN, 'docs/plan.md', 'hash-1');
+  return savePlanned(store, created, PLAN, 'hash-1');
 }
 
 test('the same submission and payload returns the same parent; a different payload is rejected', (t) => {
@@ -119,25 +122,34 @@ test('a restart keeps both budgets; interrupted runs reject further changes', (t
   assert.throws(() => reopened.reserveAttempt(state.runId, state.revision, 'inspect', work()), /is interrupted/u);
 });
 
-test('a saved plan starts every task pending with no review, and keeps the state of tasks it still names', (t) => {
+test('a first plan starts every task pending, and a revision keeps the state of the tasks it still names', (t) => {
   const { store } = openStore(t);
   let state = planned(store);
-  assert.deepEqual(state.tasks, [{ taskId: 'inspect', status: 'pending', review: null }, { taskId: 'follow-up', status: 'pending', review: null }]);
+  assert.deepEqual(state.tasks, [makeTaskState('inspect'), makeTaskState('follow-up')]);
   state = store.update(state.runId, state.revision, { tasks: state.tasks.map((task) => (task.taskId === 'inspect'
     ? { ...task, status: 'completed' } : task)) }, { message: 'Task inspect: completed.' });
-  const extended = makeOrchestratorPlan([...PLAN.tasks, makeOrchestratorTask({ id: 'last' })]);
-  state = store.savePlan(state.runId, state.revision, extended, 'docs/plan.md', 'hash-2');
+  state = storeTransition(store, state,
+    reviseTasks(state, { update: [], add: [makeOrchestratorTask({ id: 'last' })], retire: [] }, state.attempts, NOW), 'hash-2');
   assert.deepEqual(state.tasks.map((task) => [task.taskId, task.status]), [['inspect', 'completed'], ['follow-up', 'pending'], ['last', 'pending']]);
+  assert.equal(state.planHash, 'hash-2');
 });
 
-test('a changed plan cannot drop or rename a task that already has attempts', (t) => {
+test('a plan state that loses a task with attempts is refused; retiring that task keeps it on record', (t) => {
   const { store } = openStore(t);
-  const state = planned(store);
+  let state = planned(store);
   store.reserveAttempt(state.runId, state.revision, 'inspect', work());
-  const current = store.read(state.runId);
-  const renamed = makeOrchestratorPlan([makeOrchestratorTask({ id: 'inspect-renamed' })]);
-  assert.throws(() => store.savePlan(current.runId, current.revision, renamed, 'docs/plan.md', 'hash-2'),
-    /Plan changed: task 'inspect' already has attempts; start a new run/u);
+  state = store.read(state.runId);
+  const { plan } = state;
+  assert.ok(plan);
+  const lossy = { ...state, plan: { ...plan, tasks: plan.tasks.filter((task) => task.id !== 'inspect') },
+    tasks: state.tasks.filter((task) => task.taskId !== 'inspect') };
+  assert.throws(() => store.savePlan(state.runId, state.revision, lossy, 'docs/plan.md', 'hash-2'),
+    /Plan change would lose task 'inspect', which has attempts/u);
+  state = storeTransition(store, state, reviseTasks(state, { update: [{ taskId: 'follow-up', set: { dependsOn: [] } }], add: [],
+    retire: [{ taskId: 'inspect', reason: 'Wrong file.' }] }, state.attempts, NOW), 'hash-2');
+  assert.deepEqual(state.tasks.map((task) => task.taskId), ['follow-up']);
+  assert.deepEqual(state.retiredTasks.map((task) => [task.taskId, task.status, task.reason]), [['inspect', 'pending', 'Wrong file.']]);
+  assert.equal(state.attempts.length, 1, 'the retired task keeps its attempt');
 });
 
 test('a malformed stored row fails loudly instead of reading as a default', (t) => {
@@ -179,4 +191,22 @@ test('a run reports the merged throughput of its own conversation runs and its c
   assert.equal(throughput.pp.durationMs, 2_000);
   assert.equal(throughput.decode.tokenCount, 400);
   assert.equal(throughput.decode.durationMs, 4_000);
+});
+
+test('a new run has its budget and no approaches or retired tasks; its first plan opens approach 1 for every task', (t) => {
+  const { store } = openStore(t);
+  const created = store.create(startRequest());
+  assert.deepEqual([created.request.budget, created.approaches, created.retiredTasks], [DEFAULT_ORCHESTRATOR_BUDGET, [], []]);
+  const state = savePlanned(store, created, PLAN, 'hash-1');
+  assert.deepEqual(state.approaches.map((approach) => [approach.number, approach.title, approach.outcome]), [[1, 'Initial plan', null]]);
+  assert.deepEqual(state.tasks.map((task) => task.approach), [1, 1]);
+});
+
+test('a reservation past the dispatch budget is refused', (t) => {
+  const { store } = openStore(t);
+  let state = planned(store, startRequest({ budget: { minutes: 60, dispatches: 1 } }));
+  store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  state = store.read(state.runId);
+  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'follow-up', work('implementation', 'follow-up')),
+    /The run's dispatch budget is spent \(1 of 1\)\./u);
 });

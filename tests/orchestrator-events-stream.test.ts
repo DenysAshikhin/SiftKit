@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
@@ -11,6 +10,7 @@ import { OrchestratorEventsEndpoint } from '../src/status-server/routes/orchestr
 import { SSE_MAX_BUFFERED_BYTES } from '../src/status-server/sse-response-writer.ts';
 import { withTempEnv } from './_runtime-helpers.ts';
 import { FakeLiveRun } from './helpers/fake-orchestrator-live-run.ts';
+import { makeOrchestratorRequest } from './helpers/orchestrator-plan.ts';
 import { createTestServerContext } from './helpers/server-context-fixture.ts';
 import { requestSse } from './helpers/sse-http.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
@@ -22,8 +22,7 @@ async function serveRun(t: TestContext, task: string): Promise<{ ctx: ServerCont
   const root = createManagedTempDir('siftkit-orchestrator-events-');
   const ctx = createTestServerContext(path.join(root, 'config.json'), root);
   t.after(() => closeAllRuntimeDatabases());
-  const state = ctx.orchestratorRunStore.create({ submissionId: randomUUID(), sessionId: null, repoRoot: root, presetId: 'orchestrator',
-    approval: 'off', task, planPath: null });
+  const state = ctx.orchestratorRunStore.create(makeOrchestratorRequest({ repoRoot: root, approval: 'off', task }));
   ctx.orchestratorRuns.register(new FakeLiveRun(state.runId));
   const endpoint = new OrchestratorEventsEndpoint();
   const server = http.createServer((req, res) => {

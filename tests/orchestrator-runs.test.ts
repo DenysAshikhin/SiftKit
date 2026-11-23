@@ -13,7 +13,7 @@ import {
   type RepositoryLease,
 } from '../src/status-server/orchestrator-runs.ts';
 import { FakeLiveRun } from './helpers/fake-orchestrator-live-run.ts';
-import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
+import { makeOrchestratorPlan, makeOrchestratorRequest, makeOrchestratorTask, savePlanned } from './helpers/orchestrator-plan.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
 const NO_CHILDREN = { markNotResumable: (_runId: string) => undefined };
@@ -25,8 +25,7 @@ function openStore(t: TestContext): OrchestratorRunStore {
 }
 
 function createRun(store: OrchestratorRunStore): OrchestratorRunState {
-  return store.create({ submissionId: randomUUID(), sessionId: null, repoRoot: createManagedTempDir('siftkit-orchestrator-runs-repo-'), presetId: 'orchestrator',
-    approval: 'auto', task: 'Inspect the README.', planPath: null });
+  return store.create(makeOrchestratorRequest({ repoRoot: createManagedTempDir('siftkit-orchestrator-runs-repo-') }));
 }
 
 /** Resolves on the next macrotask so any already-granted lease has settled. */
@@ -144,7 +143,7 @@ test('startup marks the running children of an interrupted parent not resumable'
   const store = openStore(t);
   const created = createRun(store);
   const plan = makeOrchestratorPlan([makeOrchestratorTask()]);
-  let state = store.savePlan(created.runId, created.revision, plan, 'docs/plan.md', 'hash');
+  let state = savePlanned(store, created, plan);
   const task = plan.tasks[0];
   assert.ok(task);
   const attempt = store.reserveAttempt(state.runId, state.revision, task.id,

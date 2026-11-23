@@ -12,6 +12,8 @@ import {
   type OrchestratorTaskState,
   type OrchestratorTaskStatus,
 } from '@siftkit/contracts';
+import { budgetUsage, runClockMs } from '../../src/orchestrator/budget.ts';
+import { APPROACH_OUTCOME_LABELS, activeApproach } from '../../src/orchestrator/plan-state.ts';
 
 export type OrchestratorStepStatus = 'done' | 'now' | 'failed' | 'todo';
 export type OrchestratorStep = { label: string; status: OrchestratorStepStatus };
@@ -91,8 +93,28 @@ export function formatElapsed(ms: number): string {
 
 /** A finished run's duration is fixed at its last update; a live one runs to `now`. */
 export function runElapsedMs(state: OrchestratorRunState, now: number): number {
-  const end = isOrchestratorTerminalPhase(state.phase) ? Date.parse(state.updatedAtUtc) : now;
-  return end - Date.parse(state.createdAtUtc);
+  return runClockMs(state, now) - Date.parse(state.createdAtUtc);
+}
+
+/** e.g. "3/80 dispatches · 31/720 min"; a finished run stops counting at its last update. */
+export function budgetSummary(state: OrchestratorRunState, now: number): string {
+  const usage = budgetUsage(state, runClockMs(state, now));
+  return `${usage.dispatchesUsed}/${usage.dispatches} dispatches · ${usage.minutesUsed}/${usage.minutes} min`;
+}
+
+/** e.g. "2 · Cache the index"; null before the first plan. */
+export function approachLabel(state: OrchestratorRunState): string | null {
+  const approach = activeApproach(state);
+  return approach === null ? null : `${approach.number} · ${approach.title}`;
+}
+
+export type EndedApproach = { number: number; title: string; outcome: string; lesson: string };
+
+/** Every approach that has ended, with how it ended and what it taught. */
+export function endedApproaches(state: OrchestratorRunState): EndedApproach[] {
+  return state.approaches.flatMap((approach) => (approach.outcome === null ? [] : [{
+    number: approach.number, title: approach.title, outcome: APPROACH_OUTCOME_LABELS[approach.outcome.kind], lesson: approach.outcome.lesson,
+  }]));
 }
 
 export function taskTone(status: OrchestratorTaskStatus): StatusTone {

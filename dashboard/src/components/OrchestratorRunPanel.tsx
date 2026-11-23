@@ -9,7 +9,7 @@ import {
   type RepoAgentDecision,
 } from '@siftkit/contracts';
 import { useNow } from '../hooks/useNow.ts';
-import { formatElapsed, orchestratorSteps, phaseTone, runElapsedMs } from '../orchestrator-view.ts';
+import { approachLabel, budgetSummary, endedApproaches, formatElapsed, orchestratorSteps, phaseTone, runElapsedMs } from '../orchestrator-view.ts';
 import { OrchestratorConversation } from './OrchestratorConversation.tsx';
 import { OrchestratorTaskRow } from './OrchestratorTaskRow.tsx';
 
@@ -46,6 +46,8 @@ export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, 
   const live = !isOrchestratorTerminalPhase(state.phase);
   const now = useNow(CLOCK_TICK_MS, live);
   const completed = state.tasks.filter((task) => task.status === 'completed').length;
+  const approach = approachLabel(state);
+  const ended = endedApproaches(state);
   return (
     <section className="orchestrator-run" aria-label="Orchestrator run">
       <header className="orch-head">
@@ -57,8 +59,10 @@ export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, 
       </header>
       <div className="orch-meta">
         {state.planPath ? <span>plan <code>{state.planPath}</code></span> : null}
+        {approach ? <span>approach <b>{approach}</b></span> : null}
         <span>approval <b>{state.request.approval}</b></span>
         <span>elapsed <b>{formatElapsed(runElapsedMs(state, now))}</b></span>
+        <span>budget <b>{budgetSummary(state, now)}</b></span>
       </div>
       {lastMessage ? <p className="hint orch-last">{lastMessage}</p> : null}
       <ol className="orch-phases" aria-label="Run phases">
@@ -71,6 +75,20 @@ export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, 
       <ol className="orch-tasks">
         {state.tasks.map((task) => <OrchestratorTaskRow key={task.taskId} task={task} state={state} activity={activity} now={now} />)}
       </ol>
+      {ended.length > 0 ? (
+        <ol className="orch-history" aria-label="Earlier approaches">
+          {ended.map((entry) => (
+            <li key={entry.number}><b>{entry.number}. {entry.title}</b> {entry.outcome}: {entry.lesson}</li>
+          ))}
+        </ol>
+      ) : null}
+      {state.retiredTasks.length > 0 ? (
+        <ul className="orch-history" aria-label="Retired tasks">
+          {state.retiredTasks.map((task) => (
+            <li key={task.taskId}><b>{task.taskId}</b> {task.title} · approach {task.approach} · {task.status}: {task.reason}</li>
+          ))}
+        </ul>
+      ) : null}
       {activity?.parent ? <OrchestratorConversation parent={activity.parent} live={live} /> : null}
       {state.approval ? <ApprovalRequest key={state.approval.approvalId} pending={state.approval} onDecide={onDecide} /> : null}
       {state.failure ? <div className="err-banner"><span>{state.failure.message}</span></div> : null}

@@ -5,7 +5,7 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format.ts';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups.ts';
 import { SettingsSectionField } from '../../settings/SettingsFields.tsx';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.tsx';
-import { CACHE_AUTO_LABEL, CACHE_CONTEXTS_LABEL, HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL, RAM_DISK_CACHE_LABEL, RAM_DISK_SIZE_LABEL, SPARSE_DRAFT_HEAD_LABEL } from '../../settings-sections.ts';
+import { CACHE_AUTO_LABEL, CACHE_CONTEXTS_LABEL, HYBRID_DRAFT_TOKENS_LABEL, NGRAM_RAM_LABEL, RAM_DISK_CACHE_LABEL, RAM_DISK_SHARING_NOTE, RAM_DISK_SIZE_LABEL, SPARSE_DRAFT_HEAD_LABEL } from '../../settings-sections.ts';
 import { getModelPresetAssignments } from '../../model-runtime-presets.ts';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema, type ModelProfile } from '@siftkit/contracts';
 import {
@@ -114,7 +114,7 @@ function describeRamDiskContext(preset: DashboardModelRuntimePreset, profile: Mo
   const gib = (value: number) => (value / GIB).toFixed(1);
   const snapshots = bytes.snapshotBytes === 0 ? '' : ` + ${gib(bytes.snapshotBytes)} GiB of snapshots every ${String(preset.DiskCacheCheckpointInterval)} tokens`;
   return `≈ ${gib(bytes.kvBytes + bytes.snapshotBytes)} GiB per full ${(preset.NumCtx / 1000).toFixed(0)}k context: `
-    + `${gib(bytes.kvBytes)} GiB KV${snapshots}. All RAM-disk presets share one RAM disk, sized to their total.`;
+    + `${gib(bytes.kvBytes)} GiB KV${snapshots}. ${RAM_DISK_SHARING_NOTE}`;
 }
 
 export function ModelPresetsSection({

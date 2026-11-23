@@ -2,17 +2,20 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   OrchestratorAttemptSchema,
-  OrchestratorRunStateSchema,
   OrchestratorTaskStatusSchema,
   type OrchestratorActivity,
+  type OrchestratorApproach,
   type OrchestratorChildActivity,
   type OrchestratorRunState,
   type OrchestratorSchedule,
   type OrchestratorTaskStatus,
 } from '@siftkit/contracts';
 import {
+  approachLabel,
   attemptSummary,
+  budgetSummary,
   contextPercent,
+  endedApproaches,
   formatElapsed,
   nowDoing,
   orchestratorSteps,
@@ -21,6 +24,7 @@ import {
   taskTone,
   waitReason,
 } from '../src/orchestrator-view.ts';
+import { orchestratorRequest, orchestratorRunState, orchestratorTaskState } from './orchestrator-fixture.ts';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const CHILD_ID = '00000000-0000-4000-8000-000000000002';
@@ -35,14 +39,11 @@ function planTask(id: string, workerPresetId: string, dependsOn: string[] = []) 
 function runState(statuses: Record<string, OrchestratorTaskStatus>, overrides: Partial<OrchestratorRunState> = {}): OrchestratorRunState {
   const tasks = [planTask('read', 'repo-search'), planTask('write', 'repo-agent'), planTask('write-2', 'repo-agent'),
     planTask('after', 'repo-search', ['write'])];
-  return OrchestratorRunStateSchema.parse({
-    runId: RUN_ID,
-    request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto', task: 'Go', planPath: null },
-    revision: 1, phase: 'executing', planPath: 'plan.md', planHash: 'h',
+  return orchestratorRunState({
+    runId: RUN_ID, request: orchestratorRequest({ approval: 'auto', task: 'Go' }), planPath: 'plan.md', planHash: 'h',
     plan: { goal: 'Go', constraints: [], tasks, finalVerification: [CHECK] },
-    tasks: tasks.map((task) => ({ taskId: task.id, status: statuses[task.id] ?? 'pending', review: null })),
-    attempts: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: '2026-10-11T12:14:02.000Z',
-    ...overrides,
+    tasks: tasks.map((task) => orchestratorTaskState(task.id, statuses[task.id] ?? 'pending')),
+    createdAtUtc: AT, updatedAtUtc: '2026-10-11T12:14:02.000Z', ...overrides,
   });
 }
 
@@ -119,4 +120,22 @@ test('labels: context percent, elapsed time, run elapsed, and tones for every st
     ['idle', 'run', 'run', 'ok', 'bad', 'bad']);
   assert.deepEqual((['executing', 'approval_required', 'completed', 'failed', 'aborted', 'interrupted'] as const).map((phase) => phaseTone(phase)),
     ['run', 'run', 'ok', 'bad', 'bad', 'bad']);
+});
+
+test('budget summary, active approach, and ended approaches read from the run state', () => {
+  const approaches: OrchestratorApproach[] = [
+    { number: 1, title: 'Initial plan', startedAtUtc: AT, outcome: { kind: 'rolled_back', lesson: 'Too slow.', endedAtUtc: AT } },
+    { number: 2, title: 'Cache the index', startedAtUtc: AT, outcome: { kind: 'kept', lesson: 'Works; needs eviction.', endedAtUtc: AT } },
+    { number: 3, title: 'Add eviction', startedAtUtc: AT, outcome: null },
+  ];
+  assert.equal(budgetSummary(runState({}), Date.parse(AT) + 31 * 60_000), '0/80 dispatches · 31/720 min');
+  assert.equal(budgetSummary(runState({}, { phase: 'completed' }), Date.parse(AT) + 999 * 60_000), '0/80 dispatches · 14/720 min',
+    'a finished run stops counting at its last update');
+  assert.equal(approachLabel(runState({})), null);
+  assert.equal(approachLabel(runState({}, { approaches })), '3 · Add eviction');
+  assert.deepEqual(endedApproaches(runState({})), []);
+  assert.deepEqual(endedApproaches(runState({}, { approaches })), [
+    { number: 1, title: 'Initial plan', outcome: 'rolled back', lesson: 'Too slow.' },
+    { number: 2, title: 'Cache the index', outcome: 'kept', lesson: 'Works; needs eviction.' },
+  ]);
 });

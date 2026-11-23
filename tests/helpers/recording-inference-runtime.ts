@@ -37,12 +37,12 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
     return structuredClone(previous);
   }
 
-  replaceModelPresets(): void {
-    this.callOrder.push('presets');
-  }
+  /** Ids handed over by the last replaceModelPresets call, in order. */
+  replacedPresetIds: string[] = [];
 
-  async releaseRamDisk(): Promise<void> {
-    this.callOrder.push('release');
+  replaceModelPresets(presets: readonly ModelRuntimePreset[]): void {
+    this.callOrder.push('presets');
+    this.replacedPresetIds = presets.map((preset) => preset.id);
   }
 
   async stopProcess(): Promise<void> {

@@ -1,9 +1,10 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { OrchestratorAttemptSchema, OrchestratorRunStateSchema, type OrchestratorActivity, type OrchestratorChildActivity, type OrchestratorParentActivity, type OrchestratorReviewRecord, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
+import { OrchestratorAttemptSchema, type OrchestratorActivity, type OrchestratorChildActivity, type OrchestratorParentActivity, type OrchestratorReviewRecord, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
 import { fireEvent, render, screen } from './react-test-environment.ts';
 import { OrchestratorRunPanel } from '../src/components/OrchestratorRunPanel.tsx';
+import { orchestratorRequest, orchestratorRunState, orchestratorTaskState } from './orchestrator-fixture.ts';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const CHILD_ID = '00000000-0000-4000-8000-000000000002';
@@ -16,13 +17,10 @@ const TASK = {
 };
 
 function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunState {
-  return OrchestratorRunStateSchema.parse({
-    runId: RUN_ID,
-    request: { submissionId: RUN_ID, sessionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'Greet', planPath: null },
-    revision: 3, phase: 'executing', planPath: 'C:/repo/.siftkit/orchestrator/plan.md', planHash: 'h',
+  return orchestratorRunState({
+    runId: RUN_ID, revision: 3, planPath: 'C:/repo/.siftkit/orchestrator/plan.md', planHash: 'h',
     plan: { goal: 'Greet', constraints: [], tasks: [TASK], finalVerification: [CHECK] },
-    tasks: [{ taskId: TASK.id, status: 'running', review: null }],
-    attempts: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: AT, updatedAtUtc: AT,
+    tasks: [orchestratorTaskState(TASK.id, 'running')], createdAtUtc: AT, updatedAtUtc: AT,
     ...overrides,
   });
 }
@@ -77,6 +75,8 @@ test('a running task shows its phase, plan path, and attempts, and Stop aborts',
   screen.getByText('Add greeting');
   screen.getByText('impl 2/2');
   screen.getByText('Working.');
+  assert.equal(screen.queryByRole('list', { name: 'Earlier approaches' }), null);
+  assert.equal(screen.queryByRole('list', { name: 'Retired tasks' }), null);
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
   assert.equal(view.aborts(), 1);
 });
@@ -92,7 +92,7 @@ test('a failed review shows its verdict, the unmet criteria, and the top three f
   const review: OrchestratorReviewRecord = { attempt: 1, purpose: 'implementation', verdict: 'fail', criteria: [{ index: 0, met: false, evidence: [] }],
     findings: [1, 2, 3, 4, 5].map(finding) };
   renderPanel(runState({
-    tasks: [{ taskId: TASK.id, status: 'running', review }],
+    tasks: [orchestratorTaskState(TASK.id, 'running', { review })],
     attempts: [attempt('implementation', 1, true), attempt('fix', 1, null)],
   }));
   screen.getByText('impl 1/2 · fix 1/2');
@@ -105,7 +105,7 @@ test('a failed review shows its verdict, the unmet criteria, and the top three f
 test('a passing review says every criterion was met, and a settled attempt states its outcome and submissions', () => {
   const review: OrchestratorReviewRecord = { attempt: 1, purpose: 'implementation', verdict: 'pass',
     criteria: [{ index: 0, met: true, evidence: [{ path: 'src/a.ts', line: 1, snippet: 'greet' }] }], findings: [] };
-  renderPanel(runState({ tasks: [{ taskId: TASK.id, status: 'completed', review }], attempts: [attempt('implementation', 1, false)] }));
+  renderPanel(runState({ tasks: [orchestratorTaskState(TASK.id, 'completed', { review })], attempts: [attempt('implementation', 1, false)] }));
   screen.getByText('Review passed: 1 of 1 criteria met');
   screen.getByText('Attempt 1: checks failed after 3 submissions');
 });
@@ -186,8 +186,7 @@ test('a pending task says which dependencies it waits for, and the panel shows n
   const second = { ...TASK, id: 'second', title: 'Second write' };
   const state = runState({
     plan: { goal: 'Greet', constraints: [], tasks: [TASK, second], finalVerification: [CHECK] },
-    tasks: [{ taskId: TASK.id, status: 'running', review: null },
-      { taskId: 'second', status: 'pending', review: null }],
+    tasks: [orchestratorTaskState(TASK.id, 'running'), orchestratorTaskState('second')],
   });
   const activity: OrchestratorActivity = { runId: RUN_ID, children: [LIVE_CHILD], parent: null, schedule: {
     claims: [CLAIM, { ...CLAIM, taskId: 'second' }],
@@ -206,7 +205,7 @@ test('the phase stepper marks where the run is, even while paused for approval',
 
 test('a row opens when its task starts and stays as the user left it when the task settles', () => {
   const view = (status: 'pending' | 'running' | 'completed') => (
-    <OrchestratorRunPanel state={runState({ tasks: [{ taskId: TASK.id, status, review: null }] })}
+    <OrchestratorRunPanel state={runState({ tasks: [orchestratorTaskState(TASK.id, status)] })}
       activity={null} workPhase={null} lastMessage={null} onDecide={() => undefined} onAbort={() => undefined} />
   );
   const details = () => {
@@ -222,4 +221,24 @@ test('a row opens when its task starts and stays as the user left it when the ta
   assert.equal(details().open, true, 'settling does not collapse what the user is reading');
   fireEvent.click(screen.getByText('Add greeting'));
   assert.equal(details().open, false, 'the user can close it');
+});
+
+test('the panel shows the budget used, the active approach, what earlier approaches taught, and the retired tasks', () => {
+  renderPanel(runState({
+    phase: 'completed', updatedAtUtc: '2026-09-23T12:14:02.000Z',
+    request: orchestratorRequest({ budget: { minutes: 90, dispatches: 12 } }),
+    attempts: [attempt('implementation', 1, true)],
+    tasks: [orchestratorTaskState(TASK.id, 'completed', { approach: 2 })],
+    approaches: [
+      { number: 1, title: 'Initial plan', startedAtUtc: AT,
+        outcome: { kind: 'rolled_back', lesson: 'Response caching cannot see headers.', endedAtUtc: AT } },
+      { number: 2, title: 'Cache the index', startedAtUtc: AT, outcome: null }],
+    retiredTasks: [{ taskId: 'cache', title: 'Cache responses', approach: 1, status: 'failed', reason: 'Out of attempts.', retiredAtUtc: AT }],
+  }));
+  screen.getByText('1/12 dispatches · 14/90 min');
+  screen.getByText('2 · Cache the index');
+  assert.match(screen.getByRole('list', { name: 'Earlier approaches' }).textContent ?? '',
+    /1\. Initial plan\s+rolled back: Response caching cannot see headers\./u);
+  assert.match(screen.getByRole('list', { name: 'Retired tasks' }).textContent ?? '',
+    /cache\s+Cache responses · approach 1 · failed: Out of attempts\./u);
 });

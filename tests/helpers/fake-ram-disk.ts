@@ -24,8 +24,12 @@ export class FakeRamDiskDriver implements RamDiskDriver {
     return this.disk;
   }
 
-  async create(letter: string, sizeBytes: number): Promise<RamDisk> {
+  /** The owner pid the last create's watcher would wait on. */
+  watchedOwnerPid: number | null = null;
+
+  async create(letter: string, sizeBytes: number, ownerPid: number): Promise<RamDisk> {
     this.calls.push(`create ${letter} ${String(sizeBytes)}`);
+    this.watchedOwnerPid = ownerPid;
     this.failIf('create');
     this.disk = this.mount(letter, sizeBytes);
     return this.disk;
@@ -43,10 +47,6 @@ export class FakeRamDiskDriver implements RamDiskDriver {
     this.failIf('remove');
     fs.rmSync(disk.root, { recursive: true, force: true });
     this.disk = null;
-  }
-
-  removeDetached(disk: RamDisk): void {
-    this.calls.push(`remove-detached ${disk.letter}`);
   }
 
   private mount(letter: string, sizeBytes: number): RamDisk {
