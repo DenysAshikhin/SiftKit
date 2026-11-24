@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { SiftConfig } from '../src/config/types.ts';
-import { findTestPathsOutsideScope, validateOrchestratorPlan } from '../src/orchestrator/plan.ts';
+import { findPlanPathProblems, findTestPathsOutsideScope, ORCHESTRATOR_MAX_WRITE_PATHS, validateOrchestratorPlan } from '../src/orchestrator/plan.ts';
 import { getDefaultServerConfig } from './helpers/mock-config.ts';
 import { makeOrchestratorPlan, makeOrchestratorTask } from './helpers/orchestrator-plan.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
@@ -48,7 +48,8 @@ test('a custom repo-agent worker preset that can change files is accepted', () =
 
 for (const [name, tasks, pattern] of [
   ['duplicate task ids', [makeOrchestratorTask(), makeOrchestratorTask()], /Duplicate task id 'inspect'/u],
-  ['a missing dependency', [makeOrchestratorTask({ dependsOn: ['ghost'] })], /Task 'inspect' depends on missing task 'ghost'/u],
+  ['a missing dependency', [makeOrchestratorTask({ dependsOn: ['ghost'] })],
+    /Task 'inspect' depends on missing task 'ghost': add 'ghost' in this same call, or remove it from dependsOn\./u],
   ['a self dependency', [makeOrchestratorTask({ dependsOn: ['inspect'] })], /Task 'inspect' depends on itself/u],
   ['a cycle', [makeOrchestratorTask({ id: 'a', dependsOn: ['b'] }), makeOrchestratorTask({ id: 'b', dependsOn: ['a'] })],
     /Plan tasks form a dependency cycle: a -> b -> a/u],
@@ -94,4 +95,29 @@ test('a changed test file outside the writePaths of its task is out of scope; so
   assert.deepEqual(findTestPathsOutsideScope(task, changed),
     ['tests/process/audit.test.ts', 'dashboard/tests/panel.test.tsx', 'src/lib/__tests__/helper.ts', 'src/widget.spec.ts', 'tests/helpers/harness.ts']);
   assert.deepEqual(findTestPathsOutsideScope(makeOrchestratorTask({ id: 'root', writePaths: ['.'] }), changed), []);
+});
+
+const paths = (count: number) => Array.from({ length: count }, (_, index) => `src/f${index}.ts`);
+
+// Real case (run e85529c8): the 11- and 13-path tasks compacted mid-task or stalled; the prompt's limit was never enforced.
+test('a new or widened task over the write-path limit is refused; one the call leaves alone is not judged again', () => {
+  const wide = makeOrchestratorTask({ id: 'wide', writePaths: paths(ORCHESTRATOR_MAX_WRITE_PATHS + 1) });
+  assert.deepEqual(findPlanPathProblems(null, makeOrchestratorPlan([wide]), []), [
+    `Task 'wide' lists ${ORCHESTRATOR_MAX_WRITE_PATHS + 1} writePaths; a task may change at most ${ORCHESTRATOR_MAX_WRITE_PATHS} paths.`
+      + ' Split it into tasks that each finish within one worker context.',
+  ]);
+  const saved = makeOrchestratorPlan([wide]);
+  assert.deepEqual(findPlanPathProblems(saved, saved, []), []);
+  assert.deepEqual(findPlanPathProblems(null, makeOrchestratorPlan([makeOrchestratorTask({ writePaths: paths(ORCHESTRATOR_MAX_WRITE_PATHS) })]), []), []);
+});
+
+// Real case (run e85529c8): a planned hooks/use-orchestrator-run.test.tsx duplicated the existing test file of that name.
+test('a task that creates a test file whose name exists elsewhere is refused; existing paths and source files are not', () => {
+  const files = ['dashboard/tests/use-run.test.tsx', 'src/index.ts'];
+  const task = makeOrchestratorTask({ id: 'hook',
+    writePaths: ['dashboard/tests/hooks/use-run.test.tsx', 'src/lib/index.ts', 'dashboard/tests/use-run.test.tsx'] });
+  assert.deepEqual(findPlanPathProblems(null, makeOrchestratorPlan([task]), files), [
+    "Task 'hook' creates 'dashboard/tests/hooks/use-run.test.tsx', but 'dashboard/tests/use-run.test.tsx' already exists:"
+      + ' name the existing test file, or give a new file a name that says how it differs.',
+  ]);
 });

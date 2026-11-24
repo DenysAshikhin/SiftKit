@@ -13,6 +13,9 @@ export const OWNER_FILE = 'siftkit-owner.json';
 // exllamav3's per-directory record of the disk budget its process uses.
 const BUDGET_FILE = 'budget.json';
 const OwnerSchema = z.object({ pid: z.number().int().positive() });
+/** SiftKit's record of the budget it gave a preset folder; only a lower budget later wipes the folder. */
+export const BUDGET_MARKER_FILE = 'siftkit-budget.json';
+const BudgetMarkerSchema = z.object({ budgetBytes: z.number().int().nonnegative() });
 
 /** SiftKit's mounted RAM disk: its letter, the directory it is mounted at, and its size. */
 export type RamDisk = { readonly letter: string; readonly root: string; readonly sizeBytes: number };
@@ -35,24 +38,32 @@ function isAlive(pid: number): boolean {
   }
 }
 
-/** The live SiftKit process, other than this one, that owns `disk`; a missing or corrupt marker means none. */
-function liveOwner(disk: RamDisk): number | null {
-  const file = path.join(disk.root, OWNER_FILE);
+/** A SiftKit marker file's content; a missing or unparsable marker is none, while a failed read still throws. */
+function readMarker<T>(file: string, schema: z.ZodType<T>): T | null {
   if (!fs.existsSync(file)) return null;
-  let parsed;
+  const text = fs.readFileSync(file, 'utf8');
   try {
-    parsed = OwnerSchema.safeParse(parseJsonValueText(fs.readFileSync(file, 'utf8')));
+    const parsed = schema.safeParse(parseJsonValueText(text));
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
-  if (!parsed.success || parsed.data.pid === process.pid || !isAlive(parsed.data.pid)) return null;
-  return parsed.data.pid;
 }
 
-function directoryBytes(directory: string): number {
-  return fs.readdirSync(directory, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .reduce((sum, entry) => sum + fs.statSync(path.join(entry.parentPath, entry.name)).size, 0);
+/** The live SiftKit process, other than this one, that owns `disk`. */
+function liveOwner(disk: RamDisk): number | null {
+  const owner = readMarker(path.join(disk.root, OWNER_FILE), OwnerSchema);
+  if (owner === null || owner.pid === process.pid || !isAlive(owner.pid)) return null;
+  return owner.pid;
+}
+
+/** The budget SiftKit last gave `folder`; without a readable marker the folder is not one SiftKit sized. */
+function markedBudget(folder: string): number | null {
+  return readMarker(path.join(folder, BUDGET_MARKER_FILE), BudgetMarkerSchema)?.budgetBytes ?? null;
+}
+
+function markBudget(folder: string, budgetBytes: number): void {
+  fs.writeFileSync(path.join(folder, BUDGET_MARKER_FILE), JSON.stringify({ budgetBytes }));
 }
 
 /** Keeps SiftKit's RAM disk sized for the RAM-disk presets in use; runs only while no engine uses the disk. */
@@ -80,7 +91,11 @@ export class RamDiskCache {
     else if (disk.sizeBytes < required) disk = await this.grow(disk, required);
     this.disk = disk;
     this.tidyFolders(disk, ramDiskPresets);
-    fs.mkdirSync(path.join(disk.root, preset.id), { recursive: true });
+    const folder = path.join(disk.root, preset.id);
+    if (!fs.existsSync(folder)) {
+      fs.mkdirSync(folder, { recursive: true });
+      markBudget(folder, preset.RamDiskCacheGiB * GIB);
+    }
   }
 
   /** For a switch to a preset without the disk: removes it once no engine caches on it; a leftover found at the first check goes too. */
@@ -136,12 +151,16 @@ export class RamDiskCache {
       const budget = budgets.get(entry.name);
       if (budget === undefined) {
         fs.rmSync(folder, { recursive: true, force: true });
-      } else if (directoryBytes(folder) > budget) {
-        serverLogger.warning({ scope: 'exl3', id: entry.name, event: 'ram_disk_folder_wiped', fields: '',
-          alert: `RAM disk cache of preset '${entry.name}' exceeded its lowered budget; wiped it.` });
-        fs.rmSync(folder, { recursive: true, force: true });
       } else {
-        clearBudgetDeclarations(folder);
+        const marked = markedBudget(folder);
+        if (marked === null || marked > budget) {
+          serverLogger.warning({ scope: 'exl3', id: entry.name, event: 'ram_disk_folder_wiped', fields: '',
+            alert: `RAM disk cache of preset '${entry.name}' ${marked === null ? 'had no readable budget marker' : 'exceeded its lowered budget'}; wiped it.` });
+          fs.rmSync(folder, { recursive: true, force: true });
+        } else {
+          clearBudgetDeclarations(folder);
+          markBudget(folder, budget);
+        }
       }
     }
   }

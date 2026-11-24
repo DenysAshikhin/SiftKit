@@ -62,7 +62,7 @@ import { renderAttemptForParent, renderCheckOutput } from './handoff.ts';
 import { renderLedger } from './ledger.ts';
 import { OrchestratorLiveActivity } from './live-activity.ts';
 import { OrchestratorInfrastructureError, ParentLease } from './parent-lease.ts';
-import { findTestPathsOutsideScope, renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
+import { findPlanPathProblems, findTestPathsOutsideScope, renderOrchestratorPlan, validateOrchestratorPlan } from './plan.ts';
 import { activeApproach, changeApproach, finishProblem, reviseTasks, startPlan, type PlanState, type PlanTransition } from './plan-state.ts';
 import { buildChildInstruction, buildOrchestratorPrompt } from './prompts.ts';
 import { findReviewProblems } from './review.ts';
@@ -76,6 +76,7 @@ import {
   cleanupScratch,
   diffstatWorkspace,
   diffWorkspace,
+  listRepositoryFiles,
   orchestratorArtifactDir,
   orchestratorScratchDir,
   removeOwnedTemporaryPath,
@@ -550,6 +551,9 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     } catch (error) {
       return [toError(error).message];
     }
+    const repositoryFiles = await this.withRepository(() => listRepositoryFiles(this.request.repoRoot));
+    const pathProblems = findPlanPathProblems(this.state.plan, plan, repositoryFiles);
+    if (pathProblems.length > 0) return pathProblems;
     if (preflight) {
       const unrunnable = await findUnrunnableChecks(this.request.repoRoot,
         [...plan.tasks.flatMap((task) => task.verification), ...plan.finalVerification], this.signal);

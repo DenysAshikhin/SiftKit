@@ -251,3 +251,14 @@ test('a stored plan may hold no task after a rollback, but save_plan needs at le
   assert.equal(OrchestratorChangeApproachArgsSchema.safeParse({ lesson: change.lesson, title: change.title }).success, false);
   assert.equal(OrchestratorChangeApproachArgsSchema.safeParse({ ...change, lesson: ' ' }).success, false);
 });
+
+// Real case (run e85529c8): a first save_plan without temporaryPaths cost a round trip at the plan deadline.
+test('a plan task may omit its dependency, read, and temporary lists; wrong types are still refused', () => {
+  const minimal = { id: 'a', title: 'A', workerPresetId: 'repo-agent', writePaths: ['src/a.ts'],
+    steps: [{ instruction: 'Change it.', expectedResult: 'Changed.' }],
+    verification: [{ kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 }], acceptance: ['Changed.'] };
+  const task = OrchestratorTaskSchema.parse(minimal);
+  assert.deepEqual([task.dependsOn, task.readPaths, task.temporaryPaths], [[], [], []]);
+  assert.equal(OrchestratorTaskSchema.safeParse({ ...minimal, temporaryPaths: 'scratch' }).success, false);
+  assert.equal(OrchestratorTaskSchema.safeParse({ ...minimal, extra: true }).success, false, 'still strict');
+});

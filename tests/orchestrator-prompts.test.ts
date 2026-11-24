@@ -78,7 +78,7 @@ test('the orchestrator reviews with verbatim one-line snippets or passed command
 
 test('the orchestrator prompt carries the planning rules that keep tasks small and fully verified', () => {
   const prompt = buildOrchestratorPrompt(brief());
-  for (const rule of ['at most about 6 write', 'Steps are test-first', 'every test suite its change can affect',
+  for (const rule of ['about 6 write paths, never more than 8', 'Steps are test-first', 'every test suite its change can affect',
     'plus the project\'s typecheck and lint commands', 'finalVerification always includes the project\'s typecheck and lint commands', 'dependsOn names every task']) {
     assert.ok(prompt.includes(rule), rule);
   }
@@ -104,7 +104,11 @@ test('the orchestrator sizes files with find and ls and runs checks without tail
 
 test('the orchestrator adds implementation tasks in small batches in dependency order', () => {
   const prompt = buildOrchestratorPrompt(brief());
-  assert.ok(prompt.includes('at most 4 tasks per save_plan or update_tasks call'), prompt);
+  assert.ok(prompt.includes('adding at most 4 new tasks per save_plan or update_tasks call'), prompt);
+  // Real case (run e85529c8): a retire-2, add-3, rewire-4 restructure took six calls, five refused.
+  // The prompt wraps its lines; the rule is read as one sentence.
+  assert.ok(prompt.replace(/\n\s+/gu, ' ').includes('A restructure is one update_tasks call: add the replacements, repoint the dependents\' dependsOn,'
+    + ' and retire the old tasks together; retirements and changes to existing tasks do not count toward the 4.'), prompt);
 });
 
 test('the review step judges every deviation and host finding, and treats a weakened or silenced test as a defect', () => {
@@ -155,4 +159,32 @@ test('each child ends with the report template, which names the report schema fi
   assert.match(instruction, /Use TDD where behavior changes\./u);
   assert.deepEqual(Object.keys(JsonObjectSchema.parse(parseJsonValueText(reportTemplate(instruction)))),
     Object.keys(OrchestratorHandoffReportSchema.shape));
+});
+
+// Real case (run e85529c8): a 38-turn review invented a commit hash, diffed against HEAD~2, and re-checked finished tasks.
+test('the review step reviews only the reported task, from its uncommitted diff against HEAD', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  for (const rule of ['Review every reported task with record_review, and only that task',
+    'completed tasks were already reviewed', 'This run makes no commits',
+    'start from the git tool\'s diff (operation diff, path) of each changed path, which compares with HEAD',
+    'There are no task commits to look up', 'Use run_check only for tests and commands the review needs, never to read or search']) {
+    assert.ok(prompt.includes(rule), rule);
+  }
+});
+
+// Real case (run e85529c8): each fix ran the full suites 9-14 times before the gate ran them again.
+test('a child runs only the tests for what it changes and leaves the full checks to the gate', () => {
+  const instruction = buildChildInstruction({ work: work('fix'), attempt: 1, repoRoot: 'C:/work/repo', scratchPath: 's', preexistingDirtyPaths: [] });
+  assert.ok(instruction.includes('While you work, run only the test files for the code you change, and the typecheck once before you finish;'
+    + ' do not run the full suites or lint yourself: code runs every check above when you finish and returns failures to you.'), instruction);
+});
+
+// Real case (run e85529c8): one call per turn for 50 turns, the spec opened at turn 30, and "— actually" left in an instruction.
+test('the orchestrator reads the named spec whole first, batches independent reads, and writes instructions as final decisions', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  for (const rule of ['Read the requirements first, before any other exploration: the task, then every spec or plan it names,',
+    'each read whole from start to end', 'Issue independent reads, greps, and finds together in one turn',
+    'Write each instruction as final decisions, each step stated once']) {
+    assert.ok(prompt.includes(rule), rule);
+  }
 });

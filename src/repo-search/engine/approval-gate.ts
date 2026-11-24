@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import type { ApprovalMode } from '@siftkit/contracts';
 import { z } from '../../lib/zod.ts';
 import { getAbortError } from '../../lib/abort.ts';
@@ -9,6 +10,7 @@ import type { JsonObject } from '../../lib/json-types.ts';
 import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.ts';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
 import { WEB_CHAT_TOOL_NAMES } from '../../planner-protocol/repo-search.ts';
+import { findRunScripts } from './shell-command-policy.ts';
 
 const LOGGED_COMMAND_MAX_CHARS = 100;
 
@@ -39,12 +41,23 @@ export type ApprovalRequestInput = {
   reviewPayload: string | null;
 };
 
+/** Larger scripts are shown as null, unread: the policy returns unsure rather than judge a payload it cannot read whole. */
+export const RUN_SCRIPT_REVIEW_MAX_BYTES = 32_000;
+
 export function buildApprovalReviewPayload(input: {
   toolName: string;
   args: JsonObject;
+  repoRoot: string;
 }): string | null {
-  if (input.toolName !== 'edit' && input.toolName !== 'write') return null;
-  return JSON.stringify({ toolName: input.toolName, args: input.args }, null, 2);
+  if (input.toolName === 'edit' || input.toolName === 'write') {
+    return JSON.stringify({ toolName: input.toolName, args: input.args }, null, 2);
+  }
+  const command = input.args.command;
+  if (input.toolName !== 'run' || typeof command !== 'string') return null;
+  const scripts = findRunScripts(command, input.repoRoot).map(({ relativePath, absolutePath, sizeBytes }) => ({
+    path: relativePath, content: sizeBytes <= RUN_SCRIPT_REVIEW_MAX_BYTES ? fs.readFileSync(absolutePath, 'utf8') : null,
+  }));
+  return scripts.length === 0 ? null : JSON.stringify({ toolName: 'run', scripts }, null, 2);
 }
 
 const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([

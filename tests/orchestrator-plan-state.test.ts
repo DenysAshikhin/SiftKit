@@ -60,7 +60,7 @@ test('update_tasks patches by id, adds tasks to the active approach, and refuses
 test('a retired task that ran stays on record with its reason, one that never ran is dropped, and a dependent must follow or be re-pointed', () => {
   const failed = withStatus(planned(), 'a', 'failed');
   assert.deepEqual(reviseTasks(failed, { update: [], add: [], retire: [{ taskId: 'a', reason: 'Wrong file.' }] }, [attempt(A)], LATER),
-    { ok: false, problems: ["Task 'b' depends on a, which this call retires: retire it too, or set its dependsOn."] });
+    { ok: false, problems: ["Task 'b' depends on a, which this call retires: in this same call, retire it too or set its dependsOn."] });
   const replacement = makeOrchestratorTask({ id: 'a-2', title: 'Task A again' });
   const state = applied(reviseTasks(failed, { update: [{ taskId: 'b', set: { dependsOn: ['a-2'] } }], add: [replacement],
     retire: [{ taskId: 'a', reason: 'Wrong file.' }] }, [attempt(A)], LATER));

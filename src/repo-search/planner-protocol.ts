@@ -291,6 +291,14 @@ export type CompactionCacheOrigin =
       readonly tools: readonly InferenceToolDefinition[];
     };
 
+/** The thinking flags and tools a compaction request is sent with, whichever origin it has. */
+export function compactionRequestShape(origin: CompactionCacheOrigin): {
+  readonly flags: Readonly<PlannerThinkingFlags>;
+  readonly tools: readonly InferenceToolDefinition[];
+} {
+  return origin.kind === 'planner' ? origin.executing : origin;
+}
+
 /** Captures the same serialized values sent to the provider. */
 export function captureExecutingPlannerRequest(
   serializedMessages: readonly InferenceChatMessage[],
@@ -587,7 +595,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       },
     );
   } catch (error) {
-    const serialized = serializeNetworkError(toError(error));
+    const failure = toError(error);
+    const serialized = serializeNetworkError(failure);
     options.logger?.write({
       kind: 'provider_request_error',
       stage,
@@ -597,7 +606,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       elapsedMs: Date.now() - startedAt,
       error: serialized,
     });
-    throw new Error(buildProviderErrorMessage({ stage, method: 'POST', url: requestUrlForLog }, serialized));
+    // The cause keeps the provider's error class, so a caller can tell a context-size rejection from a transient failure.
+    throw new Error(buildProviderErrorMessage({ stage, method: 'POST', url: requestUrlForLog }, serialized), { cause: failure });
   }
   options.logger?.write({
     kind: 'provider_request_done',
@@ -821,9 +831,7 @@ export async function requestContextCompactionSummary(options: {
   logger?: JsonLogger | null;
   activityObserver?: InferenceActivityObserver;
 }): Promise<PlannerActionResponse> {
-  const state = options.cacheOrigin.kind === 'planner'
-    ? options.cacheOrigin.executing
-    : options.cacheOrigin;
+  const state = compactionRequestShape(options.cacheOrigin);
   const flags: PlannerThinkingFlags = { ...state.flags };
   const serializedHistory = serializeProtocolMessages(
     options.messages,

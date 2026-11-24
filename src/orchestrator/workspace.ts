@@ -65,6 +65,11 @@ async function listDirtyPaths(repoRoot: string): Promise<string[]> {
   return [...new Set(paths)].filter((path) => !path.startsWith(ORCHESTRATOR_ARTIFACT_ROOT)).sort();
 }
 
+/** Tracked and untracked files that are not ignored, as repository-relative POSIX paths. */
+export async function listRepositoryFiles(repoRoot: string): Promise<string[]> {
+  return (await git(repoRoot, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'])).split('\0').filter((entry) => entry.length > 0);
+}
+
 export async function captureWorkspace(repoRoot: string): Promise<WorkspaceSnapshot> {
   const snapshot = new Map<string, Buffer | null>();
   for (const path of await listDirtyPaths(repoRoot)) snapshot.set(path, readContent(repoRoot, path));

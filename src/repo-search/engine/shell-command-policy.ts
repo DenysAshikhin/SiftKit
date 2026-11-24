@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { UNFILTERED_CHECK_OUTPUT_RULE } from '../../output-digest/types.ts';
@@ -20,10 +21,22 @@ const CHECK_INVOCATION = new RegExp(String.raw`^(?:[^\s|]*[\\/])?(?:(?:node|tsx)
   + String.raw`|npm(?:\.cmd)?\s+(?:run\s+)?(?:test|lint|typecheck|build|check)[\w:-]*|(?:python3?|py)\s+-m\s+(?:pytest|mypy)`
   + String.raw`|tsc|vitest|eslint|jest|playwright|pytest|mypy|pyright|ruff|msbuild`
   + String.raw`|cargo\s+(?:test|build|check|clippy)|go\s+(?:test|build|vet)|dotnet\s+(?:test|build))(?![\w.-])`, 'iu');
-const OUTPUT_CUT = /\|\s*(Select-Object|Select-String|Where-Object|ForEach-Object|Out-File|Out-Null|Tee-Object|Get-Content|findstr|select|sls|where|tee|\?|%)(?![\w-])|(?<![\w-])[1-6*]?(>>?)(?!&)/iu;
+// A redirect into a file; `2>&1` only merges streams.
+const FILE_REDIRECT = String.raw`(?<![\w-])[1-6*]?(>>?)(?!&)`;
+const OUTPUT_CUT = new RegExp(String.raw`\|\s*(Select-Object|Select-String|Where-Object|ForEach-Object|Out-File|Out-Null|Tee-Object|Get-Content`
+  + String.raw`|findstr|select|sls|where|tee|\?|%)(?![\w-])|${FILE_REDIRECT}`, 'iu');
 // Words that run the command after them, so the word they wrap is judged as the command.
 const COMMAND_WRAPPERS = new Set(['&', '.', 'npx', 'pnpx', 'bunx', 'call', 'start', 'start-process', 'cmd', 'cmd.exe', 'iex', 'invoke-expression']);
 const SIFTKIT_EXECUTABLE = /(?:^|[\\/])siftkit(?:\.(?:cmd|ps1|exe|js))?$/iu;
+// Commands that only read or format what they read; the read, grep, find, ls, and git tools do the same work.
+const READ_ONLY_COMMANDS = new Set(['get-content', 'gc', 'cat', 'type', 'select-string', 'sls', 'findstr', 'test-path',
+  'get-childitem', 'gci', 'dir', 'ls', 'get-item', 'gi', 'resolve-path', 'out-string', 'select-object', 'select',
+  'measure-object', 'measure', 'where-object', 'where', '?', 'sort-object', 'sort', 'format-list', 'fl', 'format-table',
+  'ft', 'write-output', 'echo', 'write-host']);
+const READ_ONLY_GIT = new Set(['show', 'grep', 'log', 'status', 'diff', 'blame', 'ls-files']);
+const WRITES_FILE = new RegExp(FILE_REDIRECT, 'u');
+// Statements with no output of their own: an exit code says nothing about what the call read.
+const CONTROL_COMMANDS = new Set(['exit']);
 
 /** Splits a PowerShell command into statements on `;`, newlines, `&&`, and `||` outside quotes. */
 function splitStatements(command: string): Statement[] {
@@ -166,6 +179,58 @@ function findSiftKitInvocation(command: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * A run or run_check whose every command only reads: it is refused with the tool to use instead. A variable
+ * expression (`$x`, `$_`) is no command; a redirect or any other command makes the whole call real work.
+ */
+export function findShellReadCommand(call: RepoNativeToolCall): string | null {
+  if (call.toolName !== 'run' && call.toolName !== 'run_check') return null;
+  let first: string | null = null;
+  for (const { tokens, bare, commandStarts } of splitStatements(call.args.command)) {
+    if (WRITES_FILE.test(bare)) return null;
+    for (const start of commandStarts) {
+      const index = commandHead(tokens, start);
+      const token = tokens[index] ?? '';
+      const head = token.toLowerCase();
+      if (token.startsWith('$') || CONTROL_COMMANDS.has(head)) continue;
+      const subcommand = (tokens[index + 1] ?? '').toLowerCase();
+      if (head === 'git' ? !READ_ONLY_GIT.has(subcommand) : !READ_ONLY_COMMANDS.has(head)) return null;
+      first ??= head === 'git' ? `git ${subcommand}` : token;
+    }
+  }
+  return first === null ? null
+    : `\`${first}\` only reads: use your read, grep, find, ls, or git tool instead. run and run_check are for tests, builds, `
+      + 'and commands that execute or change something.';
+}
+
+const SCRIPT_HOSTS = new Set(['node', 'tsx', 'python', 'python3', 'py', 'pwsh', 'powershell', 'bun', 'deno']);
+const SCRIPT_FILE = /\.(?:[cm]?[jt]s|tsx|py|ps1)$/iu;
+
+export type RunScript = { relativePath: string; absolutePath: string; sizeBytes: number };
+
+/** Repository files a command runs as scripts (`node probe.ts`, `.\probe.ps1`), outside the repository's own checks. */
+export function findRunScripts(command: string, repoRoot: string): RunScript[] {
+  const scripts = new Map<string, RunScript>();
+  for (const { tokens, offsets, bare, commandStarts } of splitStatements(command)) {
+    for (const start of commandStarts) {
+      const head = commandHead(tokens, start);
+      const offset = offsets[head];
+      if (offset === undefined || CHECK_INVOCATION.test(bare.slice(offset))) continue;
+      const host = (tokens[head] ?? '').toLowerCase().replace(/\.exe$/u, '');
+      const scriptIndex = SCRIPT_HOSTS.has(host) ? tokens.findIndex((token, index) => index > head && !token.startsWith('-')) : head;
+      const script = tokens[scriptIndex];
+      if (scriptIndex < 0 || script === undefined || !SCRIPT_FILE.test(script)) continue;
+      const resolved = resolveRepoScopedPath(repoRoot, path.resolve(repoRoot, script));
+      const stats = resolved === null ? undefined : fs.statSync(resolved.absolutePath, { throwIfNoEntry: false });
+      if (resolved !== null && stats?.isFile() === true) {
+        const relativePath = resolved.relativePath.replace(/\\/gu, '/');
+        scripts.set(resolved.absolutePath, { relativePath, absolutePath: resolved.absolutePath, sizeBytes: stats.size });
+      }
+    }
+  }
+  return [...scripts.values()];
 }
 
 /** Absolute paths in free text, such as a child's instruction, that lie outside the repository root. */

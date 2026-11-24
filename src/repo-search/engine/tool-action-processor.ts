@@ -73,7 +73,7 @@ import {
 } from '../repo-tool-arguments.ts';
 import { getAbortError, throwIfAborted } from '../../lib/abort.ts';
 import { resolveToolActionIdentity } from './tool-call-identity.ts';
-import { findShellCommandProblem } from './shell-command-policy.ts';
+import { findShellCommandProblem, findShellReadCommand } from './shell-command-policy.ts';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
 import type { OrchestratorToolHost } from './orchestrator-tool-host.ts';
 import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.ts';
@@ -165,6 +165,9 @@ const REPEAT_KINDS = {
 
 type RepeatKind = keyof typeof REPEAT_KINDS;
 
+// Past the edit deadline a worker may only change files; run calls that only read are refused separately.
+const EDIT_DEADLINE_TOOLS = new Set(['edit', 'write', 'run']);
+
 export type ToolActionProcessorDeps = {
   task: TaskDefinition;
   repoRoot: string;
@@ -216,6 +219,8 @@ export type ToolActionProcessorDeps = {
 export class ToolActionProcessor {
   private readonly collector = new ActivitySummaryCollector();
   private progressToolCallSeq = 0;
+  /** Set by the first turn whose prompt reaches the exploration deadline; a compaction shrinks the prompt but never clears it. */
+  private explorationDeadlinePassed = false;
 
   private readonly deps: ToolActionProcessorDeps;
 
@@ -232,6 +237,7 @@ export class ToolActionProcessor {
     responseContent = '',
   ): Promise<TurnOutcome> {
     const { transcript, duplicates, counters } = this.deps;
+    if (promptTokenCount >= this.deps.budget.explorationDeadlineTokens) this.explorationDeadlinePassed = true;
     const state: TurnBatchState = {
       batchId: randomUUID(),
       batchIndex: 0,
@@ -384,8 +390,9 @@ export class ToolActionProcessor {
       return 'next';
     }
 
-    const planDeadline = this.findPlanDeadline(normalizedToolName, promptTokenCount);
-    if (planDeadline !== null) {
+    const deadline = this.findPlanDeadline(normalizedToolName, promptTokenCount)
+      ?? this.findEditDeadline(normalizedToolName, promptTokenCount);
+    if (deadline !== null) {
       counters.rejectedCalls += 1;
       this.recordRejectedToolCall(turn, state, {
         progressToolCallId,
@@ -393,7 +400,7 @@ export class ToolActionProcessor {
         rawArgs: toolAction.args,
         recordedCommand: command,
         transcriptCommand: command,
-        reason: planDeadline,
+        reason: deadline,
         rejectionKind: 'budget',
         keepArgs: false,
       });
@@ -426,7 +433,7 @@ export class ToolActionProcessor {
       return 'next';
     }
 
-    const commandProblem = findShellCommandProblem(nativeCall, this.deps.repoRoot);
+    const commandProblem = findShellCommandProblem(nativeCall, this.deps.repoRoot) ?? findShellReadCommand(nativeCall);
     if (commandProblem !== null) {
       counters.safetyRejects += 1;
       this.recordRejectedToolCall(turn, state, {
@@ -469,6 +476,7 @@ export class ToolActionProcessor {
         reviewPayload: buildApprovalReviewPayload({
           toolName: normalizedToolName,
           args: toolAction.args,
+          repoRoot: this.deps.repoRoot,
         }),
       });
       if (decision.kind === 'abort') {
@@ -543,10 +551,22 @@ export class ToolActionProcessor {
   private findPlanDeadline(toolName: string, promptTokenCount: number): string | null {
     const host = this.deps.orchestratorTools;
     const { budget } = this.deps;
-    if (host === null || toolName === 'save_plan' || promptTokenCount < budget.planDeadlineTokens || host.planSaved()) return null;
+    if (host === null || toolName === 'save_plan' || promptTokenCount < budget.explorationDeadlineTokens || host.planSaved()) return null;
     return `Plan deadline: the prompt is ${formatInteger(promptTokenCount)} of ${formatInteger(budget.totalContextTokens)} context tokens `
       + 'and no plan is saved. Exploring has stopped, because compacting before a plan exists would drop everything you found: '
       + 'call save_plan now with what you know, then refine it with update_tasks.';
+  }
+
+  /** Why a worker past its deadline with nothing written may not run this tool: only a change is accepted until one lands. */
+  private findEditDeadline(toolName: string, promptTokenCount: number): string | null {
+    const { budget, mutatedPaths, orchestratorTools, runtimeProfile, allowedPlannerToolNames } = this.deps;
+    const canChangeFiles = allowedPlannerToolNames.includes('edit') || allowedPlannerToolNames.includes('write');
+    if (orchestratorTools !== null || runtimeProfile.loopKind !== 'repo-agent' || !canChangeFiles || mutatedPaths.size > 0) return null;
+    if (!this.explorationDeadlinePassed || EDIT_DEADLINE_TOOLS.has(toolName)) return null;
+    return `Edit deadline: the prompt is ${formatInteger(promptTokenCount)} of ${formatInteger(budget.totalContextTokens)} context tokens `
+      + 'and nothing has been written yet. Reading has stopped, because a compaction would drop everything you read: '
+      + 'write the failing test or make your first edit now with what you know, or finish if no change is needed. '
+      + 'Reading resumes after your first successful edit or write.';
   }
 
   private beginRun(nativeCall: RepoNativeToolCall | null): RunOutputDecision | null {

@@ -237,9 +237,9 @@ test('prepareTurn returns context_overflow without calling the compactor when no
 test('prepareTurn compacts at most once per turn and then reports overflow', async () => {
   const transcript = new TranscriptManager({
     // The system prompt is never dropped, so the compacted prompt still overflows —
-    // while the summary request (system + completed history + instruction) still fits.
+    // while the summary request (system + completed history + instruction) still fits with the window margin.
     systemPromptContent: 'S'.repeat(18_000),
-    historyMessages: [{ role: 'assistant', content: 'H'.repeat(7_000) }],
+    historyMessages: [{ role: 'assistant', content: 'H'.repeat(3_000) }],
     initialUserContent: 'question',
     initialUserImages: [],
     liveImagePathKeys: new Set<string>(),
@@ -264,7 +264,7 @@ test('prepareTurn releases image guards for attachments dropped by compaction', 
   const transcript = new TranscriptManager({
     systemPromptContent: 'SYSTEM',
     historyMessages: [
-      { role: 'assistant', content: 'H'.repeat(14_000) },
+      { role: 'assistant', content: 'H'.repeat(12_000) },
       {
         role: 'user',
         content: [

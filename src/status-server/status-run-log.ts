@@ -1,4 +1,6 @@
+import { InferenceBackendIdSchema } from '../config/types.ts';
 import type { OptionalJsonValue } from '../lib/json-types.ts';
+import { z } from '../lib/zod.ts';
 import { getActiveModelPreset, readConfig } from './config-store.ts';
 import {
   upsertRunLog,
@@ -73,6 +75,13 @@ export function resolveStatusRunLogIdentity(taskKind: TaskKind | null): {
   return { runKind: 'unknown', runGroup: 'other', titlePrefix: 'status' };
 }
 
+const RecordedServingRowSchema = z.object({ model: z.string().nullable(), backend: InferenceBackendIdSchema.nullable() }).optional();
+
+/** What the engine recorded as serving this run; the preset active when the status lands may already serve the next run. */
+function readRecordedServing(ctx: ServerContext, runId: string): z.infer<typeof RecordedServingRowSchema> {
+  return RecordedServingRowSchema.parse(ctx.runtimeDatabase.prepare('SELECT model, backend FROM run_logs WHERE run_id = ?').get(runId));
+}
+
 export function persistStatusRunLog(
   ctx: ServerContext,
   job: DeferredTerminalMetadataJob,
@@ -84,6 +93,7 @@ export function persistStatusRunLog(
   }
   const identity = resolveStatusRunLogIdentity(taskKind);
   const activePreset = getActiveModelPreset(readConfig(ctx.configPath));
+  const recorded = readRecordedServing(ctx, job.requestId);
   upsertRunLog(ctx.runtimeDatabase, {
     runId: job.requestId,
     requestId: job.requestId,
@@ -96,8 +106,8 @@ export function persistStatusRunLog(
     startedAtUtc: job.startedAtUtc,
     finishedAtUtc: job.finishedAtUtc,
     title: `${identity.titlePrefix} ${job.requestId}`,
-    model: activePreset.Model,
-    backend: activePreset.Backend,
+    model: recorded?.model ?? activePreset.Model,
+    backend: recorded?.backend ?? activePreset.Backend,
     repoRoot: null,
     inputTokens: job.metadata.inputTokens,
     outputTokens: job.metadata.totalOutputTokens ?? job.metadata.outputTokens,

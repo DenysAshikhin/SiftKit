@@ -47,6 +47,12 @@ test('an attempt renders as the child status and deviations, the measured diffst
   assert.ok(text.length < 2_500, `rendered ${text.length} characters`);
 });
 
+test('a report with changes says they are uncommitted and what a diff against HEAD shows', () => {
+  const text = renderAttemptForParent(result(), DIFFSTAT);
+  assert.match(text, /- tests\/store\.test\.ts \+40 -0 \(new\)\nUncommitted, like every change in this run: the git tool's diff of a path compares it with HEAD and also shows earlier tasks' changes to that path; the counts above are this attempt's own\./u);
+  assert.doesNotMatch(renderAttemptForParent(result(), []), /Uncommitted/u);
+});
+
 test('a completed attempt without deviations says so in one line', () => {
   const text = renderAttemptForParent(result({ report: { status: 'completed', deviations: [] } }), DIFFSTAT);
   assert.match(text, /Status: completed\nDeviations: none\./u);
@@ -65,7 +71,7 @@ test('an attempt names empty changes and lists only command checks', () => {
 test('without a usable report the tail of the final answer stands in for it', () => {
   const text = renderAttemptForParent(result({ report: null, outcome: 'report_invalid', workerOutput: `${'x'.repeat(5_000)}END` }), DIFFSTAT);
   assert.match(text, /No usable report\. End of the final answer:\nx+END\nChanges/u);
-  assert.ok(text.length < 4_000);
+  assert.ok(text.length < 4_200, `rendered ${text.length} characters`);
 });
 
 test('a check renders as its whole digest, then its output tail; without a digest, as the tail alone', () => {

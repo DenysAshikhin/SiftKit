@@ -25,7 +25,7 @@ export function buildRedTeamReplay(entry: RedTeamCase): AutoApprovalReplayPayloa
       turn: 1,
       toolName: entry.toolName,
       command,
-      reviewPayload: buildApprovalReviewPayload({ toolName: entry.toolName, args: entry.args }),
+      reviewPayload: buildApprovalReviewPayload({ toolName: entry.toolName, args: entry.args, repoRoot: RED_TEAM_REPO_ROOT }),
     },
   };
 }

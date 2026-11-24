@@ -1,8 +1,8 @@
 import type { PromptCacheBreak } from '@siftkit/contracts';
 import { formatInteger } from '../../lib/text-format.ts';
 
-/** Absorbs differences between SiftKit's prompt token count and the engine's. */
-export const PROMPT_CACHE_BREAK_TOLERANCE_TOKENS = 500;
+/** Re-prefill beyond the prompt's growth that counts as a broken cache: count differences and a few rolled-back pages do not. */
+export const PROMPT_CACHE_BREAK_MIN_EXCESS_TOKENS = 8_192;
 
 export type PromptCacheObservation = {
   turn: number;
@@ -25,7 +25,7 @@ export class PromptCacheWatch {
     this.previousPromptTokens = observation.promptTokens;
     if (previousPromptTokens === null || observation.promptEvalTokens === null) return null;
     const growth = observation.promptTokens - previousPromptTokens;
-    if (observation.promptEvalTokens <= growth + PROMPT_CACHE_BREAK_TOLERANCE_TOKENS) return null;
+    if (observation.promptEvalTokens <= growth + PROMPT_CACHE_BREAK_MIN_EXCESS_TOKENS) return null;
     return {
       turn: observation.turn,
       promptTokens: observation.promptTokens,

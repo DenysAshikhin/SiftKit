@@ -19,9 +19,12 @@ export const OUTPUT_TAIL_CAP_TOKENS = 1_024;
 // run fails loudly instead of emitting a stub that silently loses the conversation.
 export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 
-// An orchestrator's compaction keeps only its run state, so past this share of its window with no plan
-// saved it may only call save_plan; the last quarter is left for writing the plan before compaction.
-const ORCHESTRATOR_PLAN_DEADLINE_SHARE = 0.75;
+// The engine allocates its cache in 256-token pages and the draft model looks past max_tokens; run e85529c8 fell one page short.
+export const COMPACTION_WINDOW_MARGIN_TOKENS = 1_024;
+
+// Past this share of the window, exploring stops until the run has something a compaction cannot lose: an
+// orchestrator's saved plan, or a worker's first write. The last quarter is left for writing it.
+const EXPLORATION_DEADLINE_SHARE = 0.75;
 
 /**
  * Splits a compaction generation ceiling into a thinking cap and an output share.
@@ -74,8 +77,8 @@ export class TurnBudget {
     this.maxTurns = Math.max(1, options.maxTurns);
   }
 
-  get planDeadlineTokens(): number {
-    return Math.floor(this.totalContextTokens * ORCHESTRATOR_PLAN_DEADLINE_SHARE);
+  get explorationDeadlineTokens(): number {
+    return Math.floor(this.totalContextTokens * EXPLORATION_DEADLINE_SHARE);
   }
 
   perToolCapTokens(completedCommandCount: number, batchCommandCount: number): number {

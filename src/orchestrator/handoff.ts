@@ -86,13 +86,17 @@ function renderReport(report: OrchestratorHandoffReport): string[] {
     : list('Deviations', report.deviations.map((deviation) => `${deviation.what} Why: ${deviation.why}`)))];
 }
 
+// The base a review should diff against; run e85529c8 invented commit hashes and diffed against HEAD~2 without it.
+const UNCOMMITTED_CHANGES_NOTE = 'Uncommitted, like every change in this run: the git tool\'s diff of a path compares it with HEAD'
+  + ' and also shows earlier tasks\' changes to that path; the counts above are this attempt\'s own.';
+
 /** Measured line counts per path; the code itself stays in the workspace for the orchestrator to read. */
 function renderChanges(diffstat: readonly DiffstatEntry[]): string {
   if (diffstat.length === 0) return 'Changes: none.';
   return `Changes (measured since the attempt began):\n${diffstat.map((entry) => {
     const counts = entry.added === null || entry.removed === null ? 'binary' : `+${entry.added} -${entry.removed}`;
     return `- ${entry.path} ${counts}${entry.change === 'modified' ? '' : ` (${entry.change === 'added' ? 'new' : 'deleted'})`}`;
-  }).join('\n')}`;
+  }).join('\n')}\n${UNCOMMITTED_CHANGES_NOTE}`;
 }
 
 type CommandCheckResult = OrchestratorCheckResult & { check: OrchestratorCommandCheck };

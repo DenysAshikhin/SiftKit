@@ -36,7 +36,7 @@ const NOISY_VALIDATION_OUTPUT = Array.from(
   (_, index) => `validation-line-${index + 1}`,
 ).join('\n');
 const VALIDATION_COMMAND = buildRepoToolRequestedCommand('run', { command: 'npm test', outputMode: 'full' });
-const STABLE_COMMAND = buildRepoToolRequestedCommand('run', { command: 'Write-Output stable' });
+const STABLE_COMMAND = buildRepoToolRequestedCommand('run', { command: 'node scratch/echo.tsstable' });
 const VALIDATION_MOCK_COMMAND_RESULTS = {
   [VALIDATION_COMMAND]: { exitCode: 1, stdout: NOISY_VALIDATION_OUTPUT, stderr: '' },
   [STABLE_COMMAND]: { exitCode: 0, stdout: 'stable\n', stderr: '' },
@@ -566,7 +566,7 @@ test('a duplicate-rejected intervening run forfeits the pending full retry', asy
   const stable: AgentLoopToolAction = {
     kind: 'tool', callId: 'test_call_38',
     toolName: 'run',
-    args: { command: 'Write-Output stable' },
+    args: { command: 'node scratch/echo.tsstable' },
   };
   const validation: AgentLoopToolAction = {
     kind: 'tool', callId: 'test_call_39',
@@ -746,7 +746,7 @@ test('a zero-capacity tool is rejected before approval and before execution', as
     },
   };
   const root = createManagedTempDir('siftkit-zero-capacity-');
-  const command = buildRepoToolRequestedCommand('run', { command: 'Write-Output should-not-run' });
+  const command = buildRepoToolRequestedCommand('run', { command: 'node scratch/echo.tsshould-not-run' });
   const { processor, commands, counters, budget, events, transcript } = makeProcessor(
     root,
     ['run'],
@@ -757,7 +757,7 @@ test('a zero-capacity tool is rejected before approval and before execution', as
 
   await processor.executeBatch(
     1,
-    [{ kind: 'tool', callId: 'zero_capacity', toolName: 'run', args: { command: 'Write-Output should-not-run' } }],
+    [{ kind: 'tool', callId: 'zero_capacity', toolName: 'run', args: { command: 'node scratch/echo.tsshould-not-run' } }],
     '',
     budget.maxPromptTokens,
     false,
@@ -788,7 +788,7 @@ test('every action of a zero-capacity batch is rejected without execution, in or
     },
   };
   const root = createManagedTempDir('siftkit-zero-capacity-batch-');
-  const commandTexts = ['Write-Output one', 'Write-Output two', 'Write-Output three'];
+  const commandTexts = ['node scratch/echo.tsone', 'node scratch/echo.tstwo', 'node scratch/echo.tsthree'];
   const mockCommandResults = Object.fromEntries(commandTexts.map((text) => [
     buildRepoToolRequestedCommand('run', { command: text }),
     { exitCode: 0, stdout: text, stderr: '' },
@@ -830,7 +830,7 @@ test('every action of a zero-capacity batch is rejected without execution, in or
 
 test('a tool with one token of capacity still executes', async () => {
   const root = createManagedTempDir('siftkit-one-token-capacity-');
-  const command = buildRepoToolRequestedCommand('run', { command: 'Write-Output runs' });
+  const command = buildRepoToolRequestedCommand('run', { command: 'node scratch/echo.tsruns' });
   const { processor, commands, budget, events } = makeProcessor(
     root,
     ['run'],
@@ -841,7 +841,7 @@ test('a tool with one token of capacity still executes', async () => {
 
   await processor.executeBatch(
     1,
-    [{ kind: 'tool', callId: 'one_token', toolName: 'run', args: { command: 'Write-Output runs' } }],
+    [{ kind: 'tool', callId: 'one_token', toolName: 'run', args: { command: 'node scratch/echo.tsruns' } }],
     '',
     budget.maxPromptTokens - 1,
     false,
@@ -1014,7 +1014,7 @@ test('a validation run leads with the digest of its raw output, taken before sha
     [STABLE_COMMAND]: { exitCode: 0, stdout: 'stable\n', stderr: '' },
   });
   await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_digest_1', toolName: 'run', args: { command: 'npm test' } }], '', 0, false);
-  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_digest_2', toolName: 'run', args: { command: 'Write-Output stable' } }], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_digest_2', toolName: 'run', args: { command: 'node scratch/echo.tsstable' } }], '', 0, false);
   const digest = digestOutput(output)?.text ?? null;
   assert.ok(digest !== null);
   assert.match(digest, /^Digest of the whole output:\npytest: FAILED \(2 failed, 1 passed\)\n/u);
@@ -1052,17 +1052,35 @@ test('a recognised check that passed comes back as its verdict and a capped tail
 test('a run with outputMode "full" leads with the digest over its unshaped output', async () => {
   const root = createManagedTempDir('siftkit-run-full-');
   const output = readDigestFixture('pytest/fail.txt').trimEnd();
-  const args = { command: 'Get-Content log.txt', outputMode: 'full' };
+  const args = { command: 'node scratch/cat-log.ts', outputMode: 'full' };
   const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent', null, {
     [buildRepoToolRequestedCommand('run', args)]: { exitCode: 0, stdout: output, stderr: '' },
     [STABLE_COMMAND]: { exitCode: 0, stdout: 'stable\n', stderr: '' },
   });
   await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_full_1', toolName: 'run', args }], '', 0, false);
-  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_full_2', toolName: 'run', args: { command: 'Write-Output stable' } }], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_full_2', toolName: 'run', args: { command: 'node scratch/echo.tsstable' } }], '', 0, false);
   const shown = commands[0]?.promptOutput ?? '';
   const digest = digestOutput(output)?.text ?? '';
   assert.ok(digest.length > 0);
   assert.ok(shown.startsWith(`${digest}\n`), shown);
   assert.match(shown, /short test summary info/u, 'the whole raw output follows the digest');
   assert.doesNotMatch(shown, /lines omitted from validation command output/u);
+});
+
+// A compaction shrinks the prompt below the deadline but keeps none of what was read, so the deadline holds until a write.
+test('a worker past the exploration deadline stays held to writing after its prompt shrinks, until a write lands', async () => {
+  const root = createManagedTempDir('siftkit-edit-deadline-');
+  const { processor, events, budget } = makeProcessor(root, ['ls', 'write'], 'repo-agent');
+  const ls = (callId: string) => ({ kind: 'tool' as const, callId, toolName: 'ls', args: { path: '.' } });
+  const deadlineRejections = () => events.filter((event) => event.kind === 'turn_command_result'
+    && /^Edit deadline:/u.test(String(event.rejectionReason))).length;
+
+  await processor.executeBatch(1, [ls('deadline_1')], '', budget.explorationDeadlineTokens, false);
+  await processor.executeBatch(2, [ls('deadline_2')], '', 100, false);
+  assert.equal(deadlineRejections(), 2, 'refused at the deadline and again after the prompt shrank');
+
+  await processor.executeBatch(3, [{ kind: 'tool', callId: 'deadline_3', toolName: 'write', args: { path: 'notes.txt', content: 'n\n' } }], '', 100, false);
+  await processor.executeBatch(4, [ls('deadline_4')], '', 100, false);
+  assert.equal(fs.readFileSync(path.join(root, 'notes.txt'), 'utf8'), 'n\n');
+  assert.equal(deadlineRejections(), 2, 'the first write lifts the deadline');
 });

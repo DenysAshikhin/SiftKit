@@ -26,6 +26,7 @@ import { parseJsonText, parseJsonValueText } from '../../src/lib/json.ts';
 import type { JsonObject } from '../../src/lib/json-types.ts';
 import { z } from '../../src/lib/zod.ts';
 import { COMMAND_TAIL_CHARS } from '../../src/orchestrator/run.ts';
+import { ORCHESTRATOR_MAX_WRITE_PATHS } from '../../src/orchestrator/plan.ts';
 import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.ts';
 import { ALTERNATE_MODEL_PRESET_ID, DashboardModelQueueHarness } from '../helpers/dashboard-model-queue-harness.ts';
 import { requestJson } from '../helpers/dashboard-http.ts';
@@ -339,6 +340,22 @@ test('code refuses an invalid plan or dispatch in the tool result, and the conve
   assert.match(engine.prompts('parent')[0] ?? '', /Command checks run in PowerShell \(Windows, powershell\.exe\)/u);
 });
 
+// Real case (run e85529c8): the 11- and 13-path tasks compacted mid-task or stalled.
+test('save_plan refuses a task over the write-path limit and keeps no plan until a valid one is saved', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-write-paths-');
+  const { engine } = context;
+  const wide = { ...WRITE_TASK, writePaths: Array.from({ length: ORCHESTRATOR_MAX_WRITE_PATHS + 1 }, (_, index) => `src/part${index}.ts`) };
+  engine.parent.push([savePlan(planOf([wide])), savePlan(), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'), COMPLETE]);
+  engine.children.push(WRITER);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  const [refused, saved] = engine.parentToolOutputs();
+  assert.match(refused ?? '', new RegExp(`^Not done:\\n- Task 'greeting' lists ${ORCHESTRATOR_MAX_WRITE_PATHS + 1} writePaths`, 'u'));
+  assert.match(saved ?? '', /^Plan saved to .*plan\.md with 1 task\(s\)\./u);
+});
+
 test('update_tasks revises the saved plan and its Markdown, and save_plan only makes the first plan', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-update-tasks-');
   const { engine } = context;
@@ -588,12 +605,17 @@ test('a run that outlives its time budget stops as budget_exhausted, even while 
   assert.equal(state.tasks.some((task) => task.status === 'running' || task.status === 'reviewing'), false, 'no task is left looking live');
 });
 
+/** A command that replays a recorded check's output and exit code; run_check refuses a command that only reads. */
+function replayCheckOutput(file: string, exitCode: number): string {
+  return `node -e "process.stdout.write(require('node:fs').readFileSync('${file}', 'utf8')); process.exitCode = ${exitCode}"`;
+}
+
 test('run_check leads its result with the digest of the whole check output', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-check-digest-');
   const { engine } = context;
   // A check reads only inside its repository, so the fixture output is copied in first.
   fs.copyFileSync(digestFixturePath('pytest/fail.txt'), path.join(context.repo, 'pytest-fail.txt'));
-  const command = 'Get-Content -Raw -Encoding UTF8 pytest-fail.txt; exit 1';
+  const command = replayCheckOutput('pytest-fail.txt', 1);
   engine.parent.push([savePlan(), tool('run_check', { command, cwd: '.' }), dispatch({ taskId: 'greeting' }), review('greeting', 'pass'), COMPLETE]);
   engine.children.push(WRITER);
 
@@ -608,7 +630,7 @@ test('a run_check of a real passing suite returns its verdict and a bounded tail
   const context = await startHarness(t, 'siftkit-orchestrator-check-pass-');
   const { engine } = context;
   fs.copyFileSync(digestFixturePath('node-test/real-run-pass.txt'), path.join(context.repo, 'suite-pass.txt'));
-  engine.parent.push([savePlan(), tool('run_check', { command: 'Get-Content -Raw -Encoding UTF8 suite-pass.txt', cwd: '.' }),
+  engine.parent.push([savePlan(), tool('run_check', { command: replayCheckOutput('suite-pass.txt', 0), cwd: '.' }),
     dispatch({ taskId: 'greeting' }), review('greeting', 'pass'), COMPLETE]);
   engine.children.push(WRITER);
 

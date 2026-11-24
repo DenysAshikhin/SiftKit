@@ -1,3 +1,5 @@
+import { posix } from 'node:path';
+
 import type { OrchestratorPlan, OrchestratorTask, OrchestratorVerificationCheck, SiftPreset } from '@siftkit/contracts';
 
 import type { SiftConfig } from '../config/types.ts';
@@ -27,6 +29,36 @@ export function findTestPathsOutsideScope(task: Pick<OrchestratorTask, 'writePat
   return changedPaths.filter((path) => TEST_PATH.test(path) && !inScope(path));
 }
 
+/** The most files one task may expect to change; larger tasks compacted mid-task or stalled in run e85529c8. */
+export const ORCHESTRATOR_MAX_WRITE_PATHS = 8;
+
+/**
+ * Problems with the write paths a save_plan or update_tasks call adds or changes: too many for one worker, or a new
+ * test file whose name already exists elsewhere. Tasks whose writePaths the call leaves alone are not judged again.
+ */
+export function findPlanPathProblems(previous: OrchestratorPlan | null, next: OrchestratorPlan, repositoryFiles: readonly string[]): string[] {
+  const before = new Map((previous?.tasks ?? []).map((task) => [task.id, task.writePaths.join('\n')]));
+  const existing = new Set(repositoryFiles);
+  const byName = new Map<string, string[]>();
+  for (const file of repositoryFiles) byName.set(posix.basename(file), [...(byName.get(posix.basename(file)) ?? []), file]);
+  const problems: string[] = [];
+  for (const task of next.tasks) {
+    if (before.get(task.id) === task.writePaths.join('\n')) continue;
+    if (task.writePaths.length > ORCHESTRATOR_MAX_WRITE_PATHS) {
+      problems.push(`Task '${task.id}' lists ${task.writePaths.length} writePaths; a task may change at most ${ORCHESTRATOR_MAX_WRITE_PATHS} paths.`
+        + ' Split it into tasks that each finish within one worker context.');
+    }
+    for (const writePath of task.writePaths) {
+      if (existing.has(writePath) || !TEST_PATH.test(writePath)) continue;
+      const twins = byName.get(posix.basename(writePath)) ?? [];
+      if (twins.length === 0) continue;
+      problems.push(`Task '${task.id}' creates '${writePath}', but ${twins.map((twin) => `'${twin}'`).join(', ')} already exists:`
+        + ' name the existing test file, or give a new file a name that says how it differs.');
+    }
+  }
+  return problems;
+}
+
 function scopePath(repoRoot: string, owner: string, rawPath: string): string {
   const resolved = resolveRepoScopedPath(repoRoot, rawPath);
   if (resolved === null) throw new Error(`${owner} path '${rawPath.replace(/\\/gu, '/')}' escapes the repository.`);
@@ -48,7 +80,7 @@ function assertDependencies(tasks: OrchestratorTask[]): void {
   for (const task of tasks) {
     for (const dependency of task.dependsOn) {
       if (dependency === task.id) throw new Error(`Task '${task.id}' depends on itself.`);
-      if (!byId.has(dependency)) throw new Error(`Task '${task.id}' depends on missing task '${dependency}'.`);
+      if (!byId.has(dependency)) throw new Error(`Task '${task.id}' depends on missing task '${dependency}': add '${dependency}' in this same call, or remove it from dependsOn.`);
     }
   }
   const finished = new Set<string>();

@@ -10,6 +10,7 @@ import {
   cleanupScratch,
   diffWorkspace,
   diffstatWorkspace,
+  listRepositoryFiles,
   orchestratorScratchDir,
   removeOwnedTemporaryPath,
   restoreWorkspace,
@@ -131,4 +132,13 @@ test('a restore refuses once a commit has been made since the checkpoint', async
   fs.writeFileSync(path.join(root, 'src', 'a.ts'), 'export const a = 2;\n');
   execFileSync('git', ['commit', '--quiet', '-am', 'moved'], { cwd: root });
   await assert.rejects(restoreWorkspace(root, checkpoint), /Cannot roll back: HEAD is [0-9a-f]{40}, but the approach began at [0-9a-f]{40}\./u);
+});
+
+test('the repository file list holds tracked and untracked files as POSIX paths, without ignored ones', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, '.gitignore'), 'ignored.txt\n');
+  fs.writeFileSync(path.join(root, 'ignored.txt'), 'x');
+  fs.mkdirSync(path.join(root, 'tests'));
+  fs.writeFileSync(path.join(root, 'tests', 'new.test.ts'), 'x');
+  assert.deepEqual((await listRepositoryFiles(root)).sort(), ['.gitignore', 'README.md', 'src/a.ts', 'tests/new.test.ts']);
 });

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { UNFILTERED_CHECK_OUTPUT_RULE } from '../src/output-digest/types.ts';
-import { findPathsOutsideRepo, findShellCommandProblem } from '../src/repo-search/engine/shell-command-policy.ts';
+import { findPathsOutsideRepo, findShellCommandProblem, findShellReadCommand } from'../src/repo-search/engine/shell-command-policy.ts';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
 import { createManagedTempDir } from './helpers/temp-dirs.ts';
 
@@ -142,4 +142,32 @@ test('neither the orchestrator nor a worker may start siftkit from a command', (
 
 test('tools other than run and run_check are not judged', () => {
   assert.equal(findShellCommandProblem({ toolName: 'read', args: { path: '..\\x.txt' } }, makeRoot()), null);
+});
+
+// Real case (run e85529c8): a 38-turn review read code through run_check with Select-String, Get-Content, and git show.
+test('a run or run_check that only reads is named with the tool to use; one that executes, writes, or redirects is not', () => {
+  for (const [command, named] of [
+    ['Get-Content src/a.ts', 'Get-Content'],
+    ['Get-Content package.json | Select-String typecheck', 'Get-Content'],
+    ['Select-String -Path src/*.ts -Pattern foo | Out-String', 'Select-String'],
+    ['git show HEAD:src/a.ts', 'git show'],
+    ['git status --porcelain; git diff --stat', 'git status'],
+    ['$l = Get-Content scratch/e2e.log; $l[10..40]', 'Get-Content'],
+    ['Get-Content a.txt | Where-Object { $_ -match "x" }', 'Get-Content'],
+    ['Test-Path src/a.ts', 'Test-Path'],
+    // An exit code, a merged error stream, or a wrapper changes nothing about what the call does.
+    ['Get-Content -Raw suite.txt; exit 0', 'Get-Content'],
+    ['Get-Content src/a.ts 2>&1', 'Get-Content'],
+    ['& Get-Content src/a.ts', 'Get-Content'],
+    ['cmd /c type src\a.ts', 'type'],
+  ]) {
+    const problem = findShellReadCommand(run(command)) ?? '';
+    assert.ok(problem.startsWith(`\`${named}\` only reads: use your read, grep, find, ls, or git tool instead.`), `${command}\n${problem}`);
+  }
+  for (const command of ['npm test', 'node scratch/probe.ts', 'Get-Content a.txt | node scratch/parse.ts', 'Get-Content a.txt > b.txt',
+    'git stash list', 'git commit -m x', 'Remove-Item scratch/x.txt', '$PSVersionTable', '1..3 | ForEach-Object { $_ }', 'exit 1']) {
+    assert.equal(findShellReadCommand(run(command)), null, command);
+  }
+  assert.ok((findShellReadCommand({ toolName: 'run_check', args: { command: 'git grep -n foo', cwd: '.' } }) ?? '').startsWith('`git grep` only reads'));
+  assert.equal(findShellReadCommand({ toolName: 'read', args: { path: 'a.ts' } }), null);
 });

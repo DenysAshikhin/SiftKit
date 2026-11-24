@@ -9,6 +9,7 @@ import {
 
 import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
 import { renderReportInstruction } from './handoff.ts';
+import { ORCHESTRATOR_MAX_WRITE_PATHS } from './plan.ts';
 import type { PlanWorker } from './scheduler.ts';
 
 const CHECK_SHELL_RULE = `Command checks run in ${RUN_SHELL_LABEL} from their cwd: use PowerShell syntax, cmdlets, and programs on PATH only`
@@ -59,15 +60,21 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
     'The repository file listing in your instructions was taken when this run started; use ls and find for the current state.',
     '',
     'How to work:',
-    '1. Read the requirements: the task and any spec or plan it names. Explore the code yourself with read, grep, find, ls, and git',
-    '   until you can name every file each change touches and the tests that cover it. Read narrowly: grep for symbols and read',
-    '   line ranges, not whole directories; your context also has to hold every review.',
+    '1. Read the requirements first, before any other exploration: the task, then every spec or plan it names,',
+    '   each read whole from start to end. Explore the code yourself with read, grep, find, ls, and git until you can name',
+    '   every file each change touches and the tests that cover it. Read narrowly: grep for symbols and read line ranges, not',
+    '   whole directories; your context also has to hold every review.',
+    '   Issue independent reads, greps, and finds together in one turn; call them one at a time only when the next depends',
+    '   on the last result.',
     '   Use run_check to establish a baseline of the test suites the work will touch, and to reproduce a reported bug, before',
     '   planning; a suite that already fails is a fact for the plan, not a task\'s fault.',
-    '2. Call save_plan with the implementation tasks in dependency order, at most 4 tasks per save_plan or update_tasks call,',
-    '   and add the rest with update_tasks, so a malformed call costs little to resend. Planning rules:',
-    '   - One task is one concern a worker finishes within about half its context: a handful of files (at most about 6 write',
-    '     paths) and their tests. Split anything larger.',
+    '2. Call save_plan with the implementation tasks in dependency order, adding at most 4 new tasks per save_plan or update_tasks call,',
+    '   and add the rest with update_tasks, so a malformed call costs little to resend.',
+    '   A restructure is one update_tasks call: add the replacements, repoint the dependents\' dependsOn, and retire the old',
+    '   tasks together; retirements and changes to existing tasks do not count toward the 4. Planning rules:',
+    '   - One task is one concern a worker finishes within about half its context: a handful of files',
+    `     (about 6 write paths, never more than ${ORCHESTRATOR_MAX_WRITE_PATHS}) and their tests. Split anything larger.`,
+    '     Name an existing test file for a module; plan a new test file only after find shows none exists.',
     '   - Every task changes files and lists the paths it expects to change in writePaths, tests included.',
     '   - Steps are test-first: write the failing test, then the implementation.',
     '   - A task\'s verification has command checks for every test suite its change can affect, not only its new tests,',
@@ -76,11 +83,15 @@ export function buildOrchestratorPrompt(brief: OrchestratorBrief): string {
     '   - dependsOn names every task whose output or changes a task needs.',
     '3. Dispatch one task at a time, with its dependencies complete. Every child starts fresh and knows only its instruction:',
     '   include what it must change, the files and lines you found, what earlier tasks changed that matters to it, and the',
-    `   pitfalls you already know. dispatch waits until the child reports. Code runs a child's checks each time it finishes;`,
+    '   pitfalls you already know. Write each instruction as final decisions, each step stated once: never leave a corrected',
+    `   option ("— actually") in it. dispatch waits until the child reports. Code runs a child's checks each time it finishes;`,
     `   it fixes its own failures up to ${ORCHESTRATOR_MAX_RESUBMITS} times before its report reaches you.`,
-    '4. Review every reported task with record_review. A report gives the child\'s status, where it departed from the plan,',
-    '   the gate\'s last check results, and what changed as line counts, not the code: read the changed code yourself, and use',
-    '   run_check for any test or command the review needs.',
+    '4. Review every reported task with record_review, and only that task: completed tasks were already reviewed, so do not',
+    '   re-check them. A report gives the child\'s status, where it departed from the plan, the gate\'s last check results, and',
+    '   what changed as line counts, not the code. This run makes no commits: every task\'s changes stay uncommitted in the',
+    '   working tree, so start from the git tool\'s diff (operation diff, path) of each changed path, which compares with HEAD,',
+    '   then read the changed code yourself. There are no task commits to look up.',
+    '   Use run_check only for tests and commands the review needs, never to read or search.',
     '   Judge each acceptance criterion by index with evidence: code ({path, line, snippet}, the snippet one line copied',
     '   exactly as read shows it, with no comment, "...", or paraphrase) or a command that passed ({command}: a check of the',
     '   attempt, or your run_check since the report). A pass carries no findings; leave out notes that need no fix. Record a',
@@ -133,6 +144,8 @@ export function buildChildInstruction(input: {
     `Scratch directory for temporary files: ${input.scratchPath}`,
     'Steps (by index):', ...task.steps.map((step, index) => `${index}. ${step.instruction} Expected: ${step.expectedResult}`),
     'Checks (code runs every command check when you finish; they must pass):', ...task.verification.map((check) => `- ${formatCheck(check)}`),
+    'While you work, run only the test files for the code you change, and the typecheck once before you finish; do not run the'
+      + ' full suites or lint yourself: code runs every check above when you finish and returns failures to you.',
     'Acceptance criteria (by index):', ...task.acceptance.map((entry, index) => `${index}. ${entry}`),
     ...(input.preexistingDirtyPaths.length === 0 ? [] : [
       `These files already had uncommitted changes before you started; preserve them: ${input.preexistingDirtyPaths.join(', ')}`,

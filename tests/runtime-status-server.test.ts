@@ -21,6 +21,7 @@ const RunIdentityRowSchema = z.object({
 const SpeculativeRowSchema = z
   .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
   .optional();
+const ModelRowSchema = z.object({ model: z.string().nullable(), speculative_accepted_tokens: z.number().nullable() });
 import { writeConfig } from '../src/status-server/config-store.ts';
 import { readStatusText } from '../src/status-server/status-file.ts';
 import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs.ts';
@@ -919,7 +920,49 @@ test('real status server patches speculative acceptance onto an existing repo-se
   });
 });
 
-test('real status server suppresses intermediate false log for single-step completed requests', async () => {
+// Real case (run e85529c8): workers finished as the swap back began and were labelled with the orchestrator's model.
+test('real status server keeps the model the engine recorded instead of the preset active when the status lands', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const requestId = 'repo-run-served-model';
+    writeConfig(getConfigPath(), getDefaultConfig());
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      withRuntimeDatabaseConnection(runtimeDbPath, (database) => {
+        upsertRepoSearchRun({
+          database, requestId, taskKind: 'repo-search', identity: UNRECORDED_RUN_IDENTITY, prompt: 'find tool calls',
+          repoRoot: tempRoot, model: 'served-model', backend: 'exl3', requestMaxTokens: 512, maxTurns: 2, transcriptText: '',
+          artifactPayload: { requestId, prompt: 'find tool calls', repoRoot: tempRoot }, terminalState: 'completed',
+          startedAtUtc: '2026-04-20T11:49:38.706Z', finishedAtUtc: '2026-04-20T11:50:26.779Z', requestDurationMs: 48073,
+          promptTokens: 10, outputTokens: 5, thinkingTokens: 2, toolTokens: 1, promptCacheTokens: 3, promptEvalTokens: 7,
+          promptEvalDurationMs: null, generationDurationMs: null, speculativeAcceptedTokens: null, speculativeGeneratedTokens: null,
+        });
+      });
+
+      await postCompletedStatus(statusUrl, {
+        requestId, taskKind: 'repo-search', terminalState: 'completed', promptCharacterCount: 25, inputTokens: 7,
+        outputCharacterCount: 12, outputTokens: 5, thinkingTokens: 2, promptCacheTokens: 3, promptEvalTokens: 7,
+        speculativeAcceptedTokens: 12, speculativeGeneratedTokens: 18, requestDurationMs: 48073,
+      });
+
+      await waitForAsyncExpectation(() => {
+        const verifyDb = openStoredRuntimeDatabase(runtimeDbPath);
+        try {
+          const row = ModelRowSchema.parse(verifyDb.prepare(
+            'SELECT model, speculative_accepted_tokens FROM run_logs WHERE request_id = ?').get(requestId));
+          assert.equal(row.speculative_accepted_tokens, 12, 'the terminal status write has landed');
+          assert.equal(row.model, 'served-model');
+        } finally {
+          verifyDb.close();
+        }
+      });
+    }, { statusPath, configPath, terminalMetadataIdleDelayMs: 0, disableManagedEngineStartup: true });
+  });
+});
+
+test('real status server suppresses intermediate false log for single-step completed requests',async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');

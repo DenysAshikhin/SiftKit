@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
   describePromptCacheBreak,
   formatPromptCacheBreakDetail,
-  PROMPT_CACHE_BREAK_TOLERANCE_TOKENS,
+  PROMPT_CACHE_BREAK_MIN_EXCESS_TOKENS,
   PromptCacheWatch,
   summarizePromptCacheBreak,
 } from '../src/repo-search/engine/prompt-cache-watch.ts';
@@ -15,9 +15,9 @@ const observe = (watch: PromptCacheWatch, turn: number, promptTokens: number, pr
 test('the first response is not checked, and growth plus the tolerance is the most a cached turn prefills', () => {
   const watch = new PromptCacheWatch();
   assert.equal(observe(watch, 1, 10_000, 10_000), null);
-  assert.equal(observe(watch, 2, 11_000, 1_000 + PROMPT_CACHE_BREAK_TOLERANCE_TOKENS), null);
-  assert.deepEqual(observe(watch, 3, 12_000, 1_000 + PROMPT_CACHE_BREAK_TOLERANCE_TOKENS + 1), {
-    turn: 3, promptTokens: 12_000, previousPromptTokens: 11_000, promptEvalTokens: 1_501, promptCacheTokens: null,
+  assert.equal(observe(watch, 2, 11_000, 1_000 + PROMPT_CACHE_BREAK_MIN_EXCESS_TOKENS), null);
+  assert.deepEqual(observe(watch, 3, 12_000, 1_000 + PROMPT_CACHE_BREAK_MIN_EXCESS_TOKENS + 1), {
+    turn: 3, promptTokens: 12_000, previousPromptTokens: 11_000, promptEvalTokens: 1_000 + PROMPT_CACHE_BREAK_MIN_EXCESS_TOKENS + 1, promptCacheTokens: null,
   });
 });
 
@@ -25,8 +25,16 @@ test('the first response after a compaction is not checked, and the next one is'
   const watch = new PromptCacheWatch();
   observe(watch, 1, 50_000, 50_000);
   watch.noteCompaction();
-  assert.equal(observe(watch, 2, 8_000, 8_000), null);
-  assert.equal(observe(watch, 3, 9_000, 9_000)?.turn, 3);
+  assert.equal(observe(watch, 2, 20_000, 20_000), null);
+  assert.equal(observe(watch, 3, 21_000, 21_000)?.turn, 3);
+});
+
+// Real case (run e85529c8, turn 189): 7,281 re-prefilled where the prompt grew 5,354 was warned like the real 165k break.
+test('a re-prefill of a few pages beyond the growth is not reported', () => {
+  const watch = new PromptCacheWatch();
+  observe(watch, 1, 100_347, 100_347);
+  assert.equal(observe(watch, 2, 105_701, 7_281), null);
+  assert.equal(PROMPT_CACHE_BREAK_MIN_EXCESS_TOKENS, 8_192);
 });
 
 test('an unreported prefill is not checked but still sets the comparison point', () => {

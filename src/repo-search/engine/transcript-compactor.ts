@@ -1,5 +1,6 @@
 import type { SiftConfig } from '../../config/index.ts';
 import {
+  compactionRequestShape,
   requestContextCompactionSummary,
   type CompactionCacheOrigin,
 } from '../planner-protocol.ts';
@@ -12,8 +13,11 @@ import type { InferenceActivityObserver } from '../../lib/progress-writer.ts';
 import { TokenUsageTracker } from './token-usage.ts';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.ts';
 import type { ThroughputAuditOperation } from '@siftkit/contracts';
+import { toError } from '../../lib/errors.ts';
+import { ProviderContextLengthError } from '../../llm-protocol/stream-errors.ts';
 import {
   COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
+  COMPACTION_WINDOW_MARGIN_TOKENS,
   splitCompactionGenerationTokens,
 } from './turn-budget.ts';
 
@@ -22,6 +26,31 @@ export const COMPACTION_SUMMARY_MARKER = '[CONTEXT COMPACTED — SUMMARY OF PRIO
 
 /** One backend hiccup is worth retrying; a second identical failure is a real failure. */
 const COMPACTION_SUMMARY_ATTEMPTS = 2;
+
+type SummaryGenerationTokens = ReturnType<typeof splitCompactionGenerationTokens>;
+
+/** What the window leaves a summary request; `fullOutput` is false when the output share had to shrink. */
+type SummaryFit = { generationTokens: SummaryGenerationTokens; fullOutput: boolean; promptTokenCount: number; remainingTokens: number };
+
+function hasReasoningContent(message: ChatMessage): boolean {
+  return typeof message.reasoning_content === 'string' && message.reasoning_content.trim().length > 0;
+}
+
+function withoutReasoningContent(message: ChatMessage): ChatMessage {
+  const { reasoning_content: _reasoningContent, ...rest } = message;
+  return rest;
+}
+
+/** The planner's tools and flags without its cache prefix: a request whose history differs opens a new epoch. */
+function newEpochOrigin(origin: CompactionCacheOrigin): CompactionCacheOrigin {
+  const { flags, tools } = compactionRequestShape(origin);
+  return { kind: 'new_epoch', flags, tools };
+}
+
+/** A provider rejection of the request's size, which an identical retry would only repeat. */
+function isContextLengthRejection(error: Error): boolean {
+  return error instanceof ProviderContextLengthError || error.cause instanceof ProviderContextLengthError;
+}
 
 /** Which messages survive the compaction, decided by the caller, never by the compactor. */
 export type CompactionRetention =
@@ -136,10 +165,22 @@ export class TranscriptCompactor implements TranscriptCompaction {
       ...(systemMessage ? [systemMessage] : []),
       ...partition.completedMessages,
     ];
-    const summaryRequestMessages: ChatMessage[] = [...historyMessages, { role: 'user', content: instruction }];
-    const generationTokens = await this.resolveSummaryGenerationTokens(input, summaryRequestMessages);
+    const instructionMessage: ChatMessage = { role: 'user', content: instruction };
+    let summaryHistory = historyMessages;
+    let summaryInput = input;
+    let fit = await this.fitSummaryGeneration(input, [...summaryHistory, instructionMessage]);
+    // Kept reasoning is what overfills the window; the summary needs the decisions, not the thinking behind them.
+    if (!fit.fullOutput && summaryHistory.some(hasReasoningContent)) {
+      const beforePromptTokenCount = fit.promptTokenCount;
+      summaryHistory = summaryHistory.map(withoutReasoningContent);
+      summaryInput = { ...input, cacheOrigin: newEpochOrigin(input.cacheOrigin) };
+      fit = await this.fitSummaryGeneration(summaryInput, [...summaryHistory, instructionMessage]);
+      this.options.logger?.write({ kind: 'turn_compaction_reasoning_dropped', taskId: input.taskId, turn: input.turn,
+        beforePromptTokenCount, afterPromptTokenCount: fit.promptTokenCount });
+    }
+    const generationTokens = this.requireSummaryFit(input, fit);
 
-    const summary = await this.requestSummary(input, historyMessages, instruction, generationTokens);
+    const summary = await this.requestSummary(summaryInput, summaryHistory, instruction, generationTokens);
     const rebuilt: ChatMessage[] = [
       ...(systemMessage ? [systemMessage] : []),
       buildCompactionSummaryMessage(summary.summaryText),
@@ -170,20 +211,14 @@ export class TranscriptCompactor implements TranscriptCompaction {
   }
 
   /**
-   * The summary generation gets whatever the window leaves after its prompt, up to the
-   * run's response reserve. Two thirds cap thinking; the remaining third is the floor
-   * under the summary output, not its cap — a continuation that spends less thinking
-   * than the gate allows keeps the difference. The prompt side reserves nothing for
-   * this request: the actual rendered prompt is measured and generation is fitted to
-   * the physical remainder, failing loudly below COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS.
+   * The summary generation gets what the window leaves after its prompt and a margin, up to the run's response
+   * reserve. Two thirds cap thinking; the remaining third is the floor under the summary output, not its cap.
    */
-  private async resolveSummaryGenerationTokens(
-    input: { taskId: string; turn: number | null; cacheOrigin: CompactionCacheOrigin },
+  private async fitSummaryGeneration(
+    input: { cacheOrigin: CompactionCacheOrigin },
     summaryRequestMessages: ChatMessage[],
-  ): Promise<ReturnType<typeof splitCompactionGenerationTokens>> {
-    const state = input.cacheOrigin.kind === 'planner'
-      ? input.cacheOrigin.executing
-      : input.cacheOrigin;
+  ): Promise<SummaryFit> {
+    const state = compactionRequestShape(input.cacheOrigin);
     const generationTokenCeiling = Math.max(0, Math.floor(this.options.compactionReserveTokens));
     const measurement = await countPlannerPromptTokens({
       config: this.tokenCountConfig,
@@ -194,30 +229,35 @@ export class TranscriptCompactor implements TranscriptCompaction {
       }),
     });
     const promptTokenCount = measurement.promptTokenCount;
-    const remainingTokens = this.options.totalContextTokens - promptTokenCount;
+    const remainingTokens = this.options.totalContextTokens - promptTokenCount - COMPACTION_WINDOW_MARGIN_TOKENS;
     const requestedTokens = splitCompactionGenerationTokens(generationTokenCeiling);
     const outputTokens = Math.min(requestedTokens.outputTokens, Math.max(remainingTokens, 0));
     const reasoningTokens = Math.min(
       requestedTokens.reasoningTokens,
       Math.max(remainingTokens - outputTokens, 0),
     );
-    const generationTokens = {
-      totalTokens: reasoningTokens + outputTokens,
-      reasoningTokens,
-      outputTokens,
+    return {
+      generationTokens: { totalTokens: reasoningTokens + outputTokens, reasoningTokens, outputTokens },
+      fullOutput: outputTokens >= requestedTokens.outputTokens,
+      promptTokenCount,
+      remainingTokens,
     };
-    if (generationTokens.outputTokens >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS) {
-      return generationTokens;
+  }
+
+  /** Below COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS a summary is a stub that loses the conversation, so the run fails loudly. */
+  private requireSummaryFit(input: { taskId: string; turn: number | null }, fit: SummaryFit): SummaryGenerationTokens {
+    if (fit.generationTokens.outputTokens >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS) {
+      return fit.generationTokens;
     }
-    const message = `planner_compaction_prompt_overflow prompt_tokens=${promptTokenCount} `
-      + `remaining_tokens=${remainingTokens} min_summary_output_tokens=${COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS} `
+    const message = `planner_compaction_prompt_overflow prompt_tokens=${fit.promptTokenCount} `
+      + `remaining_tokens=${fit.remainingTokens} min_summary_output_tokens=${COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS} `
       + `total_context_tokens=${this.options.totalContextTokens} turn=${formatTurn(input.turn)}`;
     this.options.logger?.write({
       kind: 'turn_compaction_prompt_overflow_fail',
       taskId: input.taskId,
       turn: input.turn,
-      promptTokenCount,
-      remainingTokens,
+      promptTokenCount: fit.promptTokenCount,
+      remainingTokens: fit.remainingTokens,
       minSummaryOutputTokens: COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
       totalContextTokens: this.options.totalContextTokens,
       error: message,
@@ -234,7 +274,7 @@ export class TranscriptCompactor implements TranscriptCompaction {
     },
     historyMessages: ChatMessage[],
     instruction: string,
-    generationTokens: ReturnType<typeof splitCompactionGenerationTokens>,
+    generationTokens: SummaryGenerationTokens,
   ): Promise<{
     summaryText: string;
     nextMockResponseIndex: number;
@@ -244,12 +284,15 @@ export class TranscriptCompactor implements TranscriptCompaction {
   }> {
     let mockResponseIndex = input.mockResponseIndex;
     let lastErrorMessage = '';
+    let lastFailure: Error | null = null;
+    let attempts = 0;
     // Compaction is part of preparing the turn that overflowed, so its cost belongs to that
     // turn's record. The manual condense path has no planner turn and no token consumer:
     // its tracker is constructed for the single call and discarded, so there is nothing to
     // attribute and no row that could disagree.
     const summaryTurn = input.turn;
     for (let attempt = 1; attempt <= COMPACTION_SUMMARY_ATTEMPTS; attempt += 1) {
+      attempts = attempt;
       const startedAt = Date.now();
       try {
         const response = await requestContextCompactionSummary({
@@ -289,7 +332,10 @@ export class TranscriptCompactor implements TranscriptCompaction {
         }
         lastErrorMessage = response.mockExhausted ? 'mock_exhausted' : 'empty_output';
       } catch (error) {
-        lastErrorMessage = error instanceof Error ? error.message : String(error);
+        lastFailure = toError(error);
+        lastErrorMessage = lastFailure.message;
+        // A context-size rejection repeats exactly on an identical request; fail now instead of resending it.
+        if (isContextLengthRejection(lastFailure)) break;
       }
       this.options.logger?.write({
         kind: 'turn_compaction_summary_retry',
@@ -300,8 +346,8 @@ export class TranscriptCompactor implements TranscriptCompaction {
       });
     }
     throw new Error(
-      `planner_compaction_failed attempts=${COMPACTION_SUMMARY_ATTEMPTS} turn=${formatTurn(input.turn)} `
-      + `last_error=${lastErrorMessage || 'unknown'}`,
+      `planner_compaction_failed attempts=${attempts} turn=${formatTurn(input.turn)} last_error=${lastErrorMessage || 'unknown'}`,
+      lastFailure === null ? undefined : { cause: lastFailure },
     );
   }
 }

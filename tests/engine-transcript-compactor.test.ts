@@ -10,18 +10,20 @@ import {
 } from '../src/repo-search/engine/transcript-compactor.ts';
 import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.ts';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.ts';
-import { COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS, TurnBudget } from '../src/repo-search/engine/turn-budget.ts';
+import { COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS, COMPACTION_WINDOW_MARGIN_TOKENS, TurnBudget } from '../src/repo-search/engine/turn-budget.ts';
 import type { JsonSerializable } from '../src/lib/json-types.ts';
 import { parseJsonValueText } from '../src/lib/json.ts';
 import {
+  captureExecutingPlannerRequest,
   resolveRepoSearchPlannerToolDefinitions,
+  serializeProtocolMessages,
 } from '../src/repo-search/planner-protocol.ts';
 import { findPlannerContextViolation, type ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 import { getAddressInfo } from './helpers/dashboard-http.ts';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { buildTabbyUsage, errorFrame, sendChatCompletionSse } from './helpers/streaming-client.ts';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
 import { toProtocolTools } from '../src/providers/inference.ts';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.ts';
@@ -460,8 +462,8 @@ test('a transcript near the physical window clamps the generation budget below t
   const totalContextTokens = 32_000;
   const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens, maxTurns: 45 });
   const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], totalContextTokens);
-  // 4 characters per token: leaves roughly 2,000 tokens of the 32,000-token window.
-  const transcriptTokens = totalContextTokens - 2_000;
+  // 4 characters per token: leaves roughly 3,000 tokens of the 32,000-token window, above the margin and the minimum.
+  const transcriptTokens = totalContextTokens - 3_000;
   const messages: ChatMessage[] = [
     { role: 'system', content: 'SYSTEM PROMPT' },
     { role: 'assistant', content: 'H'.repeat(transcriptTokens * 4) },
@@ -550,4 +552,82 @@ test('a retention boundary inside a tool batch fails instead of orphaning its an
     }),
     /retention would leave an invalid transcript/u,
   );
+});
+
+const THINKING_FLAGS = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
+
+// Real case (run e85529c8): one 20k-thinking turn left 4.3k of the window, and the summary could not fit.
+test('a history whose kept reasoning overfills the window is summarized without its reasoning', async () => {
+  const logged: Array<Record<string, JsonSerializable>> = [];
+  const config = mockOfflineSiftConfig();
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM PROMPT' },
+    // 4 characters per token: 8k tokens of content and 20k tokens of kept reasoning.
+    { role: 'assistant', content: 'H'.repeat(8_000 * 4), reasoning_content: 'R'.repeat(20_000 * 4) },
+    { role: 'user', content: 'latest user intent' },
+  ];
+  const compactor = new TranscriptCompactor({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION, config, baseUrl: DEAD_BASE_URL, model: 'mock-model', timeoutMs: 5_000,
+    totalContextTokens: 32_000, compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, useEstimatedTokensOnly: true,
+    mockResponses: [{ content: 'SUMMARY BODY' }], tokenUsage: new TokenUsageTracker(config, true),
+    logger: { path: 'memory', write(event: Record<string, JsonSerializable>) { logged.push(event); } }, abortSignal: undefined,
+  });
+  // The planner's cache prefix holds the reasoning, so the stripped request must not claim that prefix.
+  const executing = captureExecutingPlannerRequest(serializeProtocolMessages(messages, true), THINKING_FLAGS, PLANNER_TOOLS, 0);
+
+  const outcome = await compactor.compact({ taskId: 't1', turn: 93, messages, mockResponseIndex: 0,
+    retention: { kind: 'latest_user' }, cacheOrigin: { kind: 'planner', executing } });
+
+  assert.equal(outcome.summaryText, 'SUMMARY BODY');
+  assert.equal(outcome.summaryOutputTokenBudget, Math.floor(PROMPT_COMPACTION_RESERVE_TOKENS / 3));
+  assert.equal(outcome.summaryGenerationTokenBudget, PROMPT_COMPACTION_RESERVE_TOKENS);
+  assert.deepEqual(logged.filter((event) => event.kind === 'turn_compaction_reasoning_dropped').map((event) => event.turn), [93]);
+});
+
+test('the summary budget leaves a margin below the physical window', async () => {
+  const totalContextTokens = 32_000;
+  const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], totalContextTokens);
+  // 4 characters per token: leaves 3,000 tokens of the window before the margin.
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM PROMPT' },
+    { role: 'assistant', content: 'H'.repeat((totalContextTokens - 3_000) * 4) },
+    { role: 'user', content: 'latest user intent' },
+  ];
+
+  const outcome = await compactor.compact({ taskId: 't1', turn: 9, messages, mockResponseIndex: 0, retention: { kind: 'latest_user' }, cacheOrigin: NEW_EPOCH });
+
+  assert.equal(outcome.summaryGenerationTokenBudget <= 3_000 - COMPACTION_WINDOW_MARGIN_TOKENS, true);
+});
+
+test('a summary request rejected as too long is not resent', async () => {
+  let requests = 0;
+  const server = http.createServer((request, response) => {
+    request.resume();
+    request.on('end', () => {
+      requests += 1;
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(`data: ${errorFrame({ message: 'Job requires 666 pages (only 665 available)', type: 'invalid_request_error',
+        param: null, code: 'context_length_exceeded' })}\n\n`);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.listen(0, '127.0.0.1', (error?: Error) => error ? reject(error) : resolve());
+  });
+  const config = mockOfflineSiftConfig();
+  try {
+    const compactor = new TranscriptCompactor({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION, config, baseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`,
+      model: 'mock-model', timeoutMs: 5_000, totalContextTokens: 32_000, compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
+      useEstimatedTokensOnly: true, mockResponses: undefined, tokenUsage: new TokenUsageTracker(config, true), logger: null, abortSignal: undefined,
+    });
+    await assert.rejects(
+      compactor.compact({ taskId: 't1', turn: 93, messages: transcript(), mockResponseIndex: 0, retention: { kind: 'latest_user' }, cacheOrigin: NEW_EPOCH }),
+      /planner_compaction_failed attempts=1 turn=93 last_error=.*Provider rejected the prompt as too long/u,
+    );
+    assert.equal(requests, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
 });

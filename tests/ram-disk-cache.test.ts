@@ -7,12 +7,13 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import type { ModelRuntimePreset } from '../src/config/types.ts';
 import { GIB, requiredRamDiskBytes } from '../src/inference-presets/cache-sizing.ts';
 import { z } from '../src/lib/zod.ts';
-import { OWNER_FILE, RamDiskCache } from '../src/status-server/ram-disk-cache.ts';
+import { BUDGET_MARKER_FILE, OWNER_FILE, RamDiskCache } from '../src/status-server/ram-disk-cache.ts';
 import { serverLogger } from '../src/status-server/server-logger.ts';
 import { FakeRamDiskDriver } from './helpers/fake-ram-disk.ts';
 
 const CONFIG = { DriveLetter: 'S' };
 const OwnerFileSchema = z.object({ pid: z.number() });
+const BudgetMarkerFileSchema = z.object({ budgetBytes: z.number() });
 
 function preset(id: string, ramDisk: boolean, gib = 10): ModelRuntimePreset {
   const base = getDefaultConfigObject().Server.ModelPresets.Presets[0];
@@ -71,6 +72,7 @@ test('every engine budget declaration left on the disk is cleared before a launc
   const driver = new FakeRamDiskDriver();
   const cache = new RamDiskCache(driver);
   await cache.prepare(CONFIG, [NEXT, BIG], NEXT);
+  await cache.prepare(CONFIG, [NEXT, BIG], BIG);
   const root = driver.disk?.root ?? '';
   for (const id of ['flash-next', 'qwen-27b']) {
     fs.mkdirSync(path.join(root, id, 'c375d7f601493972'), { recursive: true });
@@ -98,8 +100,29 @@ test('folders of presets no longer on the RAM disk are deleted, and a folder ove
   await cache.prepare(CONFIG, [preset('flash-next', true, 1), preset('qwen-27b', false)], NEXT);
   assert.equal(fs.existsSync(path.join(root, 'qwen-27b')), false, 'a preset switched off loses its folder');
   assert.ok(fs.existsSync(path.join(root, 'System Volume Information')), 'folders that are no preset id are not ours');
-  assert.deepEqual(fs.readdirSync(path.join(root, 'flash-next')), [], 'over budget: wiped and remade empty');
+  assert.deepEqual(fs.readdirSync(path.join(root, 'flash-next')), [BUDGET_MARKER_FILE], 'lowered budget: wiped and remade with only its marker');
   assert.deepEqual(warnings.mock.calls.map((call) => call.arguments[0]?.event), ['ram_disk_folder_wiped']);
+});
+
+// Real case (run e85529c8): exllamav3 filled the 27B folder to 1.1 MB under its budget; one more write and a swap wiped it.
+test('a folder filled past its unchanged budget keeps its cache; only a lowered budget wipes it', async (t) => {
+  const warnings = t.mock.method(serverLogger, 'warning', () => {});
+  const driver = new FakeRamDiskDriver();
+  const cache = new RamDiskCache(driver);
+  const small = preset('flash-next', true, 1);
+  await cache.prepare(CONFIG, [small, BIG], small);
+  const root = driver.disk?.root ?? '';
+  const pages = fs.openSync(path.join(root, 'flash-next', 'pages.bin'), 'w');
+  fs.ftruncateSync(pages, GIB + 4096);
+  fs.closeSync(pages);
+  await cache.prepare(CONFIG, [small, BIG], BIG);
+  await cache.prepare(CONFIG, [small, BIG], small);
+  assert.ok(fs.existsSync(path.join(root, 'flash-next', 'pages.bin')), 'over its own budget by overhead only: kept');
+  assert.deepEqual(warnings.mock.calls, []);
+  await cache.prepare(CONFIG, [preset('flash-next', true, 2), BIG], BIG);
+  assert.ok(fs.existsSync(path.join(root, 'flash-next', 'pages.bin')), 'a raised budget keeps the cache too');
+  const marker = BudgetMarkerFileSchema.parse(JSON.parse(fs.readFileSync(path.join(root, 'flash-next', BUDGET_MARKER_FILE), 'utf8')));
+  assert.equal(marker.budgetBytes, 2 * GIB);
 });
 
 test('changing the drive letter moves the cache to a new disk under the new letter', async () => {

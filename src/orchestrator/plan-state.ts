@@ -73,7 +73,7 @@ export function reviseTasks(state: PlanState, args: OrchestratorUpdateTasksArgs,
   for (const task of kept) {
     const gone = task.dependsOn.filter((dependency) => reasons.has(dependency));
     if (gone.length > 0 && patchOf.get(task.id)?.dependsOn === undefined) {
-      problems.push(`Task '${task.id}' depends on ${gone.join(', ')}, which this call retires: retire it too, or set its dependsOn.`);
+      problems.push(`Task '${task.id}' depends on ${gone.join(', ')}, which this call retires: in this same call, retire it too or set its dependsOn.`);
     }
   }
   if (problems.length > 0) return { ok: false, problems };

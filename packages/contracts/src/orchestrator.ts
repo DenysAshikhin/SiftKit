@@ -45,8 +45,8 @@ export const OrchestratorVerificationCheckSchema = z.discriminatedUnion('kind', 
 ]);
 export type OrchestratorVerificationCheck = z.infer<typeof OrchestratorVerificationCheckSchema>;
 
-/** Every field is required with no defaults, so a partial update patches only what it names. */
-export const OrchestratorTaskSchema = z.object({
+/** A plan task's fields exactly as written; update_tasks patches use this shape so a patch never gains a default. */
+const OrchestratorTaskFieldsSchema = z.object({
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
   title: z.string().trim().min(1),
   dependsOn: z.array(z.string().min(1)),
@@ -59,6 +59,13 @@ export const OrchestratorTaskSchema = z.object({
   verification: z.array(OrchestratorVerificationCheckSchema).min(1),
   acceptance: z.array(z.string().trim().min(1)).min(1),
   temporaryPaths: z.array(z.string().min(1)),
+}).strict();
+
+/** A plan task; omitted dependency, read, and temporary lists mean none. */
+export const OrchestratorTaskSchema = OrchestratorTaskFieldsSchema.extend({
+  dependsOn: OrchestratorTaskFieldsSchema.shape.dependsOn.default([]),
+  readPaths: OrchestratorTaskFieldsSchema.shape.readPaths.default([]),
+  temporaryPaths: OrchestratorTaskFieldsSchema.shape.temporaryPaths.default([]),
 }).strict();
 export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>;
 
@@ -287,7 +294,7 @@ export type OrchestratorSavePlanArgs = z.infer<typeof OrchestratorSavePlanArgsSc
 /** Revises the saved plan in place: patch tasks by id, add tasks, retire tasks with the reason each leaves, or replace the final verification. */
 export const OrchestratorUpdateTasksArgsSchema = z.object({
   update: z.array(z.object({
-    taskId: z.string().min(1), set: OrchestratorTaskSchema.omit({ id: true }).partial().strict(),
+    taskId: z.string().min(1), set: OrchestratorTaskFieldsSchema.omit({ id: true }).partial().strict(),
   }).strict()).default([]),
   add: z.array(OrchestratorTaskSchema).default([]),
   retire: z.array(z.object({ taskId: z.string().min(1), reason: z.string().trim().min(1) }).strict()).default([]),
