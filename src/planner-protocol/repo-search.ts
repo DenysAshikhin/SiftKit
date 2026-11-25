@@ -23,6 +23,12 @@ export const WEB_CHAT_TOOL_NAMES = [
   'show_image',
 ] as const;
 
+/** Offered beside `run` to a run that owns background jobs. */
+export const BACKGROUND_JOB_TOOL_NAME = 'job' as const;
+
+/** Tools that ride on top of any surface, so they never turn a full one into a restricted one. */
+export const RIDING_TOOL_NAMES = [...WEB_CHAT_TOOL_NAMES, BACKGROUND_JOB_TOOL_NAME] as const;
+
 /** Tools only an orchestrator parent is offered: the host executes them against its run. */
 export const ORCHESTRATOR_TOOL_NAMES = [
   'save_plan',

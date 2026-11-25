@@ -432,6 +432,7 @@ export async function executeRepoSearchRequest(
       webToolsEnabled: request.webToolsEnabled,
       visionEnabled: activeVisionPreset.VisionEnabled === true,
       webChatTools: request.questionGate !== undefined,
+      backgroundJobs: request.backgroundJobs !== undefined,
       orchestratorTools: request.orchestratorTools !== undefined,
     };
     const runPromptRequest: RunSystemPromptRequest = taskKind === 'chat'
@@ -487,6 +488,8 @@ export async function executeRepoSearchRequest(
       questionGate: request.questionGate,
       submissionGate: request.submissionGate,
       orchestratorTools: request.orchestratorTools,
+      backgroundJobs: request.backgroundJobs,
+      statusUpdates: request.statusUpdates,
     });
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_done', fields: '' });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;

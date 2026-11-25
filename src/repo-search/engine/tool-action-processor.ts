@@ -8,7 +8,9 @@ import {
 } from '../command-safety.ts';
 import {
   isTreeMutatingToolName,
+  rewritesAnyFile,
 } from '../planner-protocol.ts';
+import { BACKGROUND_JOB_TOOL_NAME } from '../../planner-protocol/repo-search.ts';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
 import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.ts';
 import type { AgentLoopToolAction } from '../../agent-loop/types.ts';
@@ -66,16 +68,23 @@ import {
   RepoNativeToolCallSchema,
   isOrchestratorToolCall,
   isOrchestratorToolName,
+  resolveRunTimeoutMs,
   type AskUserToolArgs,
+  type JobToolArgs,
   type OrchestratorToolCall,
   type RepoExecutableToolCall,
   type RepoNativeToolCall,
+  type RunToolArgs,
 } from '../repo-tool-arguments.ts';
 import { getAbortError, throwIfAborted } from '../../lib/abort.ts';
 import { resolveToolActionIdentity } from './tool-call-identity.ts';
 import { findShellCommandProblem, findShellReadCommand } from './shell-command-policy.ts';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
 import type { OrchestratorToolHost } from './orchestrator-tool-host.ts';
+import type { BackgroundJobs, JobReply } from './background-jobs.ts';
+import type { StatusUpdates } from './status-updates.ts';
+import { buildAgentRunEnv } from '../../lib/agent-run-marker.ts';
+import { DEFAULT_JOB_WAIT_MS } from '../../lib/powershell.ts';
 import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.ts';
 
 type RunOutputDecision = ReturnType<RepoSearchRuntimeProfile['beginRun']>;
@@ -166,7 +175,15 @@ const REPEAT_KINDS = {
 type RepeatKind = keyof typeof REPEAT_KINDS;
 
 // Past the edit deadline a worker may only change files; run calls that only read are refused separately.
-const EDIT_DEADLINE_TOOLS = new Set(['edit', 'write', 'run']);
+const EDIT_DEADLINE_TOOLS = new Set(['edit', 'write', 'run', BACKGROUND_JOB_TOOL_NAME]);
+
+/** A job's exit code is its command's, and its tail carries the status line, so a cut keeps the end. */
+function toJobExecution(toolType: 'run' | 'job', command: string, reply: JobReply): RepoToolExecution {
+  return reply.ok
+    ? { ok: true, requestedCommand: command, command, exitCode: reply.exitCode, output: reply.output, toolType,
+      outputUnit: 'lines', outputKeep: 'tail', ...(reply.digest === null ? {} : { digest: reply.digest }) }
+    : { ok: false, command, reason: reply.reason, toolType };
+}
 
 export type ToolActionProcessorDeps = {
   task: TaskDefinition;
@@ -187,6 +204,9 @@ export type ToolActionProcessorDeps = {
   questionGate: QuestionGate | null;
   /** The orchestrator run that executes its parent's own tools; absent for every other run. */
   orchestratorTools: OrchestratorToolHost | null;
+  /** The run's background jobs; null wherever `job` is not offered. */
+  backgroundJobs: BackgroundJobs | null;
+  statusUpdates: StatusUpdates | null;
   runtimeProfile: RepoSearchRuntimeProfile;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;
@@ -828,8 +848,8 @@ export class ToolActionProcessor {
       rejected: false,
     });
     // A repeated `read` is legitimate: planRead advances past already-returned lines each time. An orchestrator
-    // tool answers from the run's current state, so repeating one is never a duplicate either.
-    const repeatsByDesign = normalizedToolName === 'read' || isOrchestratorToolName(normalizedToolName);
+    // tool or `job` answers from the run's current state, so repeating one is never a duplicate either.
+    const repeatsByDesign = normalizedToolName === 'read' || normalizedToolName === BACKGROUND_JOB_TOOL_NAME || isOrchestratorToolName(normalizedToolName);
     // A repeated `run` is legitimate exactly once: when it is the granted back-to-back "full"
     // retry of a command whose first "full" request was served as "auto".
     const canAdvanceRepeatedRun = runFullOutputDecision?.kind === 'retry';
@@ -959,7 +979,30 @@ export class ToolActionProcessor {
     const call = context.nativeCall;
     if (call.toolName === 'ask_user') return this.askUser(turn, state, context.progressToolCallId, call.args, context.command);
     if (isOrchestratorToolCall(call)) return this.runOrchestratorTool(call, context.command);
+    if (call.toolName === 'job') return this.answerJob(call.args, context.command);
+    if (call.toolName === 'run' && call.args.background === true) return this.startJob(call.args, context.command);
     return this.runNativeExecution(call, context.command, context.runFullOutputDecision);
+  }
+
+  private startJob(args: RunToolArgs, command: string): RepoToolExecution {
+    const jobs = this.deps.backgroundJobs;
+    if (jobs === null) return { ok: false, command, reason: 'this run has no background jobs; run the command in the foreground', toolType: 'run' };
+    return toJobExecution('run', command, jobs.start({
+      command: args.command, cwd: this.deps.repoRoot, timeoutMs: resolveRunTimeoutMs(args),
+      env: buildAgentRunEnv(this.deps.task.id, this.deps.agentServerUrl),
+    }));
+  }
+
+  private async answerJob(args: JobToolArgs, command: string): Promise<RepoToolExecution> {
+    const jobs = this.deps.backgroundJobs;
+    // job is offered only to runs given background jobs.
+    if (jobs === null) throw new Error('job reached a run without background jobs.');
+    switch (args.action) {
+      case 'wait': return toJobExecution('job', command, await jobs.wait(args.jobId, args.waitMs ?? DEFAULT_JOB_WAIT_MS, this.deps.abortSignal));
+      case 'output': return toJobExecution('job', command, jobs.output(args.jobId));
+      case 'stop': return toJobExecution('job', command, await jobs.stop(args.jobId));
+      case 'list': return toJobExecution('job', command, jobs.list());
+    }
   }
 
   /** The host's answer is the tool result; orchestrator tools are offered only to runs given a host. */
@@ -1159,7 +1202,8 @@ export class ToolActionProcessor {
       commandChars: context.command.length,
       native: true,
     });
-    const nativeExecution = await this.executeTool(turn, state, context);
+    this.deps.statusUpdates?.toolStarted({ turn, toolName: normalizedToolName, activityKind: activity.activityKind, command: context.command });
+    const nativeExecution = await this.executeTool(turn, state, context).finally(() => { this.deps.statusUpdates?.toolFinished(); });
     const nativeContext: NativeExecutionContext = { ...context, nativeExecution };
     toolExecutionSpan?.end({
       exitCode: nativeExecution.ok ? nativeExecution.exitCode : -1,
@@ -1461,14 +1505,14 @@ export class ToolActionProcessor {
       this.deps.duplicates.forgetSuccesses();
     }
     // Commands and children can rewrite any file, so every earlier read is stale.
-    if (normalizedToolName === 'run' || normalizedToolName === 'run_check' || normalizedToolName === 'dispatch' || normalizedToolName === 'decide'
-      || normalizedToolName === 'change_approach') {
+    if (rewritesAnyFile(normalizedToolName)) {
       this.deps.readWindows.invalidateAll();
       return;
     }
     if (commandSucceeded && nativeExecution && nativeExecution.ok && nativeExecution.mutatedPath) {
       this.deps.readWindows.invalidatePath(buildReadPathKey(nativeExecution.mutatedPath));
       this.deps.mutatedPaths.add(nativeExecution.mutatedPath);
+      this.deps.backgroundJobs?.noteChangedPath(nativeExecution.mutatedPath);
     }
   }
 }

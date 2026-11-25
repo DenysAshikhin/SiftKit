@@ -22,6 +22,7 @@ import {
 } from './transcript-compactor.ts';
 import { TurnBudget } from './turn-budget.ts';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.ts';
+import type { BackgroundJobs } from './background-jobs.ts';
 
 /** Log visibility only: a character estimate of the preserved reasoning mass, no extra tokenize round-trip. */
 function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMessage[], reasoningContentEnabled: boolean): number {
@@ -61,6 +62,7 @@ export class PromptPreparer {
       transcript: TranscriptManager;
       runtimeProfile: RepoSearchRuntimeProfile;
       compactor: TranscriptCompaction;
+      backgroundJobs: BackgroundJobs | null;
       progress: ProgressReporter;
       logger: JsonLogger | null;
       timingRecorder: TemporaryTimingRecorder | null;
@@ -77,6 +79,7 @@ export class PromptPreparer {
       transcript: TranscriptManager;
       runtimeProfile: RepoSearchRuntimeProfile;
       compactor: TranscriptCompaction;
+      backgroundJobs: BackgroundJobs | null;
       progress: ProgressReporter;
       logger: JsonLogger | null;
       timingRecorder: TemporaryTimingRecorder | null;
@@ -227,6 +230,9 @@ export class PromptPreparer {
       compactionSummary = compacted.summaryText;
       nextMockResponseIndex = compacted.nextMockResponseIndex;
       transcript.replaceWith(compacted.messages, compacted.currentTurnStartIndex);
+      // Job ids live nowhere else once the calls that started them are summarized away.
+      const jobs = this.options.backgroundJobs?.describe() ?? null;
+      if (jobs !== null) transcript.pushUser(jobs);
       writePromptCacheEpochReset(this.options.logger, {
         taskId,
         turn,

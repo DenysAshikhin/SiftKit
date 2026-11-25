@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { VAULT_LOCAL_GRAPH_CAP, type VaultGraph, type VaultLocalGraphDepth } from '@siftkit/contracts';
 
+import { plural } from '../../lib/format.ts';
 import { filterGraph, type Point } from '../../lib/vault-force.ts';
 import { GraphCanvas } from './GraphCanvas.tsx';
 import type { VaultActions, VaultGraphOptions } from './vault-actions.ts';
@@ -10,7 +11,6 @@ const LOCAL_PREWARM_TICKS = 200;
 const CONTROL_PANEL_RESERVE_PX = 280;
 const MAX_MIN_DEGREE = 10;
 const folderLabel = (topFolder: string): string => topFolder || '(root)';
-const plural = (count: number, word: string) => `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
 
 export interface GraphViewProps {
   readonly graph: VaultGraph;

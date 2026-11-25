@@ -43,6 +43,7 @@ import { PresetSystemContextBuilder } from '../preset-system-context.ts';
 import type { OrchestratorToolHost, OrchestratorToolOutcome } from '../repo-search/engine/orchestrator-tool-host.ts';
 import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
 import { findPathsOutsideRepo } from '../repo-search/engine/shell-command-policy.ts';
+import { findStatusTextProblem } from '../repo-search/status-text.ts';
 import type { SubmissionGate, SubmissionVerdict } from '../repo-search/engine/submission-gate.ts';
 import { taskPassed } from '../repo-search/engine/task-loop-support.ts';
 import type { OrchestratorToolCall } from '../repo-search/repo-tool-arguments.ts';
@@ -323,7 +324,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const allowedTools = [...preset.allowedTools];
     this.activity.startParent({ user: prompt, system: resolveRunSystemPrompt({
       promptKind: 'orchestrator', allowedTools, promptPrefix: preset.promptPrefix, systemContext,
-      webSearch: this.lease.config.WebSearch, webToolsEnabled: undefined, webChatTools: false, orchestratorTools: true,
+      webSearch: this.lease.config.WebSearch, webToolsEnabled: undefined, webChatTools: false, backgroundJobs: false, orchestratorTools: true,
       visionEnabled: getActiveModelPreset(this.lease.config).VisionEnabled === true,
     }).systemPrompt }, getConfiguredContextTokens(this.lease.config).totalContextTokens);
     const result = await this.ctx.engineService.executeRepoSearch({
@@ -593,14 +594,16 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       return this.refuse([`The instruction names ${outside.join(', ')}, outside the repository root ${this.request.repoRoot}; `
         + 'a child works only in this repository, so name repository-relative paths.']);
     }
+    const wording = findStatusTextProblem(args.update);
+    if (wording !== null) return this.refuse([`Rewrite update: ${wording}. Say in one or two plain sentences where the whole run is and what comes next.`]);
     this.activity.setSchedule(describeSchedule(this.workers, plan, this.state.tasks));
-    await this.startChild(task, { kind: args.purpose, planPath, planHash, task, instruction: args.instruction });
+    await this.startChild(task, { kind: args.purpose, planPath, planHash, task, instruction: args.instruction }, args.update);
     return this.waitForChild();
   }
 
-  private async startChild(task: OrchestratorTask, work: OrchestratorAttempt['work']): Promise<void> {
+  private async startChild(task: OrchestratorTask, work: OrchestratorAttempt['work'], update: string): Promise<void> {
     const repository = await this.acquireRepository();
-    const attempt = this.ctx.orchestratorRunStore.reserveAttempt(this.runId, this.state.revision, task.id, work);
+    const attempt = this.ctx.orchestratorRunStore.reserveAttempt(this.runId, this.state.revision, task.id, work, update);
     this.publish(this.ctx.orchestratorRunStore.read(this.runId));
     this.setTaskStatus(task.id, 'running');
     // The child changes the tree, so a check that passed before it proves nothing about its work.
@@ -614,7 +617,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const session = startOrchestratorChild(this.ctx, this.config, {
       runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
       workerPresetId: task.workerPresetId, repoRoot: this.request.repoRoot, work, instruction,
-    }, submission);
+    }, submission, this.request.sessionId !== null);
     const source = { taskId: task.id, childRunId: attempt.childRunId };
     const detachWarnings = session.attach({ wantsLiveText: false, writeProgress: (event) => this.recordWarning(event, source) });
     const child: LiveChild = { attempt, task, baseline, repository, submission, session, detachWarnings };

@@ -386,3 +386,15 @@ test('a retained history revision is checkpointed so later reconciliations stay 
   assert.equal(messages.some(message => message.id === narration.id), false);
   assert.equal(messages.find(message => message.kind === 'assistant_answer')?.content, 'It lives in research/physics.py. More.');
 });
+
+test('a status update is restored with its run, between the call it was written in and the answer', () => {
+  const { runtimeRoot, database } = openSession('chat-run-projection-status-');
+  const update = { kind: 'status_update', updateId: '4f9c1f9a-0000-4000-8000-0000000000c1', text: 'Finding the right part first.', createdAtUtc: AT } as const;
+  const events = runEvents();
+  const operationId = writeRun(database, [...events.slice(0, 4), { kind: 'display', event: update }, ...events.slice(4)]);
+  assert.equal(reconcileChatRun(database, operationId).status, 'ok');
+  assert.deepEqual(projectedMessages(runtimeRoot).map((message) => [message.kind, message.kind === 'assistant_status_update' ? message.content : null]), [
+    ['user_text', null], ['assistant_narration', null], ['assistant_tool_call', null],
+    ['assistant_status_update', 'Finding the right part first.'], ['assistant_answer', null],
+  ]);
+});

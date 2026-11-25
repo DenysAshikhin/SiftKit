@@ -31,6 +31,7 @@ import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
 import type { QuestionGate } from './question-gate.ts';
 import type { SubmissionGate } from './submission-gate.ts';
 import type { OrchestratorToolHost } from './orchestrator-tool-host.ts';
+import type { BackgroundJobs } from './background-jobs.ts';
 import { InferenceThroughputSchema, type ThroughputAuditOperation } from '@siftkit/contracts';
 
 // ---------------------------------------------------------------------------
@@ -292,6 +293,9 @@ export type RunTaskLoopOptions = {
   submissionGate?: SubmissionGate;
   /** The orchestrator run executing its parent's own tools; only an orchestrator parent has one. */
   orchestratorTools?: OrchestratorToolHost;
+  /** The run's background jobs; absent wherever `job` is not offered. */
+  backgroundJobs?: BackgroundJobs;
+  statusUpdates?: boolean;
 };
 
 function isPlannerReasoningEnabled(config: SiftConfig): boolean {

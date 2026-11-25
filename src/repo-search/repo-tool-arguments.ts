@@ -1,4 +1,11 @@
-import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.ts';
+import {
+  DEFAULT_BACKGROUND_TIMEOUT_MS,
+  DEFAULT_JOB_WAIT_MS,
+  DEFAULT_RUN_TIMEOUT_MS,
+  MAX_BACKGROUND_TIMEOUT_MS,
+  MAX_JOB_WAIT_MS,
+  MAX_RUN_TIMEOUT_MS,
+} from '../lib/powershell.ts';
 import {
   CHAT_QUESTION_MAX_CHOICES,
   OrchestratorChangeApproachArgsSchema,
@@ -94,13 +101,41 @@ export const EditToolArgsSchema = z.object({
 
 export const RunToolArgsSchema = z.object({
   command: CommandSchema.describe('Command to execute'),
-  timeoutMs: PositiveIntegerSchema.max(MAX_RUN_TIMEOUT_MS)
-    .describe(`Timeout in milliseconds (optional, default ${DEFAULT_RUN_TIMEOUT_MS}, max ${MAX_RUN_TIMEOUT_MS})`)
+  timeoutMs: PositiveIntegerSchema.max(MAX_BACKGROUND_TIMEOUT_MS)
+    .describe(`Timeout in milliseconds (optional, default ${DEFAULT_RUN_TIMEOUT_MS}, max ${MAX_RUN_TIMEOUT_MS}; with background, default ${DEFAULT_BACKGROUND_TIMEOUT_MS}, max ${MAX_BACKGROUND_TIMEOUT_MS})`)
+    .optional(),
+  background: z.boolean()
+    .describe('Return at once with a job id and keep working; read the result with the job tool (default: false). Not with outputMode.')
     .optional(),
   outputMode: RunOutputModeSchema
     .describe(`Output shaping. auto (default) keeps the final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines of test/build/lint/typecheck commands, after a digest of their whole output - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.`)
     .optional(),
-}).strict();
+}).strict().superRefine((args, context) => {
+  if (args.background === true && args.outputMode !== undefined) {
+    context.addIssue({ code: 'custom', path: ['outputMode'], message: 'outputMode does not apply to a background run; omit it.' });
+  }
+  if (args.background !== true && args.timeoutMs !== undefined && args.timeoutMs > MAX_RUN_TIMEOUT_MS) {
+    context.addIssue({ code: 'custom', path: ['timeoutMs'], message: `timeoutMs is at most ${MAX_RUN_TIMEOUT_MS} unless background is true.` });
+  }
+});
+
+/** How long a run may take: its own limit, or its kind's default. */
+export function resolveRunTimeoutMs(args: Pick<RunToolArgs, 'background' | 'timeoutMs'>): number {
+  return args.timeoutMs ?? (args.background === true ? DEFAULT_BACKGROUND_TIMEOUT_MS : DEFAULT_RUN_TIMEOUT_MS);
+}
+
+const JobIdSchema = RequiredTrimmedTextSchema.describe('The id `run` returned, such as j1');
+export const JobToolArgsSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('wait'),
+    jobId: JobIdSchema,
+    waitMs: PositiveIntegerSchema.max(MAX_JOB_WAIT_MS)
+      .describe(`Longest wait in milliseconds (optional, default ${DEFAULT_JOB_WAIT_MS}, max ${MAX_JOB_WAIT_MS}); returns as soon as the job ends`).optional(),
+  }).strict(),
+  z.object({ action: z.literal('output'), jobId: JobIdSchema }).strict(),
+  z.object({ action: z.literal('stop'), jobId: JobIdSchema }).strict(),
+  z.object({ action: z.literal('list') }).strict(),
+]);
 
 export const GitToolArgsSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('status') }).strict(),
@@ -175,6 +210,7 @@ export const REPO_TOOL_ARGUMENT_SCHEMAS = {
   write: WriteToolArgsSchema,
   edit: EditToolArgsSchema,
   run: RunToolArgsSchema,
+  job: JobToolArgsSchema,
   git: GitToolArgsSchema,
   web_search: WebSearchToolArgsSchema,
   web_fetch: WebFetchToolArgsSchema,
@@ -224,6 +260,7 @@ const ORCHESTRATOR_TOOL_CALL_NAMES = new Set<string>(ORCHESTRATOR_TOOL_CALLS.map
 export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
   ...REPO_EXECUTABLE_TOOL_CALLS,
   z.object({ toolName: z.literal('ask_user'), args: AskUserToolArgsSchema }).strict(),
+  z.object({ toolName: z.literal('job'), args: JobToolArgsSchema }).strict(),
   ...ORCHESTRATOR_TOOL_CALLS,
 ]);
 
@@ -244,6 +281,7 @@ export type LsToolArgs = z.infer<typeof LsToolArgsSchema>;
 export type WriteToolArgs = z.infer<typeof WriteToolArgsSchema>;
 export type EditToolArgs = z.infer<typeof EditToolArgsSchema>;
 export type RunToolArgs = z.infer<typeof RunToolArgsSchema>;
+export type JobToolArgs = z.infer<typeof JobToolArgsSchema>;
 export type GitToolArgs = z.infer<typeof GitToolArgsSchema>;
 export type WebSearchToolArgs = z.infer<typeof WebSearchToolArgsSchema>;
 export type WebFetchToolArgs = z.infer<typeof WebFetchToolArgsSchema>;

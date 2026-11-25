@@ -1,5 +1,5 @@
 import { TokenCountSourceSchema } from './prompt-budget.ts';
-import { PromptCacheBreakSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import { PromptCacheBreakSchema, StatusUpdateFieldsSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.ts';
 import type { JsonSerializable } from '../lib/json-types.ts';
 import type { SiftConfig } from '../config/index.ts';
@@ -17,6 +17,7 @@ import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.ts';
 import type { QuestionGate } from './engine/question-gate.ts';
 import type { SubmissionGate } from './engine/submission-gate.ts';
 import type { OrchestratorToolHost } from './engine/orchestrator-tool-host.ts';
+import type { BackgroundJobs } from './engine/background-jobs.ts';
 import type { ChatMessage } from './planner-chat-message.ts';
 import { ScorecardSchema } from './engine.ts';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.ts';
@@ -121,6 +122,11 @@ export const ToolResultProgressEventSchema = z.object({
   elapsedMs: z.number(),
 });
 
+/** What the run is doing, in a sentence or two, for the person watching; never part of the run's own history. */
+export const StatusUpdateProgressEventSchema = z.object({
+  ...taskScopedFields, kind: z.literal('status_update'), ...StatusUpdateFieldsSchema.shape,
+});
+
 export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('model_inventory_start'), elapsedMs: z.number() }),
   z.object({ kind: z.literal('model_inventory_done'), modelCount: z.number(), elapsedMs: z.number() }),
@@ -156,6 +162,7 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   z.object({ ...turnScopedFields, kind: z.literal('narration'), narrationText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('answer'), answerText: z.string() }),
   z.object({ ...taskScopedFields, kind: z.literal('progress_update'), progressText: z.string() }),
+  StatusUpdateProgressEventSchema,
   // turn comes from the break itself; the remaining task fields are the shared ones.
   PromptCacheBreakSchema.extend({
     kind: z.literal('prompt_cache_break'),
@@ -246,6 +253,10 @@ export type RepoSearchExecutionRequest = {
   questionGate?: QuestionGate;
   /** Code that judges each finish before the run accepts it: an orchestrator worker's checks. */
   submissionGate?: SubmissionGate;
+  /** The run's background jobs; its presence is what offers `job`. The caller that made it disposes it. */
+  backgroundJobs?: BackgroundJobs;
+  /** Someone watches this run in the dashboard, so it writes status updates. */
+  statusUpdates?: boolean;
   /** The orchestrator run that executes its parent's own tools; its presence is what offers them. */
   orchestratorTools?: OrchestratorToolHost;
   /** A fixed system context used instead of one built from the preset: an orchestrator parent's run-start snapshot. */

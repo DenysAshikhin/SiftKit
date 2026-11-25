@@ -1,5 +1,6 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 
 import { getActiveModelPreset } from '../src/config/getters.ts';
 import type { SiftConfig } from '../src/config/types.ts';
@@ -152,4 +153,19 @@ test('chat images are checked against the model the operation will run on', asyn
   assert.match(String(response.body.error), /vision/iu);
   assert.equal(engine.repoSearchRequests.length, 0);
   assert.deepEqual(harness.loadedModelNames, ['model-a'], 'a refused submission must not load B');
+});
+
+test('only a run started from the dashboard writes status updates', async (t) => {
+  const { harness, engine } = await startRoutingHarness(t, 'siftkit-status-updates-');
+  const sessionId = await harness.createChatSession('updates', 'model-a');
+  const agent = { repoRoot: process.cwd(), approval: 'off', mockResponses: repoAgentFinishResponses('done') };
+
+  const cli = await requestSse(`${harness.getBaseUrl()}/repo-agent`, { body: { prompt: 'from the terminal', maxTurns: 1, ...agent } });
+  assert.equal(cli.errorMessage, null, cli.rawBody);
+  await requestSse(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
+    body: { operationId: randomUUID(), submissionId: randomUUID(), content: 'from the dashboard', ...agent },
+  });
+
+  assert.equal(engine.requireRepoSearch('from the terminal').statusUpdates, false);
+  assert.equal(engine.requireRepoSearch('from the dashboard').statusUpdates, true);
 });

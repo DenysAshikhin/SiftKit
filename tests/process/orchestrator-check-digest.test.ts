@@ -23,6 +23,12 @@ test('a check is digested from its whole output before the stored output is cut 
   assert.equal(result.digest, digestOutput(readDigestFixture('pytest/fail.txt'))?.text);
 });
 
+test('a check that itself exits 124 did not time out', async () => {
+  const result = await runCommandCheck('exit 124');
+  assert.equal(result.exitCode, 124);
+  assert.equal(result.timedOut, false);
+});
+
 test('a stored digest of thousands of failures is cut to 20,000 characters from its end', async () => {
   const result = await runCommandCheck('1..3000 | ForEach-Object { "FAILED tests/test_x.py::test_$_ - assert 0" }; '
     + "'===== 3000 failed in 1.00s ====='; exit 1");

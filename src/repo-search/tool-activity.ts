@@ -21,6 +21,8 @@ function deriveActivityKind(call: RepoNativeToolCall): ToolActivityKind {
       return 'web_fetch';
     case 'run':
       return isValidationCommand(call.args.command) ? 'validate' : 'command';
+    case 'job':
+      return 'command';
     case 'ask_user':
       return 'ask';
     case 'show_image':
@@ -63,6 +65,7 @@ function getActivitySubject(call: RepoNativeToolCall): ToolActivitySubject {
     case 'ls':
     case 'git':
     case 'run':
+    case 'job':
     case 'web_search':
     case 'ask_user':
     case 'save_plan':

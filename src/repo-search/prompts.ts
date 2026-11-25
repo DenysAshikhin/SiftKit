@@ -8,6 +8,8 @@ import { DIGEST_TOOLS } from '../output-digest/types.ts';
 import {
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
+  BACKGROUND_JOB_TOOL_NAME,
+  RIDING_TOOL_NAMES,
   WEB_CHAT_TOOL_NAMES,
 } from '../planner-protocol/repo-search.ts';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
@@ -223,13 +225,18 @@ export function readAgentsMd(repoRoot: string): string {
 // System prompt
 // ---------------------------------------------------------------------------
 
-const WEB_CHAT_TOOL_NAME_SET = new Set<string>(WEB_CHAT_TOOL_NAMES);
+const RIDING_TOOL_NAME_SET = new Set<string>(RIDING_TOOL_NAMES);
 
-/** Web chat tools ride on top of any surface, so they never turn a full surface into a restricted one. */
 function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: readonly string[]): boolean {
-  const actual = new Set(toolNames.filter((toolName) => !WEB_CHAT_TOOL_NAME_SET.has(toolName)));
+  const actual = new Set(toolNames.filter((toolName) => !RIDING_TOOL_NAME_SET.has(toolName)));
   return actual.size === expectedToolNames.length
     && expectedToolNames.every((toolName) => actual.has(toolName));
+}
+
+/** Guidance for background runs; empty for a run that is not offered the job tool. */
+export function buildBackgroundJobInstructions(toolNames: readonly string[]): string {
+  return !toolNames.includes(BACKGROUND_JOB_TOOL_NAME) ? ''
+    : 'Background commands: start a command that takes minutes with `run` and `background: true`, keep working, and read its result with `job`. Wait for it or stop it before you finish. A server a later command needs must be a background job. Run independent checks together: lint, typecheck and small targeted tests can overlap, and a long check can run in the background while you read. Run only one full test suite at a time. Do not edit files a running check reads. When fixing a failing test, start it first and read the code while it runs.';
 }
 
 const WEB_CHAT_TOOL_GUIDANCE: Record<(typeof WEB_CHAT_TOOL_NAMES)[number], string> = {
@@ -250,7 +257,7 @@ const STRUCTURED_REPO_TOOL_GUIDANCE =
   '- Prefer the structured repository tools over `run` for repository discovery: use `grep` for content search, `find` for filenames, `ls` for directory structure, and `read` for anchored file content. Do not use `run` for these operations when the corresponding structured tool is available.';
 
 const RUN_SHELL_GUIDANCE =
-  `- Use \`run\` only for validation or operations that available structured tools cannot express. The structured \`grep\` tool remains available; only the Unix shell command \`grep\` is unavailable inside \`run\`. \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-String, Where-Object, Get-Content). Long output reaches you as its tail. Test and type-check output SiftKit recognises (${DIGEST_TOOLS.join(', ')}) also starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message. Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
+  `- Use \`run\` only for validation or operations that available structured tools cannot express. The structured \`grep\` tool remains available; only the Unix shell command \`grep\` is unavailable inside \`run\`. \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-String, Where-Object, Get-Content). Long output reaches you as its tail. Test and type-check output SiftKit recognises (${DIGEST_TOOLS.join(', ')}) also starts with a digest of the whole output: each tool's verdict, then every failure with its file:line and message. Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Everything a command leaves running is killed when the command ends. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
 
 function buildNativePlannerInstructions(toolNames: readonly string[]): string {
   if (toolNames.length === 0) {

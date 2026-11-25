@@ -6,6 +6,7 @@ export * from './engine-events.ts';
 export * from './metrics.ts';
 export * from './idle-summary.ts';
 export * from './chat.ts';
+export * from './status-update.ts';
 export * from './chat-transcript-reducer.ts';
 export * from './chat-recovery.ts';
 export * from './chat-projection.ts';

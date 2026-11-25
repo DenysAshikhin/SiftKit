@@ -207,6 +207,7 @@ export async function executeChatRepoAgentOperation(options: {
   const settings = options.recorder.settings;
   const progressWriter = new ChatStreamProgressWriter(options.stream, null, true, options.recorder);
   const started = startRepoWorkerRun(options.ctx, {
+    statusUpdates: true,
     taskKind: 'repo-agent',
     repositoryAccess: 'exclusive',
     evidenceRecorder: options.recorder,

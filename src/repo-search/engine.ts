@@ -50,6 +50,7 @@ import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.ts';
 import type { QuestionGate } from './engine/question-gate.ts';
 import type { SubmissionGate } from './engine/submission-gate.ts';
 import type { OrchestratorToolHost } from './engine/orchestrator-tool-host.ts';
+import type { BackgroundJobs } from './engine/background-jobs.ts';
 
 export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.ts';
 
@@ -176,6 +177,8 @@ export async function runRepoSearch(options: {
   questionGate?: QuestionGate;
   submissionGate?: SubmissionGate;
   orchestratorTools?: OrchestratorToolHost;
+  backgroundJobs?: BackgroundJobs;
+  statusUpdates?: boolean;
 }): Promise<{ scorecard: Scorecard; turnRecords: TurnTokenRecord[] }> {
   throwIfAborted(options.abortSignal);
   if (options.taskPrompt === undefined) {
@@ -264,6 +267,8 @@ export async function runRepoSearch(options: {
       questionGate: options.questionGate,
       submissionGate: options.submissionGate,
       orchestratorTools: options.orchestratorTools,
+      backgroundJobs: options.backgroundJobs,
+      statusUpdates: options.statusUpdates,
     });
     const result = await loop.run();
     tasks.push(result);

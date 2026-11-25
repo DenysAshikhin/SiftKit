@@ -13,16 +13,19 @@
 .hchip { font: inherit; font-size: 0.66rem; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--dim); background: none; cursor: pointer; }
 .hchip.on { border-color: var(--acc); color: var(--acc); }
 
-.message-pane { flex: 1; min-height: 0; position: relative; }
+/* A size container, so an orchestrator run can fit itself to the room between its top and bottom padding. */
+.message-pane { flex: 1; min-height: 0; position: relative; container-type: size; --msgs-top: 14px; --msgs-bottom: 52px; }
 .session-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dim); font-size: 0.85rem; }
 .session-loading .spinner { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--ink); border-radius: 50%; }
-.msgs { height: 100%; box-sizing: border-box; overflow-y: auto; padding: 14px 18px 52px; }
+.msgs { height: 100%; box-sizing: border-box; overflow-y: auto; padding: var(--msgs-top) 18px var(--msgs-bottom); }
 /* Block flow, not grid: a growing live row re-lays out only itself, and no row can widen the column. */
 .msgs-content, .msgs-chunk { display: flow-root; }
 .msgs-content { --row-estimate: 120px; }
 .msgs-content > * + *, .msgs-chunk > * + * { margin-top: 10px; }
 /* Off-screen boxes skip layout, paint and compositing; history is chunked so that work follows chunks, not rows. */
 .msgs-content > * { content-visibility: auto; contain-intrinsic-block-size: auto var(--row-estimate); }
+/* Its panes bound it, and it repaints many times a second while it is on screen. */
+.msgs-content > .orchestrator-run { content-visibility: visible; }
 /* --chunk-rows comes from ChatTab's chunk size; until a chunk has rendered once, this is its height. */
 .msgs-chunk { contain-intrinsic-block-size: auto calc(var(--row-estimate) * var(--chunk-rows)); }
 .jump-to-bottom {
@@ -52,6 +55,11 @@
 .think { border-left: 2px solid var(--idle); color: var(--dim); padding: 2px 0 2px 10px; font-size: 0.74rem; margin-top: 8px; font-style: italic; white-space: pre-wrap; }
 .thinking-box, .system-context-bubble, .internal-logic { margin-top: 8px; font-size: 0.74rem; color: var(--dim); }
 .thinking-box > summary, .system-context-bubble > summary, .internal-logic > summary { cursor: pointer; color: var(--dim); }
+.status-updates { margin-top: 8px; font-size: 0.74rem; color: var(--dim); }
+.status-updates summary { cursor: pointer; }
+.status-updates ol { display: grid; gap: 4px; margin: 6px 0; padding: 0; list-style: none; max-height: 180px; overflow-y: auto; }
+.status-updates .status-update { margin: 4px 0 0; padding-left: 9px; border-left: 2px solid var(--acc); color: var(--ink); font-size: 0.82rem; overflow-wrap: anywhere; }
+.status-updates .status-update.past { border-left-color: var(--line); color: var(--dim); }
 .internal-logic-steps, .live-thinking-stack { display: grid; gap: 8px; margin-top: 8px; }
 
 /* ---- recent tool activity ---- */

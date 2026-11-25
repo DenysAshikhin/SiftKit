@@ -9,7 +9,7 @@ import type { RepoSearchProgressEvent } from '../types.ts';
 import type { JsonObject } from '../../lib/json-types.ts';
 import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.ts';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.ts';
-import { WEB_CHAT_TOOL_NAMES } from '../../planner-protocol/repo-search.ts';
+import { BACKGROUND_JOB_TOOL_NAME, WEB_CHAT_TOOL_NAMES } from '../../planner-protocol/repo-search.ts';
 import { findRunScripts } from './shell-command-policy.ts';
 
 const LOGGED_COMMAND_MAX_CHARS = 100;
@@ -54,10 +54,11 @@ export function buildApprovalReviewPayload(input: {
   }
   const command = input.args.command;
   if (input.toolName !== 'run' || typeof command !== 'string') return null;
-  const scripts = findRunScripts(command, input.repoRoot).map(({ relativePath, absolutePath, sizeBytes }) => ({
+  const { packageScripts, files } = findRunScripts(command, input.repoRoot);
+  const scripts = files.map(({ relativePath, absolutePath, sizeBytes }) => ({
     path: relativePath, content: sizeBytes <= RUN_SCRIPT_REVIEW_MAX_BYTES ? fs.readFileSync(absolutePath, 'utf8') : null,
   }));
-  return scripts.length === 0 ? null : JSON.stringify({ toolName: 'run', scripts }, null, 2);
+  return packageScripts.length + scripts.length === 0 ? null : JSON.stringify({ toolName: 'run', packageScripts, scripts }, null, 2);
 }
 
 const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([
@@ -67,6 +68,8 @@ const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([
   'ls',
   // Web chat tools never mutate the tree, and a question card is itself the human decision.
   ...WEB_CHAT_TOOL_NAMES,
+  // It only reads or stops a command that was approved when it started.
+  BACKGROUND_JOB_TOOL_NAME,
 ]);
 
 export function isApprovalExemptReadOnlyTool(toolName: string): boolean {

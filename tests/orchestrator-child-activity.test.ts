@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ORCHESTRATOR_RECENT_TOOL_LIMIT, type OrchestratorChildActivity } from '@siftkit/contracts';
+import { ORCHESTRATOR_RECENT_TOOL_LIMIT, ORCHESTRATOR_STATUS_UPDATE_LIMIT, type OrchestratorChildActivity } from '@siftkit/contracts';
 import { reduceChildActivity } from '../src/orchestrator/child-activity.ts';
 import type { OperationProgressEvent } from '../src/repo-search/types.ts';
 
 const START: OrchestratorChildActivity = {
   childRunId: '00000000-0000-4000-8000-000000000002', taskId: 'write',
-  waitingForModel: false, turn: 0, maxTurns: null, promptTokens: 0, tools: [],
+  waitingForModel: false, turn: 0, maxTurns: null, promptTokens: 0, tools: [], updates: [],
 };
 
 function toolStart(id: string): OperationProgressEvent {
@@ -41,4 +41,19 @@ test('tool calls start running, settle by exit code, and only the most recent ar
 
 test('events with nothing visible return the same view', () => {
   assert.equal(reduceChildActivity(START, { kind: 'thinking', turn: 1, maxTurns: 40, thinkingText: 'hmm' }), START);
+});
+
+test('status updates keep the newest ten and count the calls that ended since', () => {
+  const update = (index: number): OperationProgressEvent => ({ kind: 'status_update', taskId: 'write', turn: 2, maxTurns: 40, elapsedMs: 25,
+    updateId: `00000000-0000-4000-8000-0000000000${String(index).padStart(2, '0')}`, text: `Update ${index}.`, createdAtUtc: '2026-11-24T09:00:00.000Z' });
+  let activity = reduceChildActivity(START, toolStart('a'));
+  activity = reduceChildActivity(activity, update(1));
+  assert.deepEqual(activity.updates.map((entry) => [entry.text, entry.callsSince]), [['Update 1.', 0]]);
+  activity = reduceChildActivity(activity, toolResult('a', 0));
+  activity = reduceChildActivity(reduceChildActivity(activity, toolStart('b')), update(2));
+  activity = reduceChildActivity(activity, toolResult('b', 1));
+  assert.deepEqual(activity.updates.map((entry) => entry.callsSince), [2, 1]);
+  for (let index = 3; index <= 12; index += 1) activity = reduceChildActivity(activity, update(index));
+  assert.equal(ORCHESTRATOR_STATUS_UPDATE_LIMIT, 10);
+  assert.deepEqual([activity.updates.length, activity.updates[0]?.text, activity.updates.at(-1)?.text], [10, 'Update 3.', 'Update 12.']);
 });

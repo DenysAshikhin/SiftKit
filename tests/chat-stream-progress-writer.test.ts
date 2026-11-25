@@ -19,7 +19,9 @@ function fixture() {
     }
     return events;
   };
-  return { writer, displayEvents, publishes: () => publishes };
+  const contextEvents = () => [...new ChatJournalStore(database).readAll(recorder.operationId)]
+    .filter(({ event }) => event.kind === 'context_initialized' || event.kind === 'context_spliced').length;
+  return { writer, displayEvents, contextEvents, publishes: () => publishes };
 }
 
 function progressUpdate(turn: number, progressText: string): RepoSearchProgressEvent {
@@ -86,4 +88,15 @@ test('asking and answering a question each publish to live viewers', async () =>
   await asked;
   assert.equal(publishes, 2);
   assert.equal(Array.from(new ChatJournalStore(database).readAll(recorder.operationId)).at(-1)?.event.kind, 'question_resolved');
+});
+
+test('a status update is journalled for readers and stays out of the model context', () => {
+  const { writer, displayEvents, publishes, contextEvents } = fixture();
+  const update = { updateId: '4f9c1f9a-0000-4000-8000-0000000000c1', text: 'Making sure the fix holds.', createdAtUtc: '2026-11-24T09:00:00.000Z' };
+  const before = contextEvents();
+  writer.write(progressUpdate(1, 'calling'));
+  writer.write({ kind: 'status_update', taskId: 'task', turn: 1, maxTurns: 200, elapsedMs: 2, ...update });
+  assert.deepEqual(displayEvents(), [{ kind: 'progress', delta: { turn: 1, offset: 0, text: 'calling' } }, { kind: 'status_update', ...update }]);
+  assert.equal(publishes(), 2);
+  assert.equal(contextEvents(), before);
 });

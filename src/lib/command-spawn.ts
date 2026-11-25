@@ -1,4 +1,5 @@
-import { runCapturedCommand, type CapturedCommandResult } from './captured-command.ts';
+import { PARSED_OUTPUT } from './bounded-output.ts';
+import { CapturedCommand, type CapturedCommandResult } from './captured-command.ts';
 
 export type DirectCommandResult = CapturedCommandResult;
 
@@ -20,5 +21,5 @@ export function spawnDirectCommand(
   args: string[],
   options: DirectCommandOptions = {},
 ): Promise<DirectCommandResult> {
-  return runCapturedCommand(command, args, options);
+  return new CapturedCommand(command, args, { ...options, outputPolicy: PARSED_OUTPUT, termination: 'tree' }).result;
 }

@@ -8,6 +8,8 @@ import {
   OPERATION_STREAM_EVENTS,
   ORCHESTRATOR_ACTIVITY_FRAME,
   ORCHESTRATOR_RECENT_TOOL_LIMIT,
+  ORCHESTRATOR_STATUS_LINE_MAX_CHARS,
+  ORCHESTRATOR_WHY_MAX_CHARS,
   OrchestratorActivitySchema,
   OrchestratorApproachSchema,
   OrchestratorChangeApproachArgsSchema,
@@ -29,6 +31,7 @@ import {
   OrchestratorRetiredTaskSchema,
   OrchestratorStartRequestSchema,
   OrchestratorTaskSchema,
+  OrchestratorNewTaskSchema,
   OrchestratorUpdateTasksArgsSchema,
   OrchestratorVerificationCheckSchema,
   SiftPresetCollectionSchema,
@@ -79,7 +82,7 @@ test('a handoff report is a status with its deviations, never free text or a kin
 });
 
 test('a dispatch starts exactly one child and a review judges every criterion with code evidence', () => {
-  const child = { taskId: 'inspect', purpose: 'implementation', instruction: 'Do it.' };
+  const child = { taskId: 'inspect', purpose: 'implementation', instruction: 'Do it.', update: 'The run is under way.' };
   assert.equal(OrchestratorDispatchArgsSchema.safeParse(child).success, true);
   assert.equal(OrchestratorDispatchArgsSchema.safeParse({ children: [child] }).success, false);
   assert.equal(OrchestratorDispatchArgsSchema.safeParse({ taskId: 'a' }).success, false);
@@ -162,7 +165,7 @@ test('a stored failure carries one of the known failure codes', () => {
 
 const LIVE_CHILD = {
   childRunId: '00000000-0000-4000-8000-000000000002', taskId: 'greeting',
-  waitingForModel: false, turn: 3, maxTurns: 40, promptTokens: 1200, tools: [],
+  waitingForModel: false, turn: 3, maxTurns: 40, promptTokens: 1200, tools: [], updates: [],
 };
 const LIVE_TOOL = { toolCallId: 't1', turn: 3, activityKind: 'edit', command: 'write src/greeting.ts', status: 'running' };
 const SCHEDULE = {
@@ -254,11 +257,34 @@ test('a stored plan may hold no task after a rollback, but save_plan needs at le
 
 // Real case (run e85529c8): a first save_plan without temporaryPaths cost a round trip at the plan deadline.
 test('a plan task may omit its dependency, read, and temporary lists; wrong types are still refused', () => {
-  const minimal = { id: 'a', title: 'A', workerPresetId: 'repo-agent', writePaths: ['src/a.ts'],
+  const minimal = { id: 'a', title: 'A', why: 'It is needed.', workerPresetId: 'repo-agent', writePaths: ['src/a.ts'],
     steps: [{ instruction: 'Change it.', expectedResult: 'Changed.' }],
     verification: [{ kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 }], acceptance: ['Changed.'] };
   const task = OrchestratorTaskSchema.parse(minimal);
   assert.deepEqual([task.dependsOn, task.readPaths, task.temporaryPaths], [[], [], []]);
   assert.equal(OrchestratorTaskSchema.safeParse({ ...minimal, temporaryPaths: 'scratch' }).success, false);
   assert.equal(OrchestratorTaskSchema.safeParse({ ...minimal, extra: true }).success, false, 'still strict');
+});
+
+test('a new task says why it exists; only a stored one may lack it', () => {
+  const task = { id: 'a', title: 'A', why: 'x'.repeat(ORCHESTRATOR_WHY_MAX_CHARS), workerPresetId: 'repo-agent', writePaths: ['src/a.ts'],
+    steps: [{ instruction: 'Change it.', expectedResult: 'Changed.' }],
+    verification: [{ kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 }], acceptance: ['Changed.'] };
+  const { why: _why, ...without } = task;
+  assert.equal(OrchestratorNewTaskSchema.safeParse(task).success, true);
+  for (const bad of [without, { ...task, why: null }, { ...task, why: ' ' }, { ...task, why: 'x'.repeat(ORCHESTRATOR_WHY_MAX_CHARS + 1) }]) {
+    assert.equal(OrchestratorNewTaskSchema.safeParse(bad).success, false);
+    assert.equal(OrchestratorUpdateTasksArgsSchema.safeParse({ add: [bad] }).success, false);
+  }
+  assert.equal(OrchestratorTaskSchema.safeParse({ ...task, why: null }).success, true);
+  assert.equal(OrchestratorTaskSchema.safeParse(without).success, false);
+  assert.equal(OrchestratorUpdateTasksArgsSchema.safeParse({ update: [{ taskId: 'a', set: { why: 'It still is.' } }] }).success, true);
+});
+
+test(`a dispatch says where the run stands, in at most ${ORCHESTRATOR_STATUS_LINE_MAX_CHARS} characters`, () => {
+  const dispatch = { taskId: 'a', purpose: 'implementation', instruction: 'Do it.' };
+  assert.equal(OrchestratorDispatchArgsSchema.safeParse({ ...dispatch, update: 'x'.repeat(ORCHESTRATOR_STATUS_LINE_MAX_CHARS) }).success, true);
+  for (const bad of [dispatch, { ...dispatch, update: ' ' }, { ...dispatch, update: 'x'.repeat(ORCHESTRATOR_STATUS_LINE_MAX_CHARS + 1) }]) {
+    assert.equal(OrchestratorDispatchArgsSchema.safeParse(bad).success, false);
+  }
 });

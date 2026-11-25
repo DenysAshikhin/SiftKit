@@ -783,3 +783,13 @@ test('a batch answered in context releases its result payload while an unanswere
   for (const envelope of envelopes(coalescingPrefix())) open.apply(envelope);
   assert.deepEqual(open.retainedToolPayloadIds(), ['tc_dup']);
 });
+
+test('a status update changes nothing in the replayed planner context', () => {
+  const { transcript, recorder } = runLiveTranscript();
+  const update: ChatJournalEvent = { kind: 'display', event: {
+    kind: 'status_update', updateId: '4f9c1f9a-0000-4000-8000-0000000000c1', text: 'Finding the right part first.', createdAtUtc: RECORDED_AT,
+  } };
+  const replayed = replayChatContext(envelopes([...recorder.events, update]));
+  assert.equal(replayed.status, 'ok');
+  assert.deepEqual(replayed.messages, transcript.getMessages());
+});

@@ -284,6 +284,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     }),
     logger,
     timingRecorder: null,
+    backgroundJobs: null,
   });
 
   const prepared = await preparer.prepareTurn(REPLAY_TURN, 0, {

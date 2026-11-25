@@ -52,36 +52,36 @@ test('the same submission and payload returns the same parent; a different paylo
 test('two reservations against one revision cannot both succeed', (t) => {
   const { store } = openStore(t);
   const state = planned(store);
-  store.reserveAttempt(state.runId, state.revision, 'inspect', work());
-  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'inspect', work()), /stale revision/u);
+  store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
+  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.'), /stale revision/u);
 });
 
 test('each purpose allows two attempts and implementation attempts never consume the correction pool', (t) => {
   const { store } = openStore(t);
   let state = planned(store);
-  const firstAttempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  const firstAttempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   state = store.read(state.runId);
-  const secondAttempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  const secondAttempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   state = store.read(state.runId);
   assert.equal(firstAttempt.attempt, 1);
   assert.equal(secondAttempt.attempt, 2);
   assert.notEqual(firstAttempt.childRunId, secondAttempt.childRunId);
-  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'inspect', work()), /attempt limit/u);
+  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.'), /attempt limit/u);
 
-  const firstFix = store.reserveAttempt(state.runId, state.revision, 'inspect', work('fix'));
+  const firstFix = store.reserveAttempt(state.runId, state.revision, 'inspect', work('fix'), 'The run is under way.');
   state = store.read(state.runId);
-  const secondFix = store.reserveAttempt(state.runId, state.revision, 'inspect', work('fix'));
+  const secondFix = store.reserveAttempt(state.runId, state.revision, 'inspect', work('fix'), 'The run is under way.');
   state = store.read(state.runId);
   assert.deepEqual([firstFix.purpose, firstFix.attempt, secondFix.attempt], ['fix', 1, 2]);
   assert.equal(secondFix.work.instruction, 'Fix the finding.');
-  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'inspect', work('fix')),
+  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'inspect', work('fix'), 'The run is under way.'),
     /Task 'inspect' reached the fix attempt limit/u);
 });
 
 test('attempt results settle exactly once and must name a reserved child', (t) => {
   const { store } = openStore(t);
   let state = planned(store);
-  const attempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  const attempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   state = store.markAttemptRunning(state.runId, store.read(state.runId).revision, attempt.childRunId);
   const result = { taskId: 'inspect', purpose: 'implementation' as const, attempt: 1, childRunId: attempt.childRunId,
     workerStatus: 'completed' as const, workerOutput: 'done', report: null, outcome: 'passed' as const, submissions: 1,
@@ -98,7 +98,7 @@ test('attempt results settle exactly once and must name a reserved child', (t) =
 test('committed events replay in increasing sequence from any cursor', (t) => {
   const { store } = openStore(t);
   const state = planned(store);
-  const attempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  const attempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   const events = store.readEvents(state.runId, 0);
   assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3]);
   assert.equal(events[2]?.childRunId, attempt.childRunId);
@@ -108,7 +108,7 @@ test('committed events replay in increasing sequence from any cursor', (t) => {
 test('a restart keeps both budgets; interrupted runs reject further changes', (t) => {
   const { store, dbPath } = openStore(t);
   let state = planned(store);
-  store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   closeAllRuntimeDatabases();
   const reopened = new OrchestratorRunStore(getRuntimeDatabase(dbPath));
   state = reopened.read(state.runId);
@@ -119,7 +119,7 @@ test('a restart keeps both budgets; interrupted runs reject further changes', (t
   assert.equal(state.failure?.code, 'interrupted');
   assert.equal(state.attempts.length, 1, 'an uncertain attempt is kept, never redispatched');
   assert.deepEqual(reopened.listActive(), []);
-  assert.throws(() => reopened.reserveAttempt(state.runId, state.revision, 'inspect', work()), /is interrupted/u);
+  assert.throws(() => reopened.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.'), /is interrupted/u);
 });
 
 test('a first plan starts every task pending, and a revision keeps the state of the tasks it still names', (t) => {
@@ -137,7 +137,7 @@ test('a first plan starts every task pending, and a revision keeps the state of 
 test('a plan state that loses a task with attempts is refused; retiring that task keeps it on record', (t) => {
   const { store } = openStore(t);
   let state = planned(store);
-  store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   state = store.read(state.runId);
   const { plan } = state;
   assert.ok(plan);
@@ -165,7 +165,7 @@ test('a stopped run aborts its open tasks and abandons unsettled attempts; untou
   let state = planned(store);
   state = store.update(state.runId, state.revision, { tasks: state.tasks.map((task) => (task.taskId === 'inspect'
     ? { ...task, status: 'running' } : task)) }, { message: 'Task inspect: running.' });
-  const attempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  const attempt = store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   state = store.markAttemptRunning(state.runId, store.read(state.runId).revision, attempt.childRunId);
 
   const aborted = store.update(state.runId, state.revision, { phase: 'aborted' }, { message: 'Aborted by user.' });
@@ -180,7 +180,7 @@ test('a run reports the merged throughput of its own conversation runs and its c
   const state = planned(store);
   const parentRunId = randomUUID();
   store.update(state.runId, state.revision, { parentRunIds: [parentRunId] }, { message: 'Parent run recorded.' });
-  const attempt = store.reserveAttempt(state.runId, state.revision + 1, 'inspect', work());
+  const attempt = store.reserveAttempt(state.runId, state.revision + 1, 'inspect', work(), 'The run is under way.');
   const database = getRuntimeDatabase(dbPath);
   seedRunLogThroughput(database, parentRunId, [1_000, 1_000], [100, 2_000]);
   seedRunLogThroughput(database, attempt.childRunId, [3_000, 1_000], [300, 2_000]);
@@ -205,8 +205,28 @@ test('a new run has its budget and no approaches or retired tasks; its first pla
 test('a reservation past the dispatch budget is refused', (t) => {
   const { store } = openStore(t);
   let state = planned(store, startRequest({ budget: { minutes: 60, dispatches: 1 } }));
-  store.reserveAttempt(state.runId, state.revision, 'inspect', work());
+  store.reserveAttempt(state.runId, state.revision, 'inspect', work(), 'The run is under way.');
   state = store.read(state.runId);
-  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'follow-up', work('implementation', 'follow-up')),
+  assert.throws(() => store.reserveAttempt(state.runId, state.revision, 'follow-up', work('implementation', 'follow-up'), 'The run is under way.'),
     /The run's dispatch budget is spent \(1 of 1\)\./u);
+});
+
+test('every reservation records where the run stands, and the newest hundred lines are kept', (t) => {
+  const { store } = openStore(t);
+  const tasks = Array.from({ length: 26 }, (_, index) => makeOrchestratorTask({ id: `task-${index}` }));
+  const created = store.create(startRequest({ budget: { minutes: 10, dispatches: 200 } }));
+  assert.deepEqual(created.statusLines, []);
+  let state = savePlanned(store, created, makeOrchestratorPlan(tasks), 'hash-1');
+  let count = 0;
+  for (const task of tasks) {
+    for (const kind of ['implementation', 'implementation', 'fix', 'fix'] as const) {
+      count += 1;
+      if (count > 101) break;
+      store.reserveAttempt(state.runId, state.revision, task.id, { kind, planPath: 'docs/plan.md', planHash: 'hash-1', task, instruction: 'Do it.' }, `Line ${count}.`);
+      state = store.read(state.runId);
+    }
+  }
+  assert.equal(state.statusLines.length, 100);
+  assert.deepEqual([state.statusLines.at(0)?.text, state.statusLines.at(-1)?.text], ['Line 2.', 'Line 101.']);
+  assert.equal(state.statusLines.at(-1)?.atUtc, state.attempts.at(-1)?.reservedAtUtc);
 });

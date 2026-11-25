@@ -8,6 +8,7 @@ import {
   type OrchestratorChildPurpose,
   type OrchestratorPhase,
   type OrchestratorRunState,
+  type OrchestratorStatusLine,
   type OrchestratorTaskClaim,
   type OrchestratorTaskState,
   type OrchestratorTaskStatus,
@@ -71,7 +72,7 @@ export function nowDoing(task: OrchestratorTaskState, child: OrchestratorChildAc
   if (child === null) return STATUS_ACTIVITY[task.status];
   if (child.waitingForModel) return 'waiting for model';
   const running = child.tools.filter((tool) => tool.status === 'running').at(-1);
-  if (running !== undefined) return `${running.activityKind} ${running.command}`;
+  if (running !== undefined) return `${running.activityKind} · turn ${running.turn}`;
   return child.turn === 0 ? 'starting' : `thinking · turn ${child.turn}`;
 }
 
@@ -115,6 +116,27 @@ export function endedApproaches(state: OrchestratorRunState): EndedApproach[] {
   return state.approaches.flatMap((approach) => (approach.outcome === null ? [] : [{
     number: approach.number, title: approach.title, outcome: APPROACH_OUTCOME_LABELS[approach.outcome.kind], lesson: approach.outcome.lesson,
   }]));
+}
+
+export type RunLine = { text: string; atUtc: string | null };
+
+/** The run's current line and the ones before it, oldest first. Until the first dispatch the plan's goal stands in. */
+export function runLine(state: OrchestratorRunState): { current: RunLine | null; past: readonly OrchestratorStatusLine[] } {
+  const current = state.statusLines.at(-1);
+  if (current !== undefined) return { current, past: state.statusLines.slice(0, -1) };
+  return { current: state.plan === null ? null : { text: state.plan.goal, atUtc: null }, past: [] };
+}
+
+/** e.g. "14:02", in the viewer's time zone. */
+export function formatClock(atUtc: string): string {
+  return new Date(atUtc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
+/** e.g. "5 done · 1 running · 7 waiting"; a kind with no task is left out. */
+export function taskCounts(tasks: readonly OrchestratorTaskState[]): string {
+  const count = (statuses: readonly OrchestratorTaskStatus[]): number => tasks.filter((task) => statuses.includes(task.status)).length;
+  return ([['done', count(['completed'])], ['running', count(['running', 'reviewing'])], ['waiting', count(['pending'])],
+    ['failed', count(['failed', 'aborted'])]] as const).flatMap(([label, total]) => (total === 0 ? [] : [`${total} ${label}`])).join(' · ');
 }
 
 export function taskTone(status: OrchestratorTaskStatus): StatusTone {

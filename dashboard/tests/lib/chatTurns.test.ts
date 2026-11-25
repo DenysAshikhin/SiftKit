@@ -497,3 +497,35 @@ test('injected memory belongs to its run turn but is never its main slot or an I
   const memoryOnly = groupMessagesIntoTurns(messages.slice(0, 2), new Set(['m1']));
   assert.equal(memoryOnly[1]?.main, null, 'before the answer streams, memory does not take the main slot');
 });
+
+test('status updates stand apart from steps and the main slot, and count the calls that ended since', () => {
+  const messages = [
+    message({ id: 'u1', role: 'user', kind: 'user_text', content: 'fix it' }),
+    message({ id: 'c1', kind: 'assistant_tool_call', sourceRunId: 'run-1' }),
+    message({ id: 's1', kind: 'assistant_status_update', content: 'Reading first.', sourceRunId: 'run-1' }),
+    message({ id: 'c2', kind: 'assistant_tool_call', sourceRunId: 'run-1', toolCallExecutionState: 'executing', toolCallStatus: 'running' }),
+    message({ id: 's2', kind: 'assistant_status_update', content: 'Checking it.', sourceRunId: 'run-1' }),
+  ];
+  const live = groupMessagesIntoTurns(messages, new Set(['c1', 's1', 'c2', 's2']))[1];
+  assert.deepEqual(live?.updates, [
+    { updateId: 's1', text: 'Reading first.', callsSince: 1 }, { updateId: 's2', text: 'Checking it.', callsSince: 0 },
+  ]);
+  assert.deepEqual([live?.main, live?.steps, live?.showRecentActivity], [null, [], true]);
+  const settled = groupMessagesIntoTurns([...messages, message({ id: 'a1', content: 'Done.', sourceRunId: 'run-1' })], new Set())[1];
+  assert.deepEqual([settled?.main?.id, settled?.steps.map((step) => step.id), settled?.updates.length], ['a1', ['c1', 'c2'], 2]);
+  assert.deepEqual(settled?.messages.map((row) => row.id), ['c1', 's1', 'c2', 's2', 'a1'], 'deleting the turn deletes its updates');
+});
+
+test('status updates count every ended call after them and the ended call before, with the newest call still running', () => {
+  const messages = [
+    message({ id: 'c1', kind: 'assistant_tool_call', sourceRunId: 'run-1' }),
+    message({ id: 's1', kind: 'assistant_status_update', content: 'Reading first.', sourceRunId: 'run-1' }),
+    message({ id: 'c2', kind: 'assistant_tool_call', sourceRunId: 'run-1' }),
+    message({ id: 's2', kind: 'assistant_status_update', content: 'Checking it.', sourceRunId: 'run-1' }),
+    message({ id: 'c3', kind: 'assistant_tool_call', sourceRunId: 'run-1', toolCallExecutionState: 'executing', toolCallStatus: 'running' }),
+  ];
+  const turn = groupMessagesIntoTurns(messages, new Set(['c1', 's1', 'c2', 's2', 'c3']))[0];
+  assert.deepEqual(turn?.updates, [
+    { updateId: 's1', text: 'Reading first.', callsSince: 2 }, { updateId: 's2', text: 'Checking it.', callsSince: 1 },
+  ]);
+});

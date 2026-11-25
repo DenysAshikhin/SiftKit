@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   InferenceThroughputSchema,
+  ORCHESTRATOR_STATUS_LINE_LIMIT,
   ORCHESTRATOR_TERMINAL_PHASES,
   OrchestratorAttemptResultSchema,
   OrchestratorAttemptSchema,
@@ -81,7 +82,7 @@ export class OrchestratorRunStore {
       const now = new Date().toISOString();
       const state: StoredRunState = StoredRunStateSchema.parse({
         runId: randomUUID(), request, revision: 0, phase: 'preparing_plan', planPath: null, planHash: null, plan: null,
-        tasks: [], approaches: [], retiredTasks: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: now, updatedAtUtc: now,
+        tasks: [], approaches: [], retiredTasks: [], statusLines: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: now, updatedAtUtc: now,
       });
       this.database.prepare(`
         INSERT INTO orchestrator_runs (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc)
@@ -133,8 +134,8 @@ export class OrchestratorRunStore {
     return this.mutate(runId, revision, (state) => ({ stored: { ...state, ...changes }, event }));
   }
 
-  /** Reserves the next attempt of the work's purpose and its child ID before anything starts. */
-  reserveAttempt(runId: string, revision: number, taskId: string, work: OrchestratorChildWork): OrchestratorAttempt {
+  /** Reserves the next attempt of the work's purpose and its child ID before anything starts, and records where the run stands. */
+  reserveAttempt(runId: string, revision: number, taskId: string, work: OrchestratorChildWork, update: string): OrchestratorAttempt {
     const purpose: OrchestratorChildPurpose = work.kind;
     const childRunId = randomUUID();
     const state = this.mutate(runId, revision, (current) => {
@@ -151,7 +152,8 @@ export class OrchestratorRunStore {
       this.database.prepare(`
         INSERT INTO orchestrator_attempts (run_id, task_id, purpose, attempt, child_run_id, attempt_json) VALUES (?, ?, ?, ?, ?, ?)
       `).run(runId, taskId, purpose, attempt.attempt, childRunId, JSON.stringify(attempt));
-      return { stored: current, event: { message: `Reserved ${purpose} attempt ${attempt.attempt}.`, taskId, purpose,
+      const statusLines = [...current.statusLines, { text: update, atUtc: attempt.reservedAtUtc }].slice(-ORCHESTRATOR_STATUS_LINE_LIMIT);
+      return { stored: { ...current, statusLines }, event: { message: `Reserved ${purpose} attempt ${attempt.attempt}.`, taskId, purpose,
         attempt: attempt.attempt, childRunId } };
     });
     return this.requireAttempt(state, childRunId);

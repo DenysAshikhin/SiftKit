@@ -27,6 +27,7 @@ import {
   PLANNER_REASONING_BUDGET_MESSAGE,
   captureExecutingPlannerRequest,
   requestApprovalVerdict as requestApprovalVerdictRequest,
+  requestStatusUpdate as requestStatusUpdateRequest,
   requestRepoSearchPlannerProtocolAction,
   serializeProtocolMessages,
   toProtocolChatMessages,
@@ -93,6 +94,7 @@ import type { TurnTokenRecord } from './turn-token-record.ts';
 import { ToolStatsRecorder } from './tool-stats.ts';
 import { TranscriptManager } from './transcript-manager.ts';
 import { PromptCacheWatch } from './prompt-cache-watch.ts';
+import { StatusUpdates } from './status-updates.ts';
 import { RunStateCompactor } from './run-state-compactor.ts';
 import { TranscriptCompactor } from './transcript-compactor.ts';
 import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.ts';
@@ -182,6 +184,9 @@ export class TaskLoop {
   private readonly duplicates = new DuplicateTracker();
   private readonly forcedFinish = new ForcedFinishController();
   private truncatedFinishRejected = false;
+  private runningJobFinishRejected = false;
+  /** What the run's end killed; told to whoever reads its output. */
+  private stoppedJobsNote: string | null = null;
   private readonly readWindows = new ReadWindowGovernor();
   private readonly visionEnabled: boolean;
   private readonly visionImageRetention: number;
@@ -205,6 +210,8 @@ export class TaskLoop {
   private finalOutput = '';
   private lastCompactionSummary = '';
   private readonly promptCacheWatch = new PromptCacheWatch();
+  /** Null when nobody watches the run, or when its model is mocked. */
+  private readonly statusUpdates: StatusUpdates | null;
   private turnsUsed = 0;
   private mockResponseIndex = 0;
   private executingPlannerRequest: ExecutingPlannerRequest | null = null;
@@ -273,6 +280,8 @@ export class TaskLoop {
       maxTurns: this.maxTurns,
       taskStartedAt: this.taskStartedAt,
     });
+    this.statusUpdates = options.statusUpdates === true && options.mockResponses === undefined
+      ? new StatusUpdates({ requester: this, progress: this.progress, logger: options.logger ?? null }) : null;
     const initialQueuedMessages = options.queueDelivery?.initial() ?? [];
     this.transcript = new TranscriptManager({
       systemPromptContent,
@@ -318,6 +327,7 @@ export class TaskLoop {
           activityObserver: this.progress,
           throughputAudit: options.throughputAudit,
         }),
+      backgroundJobs: options.backgroundJobs ?? null,
       progress: this.progress,
       logger: options.logger || null,
       timingRecorder: options.timingRecorder || null,
@@ -340,6 +350,8 @@ export class TaskLoop {
       approvalGate: this.buildApprovalRequester(options),
       evidenceRecorder: options.evidenceRecorder ?? null,
       questionGate: options.questionGate ?? null,
+      backgroundJobs: options.backgroundJobs ?? null,
+      statusUpdates: this.statusUpdates,
       orchestratorTools: options.orchestratorTools ?? null,
       runtimeProfile: options.runtimeProfile,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
@@ -423,6 +435,22 @@ export class TaskLoop {
     return response;
   }
 
+  /** A status update on top of the planner request whose command is running; the transcript never learns of it. */
+  async requestStatusUpdate(instruction: string, abortSignal: AbortSignal): Promise<PlannerActionResponse> {
+    const executing = this.executingPlannerRequest;
+    if (!executing) throw new Error('status_update requested before any planner request.');
+    return requestStatusUpdateRequest({
+      config: this.options.config,
+      baseUrl: this.options.baseUrl,
+      model: this.options.model,
+      throughputAudit: this.options.throughputAudit,
+      executing,
+      instruction,
+      abortSignal,
+      logger: this.options.logger ?? null,
+    });
+  }
+
   async run(): Promise<TaskResult> {
     const promptAdapter = new RepoSearchPromptAdapter(this);
     const actionAdapter = new RepoSearchActionAdapter(this.plannerToolDefinitions, this);
@@ -483,6 +511,7 @@ export class TaskLoop {
 
   async prepareTurn(turn: number): Promise<AgentLoopPreparedTurn> {
     throwIfAborted(this.options.abortSignal);
+    await this.statusUpdates?.settle();
     this.transcript.reconcileHistory();
     this.transcript.beginTurn(turn);
     this.turnsUsed = turn;
@@ -862,6 +891,16 @@ export class TaskLoop {
       });
       return 'continue';
     }
+    const running = this.options.backgroundJobs?.running() ?? [];
+    if (running.length > 0 && !this.runningJobFinishRejected && !toolBudgetSpent && !this.forcedFinish.isActive()) {
+      this.runningJobFinishRejected = true;
+      const ids = running.map((job) => job.id).join(', ');
+      this.rejectFinish(response, `Background jobs are still running (${ids}). Wait for them or stop them with the job tool, then finish. Finishing again kills them.`);
+      this.options.logger?.write({ kind: 'turn_finish_jobs_running', taskId: this.task.id, turn, jobs: ids });
+      return 'continue';
+    }
+    // Before the submission gate: its checks and its diff must see files nothing is still writing.
+    await this.stopBackgroundJobs();
     let output = action.text;
     const gate = this.options.submissionGate;
     if (gate !== undefined) {
@@ -882,7 +921,16 @@ export class TaskLoop {
     return 'stop';
   }
 
+  private async stopBackgroundJobs(): Promise<void> {
+    const note = await this.options.backgroundJobs?.stopAll() ?? null;
+    if (note === null) return;
+    this.stoppedJobsNote = note;
+    this.options.logger?.write({ kind: 'background_jobs_stopped', taskId: this.task.id, note });
+  }
+
   async buildAgentLoopResult(): Promise<TaskResult> {
+    await this.statusUpdates?.settle();
+    await this.stopBackgroundJobs();
     const answerSchema = this.options.answerSchema;
     // Terminal synthesis if no final output — retry up to 3 times then hard-fail.
     if (!String(this.finalOutput || '').trim()) {
@@ -891,6 +939,9 @@ export class TaskLoop {
       const problem = findAnswerSchemaProblem(this.finalOutput, answerSchema);
       if (problem !== null) await this.repairFinalOutput(problem);
     }
+
+    // An answer with a schema must still parse, so only a prose answer carries the note.
+    if (this.stoppedJobsNote !== null && answerSchema === undefined) this.finalOutput = `${this.finalOutput}\n\n${this.stoppedJobsNote}`;
 
     this.options.logger?.write({
       kind: 'task_done', taskId: this.task.id, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,

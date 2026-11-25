@@ -1,7 +1,8 @@
 import type { OrchestratorVerificationCheck } from '@siftkit/contracts';
 
 import { parseJsonValueText } from '../lib/json.ts';
-import { RUN_SHELL_LABEL, spawnPowerShellAsync } from '../lib/powershell.ts';
+import { RUN_SHELL_LABEL } from '../lib/powershell.ts';
+import { runAgentCommand } from '../repo-search/engine/agent-command.ts';
 import { z } from '../lib/zod.ts';
 
 const PREFLIGHT_MARKER = 'SIFTKIT_CHECK_PREFLIGHT:';
@@ -35,7 +36,7 @@ export async function findUnrunnableChecks(repoRoot: string, checks: readonly Or
   abortSignal: AbortSignal): Promise<string[]> {
   const commands = [...new Set(checks.flatMap((check) => (check.kind === 'command' ? [check.command] : [])))];
   if (commands.length === 0) return [];
-  const result = await spawnPowerShellAsync(PREFLIGHT_SCRIPT, { cwd: repoRoot, abortSignal, timeoutMs: PREFLIGHT_TIMEOUT_MS,
+  const result = await runAgentCommand(PREFLIGHT_SCRIPT, { cwd: repoRoot, abortSignal, timeoutMs: PREFLIGHT_TIMEOUT_MS,
     stdinData: JSON.stringify(commands) });
   abortSignal.throwIfAborted();
   const line = result.output.split(/\r?\n/u).find((entry) => entry.startsWith(PREFLIGHT_MARKER));

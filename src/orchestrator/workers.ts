@@ -14,7 +14,7 @@ import { requireOrchestratorWorkerPreset } from './plan.ts';
  * every finish through `submission`, and the parent task already owns the repository.
  */
 export function startOrchestratorChild(ctx: ServerContext, config: SiftConfig, input: OrchestratorChildRequest,
-  submission: SubmissionGate): RepoAgentSession {
+  submission: SubmissionGate, statusUpdates: boolean): RepoAgentSession {
   const request = OrchestratorChildRequestSchema.parse(input);
   const preset = requireOrchestratorWorkerPreset(config, { id: request.taskId, workerPresetId: request.workerPresetId });
   return startRepoWorkerRun(ctx, {
@@ -31,6 +31,7 @@ export function startOrchestratorChild(ctx: ServerContext, config: SiftConfig, i
     allowedTools: [...preset.allowedTools],
     modelQueueTimeout: 'none',
     submissionGate: submission,
+    statusUpdates,
   }).session;
 }
 

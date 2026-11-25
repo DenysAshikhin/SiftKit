@@ -575,7 +575,7 @@ test('orchestrator mode hands the live activity and the last work phase to the r
   const originalFetch = globalThis.fetch;
   const childRunId = '4f9c1f9a-0000-4000-8000-0000000000bb';
   const check = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
-  const task = { id: 'greet', title: 'Greet', dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: ['src/a.ts'],
+  const task = { id: 'greet', title: 'Greet', why: null, dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: ['src/a.ts'],
     steps: [{ instruction: 'Write it.', expectedResult: 'It exists.' }], verification: [check], acceptance: ['Greets.'], temporaryPaths: [] };
   const running = orchestratorRunState({
     runId: ORCHESTRATOR_RUN_ID,
@@ -588,7 +588,7 @@ test('orchestrator mode hands the live activity and the last work phase to the r
   const event = { runId: ORCHESTRATOR_RUN_ID, sequence: 1, atUtc: '2026-09-23T12:00:00.000Z', phase: 'executing', message: 'Executing.',
     taskId: null, purpose: null, attempt: null, childRunId: null };
   const activity = OrchestratorActivitySchema.parse({ runId: ORCHESTRATOR_RUN_ID, children: [{ childRunId, taskId: 'greet',
-    waitingForModel: false, turn: 2, maxTurns: 40, promptTokens: 100, tools: [] }], schedule: null,
+    waitingForModel: false, turn: 2, maxTurns: 40, promptTokens: 100, tools: [], updates: [] }], schedule: null,
     parent: { waitingForModel: false, parked: true, promptTokens: 52_000, contextTokens: 200_000, prompt: null, turnCount: 3, turns: [] } });
   const encoder = new TextEncoder();
   globalThis.fetch = async (input) => {
@@ -658,6 +658,7 @@ test('orchestrator mode shows the default budget and cannot start with an invali
     const field = (label: string) => screen.getByLabelText(label);
     const shown = (label: string) => { const input = field(label); return input instanceof window.HTMLInputElement ? input.value : null; };
     assert.deepEqual([shown('Budget minutes'), shown('Budget dispatches')], ['720', '80']);
+    screen.getByText('max subagent dispatches');
     assert.equal(blocked(), false);
     for (const [label, bad, good] of [['Budget minutes', '0', '45'], ['Budget minutes', '', '0.5'],
       ['Budget dispatches', '1.5', '3'], ['Budget dispatches', '', '80']] as const) {
@@ -2120,4 +2121,33 @@ test('new handler identities from a controller re-render leave the stored histor
     fireEvent.click(screen.getAllByRole('button', { name: 'Delete message' })[0] ?? view.container);
     assert.deepEqual(deleted, ['u1']);
   } finally { view.unmount(); }
+});
+
+test('status updates lead the live turn, the current one last, and fold together once the turn is finished', () => {
+  const update = (id: string, text: string): LiveTranscriptStep => ({ kind: 'status_update', updateId: `4f9c1f9a-0000-4000-8000-0000000000${id}`, text,
+    createdAtUtc: '2026-11-24T09:00:00.000Z' });
+  const command = { toolCallId: 't1', turn: 1, maxTurns: 45, activityKind: 'validate', activitySubject: { kind: 'none' }, command: 'npm test', promptTokenCount: 0 } as const;
+  const steps: LiveTranscriptStep[] = [{ kind: 'tool', tool: { kind: 'tool_start', ...command } }, update('c1', 'Reading first.'), update('c2', 'Making sure it holds.')];
+  const page = (live: readonly LiveTranscriptStep[]): Document => new window.DOMParser().parseFromString(render({ selectedSessionId: SESSION_B.id,
+    runtimeHub: new ChatRuntimeHub(buildThinkingStore({ content: 'fix it', images: [], operationKind: 'repo-agent', marker: 'THINK' }, live)) }), 'text/html');
+  const running = page(steps).querySelector('.status-updates');
+  assert.equal(running?.querySelector('summary')?.textContent, 'Earlier updates (1)');
+  assert.equal(running?.querySelector('li')?.textContent, 'Reading first.');
+  assert.equal(running?.querySelector('.status-update')?.textContent, 'Making sure it holds.');
+  assert.equal(running?.querySelector('small'), null, 'the command is still running');
+  assert.ok(running?.compareDocumentPosition(running.parentElement?.querySelector('.recent-activity') ?? running) === window.Node.DOCUMENT_POSITION_FOLLOWING);
+  const result: LiveTranscriptStep = { kind: 'tool', tool: { kind: 'tool_result', ...command, exitCode: 0, outputSnippet: 'ok', outputTokens: 0, outputTokensEstimated: false } };
+  const past = page([...steps, result]).querySelector('.status-updates');
+  assert.equal(past?.querySelector('.status-update.past')?.textContent, 'Making sure it holds.');
+  assert.equal(past?.querySelector('small')?.textContent, '1 tool call ago');
+
+  const row = (id: string, kind: 'assistant_status_update' | 'assistant_answer', content: string) => msg({ id, role: 'assistant', kind, content, sourceRunId: 'run-1' });
+  const finished = new window.DOMParser().parseFromString(render({ selectedSession: { ...SESSION_A,
+    messages: [row('s1', 'assistant_status_update', 'Reading first.'), row('s2', 'assistant_status_update', 'Making sure it holds.'), row('a1', 'assistant_answer', 'Done.')] } }), 'text/html');
+  const folded = finished.querySelector('details.status-updates');
+  assert.equal(folded?.querySelector('summary')?.textContent, 'Updates (2)');
+  assert.equal(folded?.hasAttribute('open'), false);
+  assert.deepEqual([...folded?.querySelectorAll('li') ?? []].map((item) => item.textContent), ['Reading first.', 'Making sure it holds.']);
+  const onlyUpdates = new window.DOMParser().parseFromString(render({ selectedSession: { ...SESSION_A, messages: [row('s1', 'assistant_status_update', 'Reading first.')] } }), 'text/html');
+  assert.equal(onlyUpdates.querySelector('details.status-updates summary')?.textContent, 'Updates (1)', 'a run stopped before its answer keeps them too');
 });

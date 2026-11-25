@@ -1,5 +1,6 @@
 import { toError } from '../lib/errors.ts';
 import { getConfiguredEngineNumCtx } from '../config/getters.ts';
+import type { SiftConfig } from '../config/types.ts';
 import { getAbortError } from '../lib/abort.ts';
 import { ProgressWriter } from '../lib/progress-writer.ts';
 import { classifyRepoAgentExecutionResult } from '../repo-agent/run-output.ts';
@@ -21,6 +22,7 @@ import {
   type ApprovalGateObserver,
   type ApprovalParkLease,
 } from '../repo-search/engine/approval-gate.ts';
+import { BackgroundJobs, BackgroundJobSlots } from '../repo-search/engine/background-jobs.ts';
 import { RepoSearchResponseSanityChecker } from '../repo-search/response-sanity.ts';
 import type {
   ApprovalRequestProgressEvent,
@@ -76,7 +78,7 @@ export type RepoAgentModelLockAdapter = {
 /** The model snapshot fields are absent: the session takes them from its admitted lock. */
 export type RepoAgentEngineRequest = Omit<
   RepoSearchExecutionRequest,
-  'progressWriter' | 'approvalGate' | 'abortSignal' | 'config'
+  'progressWriter' | 'approvalGate' | 'abortSignal' | 'config' | 'backgroundJobs'
 >;
 
 /** Where a parked approval surfaces: as a progress frame to the attached client, or as a boundary result. */
@@ -129,6 +131,8 @@ export type RepoAgentSessionOptions = {
   /** Held for the whole run, taken before the model; null when the caller already owns the repository. */
   repository: { gate: RepositoryGate; repoRoot: string; access: RepositoryAccess } | null;
   approvalGates: Map<string, ApprovalGate>;
+  /** The server's background job slots, shared by every run. */
+  backgroundJobSlots: BackgroundJobSlots;
   engineRequest: RepoAgentEngineRequest;
   decisionTimeoutMs?: number;
 };
@@ -154,6 +158,8 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
   private readonly executionSignal: AbortSignal;
   private readonly progressWriter = new SessionProgressWriter(this);
   private readonly gate: ApprovalGate;
+  /** Only a repo-agent run may start jobs; a repo-search worker shares this session but not the tool. */
+  private readonly backgroundJobs: BackgroundJobs | null;
   private readonly waiters: BoundaryWaiter[] = [];
   private readonly subscribers = new Set<RepoAgentSessionSubscriber>();
   private lock: RepoAgentModelLockHandle | null = null;
@@ -178,6 +184,7 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
     this.executionSignal = options.engineRequest.evidenceRecorder?.abortSignal
       ? AbortSignal.any([this.abortController.signal, options.engineRequest.evidenceRecorder.abortSignal]) : this.abortController.signal;
     this.state = this.store.readState(this.runId);
+    this.backgroundJobs = options.engineRequest.taskKind === 'repo-agent' ? new BackgroundJobs(options.backgroundJobSlots) : null;
     this.gate = new ApprovalGate({
       evidenceRecorder: options.engineRequest.evidenceRecorder,
       requestId: options.requestId,
@@ -191,6 +198,11 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
         ? {}
         : { decisionTimeoutMs: options.decisionTimeoutMs }),
     });
+  }
+
+  /** Kills the run's jobs and refuses new ones; the run itself goes on. */
+  async disposeBackgroundJobs(): Promise<void> {
+    await this.backgroundJobs?.dispose();
   }
 
   getApprovalMode(): ApprovalMode {
@@ -424,13 +436,7 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
         pid: process.pid,
       }));
       const { context } = this.lock;
-      const result = await this.engine.executeRepoSearch({
-        ...this.engineRequest,
-        config: context.config,
-        abortSignal: this.executionSignal,
-        progressWriter: this.progressWriter,
-        approvalGate: this.gate,
-      });
+      const result = await this.execute(context.config);
       RepoSearchResponseSanityChecker.assertSafeToSend(result);
       this.executionResult = result;
       if (!isTerminalStatus(this.state.status)) {
@@ -455,6 +461,22 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
       this.repositoryLease?.release();
       this.repositoryLease = null;
       this.approvalGates.delete(this.requestId);
+    }
+  }
+
+  /** Jobs end before the run's outcome is published, while the lock and the repository are still held. */
+  private async execute(config: SiftConfig): Promise<RepoSearchExecutionResult> {
+    try {
+      return await this.engine.executeRepoSearch({
+        ...this.engineRequest,
+        config,
+        abortSignal: this.executionSignal,
+        progressWriter: this.progressWriter,
+        approvalGate: this.gate,
+        ...(this.backgroundJobs === null ? {} : { backgroundJobs: this.backgroundJobs }),
+      });
+    } finally {
+      await this.disposeBackgroundJobs();
     }
   }
 
@@ -589,17 +611,24 @@ export class RepoAgentSessionManager {
   private readonly sessions = new Map<string, RepoAgentSession>();
   private readonly store: RepoAgentRunStore;
   private readonly engine: RepoAgentEngine;
+  private readonly backgroundJobSlots = new BackgroundJobSlots();
 
   constructor(deps: { store: RepoAgentRunStore; engine: RepoAgentEngine }) {
     this.store = deps.store;
     this.engine = deps.engine;
   }
 
-  start(options: Omit<RepoAgentSessionOptions, 'store' | 'engine'>): RepoAgentSession {
+  /** Shutdown: no job outlives the server, whatever its run is doing. */
+  async disposeBackgroundJobs(): Promise<void> {
+    await Promise.all([...this.sessions.values()].map((session) => session.disposeBackgroundJobs()));
+  }
+
+  start(options: Omit<RepoAgentSessionOptions, 'store' | 'engine' | 'backgroundJobSlots'>): RepoAgentSession {
     const session = new RepoAgentSession({
       ...options,
       store: this.store,
       engine: this.engine,
+      backgroundJobSlots: this.backgroundJobSlots,
     });
     this.sessions.set(options.runId, session);
     session.start();

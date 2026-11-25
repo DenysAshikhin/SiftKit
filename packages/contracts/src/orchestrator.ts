@@ -8,6 +8,7 @@ import {
   RepoAgentDenyDecisionSchema,
   ToolActivityKindSchema,
 } from './chat.ts';
+import { StatusUpdateFieldsSchema } from './status-update.ts';
 
 /** Fixed policy: fresh children per task and purpose; not a configurable setting. */
 export const ORCHESTRATOR_MAX_ATTEMPTS = 2;
@@ -45,10 +46,14 @@ export const OrchestratorVerificationCheckSchema = z.discriminatedUnion('kind', 
 ]);
 export type OrchestratorVerificationCheck = z.infer<typeof OrchestratorVerificationCheckSchema>;
 
+/** Why a task exists, in one sentence a person reads on the board. */
+export const ORCHESTRATOR_WHY_MAX_CHARS = 160;
+
 /** A plan task's fields exactly as written; update_tasks patches use this shape so a patch never gains a default. */
 const OrchestratorTaskFieldsSchema = z.object({
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
   title: z.string().trim().min(1),
+  why: z.string().trim().min(1).max(ORCHESTRATOR_WHY_MAX_CHARS),
   dependsOn: z.array(z.string().min(1)),
   workerPresetId: z.string().trim().min(1),
   readPaths: z.array(z.string().min(1)),
@@ -61,11 +66,17 @@ const OrchestratorTaskFieldsSchema = z.object({
   temporaryPaths: z.array(z.string().min(1)),
 }).strict();
 
-/** A plan task; omitted dependency, read, and temporary lists mean none. */
-export const OrchestratorTaskSchema = OrchestratorTaskFieldsSchema.extend({
+/** A new plan task as the orchestrator writes it; omitted dependency, read, and temporary lists mean none. */
+export const OrchestratorNewTaskSchema = OrchestratorTaskFieldsSchema.extend({
   dependsOn: OrchestratorTaskFieldsSchema.shape.dependsOn.default([]),
   readPaths: OrchestratorTaskFieldsSchema.shape.readPaths.default([]),
   temporaryPaths: OrchestratorTaskFieldsSchema.shape.temporaryPaths.default([]),
+}).strict();
+export type OrchestratorNewTask = z.infer<typeof OrchestratorNewTaskSchema>;
+
+/** A stored plan task; `why` is null only for a task saved before tasks had one. */
+export const OrchestratorTaskSchema = OrchestratorNewTaskSchema.extend({
+  why: OrchestratorTaskFieldsSchema.shape.why.nullable(),
 }).strict();
 export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>;
 
@@ -257,12 +268,23 @@ export const OrchestratorTaskStateSchema = z.object({
 }).strict();
 export type OrchestratorTaskState = z.infer<typeof OrchestratorTaskStateSchema>;
 
+/** How many run-wide lines a run keeps, above the default dispatch budget. */
+export const ORCHESTRATOR_STATUS_LINE_LIMIT = 100;
+
+/** How long a run-wide status line may run. */
+export const ORCHESTRATOR_STATUS_LINE_MAX_CHARS = 240;
+
+/** Where the whole run stood at one dispatch, in the orchestrator's words. */
+export const OrchestratorStatusLineSchema = z.object({ text: z.string().trim().min(1).max(ORCHESTRATOR_STATUS_LINE_MAX_CHARS), atUtc: z.string().datetime() }).strict();
+export type OrchestratorStatusLine = z.infer<typeof OrchestratorStatusLineSchema>;
+
 export const OrchestratorRunStateSchema = z.object({
   runId: z.string().uuid(), request: OrchestratorStartRequestSchema, revision: z.number().int().nonnegative(),
   phase: OrchestratorPhaseSchema, planPath: z.string().min(1).nullable(), planHash: z.string().min(1).nullable(),
   plan: OrchestratorPlanSchema.nullable(), tasks: z.array(OrchestratorTaskStateSchema),
   approaches: z.array(OrchestratorApproachSchema), retiredTasks: z.array(OrchestratorRetiredTaskSchema),
   attempts: z.array(OrchestratorAttemptSchema), parentRunIds: z.array(z.string().uuid()),
+  statusLines: z.array(OrchestratorStatusLineSchema).max(ORCHESTRATOR_STATUS_LINE_LIMIT),
   approval: OrchestratorPendingApprovalSchema.nullable(), failure: OrchestratorFailureSchema.nullable(),
   createdAtUtc: z.string().datetime(), updatedAtUtc: z.string().datetime(),
 }).strict();
@@ -287,7 +309,7 @@ export type OrchestratorProgress = z.infer<typeof OrchestratorProgressSchema>;
 
 /** The first plan, as save_plan takes it: at least one task. */
 export const OrchestratorSavePlanArgsSchema = z.object({
-  plan: OrchestratorPlanSchema.extend({ tasks: OrchestratorPlanSchema.shape.tasks.min(1) }).strict(),
+  plan: OrchestratorPlanSchema.extend({ tasks: z.array(OrchestratorNewTaskSchema).min(1) }).strict(),
 }).strict();
 export type OrchestratorSavePlanArgs = z.infer<typeof OrchestratorSavePlanArgsSchema>;
 
@@ -296,7 +318,7 @@ export const OrchestratorUpdateTasksArgsSchema = z.object({
   update: z.array(z.object({
     taskId: z.string().min(1), set: OrchestratorTaskFieldsSchema.omit({ id: true }).partial().strict(),
   }).strict()).default([]),
-  add: z.array(OrchestratorTaskSchema).default([]),
+  add: z.array(OrchestratorNewTaskSchema).default([]),
   retire: z.array(z.object({ taskId: z.string().min(1), reason: z.string().trim().min(1) }).strict()).default([]),
   finalVerification: OrchestratorPlanSchema.shape.finalVerification.optional(),
 }).strict();
@@ -311,6 +333,7 @@ export type OrchestratorChangeApproachArgs = z.infer<typeof OrchestratorChangeAp
 /** Starts one fresh child for one saved task; children run one at a time. */
 export const OrchestratorDispatchArgsSchema = z.object({
   taskId: z.string().min(1), purpose: OrchestratorChildPurposeSchema, instruction: z.string().trim().min(1),
+  update: OrchestratorStatusLineSchema.shape.text,
 }).strict();
 export type OrchestratorDispatchArgs = z.infer<typeof OrchestratorDispatchArgsSchema>;
 
@@ -370,12 +393,21 @@ export const OrchestratorToolCallActivitySchema = z.object({
 }).strict();
 export type OrchestratorToolCallActivity = z.infer<typeof OrchestratorToolCallActivitySchema>;
 
-/** A running child as the parent observes it; in memory only, dropped when the child settles. */
+export const ORCHESTRATOR_STATUS_UPDATE_LIMIT = 10;
+
+/** What a child said it was doing, and how many of its tool calls have ended since. */
+export const OrchestratorStatusUpdateSchema = z.object({
+  ...StatusUpdateFieldsSchema.shape, callsSince: z.number().int().nonnegative(),
+}).strict();
+export type OrchestratorStatusUpdate = z.infer<typeof OrchestratorStatusUpdateSchema>;
+
+/** A running child as the parent observes it; in memory only, dropped when the child settles. `updates` is oldest first. */
 export const OrchestratorChildActivitySchema = z.object({
   childRunId: z.string().uuid(), taskId: z.string().min(1),
   waitingForModel: z.boolean(), turn: z.number().int().nonnegative(), maxTurns: z.number().int().positive().nullable(),
   promptTokens: z.number().nonnegative(),
   tools: z.array(OrchestratorToolCallActivitySchema).max(ORCHESTRATOR_RECENT_TOOL_LIMIT),
+  updates: z.array(OrchestratorStatusUpdateSchema).max(ORCHESTRATOR_STATUS_UPDATE_LIMIT),
 }).strict();
 export type OrchestratorChildActivity = z.infer<typeof OrchestratorChildActivitySchema>;
 

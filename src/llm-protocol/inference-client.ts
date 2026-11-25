@@ -123,6 +123,8 @@ export type InferenceChatOptions = {
   maxTokens: number;
   responseFormat?: InferenceChatRequest['response_format'];
   reasoningOverride?: 'on' | 'off';
+  /** Rendered after the generation prompt; the reply continues from it. */
+  responsePrefix?: string;
   allowedToolNames: string[];
   /** Maximum gap between SSE frames. Not a total duration; see totalDeadlineMs. */
   idleTimeoutSeconds?: number;
@@ -367,7 +369,7 @@ export class InferenceClient {
     const totalDeadlineMs = options.totalDeadlineMs ?? computeRequiredGenerationMs(options.maxTokens);
     assertDeadlineFitsBudget({ maxTokens: options.maxTokens, totalDeadlineMs });
     const url = `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`;
-    const body = JSON.stringify(this.buildChatRequest(options, continuation?.responsePrefix));
+    const body = JSON.stringify(this.buildChatRequest(options, continuation?.responsePrefix ?? options.responsePrefix));
     const parser = new InferenceToolCallParser();
     const contentClassifier = new LiveContentClassifier();
     const toolChunks = new Map<number, { id: string; name: string; argumentsText: string }>();

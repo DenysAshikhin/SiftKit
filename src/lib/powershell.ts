@@ -6,7 +6,8 @@
 
 import { spawnSync, type StdioOptions, type SpawnSyncReturns } from 'node:child_process';
 
-import { runCapturedCommand, toStringRecord, type CapturedCommandResult } from './captured-command.ts';
+import { PARSED_OUTPUT, type OutputPolicy } from './bounded-output.ts';
+import { CapturedCommand, toStringRecord, type CapturedCommandResult, type CommandTermination } from './captured-command.ts';
 
 export const POWERSHELL_EXECUTABLE = 'powershell.exe';
 export const POWERSHELL_BASE_ARGS = ['-NoProfile', '-ExecutionPolicy', 'Bypass'] as const;
@@ -23,13 +24,13 @@ export const RUN_SHELL_LABEL = `PowerShell (Windows, ${POWERSHELL_EXECUTABLE})`;
 const POWERSHELL_UTF8_PRELUDE =
   '[Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [Text.UTF8Encoding]::new($false); ';
 
-function buildPowerShellInvocation(command: string, pipeStdin: boolean): string {
+function buildPowerShellInvocation(command: string, pipeStdin: boolean, prelude: string): string {
   const commandWithExitGuard = `${command}\nif (-not $?) { exit 1 }`;
   const escapedCommand = commandWithExitGuard.replaceAll("'", "''");
   const invokeCommand = `& ([ScriptBlock]::Create('${escapedCommand}'))`;
   return pipeStdin
-    ? `${POWERSHELL_UTF8_PRELUDE}[Console]::In.ReadToEnd() | ${invokeCommand}`
-    : `${POWERSHELL_UTF8_PRELUDE}${invokeCommand}`;
+    ? `${POWERSHELL_UTF8_PRELUDE}${prelude}[Console]::In.ReadToEnd() | ${invokeCommand}`
+    : `${POWERSHELL_UTF8_PRELUDE}${prelude}${invokeCommand}`;
 }
 
 /**
@@ -45,6 +46,12 @@ function buildPowerShellInvocation(command: string, pipeStdin: boolean): string 
  */
 export const DEFAULT_RUN_TIMEOUT_MS = 120_000;
 export const MAX_RUN_TIMEOUT_MS = 600_000;
+/** The same bounds for a run started with `background: true`. */
+export const DEFAULT_BACKGROUND_TIMEOUT_MS = 1_800_000;
+export const MAX_BACKGROUND_TIMEOUT_MS = 3_600_000;
+/** How long one `job` wait may hold the run. */
+export const DEFAULT_JOB_WAIT_MS = 120_000;
+export const MAX_JOB_WAIT_MS = 600_000;
 
 // ---------------------------------------------------------------------------
 // Synchronous
@@ -63,7 +70,7 @@ export function spawnPowerShellSync(
 ): SpawnSyncReturns<string> {
   return spawnSync(
     POWERSHELL_EXECUTABLE,
-    [...POWERSHELL_BASE_ARGS, '-Command', buildPowerShellInvocation(command, false)],
+    [...POWERSHELL_BASE_ARGS, '-Command', buildPowerShellInvocation(command, false, '')],
     {
       cwd: options.cwd,
       encoding: options.encoding ?? 'utf8',
@@ -90,16 +97,25 @@ export type PowerShellAsyncOptions = {
   stdinData?: string;
 };
 
+/** How a shell is captured, and PowerShell source that runs in it before the command does. */
+export type PowerShellStartOptions = PowerShellAsyncOptions & {
+  prelude: string;
+  outputPolicy: OutputPolicy;
+  termination: CommandTermination;
+};
+
+export function startPowerShell(command: string, options: PowerShellStartOptions): CapturedCommand {
+  const { prelude, env, ...captured } = options;
+  return new CapturedCommand(
+    POWERSHELL_EXECUTABLE,
+    [...POWERSHELL_BASE_ARGS, '-Command', buildPowerShellInvocation(command, options.stdinData !== undefined, prelude)],
+    { ...captured, env: env ? { ...toStringRecord(process.env), ...env } : undefined },
+  );
+}
+
 export function spawnPowerShellAsync(
   command: string,
   options: PowerShellAsyncOptions = {},
 ): Promise<PowerShellAsyncResult> {
-  return runCapturedCommand(
-    POWERSHELL_EXECUTABLE,
-    [...POWERSHELL_BASE_ARGS, '-Command', buildPowerShellInvocation(command, options.stdinData !== undefined)],
-    {
-      ...options,
-      env: options.env ? { ...toStringRecord(process.env), ...options.env } : undefined,
-    },
-  );
+  return startPowerShell(command, { ...options, prelude: '', outputPolicy: PARSED_OUTPUT, termination: 'tree' }).result;
 }

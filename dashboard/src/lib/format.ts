@@ -63,6 +63,11 @@ export function formatTokenLabel(value: number | null, exactLabel = 'tokens'): s
   return value === null ? 'tokens unavailable' : `${formatNumber(value)} ${exactLabel}`;
 }
 
+/** A count and its noun, with the ending that fits: "1 call", "0 calls", "1,200 notes". */
+export function plural(count: number, noun: string): string {
+  return `${count.toLocaleString('en-US')} ${noun}${count === 1 ? '' : 's'}`;
+}
+
 export function formatDate(value: string | null): string {
   if (!value) {
     return '-';

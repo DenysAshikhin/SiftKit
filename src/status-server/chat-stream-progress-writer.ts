@@ -69,6 +69,8 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       this.recorder.recordPresentation({ kind: 'prompt', prompt: toChatStreamPromptEvent(event) });
     } else if (event.kind === 'tool_start' || event.kind === 'tool_result') {
       this.recorder.recordDisplay({ kind: 'tool', tool: toChatStreamToolEvent(event) });
+    } else if (event.kind === 'status_update') {
+      this.recorder.recordDisplay({ kind: 'status_update', updateId: event.updateId, text: event.text, createdAtUtc: event.createdAtUtc });
     } else if (event.kind !== 'queued_user_message') return; // the recorder journaled the delivery when it claimed it
     this.broadcast.publish();
   }

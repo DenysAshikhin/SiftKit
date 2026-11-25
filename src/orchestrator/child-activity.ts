@@ -1,4 +1,4 @@
-import { ORCHESTRATOR_RECENT_TOOL_LIMIT, type OrchestratorChildActivity, type OrchestratorToolCallActivity } from '@siftkit/contracts';
+import { ORCHESTRATOR_RECENT_TOOL_LIMIT, ORCHESTRATOR_STATUS_UPDATE_LIMIT, type OrchestratorChildActivity, type OrchestratorToolCallActivity } from '@siftkit/contracts';
 
 import type { OperationProgressEvent } from '../repo-search/types.ts';
 
@@ -17,8 +17,13 @@ export function reduceChildActivity(activity: OrchestratorChildActivity, event: 
     }
     case 'tool_result': {
       if (!activity.tools.some((tool) => tool.toolCallId === event.toolCallId)) return activity;
+      const updates = activity.updates.map((update) => ({ ...update, callsSince: update.callsSince + 1 }));
       const status: OrchestratorToolCallActivity['status'] = event.exitCode === 0 ? 'succeeded' : 'failed';
-      return { ...activity, tools: activity.tools.map((tool) => (tool.toolCallId === event.toolCallId ? { ...tool, status } : tool)) };
+      return { ...activity, updates, tools: activity.tools.map((tool) => (tool.toolCallId === event.toolCallId ? { ...tool, status } : tool)) };
+    }
+    case 'status_update': {
+      const { updateId, text, createdAtUtc } = event;
+      return { ...activity, updates: [...activity.updates, { updateId, text, createdAtUtc, callsSince: 0 }].slice(-ORCHESTRATOR_STATUS_UPDATE_LIMIT) };
     }
     default:
       return activity;

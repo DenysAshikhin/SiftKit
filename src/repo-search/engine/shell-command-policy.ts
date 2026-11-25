@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { parseJsonValueText } from '../../lib/json.ts';
+import { z } from '../../lib/zod.ts';
 import { UNFILTERED_CHECK_OUTPUT_RULE } from '../../output-digest/types.ts';
 import type { RepoNativeToolCall } from '../repo-tool-arguments.ts';
 import { resolveRepoScopedPath } from './repo-paths.ts';
@@ -181,6 +183,36 @@ function findSiftKitInvocation(command: string): string | null {
   return null;
 }
 
+/** A command that asks another service to start a process, which no job can hold or stop. */
+const ESCAPE_FORMS = [
+  { heads: ['invoke-cimmethod', 'icim', 'invoke-wmimethod', 'iwmi'], args: /\bwin32_process\b/iu, named: 'Win32_Process' },
+  { heads: ['wmic'], args: /\bprocess\s+call\s+create\b/iu, named: 'wmic process call create' },
+  { heads: ['schtasks'], args: /(?:^|\s)[/-]create\b/iu, named: 'schtasks /create' },
+  { heads: ['register-scheduledtask'], args: /^/u, named: 'Register-ScheduledTask' },
+  { heads: ['new-service'], args: /^/u, named: 'New-Service' },
+  // A service needs binPath=, which tells it from PowerShell's `sc`, an alias of Set-Content.
+  { heads: ['sc'], args: /^create\s.*\bbinpath=/iu, named: 'sc create' },
+  { heads: ['docker'], args: /^(?:container\s+)?run\b.*\s(?:-[it]*d[it]*|--detach)(?:\s|$)/iu, named: 'docker run -d' },
+  { heads: ['docker'], args: /^compose\b.*\sup\b.*\s(?:-d|--detach)(?:\s|$)/iu, named: 'docker compose up -d' },
+  { heads: ['docker-compose'], args: /^(?:.*\s)?up\b.*\s(?:-d|--detach)(?:\s|$)/iu, named: 'docker compose up -d' },
+] as const;
+
+function findEscapeForm(command: string): string | null {
+  for (const { tokens, commandStarts } of splitStatements(command)) {
+    for (const start of commandStarts) {
+      const index = commandHead(tokens, start);
+      const head = path.win32.basename(tokens[index] ?? '').toLowerCase().replace(/\.exe$/u, '');
+      const rest = tokens.slice(index + 1).join(' ');
+      for (const { heads, args, named } of ESCAPE_FORMS) {
+        if (heads.some((name) => name === head) && args.test(rest)) {
+          return `\`${named}\` starts a process this run could not stop. Run it as a normal command, or as \`run\` with background=true.`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * A run or run_check whose every command only reads: it is refused with the tool to use instead. A variable
  * expression (`$x`, `$_`) is no command; a redirect or any other command makes the whole call real work.
@@ -207,30 +239,149 @@ export function findShellReadCommand(call: RepoNativeToolCall): string | null {
 
 const SCRIPT_HOSTS = new Set(['node', 'tsx', 'python', 'python3', 'py', 'pwsh', 'powershell', 'bun', 'deno']);
 const SCRIPT_FILE = /\.(?:[cm]?[jt]s|tsx|py|ps1)$/iu;
+// Options whose operand is a module, inline code, or tests: no script file follows them.
+const NO_SCRIPT_OPTION = /^(?:-m|-e|-c|-p|--eval|--print|--test|-command)$/iu;
+const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
+const PACKAGE_LIFECYCLE = new Map([['test', 'test'], ['t', 'test'], ['tst', 'test'], ['start', 'start'], ['stop', 'stop'], ['restart', 'restart']]);
+// Options that run the script of another directory's or workspace's package.json.
+const PACKAGE_ELSEWHERE = /^(?:-w|-C|-F|--workspaces?|--prefix|--dir|--cwd|--filter|--include-workspace-root)(?:=|$)/u;
+const RETURN_COMMANDS = new Set(['popd', 'pop-location']);
+const PackageJsonSchema = z.object({ scripts: z.record(z.string(), z.string()).default({}) });
 
 export type RunScript = { relativePath: string; absolutePath: string; sizeBytes: number };
+/** A package.json script a command runs; its command is null when it is missing or which package it belongs to is unclear. */
+export type RunPackageScript = { name: string; command: string | null };
+export type RunScripts = { packageScripts: RunPackageScript[]; files: RunScript[] };
 
-/** Repository files a command runs as scripts (`node probe.ts`, `.\probe.ps1`), outside the repository's own checks. */
-export function findRunScripts(command: string, repoRoot: string): RunScript[] {
-  const scripts = new Map<string, RunScript>();
-  for (const { tokens, offsets, bare, commandStarts } of splitStatements(command)) {
-    for (const start of commandStarts) {
-      const head = commandHead(tokens, start);
-      const offset = offsets[head];
-      if (offset === undefined || CHECK_INVOCATION.test(bare.slice(offset))) continue;
-      const host = (tokens[head] ?? '').toLowerCase().replace(/\.exe$/u, '');
-      const scriptIndex = SCRIPT_HOSTS.has(host) ? tokens.findIndex((token, index) => index > head && !token.startsWith('-')) : head;
-      const script = tokens[scriptIndex];
-      if (scriptIndex < 0 || script === undefined || !SCRIPT_FILE.test(script)) continue;
-      const resolved = resolveRepoScopedPath(repoRoot, path.resolve(repoRoot, script));
-      const stats = resolved === null ? undefined : fs.statSync(resolved.absolutePath, { throwIfNoEntry: false });
-      if (resolved !== null && stats?.isFile() === true) {
-        const relativePath = resolved.relativePath.replace(/\\/gu, '/');
-        scripts.set(resolved.absolutePath, { relativePath, absolutePath: resolved.absolutePath, sizeBytes: stats.size });
+type NamedPackageScript = { name: string; elsewhere: boolean; onlyIfPresent: boolean };
+
+/** The package script a package-manager command names. Every manager but npm also runs one by its bare name, if there is one. */
+function namedPackageScript(manager: string, args: readonly string[]): NamedPackageScript | null {
+  const option = args.findIndex((arg) => PACKAGE_ELSEWHERE.test(arg));
+  const valueIndex = option >= 0 && !(args[option] ?? '').includes('=') ? option + 1 : -1;
+  const positional = args.filter((arg, index) => index !== valueIndex && !arg.startsWith('-'));
+  const workspace = manager === 'yarn' && positional[0] === 'workspace';
+  const [verb, target] = workspace ? positional.slice(2) : positional;
+  if (verb === undefined) return null;
+  const elsewhere = workspace || option >= 0;
+  if (verb === 'run' || verb === 'run-script') return target === undefined ? null : { name: target, elsewhere, onlyIfPresent: false };
+  const lifecycle = PACKAGE_LIFECYCLE.get(verb);
+  if (manager === 'npm') return lifecycle === undefined ? null : { name: lifecycle, elsewhere, onlyIfPresent: false };
+  return { name: lifecycle ?? verb, elsewhere, onlyIfPresent: true };
+}
+
+/** The package npm would use from a directory: the nearest package.json at or above it, inside the repository. */
+function findPackage(cwd: string, repoRoot: string): { directory: string; scripts: Record<string, string> } | null {
+  for (let directory = cwd; resolveRepoScopedPath(repoRoot, directory) !== null; directory = path.dirname(directory)) {
+    const file = path.join(directory, 'package.json');
+    if (!fs.existsSync(file)) continue;
+    const scripts = parsePackageScripts(fs.readFileSync(file, 'utf8'));
+    return scripts === null ? null : { directory, scripts };
+  }
+  return null;
+}
+
+/** Null for text that is no package.json, which npm would refuse too. */
+function parsePackageScripts(text: string): Record<string, string> | null {
+  try {
+    return PackageJsonSchema.parse(parseJsonValueText(text)).scripts;
+  } catch (error) {
+    if (error instanceof SyntaxError || error instanceof z.ZodError) return null;
+    throw error;
+  }
+}
+
+/** Collects what a command runs, following its directory changes and the package scripts it starts. */
+class RunScriptCollector {
+  private readonly repoRoot: string;
+  /** Keyed by package directory and name, so the same name in two packages stays two scripts. */
+  private readonly packageScripts = new Map<string, RunPackageScript>();
+  /** Names whose package is not known. */
+  private readonly unplacedScripts = new Set<string>();
+  private readonly files = new Map<string, RunScript>();
+
+  constructor(repoRoot: string) {
+    this.repoRoot = repoRoot;
+  }
+
+  collect(command: string, startCwd: string): void {
+    let cwd: string | null = startCwd;
+    for (const { tokens, commandStarts } of splitStatements(command)) {
+      for (const [order, start] of commandStarts.entries()) {
+        const head = commandHead(tokens, start);
+        const name = path.win32.basename(tokens[head] ?? '').toLowerCase().replace(/\.(?:exe|cmd)$/u, '');
+        const args = tokens.slice(head + 1, commandStarts[order + 1]);
+        if (RETURN_COMMANDS.has(name)) cwd = null;
+        else if (LOCATION_COMMANDS.has(name)) cwd = this.follow(cwd, args);
+        else {
+          if (PACKAGE_MANAGERS.has(name)) this.addPackageScript(namedPackageScript(name, args), cwd);
+          else if (name === 'node' && args[0] === '--run') this.addPackageScript(namedPackageScript('npm', ['run', ...args.slice(1)]), cwd);
+          this.addFiles(tokens[head] ?? '', name, args, cwd);
+        }
       }
     }
   }
-  return [...scripts.values()];
+
+  result(): RunScripts {
+    return {
+      packageScripts: [...this.packageScripts.values(), ...[...this.unplacedScripts].map((name) => ({ name, command: null }))],
+      files: [...this.files.values()],
+    };
+  }
+
+  private follow(cwd: string | null, args: readonly string[]): string | null {
+    const target = args.find((arg) => !arg.startsWith('-'));
+    return cwd === null || target === undefined || target.startsWith('$') ? null : resolveInside(this.repoRoot, cwd, target);
+  }
+
+  private addPackageScript(named: NamedPackageScript | null, cwd: string | null): void {
+    if (named === null) return;
+    const { name } = named;
+    const owner = cwd === null || named.elsewhere ? null : findPackage(cwd, this.repoRoot);
+    if (owner === null) {
+      this.unplacedScripts.add(name);
+      return;
+    }
+    if (named.onlyIfPresent && owner.scripts[name] === undefined) return;
+    for (const step of [`pre${name}`, name, `post${name}`]) {
+      const command = owner.scripts[step] ?? null;
+      const key = `${owner.directory}:${step}`;
+      if (this.packageScripts.has(key) || (command === null && step !== name)) continue;
+      this.packageScripts.set(key, { name: step, command });
+      if (command !== null) this.collect(command, owner.directory);
+    }
+  }
+
+  /** Script files run directly or by their host: option values (`--import ./a.ts`), then the first operand. */
+  private addFiles(head: string, host: string, args: readonly string[], cwd: string | null): void {
+    if (cwd === null) return;
+    if (!SCRIPT_HOSTS.has(host)) {
+      this.addFile(head, cwd);
+      return;
+    }
+    for (const [index, arg] of args.entries()) {
+      if (NO_SCRIPT_OPTION.test(arg)) return;
+      if (arg.startsWith('-')) continue;
+      this.addFile(arg, cwd);
+      if (!(args[index - 1] ?? '').startsWith('-')) return;
+    }
+  }
+
+  private addFile(script: string, cwd: string): void {
+    if (!SCRIPT_FILE.test(script)) return;
+    const resolved = resolveRepoScopedPath(this.repoRoot, path.resolve(cwd, script));
+    const stats = resolved === null ? undefined : fs.statSync(resolved.absolutePath, { throwIfNoEntry: false });
+    if (resolved === null || stats?.isFile() !== true) return;
+    const relativePath = resolved.relativePath.replace(/\\/gu, '/');
+    this.files.set(resolved.absolutePath, { relativePath, absolutePath: resolved.absolutePath, sizeBytes: stats.size });
+  }
+}
+
+/** The package scripts and repository files a command runs (`npm test`, `node probe.ts`, `.\probe.ps1`). */
+export function findRunScripts(command: string, repoRoot: string): RunScripts {
+  const collector = new RunScriptCollector(repoRoot);
+  collector.collect(command, repoRoot);
+  return collector.result();
 }
 
 /** Absolute paths in free text, such as a child's instruction, that lie outside the repository root. */
@@ -239,10 +390,7 @@ export function findPathsOutsideRepo(text: string, repoRoot: string): string[] {
   return [...new Set(named)].filter((candidate) => resolveInside(repoRoot, repoRoot, candidate) === null);
 }
 
-/**
- * Why a run or run_check command may not run: it reaches outside the repository root, starts SiftKit, or
- * cuts the output of a check the digest must read whole. Judged before approval, so no reviewer call is spent on it.
- */
+/** Why a run or run_check command may not run, judged before approval so no reviewer call is spent on it. */
 export function findShellCommandProblem(call: RepoNativeToolCall, repoRoot: string): string | null {
   if (call.toolName !== 'run' && call.toolName !== 'run_check') return null;
   const cwdText = call.toolName === 'run_check' ? call.args.cwd : '.';
@@ -250,5 +398,6 @@ export function findShellCommandProblem(call: RepoNativeToolCall, repoRoot: stri
   if (cwd === null) return outsideRoot(cwdText, repoRoot);
   return findEscapingPath(call.args.command, cwd, repoRoot)
     ?? findSiftKitInvocation(call.args.command)
+    ?? findEscapeForm(call.args.command)
     ?? findCutCheckOutput(call.args.command);
 }

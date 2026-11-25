@@ -8,11 +8,11 @@ import type {
   OrchestratorVerificationCheck,
 } from '@siftkit/contracts';
 
-import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.ts';
 import { describeFileLines } from '../lib/source-lines.ts';
-import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../lib/powershell.ts';
+import { DEFAULT_RUN_TIMEOUT_MS } from '../lib/powershell.ts';
+import { runAgentCommand } from '../repo-search/engine/agent-command.ts';
 import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.ts';
-import { cutDigest, digestOutput } from '../output-digest/digest.ts';
+import { keepOutput } from '../output-digest/kept-output.ts';
 
 const CHECK_OUTPUT_MAX_CHARS = 20_000;
 const SNIPPET_LINE_TOLERANCE = 2;
@@ -35,14 +35,12 @@ export async function runVerificationCheck(input: {
   const { check } = input;
   const cwd = resolveRepoScopedPath(input.repoRoot, check.cwd);
   if (cwd === null) throw new Error(`Verification cwd '${check.cwd}' escapes the repository.`);
-  const result = await spawnPowerShellAsync(check.command, {
+  const result = await runAgentCommand(check.command, {
     cwd: cwd.absolutePath, abortSignal: input.abortSignal, timeoutMs: input.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS,
   });
   input.abortSignal.throwIfAborted();
-  // The digest reads the whole output; the stored output keeps its tail and the stored digest its head.
-  const digest = digestOutput(result.output);
-  return { check, executed: true, exitCode: result.exitCode, timedOut: result.exitCode === TIMEOUT_EXIT_CODE,
-    output: result.output.slice(-CHECK_OUTPUT_MAX_CHARS), digest: digest === null ? null : cutDigest(digest.text, CHECK_OUTPUT_MAX_CHARS) };
+  return { check, executed: true, exitCode: result.exitCode, timedOut: result.timedOut,
+    ...keepOutput(result.output, { tailChars: CHECK_OUTPUT_MAX_CHARS, digestChars: CHECK_OUTPUT_MAX_CHARS }) };
 }
 
 function normalizeCode(text: string): string {

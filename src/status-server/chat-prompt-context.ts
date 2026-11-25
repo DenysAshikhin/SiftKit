@@ -42,8 +42,10 @@ export function buildChatPromptContext(config: SiftConfig, session: ChatSession)
   // Resolved like the next run's admission would be, so the preview shows the model it would use.
   const effectiveConfig = resolveChatPreviewConfig(config, session);
   // Every path goes through the resolver the engine itself calls, so this panel cannot drift from the run.
+  const surface = resolvePromptSurface(effectiveConfig, session, preset);
   const { systemPrompt, toolDefinitions } = resolveRunSystemPrompt({
-    ...resolvePromptSurface(effectiveConfig, session, preset),
+    ...surface,
+    backgroundJobs: surface.promptKind === 'repo-agent',
     promptPrefix: preset.promptPrefix,
     systemContext: new PresetSystemContextBuilder(session.planRepoRoot).build(preset),
     webSearch: effectiveConfig.WebSearch,

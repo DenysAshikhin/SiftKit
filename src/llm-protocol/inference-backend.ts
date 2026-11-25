@@ -26,7 +26,7 @@ export type InferenceRequestInput = {
   maxTokens: number;
   toolChoice?: InferenceChatRequest['tool_choice'];
   responseFormat?: InferenceResponseFormat;
-  /** Rendered after the generation prompt (TabbyAPI `response_prefix`); used to close an exhausted think block. */
+  /** Rendered after the generation prompt (TabbyAPI `response_prefix`); used to close an exhausted or unwanted think block. */
   responsePrefix?: string;
   thinking: InferenceThinkingPolicy;
 };

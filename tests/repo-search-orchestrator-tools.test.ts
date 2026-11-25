@@ -17,7 +17,7 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-orchestrator-tools-');
 const TOOLS = resolveRepoSearchPlannerToolDefinitions(['read', ...ORCHESTRATOR_TOOL_NAMES]);
-const DISPATCH = { taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts.' };
+const DISPATCH = { update: 'The run is under way.', taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts.' };
 
 class RecordingHost implements OrchestratorToolHost {
   readonly calls: OrchestratorToolCall[] = [];
@@ -151,7 +151,7 @@ test('an orchestrator with no plan past three quarters of its context may only s
 test('only a run with a host is offered the orchestrator tools', () => {
   const base = {
     promptPrefix: '', systemContext: createEmptyPresetSystemContext(), webSearch: mockOfflineSiftConfig().WebSearch,
-    webToolsEnabled: false, visionEnabled: false, webChatTools: false, allowedTools: ['read'], promptKind: 'orchestrator' as const,
+    webToolsEnabled: false, visionEnabled: false, webChatTools: false, backgroundJobs: false, allowedTools: ['read'], promptKind: 'orchestrator' as const,
   };
   const names = (orchestratorTools: boolean) => resolveRunSystemPrompt({ ...base, orchestratorTools }).toolDefinitions
     .map((definition) => definition.function.name);

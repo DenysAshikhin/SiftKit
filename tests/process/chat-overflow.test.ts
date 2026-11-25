@@ -8,7 +8,7 @@ import { HOSTILE_PATH, OVERFLOW_PRESENT, OverflowReportSchema, UNBROKEN } from '
 
 const AT = '2026-09-23T12:00:00.000Z';
 const CHECK = { kind: 'command', command: `npm test -- ${UNBROKEN}`, cwd: '.', expectedExitCode: 0 } as const;
-const TASK = { id: 'task', title: UNBROKEN, dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: [HOSTILE_PATH],
+const TASK = { id: 'task', title: UNBROKEN, why: UNBROKEN.slice(0, 160), dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: [HOSTILE_PATH],
   steps: [{ instruction: 'Write it.', expectedResult: 'It exists.' }], verification: [CHECK], acceptance: ['Done.'], temporaryPaths: [] };
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const CHILD_ID = '00000000-0000-4000-8000-000000000002';

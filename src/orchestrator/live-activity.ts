@@ -53,7 +53,7 @@ export class OrchestratorLiveActivity {
 
   /** Subscribes to the child's progress beside any other subscriber the session has. */
   track(session: Pick<RepoAgentSession, 'attach'>, child: { childRunId: string; taskId: string }): void {
-    this.children.set(child.childRunId, { ...child, waitingForModel: false, turn: 0, maxTurns: null, promptTokens: 0, tools: [] });
+    this.children.set(child.childRunId, { ...child, waitingForModel: false, turn: 0, maxTurns: null, promptTokens: 0, tools: [], updates: [] });
     this.detachers.set(child.childRunId, session.attach({
       wantsLiveText: false,
       writeProgress: (event) => this.apply(child.childRunId, event),

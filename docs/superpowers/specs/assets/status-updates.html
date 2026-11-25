@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>SiftKit orchestrator layout and status updates</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0e141b;--panel:#121a23;--panel2:#0b1118;--ink:#dfe9f3;--dim:#879bb0;--line:#223040;--acc:#2fbfa0;--ok:#4fca8f;--run:#e6b566;--ok-line:#2f5f47;--run-line:#5a4a2a;--bad-line:#8d4b53;--idle:#3a4c61;--track:#1a2634;--teal:#17997e;--code-ink:#b9cbdd;--sky-ink:#9cd6ff;--row-live:#101b17;--row-running:#0f1a15;--mono:ui-monospace,"Cascadia Code",Consolas,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:0.85rem/1.45 "Segoe UI",system-ui,sans-serif;padding:20px 26px 60px;scrollbar-color:var(--idle) transparent}
+h1{font-size:1.15rem;margin:0 0 4px}h2{font-size:.95rem;margin:28px 0 8px}p{margin:0}.lead{color:var(--dim);max-width:100ch}
+.bar{position:sticky;top:0;z-index:3;background:var(--bg);display:flex;gap:8px 18px;align-items:center;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line);margin-top:12px}
+.grp{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.cap{color:var(--dim);font-size:.78rem}
+button{font:inherit;font-size:.76rem;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 12px;cursor:pointer}
+button[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}button:focus-visible,summary:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.tag{font-size:.64rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:14px 0 6px}.tag.new{color:var(--acc)}
+.cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}@media(max-width:1000px){.cols{grid-template-columns:minmax(0,1fr)}}
+/* shared pieces, as in the dashboard today */
+.run{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}.run.cur{max-width:900px}
+.head{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line)}.head b{font-weight:600}.hint{color:var(--dim);font-size:.76rem}
+.stop{margin-left:auto;font-size:.78rem;font-weight:700;padding:4px 11px;border-radius:7px;border:1px solid var(--bad-line);background:#28161c;color:#ffd7d2}
+.bdg{font-size:.66rem;border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--dim);white-space:nowrap}.bdg.r{border-color:var(--run-line);color:var(--run)}.bdg.o{border-color:var(--ok-line);color:var(--ok)}
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;padding:7px 12px;font:.68rem var(--mono);color:var(--dim);border-bottom:1px solid var(--line);background:var(--panel2)}.meta b{color:var(--ink);font-weight:500}
+.ph{display:flex;gap:4px;padding:10px 12px 8px;border-bottom:1px solid var(--line)}.ph span{flex:1;font-size:.62rem;letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}.ph i{display:block;height:3px;border-radius:9px;background:var(--track);margin-bottom:5px}.ph .d i{background:var(--teal)}.ph .n{color:var(--run)}.ph .n i{background:var(--run)}
+.task{border-bottom:1px solid var(--line)}.task:last-child{border-bottom:0}.task.open{background:var(--row-live);box-shadow:inset 2px 0 0 var(--acc)}
+.sum{display:grid;grid-template-columns:14px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 12px}.sum small{display:block;color:var(--dim);font:.66rem var(--mono)}.doing{font:.68rem var(--mono)}
+.agent{margin:0 12px 10px 36px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
+.ah{display:flex;gap:12px;flex-wrap:wrap;padding:6px 10px;border-bottom:1px solid var(--line);font:.68rem var(--mono);color:var(--dim)}.ah b{color:var(--ink);font-weight:500}
+.tools{padding:6px 10px;display:grid;gap:3px;font:.7rem var(--mono)}.t{display:flex;gap:9px;align-items:center;min-height:24px;min-width:0;padding:0 4px}
+.t i{font-style:normal;color:var(--sky-ink);min-width:60px}.t span:last-child{color:var(--code-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.t.on{background:var(--row-running);border-radius:5px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}.dot.idle{background:var(--idle)}
+.sp{width:11px;height:11px;border:2px solid color-mix(in srgb,var(--acc) 40%,transparent);border-radius:50%;background:radial-gradient(circle,var(--acc) 0 1.5px,transparent 2px);flex:none}
+.live{width:7px;height:7px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 22%,transparent)}
+.foot{padding:6px 10px;border-top:1px solid var(--line);font-size:.66rem;color:var(--dim)}code{font-family:var(--mono)}
+.conv{padding:10px 12px;display:grid;gap:8px}.convh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.convh b{font-weight:600}
+.turn{display:grid;gap:4px}.turn>div:first-child{font-size:.68rem;color:var(--dim)}.turn summary{cursor:pointer}.turn details p{color:var(--dim);font:.68rem/1.5 var(--mono);background:var(--panel2);padding:7px 10px;border-radius:7px;margin-top:4px}
+.ct{display:flex;gap:6px;align-items:center;font-size:.72rem;min-width:0}.ct span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* new: the side-by-side board */
+.run.next{container-type:inline-size}
+.now{padding:8px 12px 10px;border-top:1px solid #234a44;background:#0f1f1e;position:sticky;bottom:0;margin-top:auto}.nl{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:11px;align-items:start}.past{list-style:none;margin:0 0 6px;padding:0;font-size:.78rem}.past li{padding:2px 0}.past p{margin:0}.past.few p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.past.few li:nth-last-child(1){opacity:.75}.past.few li:nth-last-child(2){opacity:.55}.past.few li:nth-last-child(3){opacity:.4}.past.all{max-height:230px;overflow-y:auto;scrollbar-width:thin}.past time{margin-top:1px}.seeall{background:none;border:0;padding:2px 0 4px;margin-left:31px;color:var(--acc);font:.7rem inherit;font-family:inherit;cursor:pointer}
+.now .live{margin:6px 3px 0}.now p{font-size:.84rem;color:#d3efe8;max-width:100ch}.now time{font:.64rem var(--mono);color:var(--dim);margin-top:4px}
+.now.old{background:var(--panel2);border-top-color:var(--line)}.now.old p{color:var(--ink)}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}
+.pane{display:flex;flex-direction:column;min-width:0;height:590px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--idle) transparent}.pane+.pane{border-left:1px solid var(--line)}
+.pane>*{flex:none}.paneh{position:sticky;top:0;z-index:1;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);font-size:.78rem}.paneh b{font-weight:600}
+@container (max-width:639px){.split{grid-template-columns:minmax(0,1fr)}.pane{height:auto;max-height:520px}.pane+.pane{border-left:0;border-top:1px solid var(--line)}}
+.why{display:block;color:var(--dim);font-size:.74rem;line-height:1.4}
+.tlinks{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.tlinks a{color:var(--dim);font-size:.72rem}.tlinks summary,.older>summary,.more summary,.one>summary{cursor:pointer}
+.older>summary,.more summary{font-size:.74rem;color:var(--dim)}.olderbox{max-height:200px;overflow-y:auto;scrollbar-width:thin;margin-top:5px;padding:5px 10px;border-left:2px solid var(--line);display:grid;gap:3px}.one{font-size:.74rem}.one>summary span{color:var(--dim)}.one .ct{margin-left:14px}
+/* new: the status update */
+.upd{border:1px solid #234a44;background:#0f1f1e;border-radius:8px;padding:8px 11px;font-size:.82rem}.agent .upd{margin:9px 10px 5px}.msg .upd{margin-top:8px}.upd p{color:#d3efe8}
+.um{font:.64rem var(--mono);color:var(--dim);margin-top:4px}.um b{font-weight:500;color:var(--acc)}.upd.old{border-color:var(--line);background:none}.upd.old p{color:var(--ink)}.upd.old .um b{color:var(--dim)}
+details.hist{font-size:.72rem;color:var(--dim);margin:8px 10px 0}.msg details.hist{margin:8px 0 0}details.hist.calls{margin:7px 10px 8px}details.hist summary{cursor:pointer}details.hist ol{margin:4px 0 0;padding-left:18px;max-height:130px;overflow-y:auto;scrollbar-width:thin}details.hist li{margin:4px 0}
+.msg{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--panel);font-size:.81rem}.who{display:flex;justify-content:space-between;font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
+.think{border-left:2px solid var(--idle);color:var(--dim);padding:2px 0 2px 10px;font-size:.74rem;margin-top:8px;font-style:italic}.logic{margin-top:8px;color:var(--dim);font-size:.74rem}
+.act{margin-top:8px;padding-top:7px;border-top:1px solid var(--line)}.acth{font:.62rem var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}.row{font:.7rem var(--mono);color:var(--dim);padding:4px 5px}
+table{border-collapse:collapse;width:100%;max-width:1100px}th,td{text-align:left;vertical-align:top;padding:8px 12px;border:1px solid var(--line)}th{font-size:.72rem;color:var(--dim);font-weight:500;background:var(--panel2)}td:last-child{color:#d3efe8}
+ul.rules{margin:10px 0 0;padding-left:18px;color:var(--dim);max-width:100ch}ul.rules li{margin:3px 0}
+[hidden]{display:none!important}
+</style></head><body>
+<h1>Orchestrator layout and status updates</h1>
+<p class="lead">Step through a run with the numbered buttons or the arrow keys, and switch the orchestrator between today's view and the proposal. The run is made up, loosely based on your screenshots.</p>
+<div class="bar"><span class="grp" role="group" aria-label="View" id="views"></span><span class="grp" role="group" aria-label="Moment" id="btns"></span><span class="grp" id="grow"></span><span class="cap" id="cap"></span></div>
+<h2>Orchestrator</h2>
+<div id="pb"><div class="tag new">Proposed: orchestrator left, tasks right</div><div id="o1"></div></div>
+<div id="cb"><div class="tag">Current: one long column</div><div id="o0"></div></div>
+<h2>Repo-agent chat</h2>
+<div class="cols"><div><div class="tag">Current</div><div id="r0"></div></div><div><div class="tag new">Proposed</div><div id="r1"></div></div></div>
+<h2>How high-level</h2>
+<table><thead><tr><th>First mockup</th><th>Now</th></tr></thead><tbody>
+<tr><td>Running the CLI argument tests to prove that an empty --repo value is accepted today. If they pass, the missing check is the bug.</td><td>Confirming a suspected problem with how bad input is handled, before calling it a real bug.</td></tr>
+<tr><td>Added the empty-value check and am type-checking it, because two other commands share this parser.</td><td>The fix is in. Making sure it didn't break anything else.</td></tr>
+</tbody></table>
+<ul class="rules"><li>One or two short sentences, at most 30 words: the goal, why it matters now, and progress if it is clear.</li><li>No file names, commands, tool names, code or test names.</li><li>Nothing it hasn't confirmed: "checking a suspected problem", not "found a bug".</li><li>Earlier updates fold above the current one, oldest first.</li><li>The line under each task title says why the task exists. It is written once, with the plan.</li><li>The orchestrator side shows its last 3 turns, with thinking closed and at most 3 calls each. Older ones stay folded.</li><li>The bar pinned at the bottom of the orchestrator side is about the whole run: the current update, with the last 3 faded above it and a button to show them all. The one inside a task is about that task.</li></ul>
+<script>
+const S = {
+  a: 'Checking whether requests to the server can be abused or left hanging.',
+  b: 'Checking whether a slow client could hold a request open. Confirming it before reporting it.',
+  c: 'The web server check is nearly done. Writing up only the problems that were confirmed.',
+};
+const R = {
+  a: 'Five of 13 areas are done. The web server is being checked now, because everything else talks through it.',
+  c: 'The web server area is being written up. Next is a review of what it found, then the dashboard.',
+};
+const PAST = [
+  ['13:02', 'Starting a full audit of SiftKit, one area at a time, beginning with how commands come in.'],
+  ['13:14', 'Command input is done. Now checking that models start, stop and recover cleanly.'],
+  ['13:25', 'Model handling is done. Now checking that long runs stay on plan and never lose work.'],
+  ['13:37', 'The run engine is done. Now checking that agents stay within their limits.'],
+  ['13:49', 'Agent limits are done. Now checking how memory about you is stored and kept accurate.'],
+];
+const pastOf = (m) => (m.r === R.c ? [...PAST, ['14:02', R.a]] : PAST);
+let allPast = false;
+const pastRows = (m) => { const all = pastOf(m), rows = allPast ? all : all.slice(-3); return `<button type="button" class="seeall" aria-expanded="${allPast}" onclick="allPast=!allPast;show(cur)">${allPast ? 'Show fewer' : `Show all ${all.length + 1} updates`}</button><ol class="past ${allPast ? 'all' : 'few'}"${allPast ? ' data-tail tabindex="0" aria-label="All updates"' : ''}>${rows.map(([t, x]) => `<li class="nl"><span></span><p title="${x}">${x}</p><time>${t}</time></li>`).join('')}</ol>`; };
+const M = [
+  { n: 'Reading', c: 'Quick reads leave no waiting time, so the last updates stay on screen.', tool: ['read', 'read path="src/status-server/routes/chat.ts" offset=1 limit=261', 'Reading file chat.ts…'], turn: 22, u: S.a, age: '4 tool calls ago', r: R.a, h: [] },
+  { n: 'Command running', c: 'A test has run for 3 seconds, so a new update is being written.', tool: ['validate', 'npm run test -- server-timeouts', 'Validating project…'], turn: 26, u: null, age: '', r: R.a, h: [S.a] },
+  { n: 'Update shown', c: 'The new update arrives while the test is still running.', tool: ['validate', 'npm run test -- server-timeouts', 'Validating project…'], turn: 26, u: S.b, age: 'now', r: R.a, h: [S.a] },
+  { n: 'Wrapping up', c: 'A later command gives the next window, and the run-wide line moves on too.', tool: ['validate', 'npm run typecheck', 'Validating project…'], turn: 31, u: S.c, age: 'now', r: R.c, h: [S.b, S.a] },
+];
+const TASKS = [["Audit inference supervision and process lifecycle","Make sure models start, stop and recover cleanly, with nothing left running."],["Audit orchestrator run engine","Make sure long runs stay on plan and never lose or repeat work."],["Audit repo-agent, repo-search and tool-loop guards","Make sure agents stay within their limits and cannot get stuck in a loop."],["Audit assistant memory subsystem","Make sure what it remembers about you is stored safely and stays accurate."],["Audit SQLite state, migrations and run-log retention","Make sure saved history survives upgrades and doesn’t grow without limit."],["Audit dashboard front-end","Make sure what you see on screen is current and stays responsive."],["Audit PowerShell shims and operator scripts","Make sure the everyday launch and setup scripts fail safely."],["Audit test-suite hygiene","Make sure passing tests can be trusted to mean the product works."],["Audit packaging, tooling config and doc drift","Make sure installs work and the docs match what the product does."],["Reproduce the highest-impact findings","Prove the serious problems are real before anyone spends time on them."],["Write the consolidated audit report","Give you one ranked list of confirmed problems to act on."]];
+const KEPT = 12, SHOWN = 3, CALLS = 3;
+const POOL = [['git operation="status"', 'read path=".scratch/audit/cli-client.md" offset=1'], ['git operation="diff" path="dashboard"', 'read path="src/cli/stdin-input.ts" offset=1 limit=60', 'read path="src/cli/input.ts" offset=1 limit=45'], ['grep pattern="stdinText" path="src/cli" context=4 limit=25', 'read path="src/cli/args.ts" offset=120 limit=60'], ['grep pattern="requestFile" path="src/cli" context=4 limit=14', 'read path="src/cli/run-internal.ts" offset=1 limit=188', 'read path="src/cli/dispatch.ts" offset=1 limit=190', 'grep pattern="maxTurns" path="src" limit=40', 'read path="src/cli/help.ts" offset=1 limit=30'], ['record_review'], ['dispatch']];
+let total = 32;
+const kept = () => Array.from({ length: Math.min(KEPT, total) }, (_, i) => total - Math.min(KEPT, total) + 1 + i).map((n) => [n, POOL[(n - 27 + 600) % POOL.length]]);
+const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+const PREV = [['search', 'grep pattern="setTimeout|setInterval" path="src/status-server/routes" limit=60'], ['read', 'read path="src/status-server/routes/inference-passthrough.ts" offset=1 limit=378']];
+const upd = (m) => m.u === null ? '<div class="upd"><div class="um" style="margin:0"><b>Writing an update…</b></div></div>' : `<div class="upd ${m.age === 'now' ? '' : 'old'}"><p>${m.u}</p><div class="um"><b>${m.age}</b></div></div>`;
+const hist = (m) => m.h.length ? `<details class="hist"><summary>Earlier updates (${m.h.length})</summary><ol>${[...m.h].reverse().map((x) => `<li>${x}</li>`).join('')}</ol></details>` : '';
+const head = '<div class="head"><span class="live"></span><b>Run</b><span class="bdg r">executing</span><span class="hint">5 of 13 tasks complete</span><button class="stop" type="button">Stop</button></div>';
+const meta = '<div class="meta"><span>approach <b>1 · Initial plan</b></span><span>approval <b>auto</b></span><span>elapsed <b>1h 1m</b></span><span>budget <b>6/100 dispatches · 61/720 min</b></span></div>';
+const phases = '<div class="ph"><span class="d"><i></i>Plan</span><span class="n"><i></i>Execute</span><span><i></i>Verify</span><span><i></i>Clean</span></div>';
+const tasks = (m, p) => `<div class="task"><div class="sum"><span class="dot"></span><span>Audit CLI entry, argument parsing and client HTTP boundary${p ? '<span class="why">Make sure bad input and dropped connections are handled safely.</span>' : '<small>audit-cli-client · repo-agent</small>'}</span><span class="doing"></span><span class="bdg o">completed</span></div></div>
+${TASKS.slice(0, 4).map(([t, w]) => `<div class="task"><div class="sum"><span class="dot"></span><span>${t}${p ? `<span class="why">${w}</span>` : '<small>repo-agent</small>'}</span><span class="doing"></span><span class="bdg o">completed</span></div></div>`).join('')}
+<div class="task open"><div class="sum"><span class="sp"></span><span>Audit status-server HTTP surface${p ? '<span class="why">Make sure the server cannot be abused, blocked or left hanging.</span>' : '<small>audit-status-http · repo-agent</small>'}</span><span class="doing">${m.tool[0]} · turn ${m.turn}</span><span class="bdg r">running</span></div>
+<div class="agent"><div class="ah"><span>${p ? 'repo-agent' : 'agent'} <b>e8a4398b</b></span><span>turn <b>${m.turn}</b>/100</span><span>ctx <b>${m.turn * 2 + 16}%</b></span><span>2m 34s</span></div>${p ? hist(m) + upd(m) : ''}
+${p ? `<details class="hist calls"${openCalls ? ' open' : ''} ontoggle="openCalls=this.open"><summary>Latest calls (${PREV.length + 1})</summary>` : ''}<div class="tools">${PREV.map((t) => `<div class="t"><span class="dot"></span><i>${t[0]}</i><span>${t[1]}</span></div>`).join('')}<div class="t on"><span class="sp"></span><i>${m.tool[0]}</i><span>${m.tool[1]}</span></div></div>${p ? '</details>' : ''}<div class="foot">writes <code>.scratch/audit/status-http.md</code></div></div></div>
+${TASKS.slice(4).map(([t, w]) => `<div class="task"><div class="sum"><span class="dot idle"></span><span>${t}${p ? `<span class="why">${w}</span>` : '<small>repo-agent</small>'}</span><span class="doing">queued</span><span class="bdg">pending</span></div></div>`).join('')}`;
+const callRows = (ts) => ts.map((t) => `<div class="ct"><span class="dot"></span><span>${t}</span></div>`).join('');
+const thinking = '<details><summary>Thinking</summary><p>(the orchestrator\'s thinking for this turn)</p></details>';
+const fullTurn = ([n, ts]) => `<div class="turn"><div>turn ${n}</div>${thinking}${callRows(ts)}</div>`;
+const shortTurn = ([n, ts]) => `<div class="turn"><div>turn ${n}</div>${thinking}${ts.length > CALLS ? `<details class="more"><summary>${plural(ts.length - CALLS, 'earlier call')}</summary>${callRows(ts.slice(0, -CALLS))}</details>` : ''}${callRows(ts.slice(-CALLS))}</div>`;
+const currentTurns = () => `<details><summary>Prompt</summary></details>${total > KEPT ? `<p class="hint">${total - KEPT} earlier turns are in the run transcript.</p>` : ''}${kept().map(fullTurn).join('')}`;
+const proposedTurns = () => {
+  const all = kept(), older = all.slice(0, -SHOWN), gone = total - all.length;
+  return `<div class="tlinks"><details><summary>Prompt</summary></details>${gone > 0 ? `<a href="#" onclick="return false">Full transcript (${gone} older turns)</a>` : ''}</div>
+<details class="older"${openOlder ? ' open' : ''} ontoggle="openOlder=this.open"><summary>Earlier turns (${older.length})</summary><div class="olderbox">${older.map(([n, ts]) => `<details class="one"><summary>turn ${n} <span>· ${plural(ts.length, 'call')}</span></summary>${thinking}${callRows(ts)}</details>`).join('')}</div></details>
+${all.slice(-SHOWN).map(shortTurn).join('')}`;
+};
+let openOlder = false, openCalls = false;
+const status = () => `<span class="hint">released its model while children work</span><span class="hint">${total} turns</span><span class="hint">context 70,020 / 200,000 (35%)</span>`;
+const current = (m) => `<div class="run cur">${head.replace("<b>Run</b>", "<b>Orchestrator</b>")}${meta}${phases}${tasks(m, false)}<div class="conv" style="border-top:1px solid var(--line)"><div class="convh"><span class="dot idle"></span><b>Orchestrator</b>${status()}</div>${currentTurns()}</div></div>`;
+const proposed = (m) => `<div class="run next">${head}${meta}${phases}<div class="split"><section class="pane" aria-label="Orchestrator" tabindex="0" data-tail><div class="paneh"><span class="dot idle"></span><b>Orchestrator</b>${status()}</div><div class="conv">${proposedTurns()}</div><div class="now ${m.r === R.c || m.age === 'now' ? '' : 'old'}">${pastRows(m)}<div class="nl"><span class="live"></span><p>${m.r}</p><time>${m.r === R.c ? '14:09' : '14:02'}</time></div></div></section><section class="pane" aria-label="Tasks" tabindex="0"><div class="paneh"><b>Tasks</b><span class="hint">5 done · 1 running · 7 waiting</span></div>${tasks(m, true)}</section></div></div>`;
+const chat = (m, p) => `<div class="msg"><div class="who"><span>SiftKit · live</span><span>turn ${m.turn}</span></div>${p ? hist(m) + upd(m) : ''}<div class="logic">▸ Internal Logic (${m.turn * 2})</div><div class="think">Need to see what happens when the client stops reading…</div><div class="act"><div class="acth">Recent activity</div><div class="row">Searched code</div><div class="row">Read multiple files</div><div class="row">${m.tool[2]}</div></div></div>`;
+const el = (id) => document.getElementById(id);
+let cur = 0;
+function show(i) {
+  cur = i; const m = M[i]; el('cap').textContent = m.c;
+  [...el('btns').children].forEach((b, j) => b.setAttribute('aria-pressed', String(j === i)));
+  el('o0').innerHTML = current(m); el('o1').innerHTML = proposed(m); el('r0').innerHTML = chat(m, false); el('r1').innerHTML = chat(m, true);
+  document.querySelectorAll('[data-tail]').forEach((e) => { e.scrollTop = e.scrollHeight; });
+}
+function view(v) { el('cb').hidden = v === 0; el('pb').hidden = v === 1; [...el('views').children].forEach((b, j) => b.setAttribute('aria-pressed', String(j === v))); document.querySelectorAll('[data-tail]').forEach((e) => { e.scrollTop = e.scrollHeight; }); }
+const add = (host, text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.onclick = fn; el(host).append(b); };
+['Proposed', 'Current', 'Both'].forEach((t, i) => add('views', t, () => view(i)));
+add('grow', '+ Add an orchestrator turn', () => { total += 1; show(cur); });
+M.forEach((m, i) => add('btns', `${i + 1}. ${m.n}`, () => show(i)));
+addEventListener('keydown', (e) => { if (e.target.closest('.past')) return; if (e.key === 'ArrowRight') show(Math.min(M.length - 1, cur + 1)); if (e.key === 'ArrowLeft') show(Math.max(0, cur - 1)); });
+const at = Number(location.hash.slice(1)); show(Number.isInteger(at) && location.hash && at < M.length ? at : 2); view(0);
+</script></body></html>

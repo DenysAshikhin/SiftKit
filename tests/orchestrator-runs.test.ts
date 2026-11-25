@@ -147,7 +147,7 @@ test('startup marks the running children of an interrupted parent not resumable'
   const task = plan.tasks[0];
   assert.ok(task);
   const attempt = store.reserveAttempt(state.runId, state.revision, task.id,
-    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task, instruction: 'Implement it.' });
+    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task, instruction: 'Implement it.' }, 'The run is under way.');
   state = store.markAttemptRunning(state.runId, store.read(state.runId).revision, attempt.childRunId);
   const marked: string[] = [];
 

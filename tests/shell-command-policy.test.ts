@@ -140,6 +140,37 @@ test('neither the orchestrator nor a worker may start siftkit from a command', (
   }
 });
 
+test('a command that asks a service to start a process is refused; its harmless neighbours are not', () => {
+  const root = makeRoot();
+  for (const [command, named] of [
+    ["Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'ping x' }", 'Win32_Process'],
+    ["iwmi -Class win32_process -Name Create -ArgumentList 'ping x'", 'Win32_Process'],
+    ['$r = Invoke-CimMethod Win32_Process Create', 'Win32_Process'],
+    ["wmic process call create 'ping x'", 'wmic process call create'],
+    ["schtasks /create /tn t /tr 'ping x' /sc once /st 00:00", 'schtasks /create'],
+    ['cmd /c schtasks.exe /Create /tn t', 'schtasks /create'],
+    ['Register-ScheduledTask -TaskName t -Action $a', 'Register-ScheduledTask'],
+    ['New-Service -Name s -BinaryPathName x', 'New-Service'],
+    ['sc.exe create s binPath= x', 'sc create'],
+    ['cmd /c sc create s binPath= x', 'sc create'],
+    ['docker run -d redis', 'docker run -d'],
+    ['docker run --rm -itd -p 80:80 redis', 'docker run -d'],
+    ['docker container run --detach redis', 'docker run -d'],
+    ['docker compose -f a.yml up -d', 'docker compose up -d'],
+    ['docker-compose up --detach', 'docker compose up -d'],
+  ] as const) {
+    for (const call of [run(command), { toolName: 'run_check' as const, args: { command, cwd: '.' } }]) {
+      assert.ok(findShellCommandProblem(call, root)?.startsWith(`\`${named}\` starts a process this run could not stop.`), `${call.toolName}: ${command}`);
+    }
+  }
+  for (const command of [
+    'Get-CimInstance Win32_Process', 'schtasks /query', 'wmic process list', 'sc.exe query', "sc create.txt 'x'", "sc create 'x'", 'docker run --rm redis redis-cli ping',
+    'docker compose up', 'docker ps', "git log --grep 'docker run -d'",
+  ]) {
+    assert.equal(findShellCommandProblem(run(command), root), null, command);
+  }
+});
+
 test('tools other than run and run_check are not judged', () => {
   assert.equal(findShellCommandProblem({ toolName: 'read', args: { path: '..\\x.txt' } }, makeRoot()), null);
 });

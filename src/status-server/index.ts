@@ -508,6 +508,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     closeRequested = true;
     // Stop scheduling and abort owned children first; the close handler awaits their settlement.
     void orchestratorRuns.shutdown().catch(() => {});
+    void ctx.repoAgentSessions.disposeBackgroundJobs();
     ctx.modelIdleController?.cancelForPresetChange();
     void presetRuntimeCoordinator.shutdown().catch((error) => {
       process.stderr.write(`[siftKitStatus] Failed to stop inference runtime: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -571,6 +572,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       let failure: Error | null = null;
       try {
         await orchestratorRuns.shutdown();
+        await ctx.repoAgentSessions.disposeBackgroundJobs();
         await server.waitForRequestsIdle();
         await ctx.inferenceRunFlushQueue.drainForShutdown(SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
         await flushTerminalMetadataForShutdown(ctx, SHUTDOWN_PERSISTENCE_TIMEOUT_MS);

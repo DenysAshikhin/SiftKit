@@ -427,7 +427,7 @@ test('restricted repo-search planner prompt prefers structured tools over run', 
 test('web chat tools ride on top of the full agent surface without restricting the prompt', () => {
   withTempRepo((repoRoot) => {
     const base = { promptPrefix: '', systemContext: buildTestContext(repoRoot), allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
-      webSearch: usableWebSearchConfig(), webToolsEnabled: true, visionEnabled: false, promptKind: 'repo-agent' as const };
+      webSearch: usableWebSearchConfig(), webToolsEnabled: true, visionEnabled: false, backgroundJobs: false, promptKind: 'repo-agent' as const };
     const web = resolveRunSystemPrompt({ ...base, webChatTools: true, orchestratorTools: false });
     const cli = resolveRunSystemPrompt({ ...base, webChatTools: false, orchestratorTools: false });
     assert.deepEqual(web.toolDefinitions.map((tool) => tool.function.name).slice(-2), ['ask_user', 'show_image']);
@@ -439,7 +439,7 @@ test('web chat tools ride on top of the full agent surface without restricting t
 
 test('every web run kind gets the web chat tools and one shared guidance block; other runs get neither', () => {
   withTempRepo((repoRoot) => {
-    const base = { promptPrefix: '', systemContext: buildTestContext(repoRoot), webSearch: usableWebSearchConfig(), webToolsEnabled: false, visionEnabled: false };
+    const base = { promptPrefix: '', systemContext: buildTestContext(repoRoot), webSearch: usableWebSearchConfig(), webToolsEnabled: false, visionEnabled: false, backgroundJobs: false };
     const kinds = [
       { ...base, promptKind: 'repo-agent' as const, allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES] },
       { ...base, promptKind: 'planner' as const, allowedTools: ['read', 'grep'] },
@@ -455,4 +455,24 @@ test('every web run kind gets the web chat tools and one shared guidance block; 
       assert.doesNotMatch(cli.systemPrompt, /Web chat tools:|ask_user|show_image/u, request.promptKind);
     }
   });
+});
+
+test('only a run that owns background jobs is offered job and told how to use it, and keeps the full agent prompt', () => {
+  const resolve = (backgroundJobs: boolean, allowedTools: readonly string[]) => resolveRunSystemPrompt({
+    promptKind: 'repo-agent', allowedTools, promptPrefix: '', systemContext: buildTestContext(process.cwd()), webSearch: usableWebSearchConfig(),
+    webToolsEnabled: false, visionEnabled: false, webChatTools: false, backgroundJobs, orchestratorTools: false,
+  });
+  const names = (tools: ReturnType<typeof resolve>['toolDefinitions']): string[] => tools.map((tool) => tool.function.name);
+  const withJobs = resolve(true, INTERACTIVE_REPO_TOOL_NAMES);
+  const without = resolve(false, INTERACTIVE_REPO_TOOL_NAMES);
+  assert.ok(names(withJobs.toolDefinitions).includes('job'));
+  assert.match(withJobs.systemPrompt, /Background commands: start a command that takes minutes with `run`/u);
+  assert.match(withJobs.systemPrompt, /Run independent checks together: lint, typecheck and small targeted tests can overlap/u);
+  assert.match(withJobs.systemPrompt, /Run only one full test suite at a time\./u);
+  const missing = without.systemPrompt.split('\n').filter((line) => !withJobs.systemPrompt.includes(line.replace(/run\.$/u, 'run, job.')));
+  assert.deepEqual(missing, [], 'job adds guidance and takes nothing away');
+  assert.equal(names(without.toolDefinitions).includes('job'), false);
+  assert.doesNotMatch(without.systemPrompt, /Background commands/u);
+  assert.equal(names(resolve(true, ['read', 'grep']).toolDefinitions).includes('job'), false, 'job needs run');
+  assert.match(buildAgentSystemPrompt(buildTestContext(process.cwd())), /Everything a command leaves running is killed when the command ends/u);
 });

@@ -3,7 +3,7 @@ import { parseJsonValueText } from '../../lib/json.ts';
 import { JsonValueSchema } from '../../lib/json-types.ts';
 import { z } from '../../lib/zod.ts';
 import type { RuntimeDatabase } from '../database-handle.ts';
-import { addMissingSnapshotPresetFields, addMissingStoredPresetFields, withMissingFields } from './stored-model-presets.ts';
+import { addMissingModelPresetFields, withMissingFields } from './stored-model-presets.ts';
 
 const ADDED_FIELDS = { RamDiskCache: false, RamDiskCacheGiB: 10 };
 const ConfigRowsSchema = z.array(z.object({ id: z.number().int(), server_model_presets_json: z.string(), server_exl3_json: z.string() }));
@@ -24,6 +24,5 @@ export function upgradeModelPresetRamDisk(database: RuntimeDatabase): void {
     if (!engine.success) throw new Error(`Stored exl3 engine config is unreadable: ${engine.error.message}`);
     updateEngine.run(JSON.stringify(withMissingFields(engine.data, { RamDisk: { ToolPath: null, DriveLetter: 'S' } })), row.id);
   }
-  addMissingStoredPresetFields(database, ADDED_FIELDS);
-  addMissingSnapshotPresetFields(database, ADDED_FIELDS);
+  addMissingModelPresetFields(database, ADDED_FIELDS);
 }

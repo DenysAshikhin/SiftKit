@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 
 import {
   DEFAULT_ORCHESTRATOR_BUDGET,
+  OrchestratorNewTaskSchema,
   OrchestratorPlanSchema,
   OrchestratorRunStateSchema,
   OrchestratorStartRequestSchema,
-  OrchestratorTaskSchema,
+  type OrchestratorNewTask,
   type OrchestratorPlan,
   type OrchestratorRunState,
   type OrchestratorStartRequest,
@@ -18,9 +19,9 @@ import {
 import { startPlan, type PlanTransition } from '../../src/orchestrator/plan-state.ts';
 import type { OrchestratorRunStore } from '../../src/orchestrator/run-store.ts';
 
-export function makeOrchestratorTask(overrides: Partial<OrchestratorTask> = {}): OrchestratorTask {
-  return OrchestratorTaskSchema.parse({
-    id: 'inspect', title: 'Inspect README', dependsOn: [],
+export function makeOrchestratorTask(overrides: Partial<OrchestratorNewTask> = {}): OrchestratorNewTask {
+  return OrchestratorNewTaskSchema.parse({
+    id: 'inspect', title: 'Inspect README', why: 'Make sure the install steps work.', dependsOn: [],
     workerPresetId: 'repo-agent', readPaths: ['README.md'], writePaths: ['README.md'],
     steps: [{ instruction: 'Read README.md and report its installation commands.',
       expectedResult: 'Commands with file and line evidence.' }],
@@ -58,7 +59,7 @@ export function makeOrchestratorRunState(overrides: Partial<OrchestratorRunState
   return OrchestratorRunStateSchema.parse({
     runId: randomUUID(), request: makeOrchestratorRequest(), revision: 1, phase: 'executing', planPath: null, planHash: null,
     plan: null, tasks: [], attempts: [], parentRunIds: [], approval: null, failure: null,
-    approaches: [], retiredTasks: [], createdAtUtc: FIXTURE_AT, updatedAtUtc: FIXTURE_AT, ...overrides,
+    approaches: [], retiredTasks: [], statusLines: [], createdAtUtc: FIXTURE_AT, updatedAtUtc: FIXTURE_AT, ...overrides,
   });
 }
 

@@ -33,6 +33,8 @@ import { upgradeExl3RamDiskBundledTool } from './schema-upgrades/exl3-ram-disk-b
 import { upgradeOrchestratorSearchReports } from './schema-upgrades/orchestrator-search-reports.ts';
 import { upgradeOrchestratorSingleWorker } from './schema-upgrades/orchestrator-single-worker.ts';
 import { upgradeOrchestratorOpenEndedRuns } from './schema-upgrades/orchestrator-open-ended-runs.ts';
+import { upgradeOrchestratorTaskPurpose } from './schema-upgrades/orchestrator-task-purpose.ts';
+import { upgradeAdmittedPresetFields } from './schema-upgrades/admitted-preset-fields.ts';
 import { upgradeVaultCutoverJobs } from './schema-upgrades/vault-cutover-jobs.ts';
 import { upgradeVaultValidation } from './schema-upgrades/vault-validation.ts';
 import type { RuntimeDatabase } from './database-handle.ts';
@@ -45,7 +47,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 98;
+export const CURRENT_SCHEMA_VERSION = 100;
 const RUNTIME_DATABASE_FILE = 'runtime.sqlite';
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
@@ -88,6 +90,8 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 95, apply: upgradeEngineEventDiskCacheFull },
   { from: 96, apply: upgradeExl3RamDiskBundledTool },
   { from: 97, apply: upgradeOrchestratorOpenEndedRuns },
+  { from: 98, apply: upgradeOrchestratorTaskPurpose },
+  { from: 99, apply: upgradeAdmittedPresetFields },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

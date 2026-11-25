@@ -1,7 +1,7 @@
 import type { RuntimeDatabase } from '../database-handle.ts';
-import { addMissingSnapshotPresetFields } from './stored-model-presets.ts';
+import { addMissingModelPresetFields } from './stored-model-presets.ts';
 
 /** Schema 92 -> 93: chat session preset snapshots gain the fields their config presets gained in 91 and 92. */
 export function upgradeChatSessionPresetSnapshots(database: RuntimeDatabase): void {
-  addMissingSnapshotPresetFields(database, { SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 });
+  addMissingModelPresetFields(database, { SparseDraftHead: 0, CacheAuto: false, CacheContexts: 1.1 });
 }

@@ -14,7 +14,7 @@ import { formatRejectedCallCut } from '../../planner-protocol/native-actions.ts'
 import { containsUnifiedDiff } from '../../tool-loop-governor.ts';
 import { spawnDirectCommand } from '../../lib/command-spawn.ts';
 import { buildAgentRunEnv } from '../../lib/agent-run-marker.ts';
-import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.ts';
+import { runAgentCommand } from './agent-command.ts';
 import type {
   EditToolArgs,
   FindToolArgs,
@@ -25,7 +25,7 @@ import type {
   RunToolArgs,
   WriteToolArgs,
 } from '../repo-tool-arguments.ts';
-import { GitToolArgsSchema } from '../repo-tool-arguments.ts';
+import { GitToolArgsSchema, resolveRunTimeoutMs } from '../repo-tool-arguments.ts';
 import { ReadOnlyGitTool, buildReadOnlyGitCommand } from './read-only-git-tool.ts';
 import { WebResearchTools } from '../../web-search/web-research-tools.ts';
 import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
@@ -273,7 +273,15 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     return formatToolCommand('run', [
       ['command', readString(args.command)],
       ['outputMode', optionalString(args.outputMode)],
-      ['timeoutMs', parsePositiveInteger(args.timeoutMs)],
+      ['timeoutMs', args.background === true ? resolveRunTimeoutMs({ background: true, timeoutMs: parsePositiveInteger(args.timeoutMs) }) : parsePositiveInteger(args.timeoutMs)],
+      ['background', args.background === true ? true : undefined],
+    ]);
+  }
+  if (toolName === 'job') {
+    return formatToolCommand('job', [
+      ['action', readString(args.action)],
+      ['jobId', optionalString(args.jobId)],
+      ['waitMs', parsePositiveInteger(args.waitMs)],
     ]);
   }
   if (toolName === 'git') {
@@ -963,10 +971,10 @@ function executeEdit(args: EditToolArgs, context: RepoToolContext): RepoToolExec
 
 async function executeRun(args: RunToolArgs, context: RepoToolContext): Promise<RepoToolExecution> {
   const command = buildRepoToolRequestedCommand('run', args);
-  const result = await spawnPowerShellAsync(args.command, {
+  const result = await runAgentCommand(args.command, {
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,
-    timeoutMs: args.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS,
+    timeoutMs: resolveRunTimeoutMs(args),
     env: buildAgentRunEnv(context.agentRunId, context.agentServerUrl),
   });
   return {

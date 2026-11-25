@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { OrchestratorHandoffReportSchema, type ApprovalMode, type OrchestratorChildWork } from '@siftkit/contracts';
+import {
+  ORCHESTRATOR_STATUS_LINE_MAX_CHARS,
+  ORCHESTRATOR_WHY_MAX_CHARS,
+  OrchestratorHandoffReportSchema,
+  type ApprovalMode,
+  type OrchestratorChildWork,
+} from '@siftkit/contracts';
 
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { parseJsonValueText } from '../src/lib/json.ts';
@@ -187,4 +193,17 @@ test('the orchestrator reads the named spec whole first, batches independent rea
     'Write each instruction as final decisions, each step stated once']) {
     assert.ok(prompt.includes(rule), rule);
   }
+});
+
+test('a child is told why its task exists; a task saved without a reason says nothing', () => {
+  const build = (why: string | null): string => buildChildInstruction({ work: { ...work('implementation'), task: { ...work('implementation').task, why } },
+    attempt: 1, repoRoot: 'C:/work/repo', scratchPath: 's', preexistingDirtyPaths: [] });
+  assert.match(build('Make sure the install steps work.'), /^Why this task exists: Make sure the install steps work\.$/mu);
+  assert.doesNotMatch(build(null), /Why this task exists/u);
+});
+
+test('the orchestrator prompt states the status limits from the contracts', () => {
+  const prompt = buildOrchestratorPrompt(brief());
+  assert.ok(prompt.includes(`at most ${ORCHESTRATOR_WHY_MAX_CHARS} characters`), 'the why limit');
+  assert.ok(prompt.includes(`${ORCHESTRATOR_STATUS_LINE_MAX_CHARS} characters`), 'the status line limit');
 });

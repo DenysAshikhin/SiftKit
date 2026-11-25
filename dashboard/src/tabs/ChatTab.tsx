@@ -36,6 +36,7 @@ import { ChatQuestionCard } from '../components/ChatQuestionCard.tsx';
 import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl.tsx';
 import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl.tsx';
 import { OrchestratorRunPanel } from '../components/OrchestratorRunPanel.tsx';
+import { StatusUpdates } from '../components/StatusUpdates.tsx';
 import { useOrchestratorRun } from '../hooks/useOrchestratorRun.ts';
 import { PlanMaxTurnsOverrideSchema } from '../lib/chat-composer-inputs.ts';
 import type { LastTurnTelemetry } from '../lib/format.ts';
@@ -497,6 +498,7 @@ export function ChatTab({
                 retainedIds={retainedIds} {...transcriptRows} />
               {chatMode === 'orchestrator' && orchestrator.state ? (
                 <OrchestratorRunPanel
+                  key={orchestrator.state.runId}
                   state={orchestrator.state}
                   activity={orchestrator.activity}
                   workPhase={orchestrator.workPhase}
@@ -611,8 +613,8 @@ export function ChatTab({
                         <input aria-label="Budget minutes" type="number" value={orchestratorMinutes}
                           onChange={(event) => setOrchestratorMinutes(event.target.value)} disabled={orchestratorLive} />
                       </label>
-                      <label className="orch-budget" title="How many subagents the run may start">
-                        dispatches
+                      <label className="orch-budget" title="The most subagent dispatches the run can do, across all tasks">
+                        max subagent dispatches
                         <input aria-label="Budget dispatches" type="number" value={orchestratorDispatches}
                           onChange={(event) => setOrchestratorDispatches(event.target.value)} disabled={orchestratorLive} />
                       </label>
@@ -712,7 +714,8 @@ function TurnList({ messages, liveMessageIds, liveTokenDisplays, sessionId, pend
           && turn.liveThinking.length === 0
           && turn.recentActivities.length === 0
           && !turn.showRecentActivity
-          && turn.memory === null) {
+          && turn.memory === null
+          && turn.updates.length === 0) {
           const message = turn.main;
           if (!message) { return null; }
           if (message.kind === 'repo_agent_approval') {
@@ -1142,6 +1145,7 @@ function ChatTurnBubble({ turn, tokenDisplays, sessionId, isDirectChatMode, chat
         </span>
       </div>
       {turn.memory ? <MemoryContextRow content={turn.memory.content} /> : null}
+      <StatusUpdates updates={turn.updates} live={turn.showRecentActivity} />
       {turn.steps.length > 0 ? (
         <details className="internal-logic" onToggle={(event) => setExpandedLogic(event.currentTarget.open)}>
           <summary>Internal Logic ({turn.steps.length})</summary>

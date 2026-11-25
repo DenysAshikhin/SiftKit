@@ -71,6 +71,7 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
       return;
     }
     const { session } = startRepoWorkerRun(ctx, {
+      statusUpdates: false,
       taskKind: 'repo-agent',
       repositoryAccess: 'exclusive',
       presetId: 'repo-agent',
@@ -128,6 +129,8 @@ export type StartRepoWorkerRunInput = {
   modelQueueTimeout?: ModelQueueTimeout;
   /** An orchestrator child's checks, run by code on every finish before the run accepts it. */
   submissionGate?: SubmissionGate;
+  /** The run was started from the dashboard, so someone can read its status updates. */
+  statusUpdates: boolean;
 };
 
 /** The one server-side worker start: run-store record, session, model routing, and repository ownership. */
@@ -188,6 +191,7 @@ export function startRepoWorkerRun(ctx: ServerContext, input: StartRepoWorkerRun
       ...(input.evidenceRecorder === undefined ? {} : { evidenceRecorder: input.evidenceRecorder }),
       ...(input.questionGate === undefined ? {} : { questionGate: input.questionGate }),
       ...(input.submissionGate === undefined ? {} : { submissionGate: input.submissionGate }),
+      statusUpdates: input.statusUpdates,
       initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
       ...(input.queue
         ? {

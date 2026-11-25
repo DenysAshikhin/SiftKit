@@ -12,6 +12,7 @@ import {
   type OrchestratorTaskState,
 } from '@siftkit/contracts';
 import { runLogsHref } from '../lib/format.ts';
+import { StatusUpdates } from './StatusUpdates.tsx';
 import { attemptSummary, contextPercent, formatElapsed, nowDoing, taskTone, waitReason } from '../orchestrator-view.ts';
 
 const VISIBLE_FINDINGS = 3;
@@ -37,10 +38,11 @@ function ReviewSummary({ review }: { review: OrchestratorReviewRecord }) {
   );
 }
 
-function AgentCard({ child, claim, attempt, writePaths, now }: {
+function AgentCard({ child, claim, attempt, workerPresetId, writePaths, now }: {
   child: OrchestratorChildActivity;
   claim: OrchestratorTaskClaim | undefined;
   attempt: OrchestratorAttempt | undefined;
+  workerPresetId: string | undefined;
   writePaths: readonly string[];
   now: number;
 }) {
@@ -48,23 +50,28 @@ function AgentCard({ child, claim, attempt, writePaths, now }: {
   return (
     <div className="orch-agent" aria-label={`Agent ${child.childRunId}`}>
       <div className="orch-agent-head">
-        <span>agent <b>{child.childRunId.slice(0, 8)}</b></span>
+        <span>{workerPresetId ?? 'agent'} <b>{child.childRunId.slice(0, 8)}</b></span>
         <span>turn <b>{child.turn}</b>/{child.maxTurns ?? '?'}</span>
         {claim === undefined ? null : <span>ctx <b>{contextPercent(child, claim)}%</b></span>}
         {attempt === undefined ? null : <span>{formatElapsed(now - Date.parse(attempt.reservedAtUtc))}</span>}
         <a className="mini-btn" href={runLogsHref(child.childRunId)}>Transcript</a>
       </div>
       <div className="orch-turnbar"><i style={{ width: `${turnWidth}%` }} /></div>
-      <div className="orch-agent-tools">
-        {child.tools.length === 0 ? <div className="hint">{child.waitingForModel ? 'Waiting for the model…' : 'No tool calls yet.'}</div> : null}
-        {child.tools.map((tool) => (
-          <div key={tool.toolCallId} className={`tcall-summary orch-tool ${tool.status}`}>
-            {tool.status === 'running' ? <span className="sp" /> : <span className={`dot ${tool.status === 'failed' ? 'bad' : 'ok'}`} />}
-            <span className="orch-tool-kind">{tool.activityKind}</span>
-            <span className="orch-tool-command">{tool.command}</span>
+      <StatusUpdates updates={child.updates} live />
+      {child.tools.length === 0 ? <div className="hint orch-agent-idle">{child.waitingForModel ? 'Waiting for the model…' : 'No tool calls yet.'}</div> : (
+        <details className="orch-agent-calls">
+          <summary>Latest calls ({child.tools.length})</summary>
+          <div className="orch-agent-tools">
+            {child.tools.map((tool) => (
+              <div key={tool.toolCallId} className={`tcall-summary orch-tool ${tool.status}`}>
+                {tool.status === 'running' ? <span className="sp" /> : <span className={`dot ${tool.status === 'failed' ? 'bad' : 'ok'}`} />}
+                <span className="orch-tool-kind">{tool.activityKind}</span>
+                <span className="orch-tool-command">{tool.command}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </details>
+      )}
       <div className="orch-agent-foot">
         writes <code>{writePaths.join(' · ')}</code>
       </div>
@@ -112,14 +119,14 @@ export function OrchestratorTaskRow({ task, state, activity, now }: {
           {open ? <span className="sp" /> : <span className={`dot ${taskTone(task.status)}`} />}
           <span className="orch-task-name">
             {planned?.title ?? task.taskId}
-            <small>{[task.taskId, planned?.workerPresetId].filter((part) => part !== undefined).join(' · ')}</small>
+            {planned === undefined || planned.why === null ? null : <small>{planned.why}</small>}
           </span>
           <span className="orch-task-doing">{nowDoing(task, child) ?? waitReason(task, state, activity)}</span>
           <span className="orch-task-attempts">{attemptSummary(task.taskId, state.attempts)}</span>
           <span className={`bdg ${taskTone(task.status)}`}>{task.status}</span>
         </summary>
         {child !== null ? (
-          <AgentCard child={child} claim={claim} now={now} writePaths={planned?.writePaths ?? []}
+          <AgentCard child={child} claim={claim} now={now} workerPresetId={planned?.workerPresetId} writePaths={planned?.writePaths ?? []}
             attempt={state.attempts.find((attempt) => attempt.childRunId === child.childRunId)} />
         ) : null}
         {child === null && latest !== undefined ? <AttemptResult attempt={latest} /> : null}

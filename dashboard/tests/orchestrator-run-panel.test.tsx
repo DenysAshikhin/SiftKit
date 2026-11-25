@@ -12,7 +12,7 @@ const APPROVAL_ID = '00000000-0000-4000-8000-000000000003';
 const AT = '2026-09-23T12:00:00.000Z';
 const CHECK = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
 const TASK = {
-  id: 'add-greeting', title: 'Add greeting', dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: ['src/a.ts'],
+  id: 'add-greeting', title: 'Add greeting', why: 'Greet people the same way everywhere.', dependsOn: [], workerPresetId: 'repo-agent', readPaths: [], writePaths: ['src/a.ts'],
   steps: [{ instruction: 'Write it.', expectedResult: 'It exists.' }], verification: [CHECK], acceptance: ['Greets.'], temporaryPaths: [],
 };
 
@@ -54,7 +54,7 @@ function renderPanel(state: OrchestratorRunState, activity: OrchestratorActivity
 }
 
 const LIVE_CHILD: OrchestratorChildActivity = {
-  childRunId: CHILD_ID, taskId: TASK.id, waitingForModel: false, turn: 9, maxTurns: 40, promptTokens: 1240,
+  childRunId: CHILD_ID, taskId: TASK.id, waitingForModel: false, turn: 9, maxTurns: 40, promptTokens: 1240, updates: [],
   tools: [
     { toolCallId: 't1', turn: 8, activityKind: 'edit', command: 'write src/a.ts', status: 'succeeded' },
     { toolCallId: 't2', turn: 9, activityKind: 'command', command: 'npm test', status: 'running' },
@@ -121,7 +121,7 @@ const PARENT: OrchestratorParentActivity = {
 
 test('the orchestrator view shows its prompt, its latest thinking, and every tool call with its result', () => {
   renderPanel(runState({}), { ...liveActivity([LIVE_CHILD]), parent: PARENT });
-  const view = screen.getByLabelText('Orchestrator conversation');
+  const view = screen.getByRole('region', { name: 'Orchestrator' });
   assert.ok(view.textContent?.includes('released its model while children work'));
   screen.getByText('context 52,000 / 200,000 (26%)');
   screen.getByText('turn 14');
@@ -172,14 +172,19 @@ test('an orchestrator check approval names the command and its working directory
 test('a running task opens its agent card with turn, context, recent tool calls, write scope, and a transcript link', () => {
   renderPanel(runState({ attempts: [attempt('implementation', 1, null)] }), liveActivity([LIVE_CHILD]));
   screen.getByLabelText(`Agent ${CHILD_ID}`);
-  screen.getByText('command npm test');
+  screen.getByText('command · turn 9');
+  const calls = screen.getByText('Latest calls (2)').closest('details');
+  assert.ok(calls instanceof window.HTMLDetailsElement);
+  assert.equal(calls.open, false, 'the rows are folded');
   screen.getByText('write src/a.ts');
   screen.getByText('31%');
   screen.getByText('src/a.ts', { selector: 'code' });
   const transcript = screen.getByRole('link', { name: 'Transcript' });
   assert.ok(transcript instanceof window.HTMLAnchorElement);
   assert.equal(transcript.getAttribute('href'), `?tab=runs&run=${CHILD_ID}`);
-  screen.getByText(`${TASK.id} · repo-agent`);
+  screen.getByText('Greet people the same way everywhere.');
+  assert.match(screen.getByLabelText(`Agent ${CHILD_ID}`).textContent ?? '', /^repo-agent 00000000/u);
+  assert.equal(screen.queryByText(new RegExp(TASK.id, 'u')), null, 'the row names the task, not its id');
 });
 
 test('a pending task says which dependencies it waits for, and the panel shows no slot meter', () => {
@@ -241,4 +246,109 @@ test('the panel shows the budget used, the active approach, what earlier approac
     /1\. Initial plan\s+rolled back: Response caching cannot see headers\./u);
   assert.match(screen.getByRole('list', { name: 'Retired tasks' }).textContent ?? '',
     /cache\s+Cache responses · approach 1 · failed: Out of attempts\./u);
+});
+
+test('a task saved without a reason shows its title alone', () => {
+  renderPanel(runState({ plan: { goal: 'Greet', constraints: [], tasks: [{ ...TASK, why: null }], finalVerification: [CHECK] } }));
+  assert.equal(screen.getByText('Add greeting').closest('.orch-task-name')?.textContent, 'Add greeting');
+});
+
+function statusLines(count: number): OrchestratorRunState['statusLines'] {
+  return Array.from({ length: count }, (_, index) => ({ text: `Line ${index + 1}.`, atUtc: AT }));
+}
+
+function shownLines(): string[] {
+  return [...screen.getByRole('region', { name: 'Where the run is' }).querySelectorAll('p')].map((line) => line.textContent ?? '');
+}
+
+test('the run-wide bar shows the goal, then the current line with at most three past ones above it', () => {
+  const view = (count: number) => (
+    <OrchestratorRunPanel state={runState({ statusLines: statusLines(count) })} activity={null} workPhase={null} lastMessage={null}
+      onDecide={() => undefined} onAbort={() => undefined} />
+  );
+  const { rerender } = render(view(0));
+  assert.deepEqual(shownLines(), ['Greet']);
+  rerender(view(1));
+  assert.deepEqual(shownLines(), ['Line 1.']);
+  rerender(view(4));
+  assert.deepEqual(shownLines(), ['Line 1.', 'Line 2.', 'Line 3.', 'Line 4.']);
+  assert.equal(screen.queryByRole('button', { name: /updates/u }), null, 'nothing is hidden');
+  rerender(view(100));
+  assert.deepEqual(shownLines(), ['Line 97.', 'Line 98.', 'Line 99.', 'Line 100.']);
+  fireEvent.click(screen.getByRole('button', { name: 'Show all 100 updates' }));
+  assert.equal(shownLines().length, 100);
+  rerender(view(99));
+  assert.equal(shownLines().length, 99, 'a new frame leaves it expanded');
+  fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }));
+  assert.deepEqual(shownLines(), ['Line 96.', 'Line 97.', 'Line 98.', 'Line 99.']);
+});
+
+test('a run with no plan and no line has no run-wide bar', () => {
+  renderPanel(runState({ plan: null, planPath: null, planHash: null, tasks: [] }));
+  assert.equal(screen.queryByRole('region', { name: 'Where the run is' }), null);
+});
+
+function parentTurn(turn: number, calls: number): OrchestratorParentActivity['turns'][number] {
+  return { turn, thinking: `Thinking ${turn}.`, text: '',
+    tools: Array.from({ length: calls }, (_, index) => ({ toolCallId: `c${turn}-${index}`, command: `call ${turn}.${index}`, status: 'succeeded' as const, output: '' })) };
+}
+
+test('the conversation shows three turns and three calls each, folds the rest, and links to the whole transcript', () => {
+  const turns = Array.from({ length: 12 }, (_, index) => parentTurn(index + 21, index === 11 ? 5 : 1));
+  renderPanel(runState({ parentRunIds: [CHILD_ID] }), { ...liveActivity([]), parent: { ...PARENT, turnCount: 32, turns } });
+  const pane = screen.getByRole('region', { name: 'Orchestrator' });
+  assert.deepEqual([...pane.querySelectorAll('.orch-parent-turn-head')].map((head) => head.textContent), ['turn 30', 'turn 31', 'turn 32']);
+  assert.deepEqual([...pane.querySelectorAll('details')].filter((fold) => fold.open), [], 'every fold starts closed, the newest thinking too');
+  const older = screen.getByText('Earlier turns (9)').closest('details');
+  assert.deepEqual([...older?.querySelectorAll('.orch-older-turn > summary') ?? []].map((turn) => turn.textContent).slice(0, 2),
+    ['turn 21 · 1 call', 'turn 22 · 1 call']);
+  assert.deepEqual([...screen.getByText('2 earlier calls').closest('details')?.querySelectorAll('.orch-tool-command') ?? []].map((call) => call.textContent),
+    ['call 32.0', 'call 32.1']);
+  const transcript = screen.getByRole('link', { name: 'Full transcript (20 older turns)' });
+  assert.equal(transcript.getAttribute('href'), `?tab=runs&run=${CHILD_ID}`);
+});
+
+test('a fold the user opened stays open when the next turn arrives', () => {
+  const view = (last: number) => (
+    <OrchestratorRunPanel state={runState({})} activity={{ ...liveActivity([LIVE_CHILD]), parent: { ...PARENT, turnCount: last,
+      turns: Array.from({ length: 12 }, (_, index) => parentTurn(last - 11 + index, 1)) } }}
+    workPhase={null} lastMessage={null} onDecide={() => undefined} onAbort={() => undefined} />
+  );
+  const isOpen = (summary: string): boolean => {
+    const fold = screen.getByText(summary).closest('details');
+    assert.ok(fold instanceof window.HTMLDetailsElement);
+    return fold.open;
+  };
+  const { rerender } = render(view(12));
+  fireEvent.click(screen.getByText('Earlier turns (9)'));
+  fireEvent.click(screen.getByText('Latest calls (2)'));
+  rerender(view(13));
+  assert.deepEqual([isOpen('Earlier turns (9)'), isOpen('Latest calls (2)')], [true, true]);
+});
+
+test('an agent card leads with its current update, earlier ones folded above it and its calls below', () => {
+  const update = (index: number, callsSince: number) => ({ updateId: `4f9c1f9a-0000-4000-8000-0000000000c${index}`, text: `Update ${index}.`,
+    createdAtUtc: '2026-11-24T09:00:00.000Z', callsSince });
+  const state = runState({ attempts: [attempt('implementation', 1, null)] });
+  const panel = (updates: ReturnType<typeof update>[]) => (
+    <OrchestratorRunPanel state={state} activity={liveActivity([{ ...LIVE_CHILD, updates }])} workPhase={null} lastMessage={null} onDecide={() => undefined} onAbort={() => undefined} />
+  );
+  const { rerender } = render(panel([]));
+  const card = screen.getByLabelText(`Agent ${CHILD_ID}`);
+  assert.equal(card.querySelector('.status-updates'), null);
+  rerender(panel([update(1, 0)]));
+  assert.equal(card.querySelector('.status-updates details'), null);
+  assert.equal(card.querySelector('.status-update')?.className, 'status-update');
+  rerender(panel([update(1, 5), update(2, 3)]));
+  const fold = screen.getByText('Earlier updates (1)').closest('details');
+  assert.ok(fold instanceof window.HTMLDetailsElement);
+  assert.equal(fold.open, false);
+  assert.deepEqual([...fold.querySelectorAll('li')].map((item) => item.textContent), ['Update 1.']);
+  assert.equal(card.querySelector('.status-update.past')?.textContent, 'Update 2.');
+  screen.getByText('3 tool calls ago');
+  fireEvent.click(screen.getByText('Earlier updates (1)'));
+  rerender(panel([update(1, 5), update(2, 3), update(3, 0)]));
+  assert.ok(fold.open, 'a new update never folds what the reader opened');
+  const order = [...card.querySelectorAll('summary, .status-update')].map((element) => element.textContent);
+  assert.deepEqual(order, ['Earlier updates (2)', 'Update 3.', 'Latest calls (2)']);
 });

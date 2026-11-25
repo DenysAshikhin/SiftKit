@@ -78,8 +78,8 @@ function tool(name: string, args: JsonObject): MockPlannerResponseInput {
 
 const savePlan = (plan: OrchestratorPlan = planOf()) => tool('save_plan', { plan });
 
-function dispatch(child: { taskId: string; purpose?: OrchestratorChildPurpose; instruction?: string }) {
-  return tool('dispatch', { taskId: child.taskId, purpose: child.purpose ?? 'implementation',
+function dispatch(child: { taskId: string; purpose?: OrchestratorChildPurpose; instruction?: string; update?: string }) {
+  return tool('dispatch', { update: child.update ?? 'The run is under way.', taskId: child.taskId, purpose: child.purpose ?? 'implementation',
     instruction: child.instruction ?? `Do task ${child.taskId}.` });
 }
 
@@ -174,6 +174,24 @@ async function waitForApproval(context: Harness, runId: string): Promise<Orchest
 /** A completed run; otherwise the failure and every tool result the orchestrator read, to show where it went wrong. */
 function assertCompleted(state: OrchestratorRunState, engine: ScriptedEngineService): void {
   assert.equal(state.phase, 'completed', [JSON.stringify(state.failure), ...engine.parentToolOutputs()].join('\n---\n'));
+}
+
+for (const { from, statusUpdates } of [{ from: 'the dashboard', statusUpdates: true }, { from: 'the terminal', statusUpdates: false }]) {
+  test(`a run started from ${from} has workers that ${statusUpdates ? 'write' : 'write no'} status updates`, async (t) => {
+    const context = await startHarness(t, 'siftkit-orchestrator-updates-');
+    const { engine } = context;
+    engine.parent.push([savePlan(), dispatch({ taskId: 'greeting', instruction: 'Create src/greeting.ts exporting greeting.' }),
+      review('greeting', 'pass'), COMPLETE]);
+    engine.children.push(WRITER);
+
+    const sessionId = statusUpdates ? await context.harness.createChatSession('orchestrator', 'model-a') : null;
+    const started = await startRun(context, 'off', { sessionId });
+    const { state } = await followRun(context, started.runId);
+
+    assertCompleted(state, engine);
+    const requests = engine.repoSearchRequests.map((request) => [request.taskKind === 'orchestrator', request.statusUpdates ?? false]);
+    assert.deepEqual(requests, [[true, false], [false, statusUpdates]], 'the orchestrator itself never does: its dispatches say where the run is');
+  });
 }
 
 test('one conversation plans, dispatches a writer, reviews it, and finishes; the parent releases its model while the child works',
@@ -292,6 +310,18 @@ test('a fifth invalid response in a row ends the orchestrator conversation', asy
   assert.equal(state.phase, 'failed');
   assert.match(state.failure?.message ?? '', /invalid_response_limit/u);
   assert.equal(state.plan, null, 'the save_plan after the fifth slip never ran');
+});
+
+test('a dispatch whose update names a path is refused and records no line; the next one is recorded', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-update-');
+  const { engine } = context;
+  engine.parent.push([savePlan(), dispatch({ taskId: 'greeting', update: 'Working on src/greeting.ts now.' }),
+    dispatch({ taskId: 'greeting', update: 'Building the greeting first.' }), review('greeting', 'pass'), COMPLETE]);
+  engine.children.push(WRITER);
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+  assertCompleted(state, engine);
+  assert.deepEqual(state.statusLines.map((line) => line.text), ['Building the greeting first.']);
+  assert.equal(state.attempts.length, 1);
 });
 
 test('a child out of resubmits reports its failing checks, and the orchestrator dispatches a fresh second attempt', async (t) => {

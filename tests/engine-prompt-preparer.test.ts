@@ -16,6 +16,7 @@ import type { JsonSerializable } from '../src/lib/json-types.ts';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.ts';
 import { mockOfflineSiftConfig } from './helpers/mock-config.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
+import { BackgroundJobs, BackgroundJobSlots } from '../src/repo-search/engine/background-jobs.ts';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.ts';
 import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.ts';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.ts';
@@ -33,6 +34,7 @@ function makePreparer(
   events: Array<Record<string, JsonSerializable>> = [],
   thinking: typeof NO_THINKING = NO_THINKING,
   taskKind: RepoSearchTaskKind = 'repo-search',
+  backgroundJobs: BackgroundJobs | null = null,
 ): PromptPreparer {
   const config = mockOfflineSiftConfig();
   const plannerTools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions());
@@ -73,6 +75,7 @@ function makePreparer(
     }),
     logger,
     timingRecorder: null,
+    backgroundJobs,
   });
 }
 
@@ -179,6 +182,28 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
     Number(applied.summaryReasoningTokenBudget) + Number(applied.summaryOutputTokenBudget),
   );
   assert.equal(Number(applied.summarizerElapsedMs) >= 0, true);
+});
+
+class ListedJobs extends BackgroundJobs {
+  override describe(): string {
+    return 'Background jobs of this run:\n- j1 running for 60 s: npm test';
+  }
+}
+
+test('compaction ends with the jobs of the run; without jobs it adds nothing', async () => {
+  for (const [jobs, roles] of [
+    [new ListedJobs(new BackgroundJobSlots()), ['system', 'assistant', 'user', 'user']],
+    [new BackgroundJobs(new BackgroundJobSlots()), ['system', 'assistant', 'user']],
+  ] as const) {
+    const transcript = makeCompactableTranscript();
+    const preparer = makePreparer(
+      new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }),
+      transcript, [{ content: 'SUMMARY BODY' }], [], NO_THINKING, 'repo-agent', jobs,
+    );
+    withKind(await prepareTurn(preparer, 1, 0), 'ready');
+    assert.deepEqual(transcript.getMessages().map((message) => message.role), roles);
+    assert.equal(transcript.render(false).includes('- j1 running for 60 s: npm test'), roles.length === 4);
+  }
 });
 
 test('prepareTurn returns a context_overflow outcome for an overflowing repo-search transcript', async () => {

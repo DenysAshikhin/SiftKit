@@ -1,5 +1,5 @@
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
-import { ORCHESTRATOR_TOOL_NAMES, WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
+import { BACKGROUND_JOB_TOOL_NAME, ORCHESTRATOR_TOOL_NAMES, WEB_CHAT_TOOL_NAMES } from '../planner-protocol/repo-search.ts';
 import type { PresetSystemContext } from '../preset-system-context.ts';
 import { PresetSystemPromptComposer } from '../preset-system-prompt.ts';
 import { applyWebToolPolicy, resolveWebToolPolicy } from '../web-search/tool-policy.ts';
@@ -7,6 +7,7 @@ import type { WebSearchConfig } from '../web-search/types.ts';
 import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.ts';
 import {
   buildAgentSystemPrompt,
+  buildBackgroundJobInstructions,
   buildOrchestratorSystemPrompt,
   buildTaskSystemPrompt,
   buildWebChatToolInstructions,
@@ -22,6 +23,8 @@ type RunSystemPromptBase = {
   visionEnabled: boolean;
   /** True only for runs bound to a durable web chat. */
   webChatTools: boolean;
+  /** The run owns background jobs, so its `run` comes with `job`. */
+  backgroundJobs: boolean;
   /** An orchestrator parent is offered its own host tools on top of its repository tools. */
   orchestratorTools: boolean;
 };
@@ -46,6 +49,7 @@ export type ResolvedRunSystemPrompt = {
 export function resolveRunSystemPrompt(request: RunSystemPromptRequest): ResolvedRunSystemPrompt {
   const allowedTools = [
     ...request.allowedTools,
+    ...(request.backgroundJobs && request.allowedTools.includes('run') ? [BACKGROUND_JOB_TOOL_NAME] : []),
     ...(request.webChatTools ? WEB_CHAT_TOOL_NAMES : []),
     ...(request.orchestratorTools ? ORCHESTRATOR_TOOL_NAMES : []),
   ];
@@ -63,9 +67,9 @@ export function resolveRunSystemPrompt(request: RunSystemPromptRequest): Resolve
       : request.promptKind === 'orchestrator'
         ? buildOrchestratorSystemPrompt(toolDefinitions)
         : buildTaskSystemPrompt(request.systemContext, toolDefinitions);
-  // One shared guidance block for the web chat tools, whatever base prompt the run kind uses.
-  const webChatToolInstructions = buildWebChatToolInstructions(toolDefinitions.map(({ function: definition }) => definition.name));
-  const systemPrompt = [baseSystemPrompt, webChatToolInstructions].filter((section) => section.length > 0).join('\n\n');
+  // Shared guidance blocks for tools that ride on a surface, whatever base prompt the run kind uses.
+  const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
+  const systemPrompt = [baseSystemPrompt, buildBackgroundJobInstructions(toolNames), buildWebChatToolInstructions(toolNames)].filter((section) => section.length > 0).join('\n\n');
   return {
     systemPrompt: new PresetSystemPromptComposer(request.promptPrefix, request.systemContext)
       .compose(systemPrompt, request.additionalPromptPrefix),

@@ -418,3 +418,18 @@ test('injected memory is one display-only row that the model never replays and a
   assert.equal(messages.some(isReplayableChatMessage), false);
   assert.deepEqual(finalizeChatRunTranscript(messages, 'completed', metadata).map((message) => message.kind), ['memory_context']);
 });
+
+test('status updates are display-only rows that the model never replays and every finished run keeps', () => {
+  const first = { kind: 'status_update', updateId: '4f9c1f9a-0000-4000-8000-0000000000c1', text: 'Reading the parts involved.', createdAtUtc: '2026-11-24T09:00:00.000Z' } as const;
+  const second = { ...first, updateId: '4f9c1f9a-0000-4000-8000-0000000000c2', text: 'Making sure the fix holds.', createdAtUtc: '2026-11-24T09:02:00.000Z' };
+  let messages = reduceChatTranscript([], first, metadata);
+  messages = reduceChatTranscript(reduceChatTranscript(messages, second, metadata), second, metadata);
+  assert.deepEqual(messages.map((message) => [message.id, message.role, message.kind, message.content, message.createdAtUtc]), [
+    [`test-status-${first.updateId}`, 'assistant', 'assistant_status_update', first.text, first.createdAtUtc],
+    [`test-status-${second.updateId}`, 'assistant', 'assistant_status_update', second.text, second.createdAtUtc],
+  ]);
+  assert.equal(messages.some(isReplayableChatMessage), false);
+  assert.equal(finalizeChatRunTranscript(messages, 'completed', metadata).length, 2);
+  const stopped = finalizeChatRunTranscript(messages, 'user_stop', metadata);
+  assert.deepEqual(stopped.map((message) => message.runTerminalCause), [undefined, 'user_stop']);
+});

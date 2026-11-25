@@ -24,9 +24,9 @@ function seedSchema84(): { dbPath: string; runId: string } {
     approval: 'off', task: 'Add greeting.' }));
   const state = savePlanned(store, created, makeOrchestratorPlan([TASK, OTHER]));
   const blocked = store.reserveAttempt(state.runId, state.revision, 'greeting',
-    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task: TASK, instruction: 'Implement it.' });
+    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task: TASK, instruction: 'Implement it.' }, 'The run is under way.');
   const failed = store.reserveAttempt(state.runId, store.read(state.runId).revision, 'farewell',
-    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task: OTHER, instruction: 'Implement it.' });
+    { kind: 'implementation', planPath: 'docs/plan.md', planHash: 'hash', task: OTHER, instruction: 'Implement it.' }, 'The run is under way.');
   closeAllRuntimeDatabases();
   withRuntimeDatabaseConnection(dbPath, (database) => {
     const settle = database.prepare('UPDATE orchestrator_attempts SET attempt_json = ? WHERE child_run_id = ?');

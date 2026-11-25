@@ -50,7 +50,7 @@ test('each scheduler pass is published as it was decided, and a snapshot is a co
   assert.deepEqual(published.at(-1), { runId: RUN_ID, schedule: SCHEDULE, parent: null, children: [] });
   const snapshot = live.snapshot();
   snapshot.schedule?.claims.pop();
-  snapshot.children.push({ childRunId: CHILD_ID, taskId: 'x', waitingForModel: false, turn: 0, maxTurns: null, promptTokens: 0, tools: [] });
+  snapshot.children.push({ childRunId: CHILD_ID, taskId: 'x', waitingForModel: false, turn: 0, maxTurns: null, promptTokens: 0, tools: [], updates: [] });
   assert.deepEqual(live.snapshot(), { runId: RUN_ID, schedule: SCHEDULE, parent: null, children: [] });
 });
 

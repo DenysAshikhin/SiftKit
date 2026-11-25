@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.ts';
+import {
+  DEFAULT_BACKGROUND_TIMEOUT_MS,
+  DEFAULT_RUN_TIMEOUT_MS,
+  MAX_BACKGROUND_TIMEOUT_MS,
+  MAX_JOB_WAIT_MS,
+  MAX_RUN_TIMEOUT_MS,
+} from '../src/lib/powershell.ts';
 import { JsonObjectSchema } from '../src/lib/json-types.ts';
 import { z } from '../src/lib/zod.ts';
 import {
@@ -10,6 +16,7 @@ import {
   RepoNativeToolCallSchema,
   RUN_OUTPUT_MODES,
   RunOutputModeSchema,
+  resolveRunTimeoutMs,
 } from '../src/repo-search/repo-tool-arguments.ts';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.ts';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.ts';
@@ -186,6 +193,20 @@ test('canonical schema preserves write and edit payloads verbatim', () => {
   );
 });
 
+test('background runs get the longer time limit, and every job action parses', () => {
+  for (const call of [
+    { toolName: 'run', args: { command: 'npm test', background: true } },
+    { toolName: 'run', args: { command: 'npm test', background: true, timeoutMs: MAX_BACKGROUND_TIMEOUT_MS } },
+    { toolName: 'job', args: { action: 'wait', jobId: 'j1' } },
+    { toolName: 'job', args: { action: 'wait', jobId: 'j1', waitMs: MAX_JOB_WAIT_MS } },
+    { toolName: 'job', args: { action: 'output', jobId: 'j1' } },
+    { toolName: 'job', args: { action: 'stop', jobId: 'j1' } },
+    { toolName: 'job', args: { action: 'list' } },
+  ]) {
+    assert.equal(RepoNativeToolCallSchema.safeParse(call).success, true, JSON.stringify(call));
+  }
+});
+
 test('canonical schema rejects malformed native arguments at the model boundary', () => {
   const calls = [
     { toolName: 'read', args: {} },
@@ -201,6 +222,13 @@ test('canonical schema rejects malformed native arguments at the model boundary'
     { toolName: 'run', args: { command: 'npm test', timeoutMs: 0 } },
     { toolName: 'run', args: { command: 'npm test', timeoutMs: MAX_RUN_TIMEOUT_MS + 1 } },
     { toolName: 'run', args: { command: 'npm test', outputMode: 'verbose' } },
+    { toolName: 'run', args: { command: 'npm test', background: true, outputMode: 'full' } },
+    { toolName: 'run', args: { command: 'npm test', background: true, timeoutMs: MAX_BACKGROUND_TIMEOUT_MS + 1 } },
+    { toolName: 'run', args: { command: 'npm test', background: false, timeoutMs: MAX_RUN_TIMEOUT_MS + 1 } },
+    { toolName: 'job', args: { action: 'wait' } },
+    { toolName: 'job', args: { action: 'wait', jobId: 'j1', waitMs: MAX_JOB_WAIT_MS + 1 } },
+    { toolName: 'job', args: { action: 'list', jobId: 'j1' } },
+    { toolName: 'job', args: { action: 'restart', jobId: 'j1' } },
     { toolName: 'web_search', args: { query: 'x', timeFilter: 'decade' } },
     { toolName: 'web_fetch', args: { url: '   ' } },
     { toolName: 'unknown', args: {} },
@@ -221,6 +249,13 @@ test('ls, grep, and find planner metadata describe path as repository-root relat
     const pathDescription = z.string().parse(asObject(asObject(parameters.properties).path).description);
     assert.match(pathDescription, /relative to the repository root/u, toolName);
   }
+});
+
+test('a run resolves its timeout from its own limit, else its kind\'s default', () => {
+  assert.equal(resolveRunTimeoutMs({}), DEFAULT_RUN_TIMEOUT_MS);
+  assert.equal(resolveRunTimeoutMs({ background: true }), DEFAULT_BACKGROUND_TIMEOUT_MS);
+  assert.equal(resolveRunTimeoutMs({ timeoutMs: 60_000 }), 60_000);
+  assert.equal(resolveRunTimeoutMs({ background: true, timeoutMs: 600_000 }), 600_000);
 });
 
 test('run planner metadata uses canonical modes and line limit', () => {

@@ -2,7 +2,7 @@ import type { ActivitySummaryProgressEvent } from '../types.ts';
 import type { RepoSearchProgressEvent } from '../types.ts';
 import type { ProgressWriter } from '../../lib/progress-writer.ts';
 import type { TokenCountSource } from '../prompt-budget.ts';
-import type { PromptCacheBreak, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
+import type { PromptCacheBreak, StatusUpdateFields, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { foldTurnTokenRecords, resolveCharsPerToken } from './turn-token-record.ts';
 import type { TurnTokenRecord } from './turn-token-record.ts';
 
@@ -137,6 +137,10 @@ export class ProgressReporter {
 
   progressUpdate(turn: number, progressText: string): void {
     this.emit({ kind: 'progress_update', taskId: this.taskId, turn, maxTurns: this.maxTurns, progressText, elapsedMs: this.elapsedMs() });
+  }
+
+  statusUpdate(turn: number, update: StatusUpdateFields): void {
+    this.emit({ kind: 'status_update', taskId: this.taskId, turn, maxTurns: this.maxTurns, ...update, elapsedMs: this.elapsedMs() });
   }
 
   toolStart(

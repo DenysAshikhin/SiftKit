@@ -1,5 +1,7 @@
 /* ---- orchestrator agent board; state markers stay static, see chat.css ---- */
-.orchestrator-run { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); max-width: 900px; overflow: hidden; }
+.orchestrator-run { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; container-type: inline-size;
+  display: flex; flex-direction: column; min-height: clamp(420px, calc(100cqh - var(--msgs-top) - var(--msgs-bottom)), 1000px); }
+.orchestrator-run > * { flex: none; }
 .orch-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 .orch-title { font-weight: 600; }
 .orch-stop { margin-left: auto; padding: 4px 11px; }
@@ -21,14 +23,28 @@
 .orch-phase.failed i { background: var(--ch-red); }
 
 
-.orch-tasks { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+/* The panes take the room the header leaves and add none of their own, so what they hold never grows the panel. */
+.orchestrator-run > .orch-panes { flex: 1 0 260px; }
+.orch-panes { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr) minmax(0, 1.15fr); border-top: 1px solid var(--line); }
+.orch-pane { display: flex; flex-direction: column; min-width: 0; contain: size; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--idle) transparent; }
+.orch-pane > * { flex: none; }
+.orch-pane + .orch-pane { border-left: 1px solid var(--line); }
+.orch-pane-head { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+@container (max-width: 639px) {
+  .orchestrator-run > .orch-panes { flex: 1 0 auto; }
+  .orch-panes { grid-template: none / minmax(0, 1fr); }
+  .orch-pane { contain: none; max-height: 520px; }
+  .orch-pane + .orch-pane { border-left: none; border-top: 1px solid var(--line); }
+}
+
+.orch-tasks { list-style: none; margin: 0; padding: 0; }
 .orch-task { border-bottom: 1px solid var(--line); }
 .orch-task:last-child { border-bottom: none; }
 .orch-task.open { background: var(--row-live); box-shadow: inset 2px 0 0 var(--acc); }
 .orch-task-summary { list-style: none; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 12px; cursor: pointer; }
 .orch-task-summary::-webkit-details-marker { display: none; }
 .orch-task-summary:hover { background: var(--row-hover); }
-.orch-task-name small { display: block; color: var(--dim); font-size: 0.66rem; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+.orch-task-name small { display: block; color: var(--dim); font-size: 0.74rem; line-height: 1.4; }
 .orch-task-doing { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.68rem; color: var(--ink); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .orch-task-attempts { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.66rem; color: var(--dim); }
 
@@ -38,7 +54,10 @@
 .orch-agent-head .mini-btn { margin-left: auto; }
 .orch-turnbar { height: 3px; background: var(--track); }
 .orch-turnbar i { display: block; height: 100%; background: var(--acc); }
-.orch-agent-tools { padding: 6px 5px; display: grid; gap: 2px; }
+.orch-agent .status-updates { margin: 0; padding: 6px 10px 0; }
+.orch-agent-idle, .orch-agent-calls { padding: 6px 10px; font-size: 0.72rem; }
+.orch-agent-calls > summary { cursor: pointer; color: var(--dim); }
+.orch-agent-tools { padding: 6px 0 0; display: grid; gap: 2px; }
 .orch-tool .orch-tool-kind { color: var(--sky-ink); min-width: 54px; }
 .orch-tool .orch-tool-command { color: var(--code-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .orch-tool.running { color: var(--ink); background: var(--row-running); border-radius: 5px; }
@@ -55,16 +74,34 @@
 .orch-review .ok { color: var(--ok); }
 .orch-review .bad { color: var(--bad); }
 .orch-review .orchestrator-findings { margin: 4px 0 0; }
-.orch-parent { border-top: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 8px; }
-.orch-parent-head { display: flex; align-items: center; gap: 10px; }
+.orch-parent { padding: 10px 12px; display: grid; gap: 8px; }
+.orch-parent summary { cursor: pointer; }
+.orch-parent-more > summary, .orch-parent-older > summary { font-size: 0.74rem; color: var(--dim); }
+.orch-older-box { max-height: 200px; overflow-y: auto; scrollbar-width: thin; margin-top: 5px; padding: 5px 10px; border-left: 2px solid var(--line); display: grid; gap: 3px; }
+.orch-older-turn { font-size: 0.74rem; }
 .orch-parent pre { margin: 4px 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.68rem; }
 .orch-parent-prompt h4 { margin: 8px 0 0; font-size: 0.7rem; color: var(--dim); }
 .orch-parent-turns { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .orch-parent-turn { display: grid; gap: 4px; }
 .orch-parent-turn-head { font-size: 0.68rem; color: var(--dim); }
-.orch-parent-tool summary { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; }
+.orch-parent-tool summary { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 0.72rem; }
+.orch-parent-tool .orch-tool-command { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .orch-parent-tool.failed summary { color: var(--bad); }
 .orch-history { list-style: none; margin: 0; padding: 6px 12px; font-size: 0.68rem; color: var(--dim); border-bottom: 1px solid var(--line); }
 .orch-history b { color: var(--ink); font-weight: 500; }
 .orch-budget { display: inline-flex; align-items: center; gap: 4px; font-size: 0.68rem; color: var(--dim); }
 .orch-budget input { width: 5.5em; }
+
+/* Where the whole run is, pinned under the conversation. Past lines fade with age and never push it past four. */
+.orch-now { position: sticky; bottom: 0; margin-top: auto; padding: 8px 12px 10px; border-top: 1px solid #234a44; background: #0f1f1e; }
+.orch-now p { margin: 0; overflow-wrap: anywhere; }
+.orch-now time { font: 0.64rem ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--dim); }
+.orch-now li, .orch-now-current { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 11px; align-items: baseline; }
+.orch-now-current p { font-size: 0.84rem; color: #d3efe8; }
+.orch-now-past ol { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; font-size: 0.78rem; }
+.orch-now-past:not(.all) p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.orch-now-past:not(.all) li:nth-last-child(1) { opacity: 0.75; }
+.orch-now-past:not(.all) li:nth-last-child(2) { opacity: 0.55; }
+.orch-now-past:not(.all) li:nth-last-child(3) { opacity: 0.4; }
+.orch-now-past.all { max-height: 230px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.orch-now-all { border: none; background: none; padding: 0 0 4px; color: var(--acc); font: inherit; font-size: 0.7rem; cursor: pointer; }

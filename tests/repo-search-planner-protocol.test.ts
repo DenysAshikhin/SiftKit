@@ -9,7 +9,7 @@ import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.ts';
-import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
+import { buildTabbyUsage, contentFrame, sendChatCompletionSse } from './helpers/streaming-client.ts';
 import { serverLogger } from '../src/status-server/server-logger.ts';
 import { mockSiftConfig } from './helpers/mock-config.ts';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.ts';
@@ -28,6 +28,7 @@ import {
   type PlannerActionResponse,
   type PlannerDerivedRequestOptions,
   type PlannerThinkingFlags,
+  requestStatusUpdate,
 } from '../src/repo-search/planner-protocol.ts';
 import type { ChatMessage } from '../src/repo-search/planner-chat-message.ts';
 import type { JsonLogger } from '../src/repo-search/types.ts';
@@ -722,6 +723,90 @@ test('requestRepoSearchPlannerProtocolAction sends the active preset sampler val
   assert.equal(captured.max_tokens, 2048);
 });
 
+test('a status update repeats the planner request byte for byte and adds only its question', async () => {
+  const flags: PlannerThinkingFlags = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
+  const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
+  const messages = serializeProtocolMessages([
+    { role: 'system', content: 'system' },
+    { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }] },
+    { role: 'assistant', content: '', reasoning_content: 'think', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{"path":"a"}' } }] },
+    { role: 'tool', content: 'result', tool_call_id: 'call_1' },
+  ], true);
+  const capture = (executingFlags: PlannerThinkingFlags): ReturnType<typeof captureChatRequestBody> => captureChatRequestBody((baseUrl) => requestStatusUpdate({
+    config: buildTestConfig(), baseUrl, model: 'test-model', throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+    executing: captureExecutingPlannerRequest(messages, executingFlags, tools, 1_000),
+    instruction: 'Say what you are doing.', abortSignal: new AbortController().signal,
+  }), 'Reading on.');
+  const captured = await capture(flags);
+  assert.equal(JSON.stringify(captured.messages), JSON.stringify([...messages, { role: 'user', content: 'Say what you are doing.' }]));
+  assert.equal(JSON.stringify(captured.tools), JSON.stringify(tools));
+  assert.deepEqual([captured.tool_choice, captured.max_tokens], ['none', 60]);
+
+  // Templates write the thinking flag and the effort at the head of the prompt, so both must be the planner's own.
+  const planner = await captureChatRequestBody((baseUrl) => requestRepoSearchPlannerProtocolAction({
+    ...PLANNER_REQUEST_DEFAULTS, config: buildTestConfig(), baseUrl, model: 'test-model', throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+    messages, tools, timeoutMs: 5000, maxTokens: 2048, ...flags,
+  }));
+  assert.deepEqual(captured.chat_template_kwargs, planner.chat_template_kwargs);
+  assert.partialDeepStrictEqual(captured.chat_template_kwargs, { enable_thinking: true });
+  assert.equal(captured.response_prefix, '\n</think>\n\n', 'the block the template opened is closed, so the reply does not think');
+  const unthinking = await capture({ thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false });
+  assert.partialDeepStrictEqual(unthinking.chat_template_kwargs, { enable_thinking: false });
+  assert.equal(unthinking.response_prefix, undefined, 'a template without thinking opens no block');
+});
+
+test('a status update ends with its command', async () => {
+  const command = new AbortController();
+  await withServer(
+    (_req, _res) => { command.abort(new Error('command over')); },
+    async (baseUrl) => {
+      await assert.rejects(requestStatusUpdate({
+        config: buildTestConfig(), baseUrl, model: 'test-model', throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+        executing: captureExecutingPlannerRequest(serializeProtocolMessages([{ role: 'user', content: 'q' }], true),
+          { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true }, [], 10),
+        instruction: 'Say.', abortSignal: command.signal,
+      }), /command over/u);
+    },
+  );
+});
+
+test('a status update has five seconds to read its prompt, though its 60 tokens alone would allow three', async () => {
+  let response: PlannerActionResponse | null = null;
+  await withServer(
+    (_req, res) => { setTimeout(() => { sendChatCompletionSse(res, { choices: [{ message: { content: 'Reading on.' } }] }); }, 5_000); },
+    async (baseUrl) => {
+      response = await requestStatusUpdate({
+        config: buildTestConfig(), baseUrl, model: 'test-model', throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+        executing: captureExecutingPlannerRequest(serializeProtocolMessages([{ role: 'user', content: 'q' }], true),
+          { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true }, [], 10),
+        instruction: 'Say.', abortSignal: new AbortController().signal,
+      });
+    },
+  );
+  assert.partialDeepStrictEqual(response, { text: 'Reading on.' });
+});
+
+test('a status update gives up after ten seconds in total, even while the engine still sends something', async () => {
+  const startedAt = performance.now();
+  await withServer(
+    (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const trickle = setInterval(() => { res.write(`data: ${contentFrame('.')}\n\n`); }, 1_000);
+      res.on('close', () => { clearInterval(trickle); });
+    },
+    async (baseUrl) => {
+      await assert.rejects(requestStatusUpdate({
+        config: buildTestConfig(), baseUrl, model: 'test-model', throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+        executing: captureExecutingPlannerRequest(serializeProtocolMessages([{ role: 'user', content: 'q' }], true),
+          { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true }, [], 10),
+        instruction: 'Say.', abortSignal: new AbortController().signal,
+      }));
+    },
+  );
+  const elapsedMs = performance.now() - startedAt;
+  assert.ok(elapsedMs >= 9_500 && elapsedMs < 13_000, `gave up after ${elapsedMs} ms`);
+});
+
 test('derived planner requests reject every cache-contract divergence before logging or HTTP', async () => {
   let requestCount = 0;
   const loggerEvents: JsonObject[] = [];
@@ -767,6 +852,10 @@ test('derived planner requests reject every cache-contract divergence before log
         {
           options: { ...common, messages, ...flags, tools: [] },
           error: /terminal_synthesis prompt-cache contract violated: tools diverged/u,
+        },
+        {
+          options: { ...common, stage: 'status_update', messages, ...flags, thinkingEnabled: false, tools },
+          error: /status_update prompt-cache contract violated: thinkingEnabled diverged/u,
         },
         {
           options: { ...common, messages, ...flags, thinkingEnabled: false, tools },

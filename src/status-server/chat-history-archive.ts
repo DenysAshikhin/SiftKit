@@ -39,7 +39,7 @@ const ResponseSchema = z.object({ turn: z.number().int().positive(), text: z.str
 const DIAGNOSTIC_KINDS = new Set([
   'model_inventory', 'turn_preflight_start', 'turn_preflight_budget', 'turn_model_request',
   'provider_request_start', 'provider_request_done', 'provider_request_error',
-  'prompt_cache_epoch_reset', 'turn_progress',
+  'prompt_cache_epoch_reset', 'turn_progress', 'status_update',
 ]);
 const EVIDENCE_KINDS = new Set([
   'run_start', 'turn_new_messages', 'turn_model_response', 'turn_command_start',

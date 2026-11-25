@@ -21,6 +21,8 @@ import {
   orchestratorSteps,
   phaseTone,
   runElapsedMs,
+  runLine,
+  taskCounts,
   taskTone,
   waitReason,
 } from '../src/orchestrator-view.ts';
@@ -32,7 +34,7 @@ const AT = '2026-10-11T12:00:00.000Z';
 const CHECK = { kind: 'command', command: 'npm test', cwd: '.', expectedExitCode: 0 } as const;
 
 function planTask(id: string, workerPresetId: string, dependsOn: string[] = []) {
-  return { id, title: id, dependsOn, workerPresetId, readPaths: [], writePaths: [], temporaryPaths: [],
+  return { id, title: id, why: null, dependsOn, workerPresetId, readPaths: [], writePaths: [], temporaryPaths: [],
     steps: [{ instruction: 'Do it.', expectedResult: 'Done.' }], verification: [CHECK], acceptance: ['Done.'] };
 }
 
@@ -54,7 +56,7 @@ const SCHEDULE: OrchestratorSchedule = {
 const ACTIVITY: OrchestratorActivity = { runId: RUN_ID, schedule: SCHEDULE, parent: null, children: [] };
 
 const CHILD: OrchestratorChildActivity = {
-  childRunId: CHILD_ID, taskId: 'write', waitingForModel: false, turn: 3, maxTurns: 40, promptTokens: 1000, tools: [],
+  childRunId: CHILD_ID, taskId: 'write', waitingForModel: false, turn: 3, maxTurns: 40, promptTokens: 1000, tools: [], updates: [],
 };
 
 function taskOf(state: OrchestratorRunState, id: string) {
@@ -99,7 +101,7 @@ test('attempt summary counts each purpose against the attempt limit', () => {
 test('now doing prefers the running tool, then the model wait, then the turn, then the task status', () => {
   const running = runState({ write: 'running' });
   const tool = { toolCallId: 't1', turn: 3, activityKind: 'command', command: 'npm test', status: 'running' } as const;
-  assert.equal(nowDoing(taskOf(running, 'write'), { ...CHILD, tools: [tool] }), 'command npm test');
+  assert.equal(nowDoing(taskOf(running, 'write'), { ...CHILD, tools: [tool] }), 'command · turn 3');
   assert.equal(nowDoing(taskOf(running, 'write'), { ...CHILD, waitingForModel: true }), 'waiting for model');
   assert.equal(nowDoing(taskOf(running, 'write'), CHILD), 'thinking · turn 3');
   assert.equal(nowDoing(taskOf(running, 'write'), { ...CHILD, turn: 0 }), 'starting');
@@ -138,4 +140,19 @@ test('budget summary, active approach, and ended approaches read from the run st
     { number: 1, title: 'Initial plan', outcome: 'rolled back', lesson: 'Too slow.' },
     { number: 2, title: 'Cache the index', outcome: 'kept', lesson: 'Works; needs eviction.' },
   ]);
+});
+
+test('the run line is the latest dispatch, with the earlier ones before it, or the goal until there is one', () => {
+  const line = (text: string) => ({ text, atUtc: AT });
+  assert.deepEqual(runLine(runState({}, { plan: null })), { current: null, past: [] });
+  assert.deepEqual(runLine(runState({})), { current: { text: 'Go', atUtc: null }, past: [] });
+  assert.deepEqual(runLine(runState({}, { statusLines: [line('One.')] })), { current: line('One.'), past: [] });
+  assert.deepEqual(runLine(runState({}, { statusLines: [line('One.'), line('Two.'), line('Three.')] })),
+    { current: line('Three.'), past: [line('One.'), line('Two.')] });
+});
+
+test('task counts name only the kinds that have a task', () => {
+  assert.equal(taskCounts(runState({}).tasks), '4 waiting');
+  assert.equal(taskCounts(runState({ read: 'completed', write: 'reviewing', 'write-2': 'failed' }).tasks), '1 done · 1 running · 1 waiting · 1 failed');
+  assert.equal(taskCounts([]), '');
 });

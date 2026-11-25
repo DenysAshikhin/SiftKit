@@ -151,6 +151,7 @@ export const ChatTranscriptMessageKindSchema = z.enum([
   'assistant_tool_call',
   'assistant_narration',
   'assistant_progress',
+  'assistant_status_update',
   'tool_image',
   'compaction_summary',
   'repo_agent_approval',
@@ -245,12 +246,19 @@ const ChatMemoryContextMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.literal('memory_context'),
 });
 
+/** A sentence or two for the reader about what the run was doing; shown, never replayed. */
+const ChatStatusUpdateMessageSchema = ChatMessageBaseSchema.extend({
+  role: z.literal('assistant'),
+  kind: z.literal('assistant_status_update'),
+});
+
 export const ChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
   ChatTranscriptToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
   ChatTranscriptNonToolMessageSchema,
   ChatTranscriptStreamTextMessageSchema,
   ChatMemoryContextMessageSchema,
+  ChatStatusUpdateMessageSchema,
 ]);
 export type ChatTranscriptMessage = z.infer<typeof ChatTranscriptMessageSchema>;
 
@@ -304,6 +312,7 @@ export const PersistedChatTranscriptMessageSchema = z.discriminatedUnion('kind',
   ChatTranscriptNonToolMessageSchema,
   ChatTranscriptStreamTextMessageSchema,
   ChatMemoryContextMessageSchema,
+  ChatStatusUpdateMessageSchema,
 ]);
 export type PersistedChatTranscriptMessage = z.infer<typeof PersistedChatTranscriptMessageSchema>;
 

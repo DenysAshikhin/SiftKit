@@ -6,7 +6,7 @@ import { InferenceClient } from '../llm-protocol/inference-client.ts';
 import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.ts';
 import type { InferenceActivityObserver } from '../lib/progress-writer.ts';
 import type { JsonObject, InferenceChatMessage, InferenceChatRequest, InferenceChatRole, InferenceToolCall, InferenceToolDefinition, StreamStop } from '../llm-protocol/types.ts';
-import { CLEAN_STREAM_STOP, InferenceToolDefinitionsSchema } from '../llm-protocol/types.ts';
+import { CLEAN_STREAM_STOP, InferenceChatMessageSchema, InferenceToolDefinitionsSchema } from '../llm-protocol/types.ts';
 import { parseJsonValueText } from '../lib/json.ts';
 import { JsonObjectSchema } from '../lib/json-types.ts';
 import { extractContentText } from '../llm-protocol/image-attachments.ts';
@@ -23,10 +23,11 @@ import { APPROVER_SYSTEM_PROMPT } from './approval-review-policy.ts';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.ts';
 import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.ts';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.ts';
-import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.ts';
+import { buildInlineThinkPattern, CLOSE_OPENED_THINK_BLOCK, THINK_OPEN_TAG } from '../llm-protocol/think-markers.ts';
 import type { JsonLogger } from './types.ts';
 import { REPO_TOOL_ARGUMENT_SCHEMAS, type RepoToolName } from './repo-tool-arguments.ts';
 import {
+  BACKGROUND_JOB_TOOL_NAME,
   EXPOSED_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.ts';
 import { emptyInferenceThroughput } from '../lib/inference-throughput.ts';
@@ -128,6 +129,11 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
     description: `Execute a shell command in the repository root. Returns stdout and stderr. ${UNFILTERED_CHECK_OUTPUT_RULE}`,
     exampleArgs: { command: 'npm test', outputMode: 'auto' },
   }),
+  job: buildRepoToolDefinition({
+    toolName: 'job',
+    description: 'Read or stop a command started by run with background true: wait for it (returns early when it ends), read its output so far, stop it, or list this run\'s jobs. Every job is killed when the run ends.',
+    exampleArgs: { action: 'wait', jobId: 'j1' },
+  }),
   git: buildRepoToolDefinition({
     toolName: 'git',
     description: 'Inspect repository state with one typed read-only operation: status, log, show, diff, blame, grep, or ls_files.',
@@ -158,7 +164,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
     description: 'Validate and save the first run plan. Invalid plans come back with their problems; once a plan is saved, revise it with update_tasks.',
     exampleArgs: { plan: {
       goal: 'Add the greeting module.', constraints: [],
-      tasks: [{ id: 'greeting', title: 'Add src/greeting.ts', dependsOn: [], workerPresetId: 'repo-agent',
+      tasks: [{ id: 'greeting', title: 'Add src/greeting.ts', why: 'Give every part of the app one shared greeting.', dependsOn: [], workerPresetId: 'repo-agent',
         readPaths: ['src/app.ts'], writePaths: ['src/greeting.ts'],
         steps: [{ instruction: 'Create src/greeting.ts exporting greeting.', expectedResult: 'The module exists.' }],
         verification: [{ kind: 'command', command: 'npm run typecheck', cwd: '.', expectedExitCode: 0 }],
@@ -179,7 +185,8 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   dispatch: buildRepoToolDefinition({
     toolName: 'dispatch',
     description: 'Start a fresh subagent for one saved plan task, then wait. Returns its report once it finishes, or earlier when it needs your approval decision. One child runs at a time.',
-    exampleArgs: { taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts exporting greeting; keep src/app.ts unchanged.' },
+    exampleArgs: { taskId: 'greeting', purpose: 'implementation', instruction: 'Create src/greeting.ts exporting greeting; keep src/app.ts unchanged.',
+      update: 'The plan is ready. Building the shared greeting first, because the rest depends on it.' },
   }),
   decide: buildRepoToolDefinition({
     toolName: 'decide',
@@ -200,12 +207,14 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
 
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
 const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGISTRY));
+/** Tools that run a command or a child, which can rewrite any file. */
+const COMMAND_TOOL_NAMES = ['run', BACKGROUND_JOB_TOOL_NAME, 'dispatch', 'decide', 'run_check', 'change_approach'];
 /**
  * Tools that can change the working tree, so an identical earlier query may now have a different
  * answer and must not be rejected as a repeat. Typed Git is deliberately absent because its fixed
  * native operations cannot mutate the working tree.
  */
-const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit', 'dispatch', 'decide', 'run_check', 'change_approach']);
+const TREE_MUTATING_TOOL_NAMES = new Set<string>([...COMMAND_TOOL_NAMES, 'write', 'edit']);
 
 export function normalizeToolName(toolName: string): string {
   return String(toolName || '').trim().toLowerCase();
@@ -213,6 +222,11 @@ export function normalizeToolName(toolName: string): string {
 
 export function isTreeMutatingToolName(toolName: string): boolean {
   return TREE_MUTATING_TOOL_NAMES.has(normalizeToolName(toolName));
+}
+
+/** A command or child may have rewritten any file, so every earlier read is stale after it. */
+export function rewritesAnyFile(toolName: string): boolean {
+  return COMMAND_TOOL_NAMES.includes(normalizeToolName(toolName));
 }
 
 export function getRepoSearchToolNames(): string[] {
@@ -323,7 +337,8 @@ export type PlannerRequestStage =
   | 'planner_action'
   | 'approval_verdict'
   | 'terminal_synthesis'
-  | 'context_compaction';
+  | 'context_compaction'
+  | 'status_update';
 
 export type PlannerResponseConstraint =
   | { responseSchema: null; responseSchemaName?: never }
@@ -363,6 +378,8 @@ type PlannerRequestBase = PlannerThinkingFlags & {
   messages: InferenceChatMessage[];
   /** Per-attempt allowance, not a total wall clock: bounds the SSE idle gap and caps the retry window. */
   timeoutMs: number;
+  /** Overrides the deadline derived from `maxTokens`, which leaves a small reply no time to read its prompt. */
+  totalDeadlineMs?: number;
   maxTokens: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (snapshot: LiveContentSnapshot) => void;
@@ -376,6 +393,8 @@ type PlannerRequestBase = PlannerThinkingFlags & {
   reasoningBudgetMessage?: string;
   reasoningBudgetTokens?: number;
   continuationMinTokens?: number;
+  /** Rendered after the generation prompt; the reply continues from it. */
+  responsePrefix?: string;
 } & PlannerResponseConstraint;
 
 export type PlannerRootRequestOptions = PlannerRequestBase & {
@@ -565,8 +584,10 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         maxTokens: options.maxTokens,
         responseFormat: responseFormat ?? undefined,
         reasoningOverride: options.thinkingEnabled ? 'on' : 'off',
+        ...(options.responsePrefix === undefined ? {} : { responsePrefix: options.responsePrefix }),
         allowedToolNames,
         idleTimeoutSeconds: options.timeoutMs / 1000,
+        totalDeadlineMs: options.totalDeadlineMs,
         retry: false,
         abortSignal: options.abortSignal,
         reasoningBudgetMessage: options.reasoningBudgetMessage,
@@ -781,6 +802,43 @@ export async function requestTerminalSynthesis(options: {
     toolChoice: 'none',
     onContentDelta: options.onContentDelta,
     activityObserver: options.activityObserver,
+  });
+}
+
+const STATUS_UPDATE_MAX_TOKENS = 60;
+/** The command usually ends first and cancels it; this bounds a stalled engine. */
+const STATUS_UPDATE_TIMEOUT_MS = 10_000;
+
+/** A short unthinking reply on top of the executing planner prompt; nothing of it enters the run's history. */
+export async function requestStatusUpdate(options: {
+  config: SiftConfig;
+  baseUrl: string;
+  model: string;
+  throughputAudit: ThroughputAuditOperation;
+  executing: ExecutingPlannerRequest;
+  instruction: string;
+  abortSignal: AbortSignal;
+  logger?: JsonLogger | null;
+}): Promise<PlannerActionResponse> {
+  const prefix = options.executing.serializedMessageJson.map((message) => InferenceChatMessageSchema.parse(parseJsonValueText(message)));
+  return requestRepoSearchPlannerProtocolAction({
+    config: options.config,
+    baseUrl: options.baseUrl,
+    model: options.model,
+    throughputAudit: options.throughputAudit,
+    messages: [...prefix, { role: 'user', content: options.instruction }],
+    timeoutMs: STATUS_UPDATE_TIMEOUT_MS,
+    totalDeadlineMs: STATUS_UPDATE_TIMEOUT_MS,
+    maxTokens: STATUS_UPDATE_MAX_TOKENS,
+    ...options.executing.flags,
+    ...(options.executing.flags.thinkingEnabled ? { responsePrefix: CLOSE_OPENED_THINK_BLOCK } : {}),
+    abortSignal: options.abortSignal,
+    logger: options.logger,
+    cachePrefix: options.executing,
+    stage: 'status_update',
+    responseSchema: null,
+    tools: options.executing.tools,
+    toolChoice: 'none',
   });
 }
 

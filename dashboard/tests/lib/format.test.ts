@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { getLastTurnTelemetry } from '../../src/lib/format.ts';
+import { getLastTurnTelemetry, plural } from '../../src/lib/format.ts';
 import type { ChatMessage, ChatSession } from '../../src/types.ts';
 
 const BASE_MESSAGE: ChatMessage = {
@@ -88,4 +88,10 @@ test('getLastTurnTelemetry returns nulls for a missing session', () => {
     generationTokensPerSecond: null,
     ttftMs: null,
   });
+});
+
+test('plural counts one noun singular, the rest plural, with thousands grouped', () => {
+  assert.equal(plural(1, 'call'), '1 call');
+  assert.equal(plural(0, 'call'), '0 calls');
+  assert.equal(plural(1200, 'note'), '1,200 notes');
 });

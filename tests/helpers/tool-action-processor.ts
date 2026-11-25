@@ -13,6 +13,7 @@ import type { ApprovalRequester } from '../../src/repo-search/engine/approval-ga
 import type { ChatRunEvidenceRecorder } from '../../src/repo-search/engine/chat-run-evidence.ts';
 import type { QuestionGate } from '../../src/repo-search/engine/question-gate.ts';
 import type { OrchestratorToolHost } from '../../src/repo-search/engine/orchestrator-tool-host.ts';
+import type { BackgroundJobs } from '../../src/repo-search/engine/background-jobs.ts';
 import { ToolResultBudgeter } from '../../src/repo-search/engine/tool-result-budgeter.ts';
 import { ToolStatsRecorder } from '../../src/repo-search/engine/tool-stats.ts';
 import { TranscriptManager } from '../../src/repo-search/engine/transcript-manager.ts';
@@ -43,6 +44,7 @@ export function makeProcessor(
     evidenceRecorder?: ChatRunEvidenceRecorder;
     questionGate?: QuestionGate;
     orchestratorTools?: OrchestratorToolHost;
+    backgroundJobs?: BackgroundJobs;
   } = {},
 ): {
   processor: ToolActionProcessor;
@@ -86,6 +88,8 @@ export function makeProcessor(
     evidenceRecorder: options.evidenceRecorder ?? null,
     questionGate: options.questionGate ?? null,
     orchestratorTools: options.orchestratorTools ?? null,
+    backgroundJobs: options.backgroundJobs ?? null,
+    statusUpdates: null,
     runtimeProfile: new RepoSearchRuntimeProfile(taskKind),
     chatWebGroundingEnabled: false,
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),

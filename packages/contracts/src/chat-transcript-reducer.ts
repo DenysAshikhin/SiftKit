@@ -16,6 +16,7 @@ import {
   type ChatTranscriptMessage,
   type PersistedChatTranscriptMessage,
 } from './chat.ts';
+import { StatusUpdateFieldsSchema } from './status-update.ts';
 
 /**
  * What the journal knows about a call's outcome, as opposed to the preview a live frame carries.
@@ -54,6 +55,7 @@ export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('tool_outcome'), outcome: ChatToolOutcomeSchema }),
   z.strictObject({ kind: z.literal('submission'), message: ChatSubmittedUserMessageSchema }),
   z.strictObject({ kind: z.literal('memory_context'), content: z.string().min(1) }),
+  z.strictObject({ kind: z.literal('status_update'), ...StatusUpdateFieldsSchema.shape }),
 ]);
 export type ChatTranscriptEvent = z.infer<typeof ChatTranscriptEventSchema>;
 
@@ -85,6 +87,7 @@ const ChatMessageIdentitySchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.enum(['thinking', 'narration', 'answer']), turn: z.number().int().nonnegative() }),
   z.strictObject({ kind: z.literal('tool'), toolCallId: z.string().min(1) }),
   z.strictObject({ kind: z.literal('approval'), approvalId: z.string().min(1) }),
+  z.strictObject({ kind: z.literal('status'), updateId: z.string().uuid() }),
   z.strictObject({ kind: z.literal('summary'), revision: z.number().int().positive() }),
   z.strictObject({ kind: z.enum(['user', 'progress', 'memory', 'answer-final', 'answer-stopped']) }),
 ]);
@@ -95,6 +98,7 @@ export function buildChatMessageId(messageIdPrefix: string, input: z.infer<typeo
   if ('turn' in identity) return `${prefix}-${identity.kind}-${identity.turn}`;
   if (identity.kind === 'tool') return `${prefix}-tool-${identity.toolCallId}`;
   if (identity.kind === 'approval') return `${prefix}-approval-${identity.approvalId}`;
+  if (identity.kind === 'status') return `${prefix}-status-${identity.updateId}`;
   if (identity.kind === 'summary') return `${prefix}-summary-${identity.revision}`;
   return `${prefix}-${identity.kind}`;
 }
@@ -128,7 +132,7 @@ function upsertMessage(
 
 function textMessage(
   id: string,
-  kind: TextRowKind | 'memory_context',
+  kind: TextRowKind | 'memory_context' | 'assistant_status_update',
   content: string,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage {
@@ -343,6 +347,10 @@ export function reduceChatTranscript(
   if (event.kind === 'tool_outcome') return reduceToolOutcomeEvent(messages, event, metadata);
   if (event.kind === 'memory_context') {
     return upsertMessage(messages, textMessage(buildChatMessageId(metadata.messageIdPrefix, { kind: 'memory' }), 'memory_context', event.content, metadata));
+  }
+  if (event.kind === 'status_update') {
+    return upsertMessage(messages, textMessage(buildChatMessageId(metadata.messageIdPrefix, { kind: 'status', updateId: event.updateId }),
+      'assistant_status_update', event.text, { ...metadata, createdAtUtc: event.createdAtUtc }));
   }
   return reduceToolEvent(messages, event, metadata);
 }

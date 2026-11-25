@@ -135,6 +135,7 @@ export function renderOrchestratorPlan(plan: OrchestratorPlan): string {
     '## Constraints', ...renderList(plan.constraints, 'None.'), '',
     ...plan.tasks.flatMap((task) => [
       `## Task ${task.id}: ${task.title}`, '',
+      ...(task.why === null ? [] : [task.why, '']),
       `- Worker: \`${task.workerPresetId}\``,
       `- Depends on: ${task.dependsOn.length === 0 ? 'none' : task.dependsOn.map((id) => `\`${id}\``).join(', ')}`,
       `- Reads: ${task.readPaths.length === 0 ? 'none' : task.readPaths.map((entry) => `\`${entry}\``).join(', ')}`,
