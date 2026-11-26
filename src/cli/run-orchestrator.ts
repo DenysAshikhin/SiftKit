@@ -15,7 +15,7 @@ function taskReport(state: OrchestratorRunState, taskId: string): OrchestratorHa
 /** The typed summary printed on stdout; the exit code follows the parent phase, never a child's exit. */
 export function renderOrchestratorResult(state: OrchestratorRunState, nowMs: number): string {
   return JSON.stringify({
-    runId: state.runId, status: state.phase, planPath: state.planPath, failure: state.failure,
+    runId: state.runId, status: state.phase, planPath: state.planPath, summary: state.summary, failure: state.failure,
     budget: budgetUsage(state, runClockMs(state, nowMs)),
     approval: state.approval === null ? null : {
       ...state.approval,

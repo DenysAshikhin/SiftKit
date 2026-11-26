@@ -206,6 +206,7 @@ test('one conversation plans, dispatches a writer, reviews it, and finishes; the
     const { state, events } = await followRun(context, started.runId);
 
     assertCompleted(state, engine);
+    assert.equal(state.summary, 'Added the greeting module.');
     assert.deepEqual(context.harness.loadedModelNames, ['model-a', 'model-b', 'model-a'],
       'the parent on A, its child on B, then the parent resumes on A');
     assert.equal(engine.prompts('parent').length, 1, 'the whole run is one orchestrator conversation');
@@ -310,6 +311,7 @@ test('a fifth invalid response in a row ends the orchestrator conversation', asy
   assert.equal(state.phase, 'failed');
   assert.match(state.failure?.message ?? '', /invalid_response_limit/u);
   assert.equal(state.plan, null, 'the save_plan after the fifth slip never ran');
+  assert.equal(state.summary, null);
 });
 
 test('a dispatch whose update names a path is refused and records no line; the next one is recorded', async (t) => {

@@ -1,4 +1,4 @@
-const PRIVATE_HOST_SUFFIXES = ['.local', '.internal'] as const;
+const PRIVATE_HOST_SUFFIXES = ['.local', '.internal', '.localhost'] as const;
 
 function isPrivateIpv4(hostname: string): boolean {
   const parts = hostname.split('.').map((part) => Number(part));
@@ -6,7 +6,8 @@ function isPrivateIpv4(hostname: string): boolean {
     return false;
   }
   const [a, b] = parts;
-  return a === 10
+  return a === 0
+    || a === 10
     || a === 127
     || (a === 172 && b >= 16 && b <= 31)
     || (a === 192 && b === 168)
@@ -14,7 +15,8 @@ function isPrivateIpv4(hostname: string): boolean {
 }
 
 function isBlockedHostname(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
+  // A trailing dot names the same host: "localhost." is localhost.
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/u, '');
   if (!normalized || normalized === 'localhost') {
     return true;
   }

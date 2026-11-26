@@ -15,6 +15,7 @@ import {
 } from './helpers/dashboard-http.ts';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
 import {
+  FETCH_RESTRICTED_PORTS,
   createDeadHttpEndpoint,
   listenOnEphemeralPort,
 } from './helpers/test-endpoints.ts';
@@ -51,6 +52,38 @@ test('dead HTTP endpoint owns its port until explicitly closed', async () => {
     competingServer.listen(port, '127.0.0.1', resolve);
   });
   await closeHttpServer(competingServer);
+});
+
+// Loopback-only probe of the WHATWG restricted-port candidates (4765 and the guarded default ports are excluded).
+test('FETCH_RESTRICTED_PORTS pins the loopback ports Node fetch refuses', async () => {
+  const candidates = [1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 5632, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080];
+  const refused: number[] = [];
+  for (const port of candidates) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/`);
+    } catch (error) {
+      const cause = error instanceof Error ? error.cause : undefined;
+      if (cause instanceof Error && /bad port/u.test(cause.message)) {
+        refused.push(port);
+      }
+    }
+  }
+  assert.deepEqual(refused, [...FETCH_RESTRICTED_PORTS]);
+});
+
+test('listenOnEphemeralPort returns a fetch-reachable port outside FETCH_RESTRICTED_PORTS', async () => {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/plain' });
+    response.end('ok');
+  });
+  const port = await listenOnEphemeralPort(server);
+  try {
+    assert.ok(!FETCH_RESTRICTED_PORTS.includes(port), `port ${port} is restricted for fetch`);
+    const response = await fetch(`http://127.0.0.1:${port}/`);
+    assert.equal(response.status, 200);
+  } finally {
+    await closeHttpServer(server);
+  }
 });
 
 test('dashboard HTTP helpers read JSON and SSE payloads', async () => {

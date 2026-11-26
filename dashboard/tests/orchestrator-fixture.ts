@@ -24,7 +24,7 @@ export function orchestratorTaskState(taskId: string, status: OrchestratorTaskSt
 export function orchestratorRunState(overrides: Partial<OrchestratorRunState> = {}): OrchestratorRunState {
   return OrchestratorRunStateSchema.parse({
     runId: FIXTURE_RUN_ID, request: orchestratorRequest(), revision: 1, phase: 'executing', planPath: null, planHash: null,
-    plan: null, tasks: [], attempts: [], parentRunIds: [], approval: null, failure: null,
+    plan: null, tasks: [], attempts: [], parentRunIds: [], approval: null, failure: null, summary: null,
     approaches: [], retiredTasks: [], statusLines: [], createdAtUtc: FIXTURE_AT, updatedAtUtc: FIXTURE_AT, ...overrides,
   });
 }

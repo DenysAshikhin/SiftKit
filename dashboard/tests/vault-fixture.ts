@@ -9,7 +9,7 @@ const noop = () => undefined;
 
 export const NOOP_ACTIONS: VaultActions = {
   openNote: noop, followLink: noop, searchTag: noop, toggleTask: noop, triage: noop, showFull: noop, jumpTo: noop, setMode: noop,
-  saveBody: noop, rename: noop, linkMention: noop, openDiff: noop, restore: noop, activateTab: noop, closeTab: noop, openGraph: noop,
+  setDraft: noop, saveDraft: noop, rename: noop, linkMention: noop, openDiff: noop, restore: noop, activateTab: noop, closeTab: noop, openGraph: noop,
   openReview: noop, openDaily: noop, newNote: noop, createNote: noop, setSide: noop, setSearch: noop, toggleFolder: noop,
   collapseAll: noop, toggleStubs: noop, setRight: noop, setLocalDepth: noop, setGraphOptions: noop, selectGraphNode: noop,
   rerunLayout: noop, openPalette: noop, closePalette: noop, hoverLink: noop, clearHover: noop, exportVault: noop,
@@ -51,7 +51,7 @@ export function vaultTabProps(overrides: Partial<VaultTabProps> = {}): VaultTabP
     search: '',
     searchResult: null,
     searchInput: createRef(),
-    tabs: { tabs: [{ kind: 'graph' }, { kind: 'note', noteId: note.id, mode: 'read', full: false }], active: 0 },
+    tabs: { tabs: [{ kind: 'graph' }, { kind: 'note', noteId: note.id, mode: 'read', full: false, draft: null }], active: 0 },
     details: new Map([[note.id, noteDetail(note)]]),
     revisions: new Map(),
     diffs: new Map(),

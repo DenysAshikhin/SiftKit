@@ -257,6 +257,21 @@ function statusLines(count: number): OrchestratorRunState['statusLines'] {
   return Array.from({ length: count }, (_, index) => ({ text: `Line ${index + 1}.`, atUtc: AT }));
 }
 
+test('a finished run shows its final answer as markdown above the panes', () => {
+  renderPanel(runState({ phase: 'completed', summary: 'Found **34** flaws.' }));
+  const answer = screen.getByRole('region', { name: 'Final answer' });
+  assert.equal(answer.querySelector('p')?.textContent, 'Found 34 flaws.');
+  assert.equal(answer.querySelector('strong')?.textContent, '34');
+  const panes = document.querySelector('.orch-panes');
+  assert.ok(panes);
+  assert.equal(answer.compareDocumentPosition(panes), window.Node.DOCUMENT_POSITION_FOLLOWING);
+});
+
+test('a run without a summary shows no final answer', () => {
+  renderPanel(runState({ phase: 'failed' }));
+  assert.equal(screen.queryByRole('region', { name: 'Final answer' }), null);
+});
+
 function shownLines(): string[] {
   return [...screen.getByRole('region', { name: 'Where the run is' }).querySelectorAll('p')].map((line) => line.textContent ?? '');
 }

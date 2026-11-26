@@ -47,6 +47,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private processManaged: boolean | null = null;
   private processSignature: string | null = null;
   private residentResidencyKey: string | null = null;
+  private startPromise: Promise<void> | null = null;
   private loadPromise: Promise<void> | null = null;
   private vramBaselineUsedBytes: number | null = null;
   private adapter: Exl3PresetAdapter;
@@ -89,6 +90,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       throw new Error('Managed TabbyAPI requires a launch environment.');
     }
     try {
+      await this.prepareRamDisk(preset);
       if (!this.child || this.child.exitCode !== null) {
         this.adapter.validateTemplateThinking(preset);
         this.vramBaselineUsedBytes = (await this.host.gpuMemory.read())?.usedBytes ?? null;
@@ -150,6 +152,8 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
         + `TabbyAPI can apply. Use a managed launch or turn off ${diskCacheField}.`,
       );
     }
+    // One start at a time: a joined start that fails fails every caller, so its RAM disk asks for admin rights once.
+    while (this.startPromise) await this.startPromise;
     const launchEnvironment = managed ? this.buildLaunchEnvironment(preset) : null;
     const processSignature = launchEnvironment
       ? JSON.stringify(this.getEngineIdentity(launchEnvironment))
@@ -164,8 +168,12 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     ) await this.stopProcess();
     this.currentPreset = preset;
     if (this.getProcessState() !== 'ready') {
-      if (managed) await this.prepareRamDisk(preset);
-      await this.startProcess(preset, launchEnvironment, processSignature);
+      this.startPromise = this.startProcess(preset, launchEnvironment, processSignature);
+      try {
+        await this.startPromise;
+      } finally {
+        this.startPromise = null;
+      }
     }
     if (this.residentResidencyKey === this.getPresetResidencyKey(preset) && this.getModelState() === 'ready') return;
     if (this.loadPromise) return this.loadPromise;
@@ -376,7 +384,10 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       await delay(preset.HealthcheckIntervalMs);
     }
     this.transitionProcessTo('failed');
-    throw new Error('Timed out waiting for the TabbyAPI process.');
+    const waitedFor = expectedModel === null
+      ? `Preset '${preset.id}' points at an external server whose process probe never answered.`
+      : `Preset '${preset.id}' never reported its expected resident model '${expectedModel}'.`;
+    throw new Error(`Timed out waiting for the TabbyAPI process. ${waitedFor}`);
   }
 
   private async loadPreset(preset: ModelRuntimePreset): Promise<void> {

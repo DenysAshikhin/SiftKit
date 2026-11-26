@@ -1,9 +1,15 @@
 export type VaultNoteMode = 'read' | 'edit';
 
+/** Unsaved text of one note, and the revision it was typed over. */
+export interface VaultDraft {
+  readonly body: string;
+  readonly revision: number;
+}
+
 export type VaultTab =
   | { readonly kind: 'graph' }
   | { readonly kind: 'review' }
-  | { readonly kind: 'note'; readonly noteId: string; readonly mode: VaultNoteMode; readonly full: boolean }
+  | { readonly kind: 'note'; readonly noteId: string; readonly mode: VaultNoteMode; readonly full: boolean; readonly draft: VaultDraft | null }
   | { readonly kind: 'diff'; readonly noteId: string; readonly revision: number };
 
 export type VaultSpecialTab = Exclude<VaultTab, { kind: 'note' }>;
@@ -15,16 +21,16 @@ export interface VaultTabsState {
 
 const replaceAt = (tabs: readonly VaultTab[], index: number, tab: VaultTab) => tabs.map((current, at) => (at === index ? tab : current));
 
-/** Mirrors the mockup: reuse an open tab, else replace a read-mode note tab, else push a new one. */
+/** Mirrors the mockup: reuse an open tab, else replace a read-mode note tab without a draft, else push a new one. */
 export function openNoteTab(state: VaultTabsState, noteId: string, options: { readonly newTab: boolean; readonly mode: VaultNoteMode }): VaultTabsState {
   const existing = state.tabs.findIndex((tab) => tab.kind === 'note' && tab.noteId === noteId);
-  const fresh: VaultTab = { kind: 'note', noteId, mode: options.mode, full: false };
+  const fresh: VaultTab = { kind: 'note', noteId, mode: options.mode, full: false, draft: null };
   if (existing >= 0) {
     const opened = { ...state, active: existing };
     return options.mode === 'edit' ? setActiveNoteTab(opened, { mode: 'edit' }) : opened;
   }
   const current = state.tabs[state.active];
-  if (!options.newTab && current?.kind === 'note' && current.mode === 'read') return { ...state, tabs: replaceAt(state.tabs, state.active, fresh) };
+  if (!options.newTab && current?.kind === 'note' && current.mode === 'read' && current.draft === null) return { ...state, tabs: replaceAt(state.tabs, state.active, fresh) };
   return { tabs: [...state.tabs, fresh], active: state.tabs.length };
 }
 
@@ -50,5 +56,21 @@ export function tabLabel(tab: VaultTab, titles: ReadonlyMap<string, string>): st
   if (tab.kind === 'review') return '✓ Review';
   const title = titles.get(tab.noteId) ?? '…';
   if (tab.kind === 'diff') return `⟲ ${title} · r${tab.revision}`;
-  return tab.mode === 'edit' ? `✎ ${title}` : title;
+  return tab.mode === 'edit' || tab.draft !== null ? `✎ ${title}` : title;
+}
+
+export function noteDraft(state: VaultTabsState, noteId: string): VaultDraft | null {
+  const tab = state.tabs.find((entry) => entry.kind === 'note' && entry.noteId === noteId);
+  return tab?.kind === 'note' ? tab.draft : null;
+}
+
+export function setNoteDraft(state: VaultTabsState, noteId: string, draft: VaultDraft | null): VaultTabsState {
+  return { ...state, tabs: state.tabs.map((tab) => (tab.kind === 'note' && tab.noteId === noteId ? { ...tab, draft } : tab)) };
+}
+
+/** After `body` was saved as `revision`: the note reads, unless more was typed meanwhile; that stays, based on the saved revision. */
+export function settleNoteDraft(state: VaultTabsState, noteId: string, body: string, revision: number): VaultTabsState {
+  const draft = noteDraft(state, noteId);
+  if (draft !== null && draft.body !== body) return setNoteDraft(state, noteId, { ...draft, revision });
+  return { ...state, tabs: state.tabs.map((tab) => (tab.kind === 'note' && tab.noteId === noteId ? { ...tab, mode: 'read', draft: null } : tab)) };
 }

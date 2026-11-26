@@ -57,7 +57,7 @@ test('NoteView shows crumbs, title, mode switch, aliases, the context card and p
   const note = vaultNote({ aliases: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'], tags: ['tool'] });
   const linker = summaryOf(vaultNote({ id: 'vnote_me', title: 'Denys' }));
   const html = renderToStaticMarkup(
-    <NoteView detail={noteDetail(note, { backlinks: [{ note: linker, labels: ['Uses'] }] })} mode="read" full={false} colors={new Map()} entries={[]} nowMs={FIXTURE_NOW} actions={NOOP_ACTIONS} />,
+    <NoteView detail={noteDetail(note, { backlinks: [{ note: linker, labels: ['Uses'] }] })} mode="read" full={false} draft={null} colors={new Map()} entries={[]} nowMs={FIXTURE_NOW} actions={NOOP_ACTIONS} />,
   );
   assert.match(html, /<div class="v-crumbs"><span>Software<span class="v-sep"> \/<\/span><\/span><span>Visual Studio Code<\/span><\/div>/);
   assert.match(html, /<h1 title="Click to rename">Visual Studio Code<\/h1>/);
@@ -67,14 +67,22 @@ test('NoteView shows crumbs, title, mode switch, aliases, the context card and p
   assert.match(html, /<summary>Properties · software · 3 revisions · updated 1h ago<\/summary>/);
 });
 
+test('NoteView shows one revision singular in the properties summary', () => {
+  const note = vaultNote({ revision: 1 });
+  const html = renderToStaticMarkup(
+    <NoteView detail={noteDetail(note)} mode="read" full={false} draft={null} colors={new Map()} entries={[]} nowMs={FIXTURE_NOW} actions={NOOP_ACTIONS} />,
+  );
+  assert.match(html, /<summary>Properties · software · 1 revision · updated 1h ago<\/summary>/);
+});
+
 test('NoteView in edit mode renders the editor with the body, and owner notes skip the context card', () => {
   const owner = vaultNote({ tags: ['me'], body: 'Me' });
   const linker = summaryOf(vaultNote({ id: 'vnote_x', title: 'X' }));
   const detail = noteDetail(owner, { backlinks: [{ note: linker, labels: [] }] });
-  const edit = renderToStaticMarkup(<NoteView detail={detail} mode="edit" full={false} colors={new Map()} entries={[]} nowMs={FIXTURE_NOW} actions={NOOP_ACTIONS} />);
+  const edit = renderToStaticMarkup(<NoteView detail={detail} mode="edit" full={false} draft={null} colors={new Map()} entries={[]} nowMs={FIXTURE_NOW} actions={NOOP_ACTIONS} />);
   assert.match(edit, /<textarea class="v-editor" spellCheck="false" autofocus="">Me<\/textarea>/);
   assert.match(edit, /Save · creates a revision/);
-  const read = renderToStaticMarkup(<NoteView detail={detail} mode="read" full={false} colors={new Map()} entries={[]} nowMs={FIXTURE_NOW} actions={NOOP_ACTIONS} />);
+  const read = renderToStaticMarkup(<NoteView detail={detail} mode="read" full={false} draft={null} colors={new Map()} entries={[]} nowMs={FIXTURE_NOW} actions={NOOP_ACTIONS} />);
   assert.doesNotMatch(read, /Where it shows up/);
 });
 

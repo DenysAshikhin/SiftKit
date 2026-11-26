@@ -12,6 +12,7 @@ const AT = '2026-11-21T10:00:00.000Z';
 
 /** The parts of the printed result this test reads; other keys are dropped by the parse. */
 const ResultSchema = z.object({
+  summary: z.string().nullable(),
   budget: z.object({ minutes: z.number(), minutesUsed: z.number(), dispatches: z.number(), dispatchesUsed: z.number() }),
   approaches: z.array(z.object({ number: z.number(), title: z.string(), outcome: z.string(), lesson: z.string().nullable() })),
   tasks: z.array(z.object({ taskId: z.string(), approach: z.number() })),
@@ -22,7 +23,7 @@ test('the printed result states the budget used, every approach with its lesson,
   const task = makeOrchestratorTask();
   const state = makeOrchestratorRunState({
     request: makeOrchestratorRequest({ budget: { minutes: 90, dispatches: 12 } }),
-    phase: 'completed', createdAtUtc: AT, updatedAtUtc: '2026-11-21T10:14:02.000Z',
+    phase: 'completed', summary: 'Cached the index.', createdAtUtc: AT, updatedAtUtc: '2026-11-21T10:14:02.000Z',
     planPath: 'plan.md', planHash: 'h', plan: makeOrchestratorPlan([task]), tasks: [makeTaskState(task.id, 'completed', { approach: 2 })],
     approaches: [
       { number: 1, title: 'Initial plan', startedAtUtc: AT,
@@ -34,6 +35,7 @@ test('the printed result states the budget used, every approach with its lesson,
   const result = parseJsonText(renderOrchestratorResult(state, Date.parse(AT) + 999 * 60_000), ResultSchema);
 
   assert.deepEqual(result, {
+    summary: 'Cached the index.',
     budget: { minutes: 90, minutesUsed: 14, dispatches: 12, dispatchesUsed: 0 },
     approaches: [
       { number: 1, title: 'Initial plan', outcome: 'rolled_back', lesson: 'Response caching cannot see headers.' },

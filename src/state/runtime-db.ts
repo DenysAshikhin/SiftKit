@@ -37,6 +37,7 @@ import { upgradeOrchestratorTaskPurpose } from './schema-upgrades/orchestrator-t
 import { upgradeAdmittedPresetFields } from './schema-upgrades/admitted-preset-fields.ts';
 import { upgradeVaultCutoverJobs } from './schema-upgrades/vault-cutover-jobs.ts';
 import { upgradeVaultValidation } from './schema-upgrades/vault-validation.ts';
+import { upgradeOrchestratorRunSummary } from './schema-upgrades/orchestrator-run-summary.ts';
 import type { RuntimeDatabase } from './database-handle.ts';
 export type { RuntimeDatabase } from './database-handle.ts';
 
@@ -47,7 +48,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 100;
+export const CURRENT_SCHEMA_VERSION = 101;
 const RUNTIME_DATABASE_FILE = 'runtime.sqlite';
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
@@ -92,6 +93,7 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 97, apply: upgradeOrchestratorOpenEndedRuns },
   { from: 98, apply: upgradeOrchestratorTaskPurpose },
   { from: 99, apply: upgradeAdmittedPresetFields },
+  { from: 100, apply: upgradeOrchestratorRunSummary },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

@@ -213,15 +213,13 @@ export class NodeStore {
     return z.array(NodeRowSchema).parse(rows);
   }
 
-  /** Re-points every alias of `sourceNodeId` at `targetNodeId`. Used by the merge service. */
-  reassignAliases(sourceNodeId: string, targetNodeId: string): string[] {
-    const moved = this.listAliases(sourceNodeId).map((alias) => alias.id);
+  /** Re-points the listed aliases that `fromNodeId` still holds at `toNodeId`. */
+  moveAliases(aliasIds: readonly string[], fromNodeId: string, toNodeId: string): void {
     this.database
-      .prepare('UPDATE graph_node_aliases SET node_id = ? WHERE node_id = ?')
-      .run(targetNodeId, sourceNodeId);
-    this.refreshFts(sourceNodeId);
-    this.refreshFts(targetNodeId);
-    return moved;
+      .prepare('UPDATE graph_node_aliases SET node_id = ? WHERE node_id = ? AND id IN (SELECT value FROM json_each(?))')
+      .run(toNodeId, fromNodeId, JSON.stringify(aliasIds));
+    this.refreshFts(fromNodeId);
+    this.refreshFts(toNodeId);
   }
 
   searchNodes(ownerId: string, query: string, limit: number): string[] {

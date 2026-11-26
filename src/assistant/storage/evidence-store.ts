@@ -258,17 +258,24 @@ export class EvidenceStore {
   private persistBlob(
     ownerId: string, contentHash: string, mimeType: string, bytes: Buffer,
   ): BlobRow {
-    const existing = this.database
+    const row = this.database
       .prepare('SELECT * FROM evidence_blobs WHERE owner_id = ? AND content_hash = ?')
       .get(ownerId, contentHash);
-    if (existing !== undefined && existing !== null) {
-      return BlobRowSchema.parse(existing);
-    }
+    const existing = row === undefined || row === null ? null : BlobRowSchema.parse(row);
+    if (existing !== null && existing.deleted_at_utc === null) return existing;
 
     const filePath = this.resolveBlobPath(contentHash);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const encrypted = this.cipher.encrypt(bytes);
     fs.writeFileSync(filePath, encrypted.envelope);
+
+    // One row per content: content recorded again after its purge takes its old row back.
+    if (existing !== null) {
+      this.database.prepare(`
+        UPDATE evidence_blobs SET mime_type = ?, encrypted = 1, key_id = ?, created_at_utc = ?, deleted_at_utc = NULL WHERE id = ?
+      `).run(mimeType, encrypted.keyId, this.clock.nowUtc(), existing.id);
+      return this.requireBlob(existing.id);
+    }
 
     const id = this.ids.next('blob');
     this.database.prepare(`

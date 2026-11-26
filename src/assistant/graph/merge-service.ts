@@ -165,9 +165,8 @@ export class NodeMergeService {
         }
       }
 
-      payload.movedAliasIds.push(
-        ...this.nodes.reassignAliases(request.sourceNodeId, request.targetNodeId),
-      );
+      payload.movedAliasIds.push(...this.nodes.listAliases(request.sourceNodeId).map((alias) => alias.id));
+      this.nodes.moveAliases(payload.movedAliasIds, request.sourceNodeId, request.targetNodeId);
       this.nodes.setNodeStatus(request.sourceNodeId, 'merged', request.targetNodeId);
 
       const mergeRow = this.nodes.recordMerge({
@@ -226,7 +225,7 @@ export class NodeMergeService {
       for (const moved of payload.movedAssertions) {
         this.assertions.repointNodeReference(moved.assertionId, moved.column, moved.previousNodeId);
       }
-      this.nodes.reassignAliases(payload.targetNodeId, payload.sourceNodeId);
+      this.nodes.moveAliases(payload.movedAliasIds, payload.targetNodeId, payload.sourceNodeId);
       this.nodes.setNodeStatus(payload.sourceNodeId, 'active', null);
       this.nodes.markMergeReversed(request.mergeId);
 

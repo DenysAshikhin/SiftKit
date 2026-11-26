@@ -64,6 +64,12 @@ test('assertPublicHttpUrl rejects loopback and private hosts', () => {
   assert.throws(() => assertPublicHttpUrl('http://127.0.0.1:8080'), /private|internal|local/i);
   assert.throws(() => assertPublicHttpUrl('http://10.0.0.5'), /private|internal|local/i);
   assert.throws(() => assertPublicHttpUrl('http://192.168.1.1'), /private|internal|local/i);
+
+  // 0.0.0.0/8 and every localhost name reach this machine's own listeners.
+  for (const host of ['0.0.0.0:4765', '0', '0.1.2.3', 'localhost.', 'a.localhost', 'a.localhost.', 'printer.local.']) {
+    assert.throws(() => assertPublicHttpUrl(`http://${host}/`), /private|internal|local/i, host);
+  }
+  assert.equal(assertPublicHttpUrl('https://example.com./a').hostname, 'example.com.');
 });
 
 test('clampQuota derives remaining and clamps negatives to zero', () => {

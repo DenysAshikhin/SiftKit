@@ -66,3 +66,23 @@ test('shell integration installs a module and shim that run this checkout', asyn
     await removeDirectoryWithRetries(tempRoot);
   }
 });
+
+test('siftkit.cmd exits with the exit code of what it runs, through PowerShell and through node', async () => {
+  const tempRoot = createManagedTempDir('siftkit-cmd-exit-');
+  try {
+    const bin = path.join(tempRoot, 'bin');
+    fs.mkdirSync(bin);
+    fs.mkdirSync(path.join(tempRoot, 'src', 'cli'), { recursive: true });
+    fs.copyFileSync(path.resolve('bin', 'siftkit.cmd'), path.join(bin, 'siftkit.cmd'));
+    fs.writeFileSync(path.join(tempRoot, 'src', 'cli', 'main.ts'), 'process.exit(5);\n');
+    const run = () => spawnProcess('cmd.exe', ['/d', '/c', path.join(bin, 'siftkit.cmd'), 'probe'], { cwd: bin, env: process.env });
+
+    assert.equal((await run()).code, 5);
+    fs.writeFileSync(path.join(bin, 'siftkit.ps1'), 'exit 7\r\n');
+    assert.equal((await run()).code, 7);
+    fs.writeFileSync(path.join(bin, 'siftkit.ps1'), 'exit 0\r\n');
+    assert.equal((await run()).code, 0);
+  } finally {
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});

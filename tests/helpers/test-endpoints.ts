@@ -8,6 +8,16 @@ import { z } from 'zod';
 import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.ts';
 
 const GUARDED_PORTS = new Set([SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT]);
+// A listener on these loopback ports is invisible to Node's fetch even while healthy, so a fake
+// engine on one looks like an engine that never answers.
+export const FETCH_RESTRICTED_PORTS: readonly number[] = [
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 42, 43, 53, 69, 77, 79, 87, 95,
+  101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143,
+  161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554,
+  556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190,
+  5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+];
+const EPHEMERAL_LISTEN_ATTEMPTS = 32;
 const PORT_LEASE_ROOT = path.join(fs.realpathSync(os.tmpdir()), 'siftkit-test-port-leases');
 const FileErrorSchema = z.object({ code: z.string() });
 const heldLeaseDirectories = new Set<string>();
@@ -64,11 +74,22 @@ function closeServer(server: http.Server): Promise<void> {
 }
 
 export async function listenOnEphemeralPort(server: http.Server): Promise<number> {
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  return readServerPort(server);
+  let refusedPort = 0;
+  for (let attempt = 1; attempt <= EPHEMERAL_LISTEN_ATTEMPTS; attempt++) {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const port = readServerPort(server);
+    if (!FETCH_RESTRICTED_PORTS.includes(port)) {
+      return port;
+    }
+    refusedPort = port;
+    await closeServer(server);
+  }
+  throw new Error(
+    `Ephemeral loopback listen kept landing on a fetch-restricted port (last port ${refusedPort}) after ${EPHEMERAL_LISTEN_ATTEMPTS} attempts.`,
+  );
 }
 
 export async function createDeadHttpEndpoint(): Promise<DeadHttpEndpoint> {

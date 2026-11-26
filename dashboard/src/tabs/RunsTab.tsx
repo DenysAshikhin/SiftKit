@@ -11,6 +11,7 @@ import {
   formatRunEventPayload,
   formatShortTime,
   normalizeFinalOutputText,
+  plural,
   runGroupLabel,
 } from '../lib/format.ts';
 import type { RepoSearchChatStep } from '../lib/chat-steps.ts';
@@ -204,7 +205,7 @@ export function RunsTab({
               if (breaks.length === 0) return null;
               return (
                 <div className="card cache-break-warning">
-                  <header><b>⚠ Prompt cache broke on {breaks.length} turn{breaks.length === 1 ? '' : 's'}</b></header>
+                  <header><b>⚠ Prompt cache broke on {plural(breaks.length, 'turn')}</b></header>
                   <ul className="cbody">{breaks.map((cacheBreak) => <li key={cacheBreak.turn}>{summarizePromptCacheBreak(cacheBreak)}</li>)}</ul>
                 </div>
               );

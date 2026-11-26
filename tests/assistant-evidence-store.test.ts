@@ -241,3 +241,29 @@ test('a blob still referenced by another live evidence record survives deletion 
     assert.deepEqual([...evidence.readBlobBytes(second.blob_id ?? '')], [...bytes]);
   });
 });
+
+test('content recorded again after its blob was purged is stored again and readable', () => {
+  withAssistantContext((context) => {
+    const evidence = newEvidenceStore(context);
+    const input = {
+      ownerId: context.ownerId, deviceId: null, parentEvidenceId: null,
+      sourceType: 'screenshot', sourceRef: null, sourceTimezone: 'UTC', capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      sensitivity: 'sensitive', retentionUntilUtc: null, metadata: {},
+      mimeType: 'image/png', bytes: Buffer.from('seen twice', 'utf8'),
+    } as const;
+    const first = evidence.recordBlobEvidence({ ...input, sourceEventId: 'cap_1' });
+    evidence.deleteEvidence(first.id);
+    assert.equal(evidence.countBlobs(context.ownerId), 0);
+
+    const second = evidence.recordBlobEvidence({ ...input, sourceEventId: 'cap_2' });
+
+    assert.equal(evidence.hasReadableBlob(second), true);
+    assert.deepEqual([...evidence.readBlobBytes(second.blob_id ?? '')], [...input.bytes]);
+    assert.equal(evidence.countBlobs(context.ownerId), 1);
+    assert.ok(fs.existsSync(blobPath(context, second.content_hash)));
+    assert.equal(evidence.requireEvidence(first.id).status, 'deleted', 'the deleted record stays deleted');
+
+    evidence.deleteEvidence(second.id);
+    assert.equal(fs.existsSync(blobPath(context, second.content_hash)), false, 'and it can be purged again');
+  });
+});

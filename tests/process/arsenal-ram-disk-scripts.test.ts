@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -43,6 +43,13 @@ test('every RAM disk script, and the watcher, parses as PowerShell', async () =>
     { windowsHide: true, encoding: 'utf8' }).trim();
     assert.equal(errors, '0', `script ${String(index)} has PowerShell parse errors`);
   }
+});
+
+test('a launch that never starts, as a declined UAC prompt leaves it, fails with the reason instead of exiting 0', () => {
+  const launch = spawnSync('powershell.exe', ['-NoProfile', '-Command', startAndWait('siftkit-no-such-program.exe')],
+    { windowsHide: true, timeout: 25_000, encoding: 'utf8' });
+  assert.equal(launch.status, 1);
+  assert.match(launch.stderr, /cannot find the file specified/u);
 });
 
 test('a launch waits for its script, not for a process the script leaves running, and exits with the script\'s code', () => {

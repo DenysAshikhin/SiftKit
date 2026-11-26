@@ -122,6 +122,33 @@ test('a merge is reversible and restores every moved reference', () => {
   });
 });
 
+test('reversing a merge returns only the aliases it moved', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const target = makeSoftware(h, context, 'software:vscode', 'Visual Studio Code');
+    const source = makeSoftware(h, context, null, 'VSCode');
+    const alias = (nodeId: string, text: string) => h.nodes.addAlias({
+      ownerId: context.ownerId, nodeId, alias: text, aliasType: 'name', sourceEvidenceId: null,
+    });
+    alias(target, 'code');
+    alias(source, 'vsc');
+    const outcome = h.merges.merge({
+      ownerId: context.ownerId, sourceNodeId: source, targetNodeId: target,
+      actorType: 'user', basis: 'user confirmed', reason: 'merge',
+    });
+    assert.equal(outcome.kind, 'merged');
+    if (outcome.kind !== 'merged') return;
+    alias(target, 'added while merged');
+
+    h.merges.unmerge({ ownerId: context.ownerId, mergeId: outcome.mergeId, reason: 'reversed' });
+
+    const names = (nodeId: string) => h.nodes.listAliases(nodeId).map((entry) => entry.normalized_alias).sort();
+    assert.deepEqual(names(target), ['added while merged', 'code']);
+    assert.deepEqual(names(source), ['vsc']);
+    assert.deepEqual(h.nodes.findByAlias(context.ownerId, 'code').map((node) => node.id), [target]);
+  });
+});
+
 test('a merge that would collide two live assertions retires the weaker one', () => {
   withAssistantContext((context) => {
     const h = harness(context);

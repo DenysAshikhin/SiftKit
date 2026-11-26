@@ -70,6 +70,7 @@
 .orchestrator-findings { margin: 0 12px 10px 36px; padding-left: 16px; font-size: 0.72rem; }
 
 .orchestrator-run .approval-card, .orchestrator-run .err-banner { margin: 10px 12px; }
+.orch-summary { margin: 10px 12px; padding: 8px 12px; max-height: 240px; overflow-y: auto; border: 1px solid var(--ok-line); border-radius: 8px; background: var(--panel2); font-size: 0.78rem; }
 .orch-review { margin: 0 12px 10px 36px; font-size: 0.72rem; }
 .orch-review .ok { color: var(--ok); }
 .orch-review .bad { color: var(--bad); }

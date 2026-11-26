@@ -23,7 +23,6 @@ import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.ts';
 import { LIVE_REQUEST_TIMEOUT_MS, loadLivePlannerFixture, type LivePlannerFixture } from './helpers/live-planner-fixture.ts';
 
 const GATE_ENABLED = process.env.SIFTKIT_TEST_LIVE_STATUS_UPDATES === '1';
-const PRESET_ID = 'exl3-3-8-27b-5bpw';
 const CONVERSATIONS = 10;
 /** Prompt sizes measured in each conversation, with how far past each a turn may lie. */
 const PROMPT_SIZES = [20_000, 50_000, 80_000, 110_000] as const;
@@ -158,7 +157,8 @@ test('status updates cost the run nothing it can notice', {
   skip: GATE_ENABLED ? false : 'set SIFTKIT_TEST_LIVE_STATUS_UPDATES=1 with the engine idle',
 }, async (t) => {
   const fixture = await loadLivePlannerFixture();
-  assert.equal(fixture.preset.id, PRESET_ID, 'the gate is defined for this preset');
+  assert.equal(fixture.preset.Backend, 'exl3', `active preset ${fixture.preset.id} must be exl3`);
+  t.diagnostic(`measuring live status updates on preset ${fixture.preset.id}, model ${fixture.model}`);
   const conversations = recordedConversations();
   assert.equal(conversations.length, CONVERSATIONS, 'enough recorded runs reach every size before compacting');
   const samples: Sample[] = [];
@@ -181,6 +181,8 @@ test('status updates cost the run nothing it can notice', {
     return value(sample) - value(control);
   }));
   const result = {
+    preset: fixture.preset.id,
+    model: fixture.model,
     completeP90Ms: p90(of('completed').map((sample) => sample.updateElapsedMs)),
     extraReadAfterCompletedP90: extra('completed', (sample) => sample.evalTokens),
     extraReadAfterCancelledP90: extra('cancelled', (sample) => sample.evalTokens),

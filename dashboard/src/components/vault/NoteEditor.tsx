@@ -2,14 +2,18 @@ import { useState, type KeyboardEvent } from 'react';
 import type { VaultGraphNode, VaultNote } from '@siftkit/contracts';
 
 import { insertLink, linkQueryAt, rankTitles } from '../../lib/vault-edits.ts';
+import type { VaultDraft } from '../../lib/vault-tabs.ts';
 import type { VaultActions } from './vault-actions.ts';
 
 const AUTOCOMPLETE_LIMIT = 12;
 
-/** Plain-text body editor; typing `[[` offers matching note titles, Ctrl+S saves. */
-export function NoteEditor(props: { readonly note: VaultNote; readonly entries: readonly VaultGraphNode[]; readonly actions: VaultActions }) {
-  const { note, entries, actions } = props;
-  const [value, setValue] = useState(note.body);
+/** Plain-text body editor over the note's draft, kept in its tab; typing `[[` offers matching note titles, Ctrl+S saves. */
+export function NoteEditor(props: {
+  readonly note: VaultNote; readonly draft: VaultDraft | null; readonly entries: readonly VaultGraphNode[]; readonly actions: VaultActions;
+}) {
+  const { note, draft, entries, actions } = props;
+  const value = draft?.body ?? note.body;
+  const setValue = (next: string) => actions.setDraft(note.id, next === note.body ? null : { body: next, revision: draft?.revision ?? note.revision });
   const [query, setQuery] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const [caret, setCaret] = useState(0);
@@ -27,7 +31,7 @@ export function NoteEditor(props: { readonly note: VaultNote; readonly entries: 
     setCaret(inserted.caret);
     setQuery(null);
   };
-  const save = () => actions.saveBody(note.id, value);
+  const save = () => actions.saveDraft(note.id);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); save(); return; }
     if (matches.length === 0) return;
@@ -56,7 +60,7 @@ export function NoteEditor(props: { readonly note: VaultNote; readonly entries: 
       </div>
       <div className="v-edit-bar">
         <button type="button" className="v-btn v-primary" onClick={save}>Save · creates a revision</button>
-        <button type="button" className="v-btn" onClick={() => actions.setMode('read')}>Cancel</button>
+        <button type="button" className="v-btn" onClick={() => { actions.setDraft(note.id, null); actions.setMode('read'); }}>Cancel</button>
         <span>Type <code>[[</code> to link a note · Ctrl+S saves</span>
       </div>
     </>

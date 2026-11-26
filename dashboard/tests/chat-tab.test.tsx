@@ -528,7 +528,7 @@ test('changing only preset metadata does not claim the model context is invalida
   }
 });
 
-test('orchestrator mode starts a run for the saved repository and shows its live panel', async () => {
+test('orchestrator mode starts a run in the typed folder and shows its live panel', async () => {
   const bodies: Array<[string, string]> = [];
   const originalFetch = globalThis.fetch;
   const drafts: string[] = [];
@@ -550,6 +550,9 @@ data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
   };
   try {
     renderComponent(<ChatTab {...orchestratorProps({
+      runtimeHub: new ChatRuntimeHub(buildDefaultStore(ORCHESTRATOR_SESSION.id)
+        .apply({ kind: 'plan-inputs', sessionId: ORCHESTRATOR_SESSION.id, planRepoRootInput: ' C:/typed ', planMaxTurnsInput: '' })),
+      selectedSessionId: ORCHESTRATOR_SESSION.id,
       // A session that has never run has no board of its own until this press makes one.
       selectedSession: { ...ORCHESTRATOR_SESSION, orchestratorRunId: null },
       onChangeDraft: (value) => { drafts.push(value); },
@@ -564,7 +567,7 @@ data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
     const start = bodies.find(([url]) => url === '/orchestrator');
     const request = JSON.parse(start?.[1] ?? '{}');
     assert.deepEqual({ ...request, submissionId: null },
-      { submissionId: null, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive',
+      { submissionId: null, sessionId: ORCHESTRATOR_SESSION.id, repoRoot: 'C:/typed', presetId: 'orchestrator', approval: 'interactive',
         budget: { minutes: 90, dispatches: 12 }, task: 'hi', planPath: null });
     assert.deepEqual(drafts, ['']);
     assert.deepEqual(refreshes, [1], 'the started session is re-read, so its rail row picks up the new run');
@@ -640,12 +643,43 @@ test('orchestrator mode re-reads its session each time the run commits a new rev
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('orchestrator mode cannot start without a saved repository folder', () => {
+test('orchestrator mode cannot start without a folder', () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => { throw new Error(`Unexpected fetch ${String(input)}`); };
   try {
     renderComponent(<ChatTab {...orchestratorProps({ selectedSession: { ...SESSION_A, planRepoRoot: '' } })} />);
     assert.equal(screen.getByRole('button', { name: 'Run orchestrator' }).hasAttribute('disabled'), true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('orchestrator mode starts in the saved folder when none is typed', async () => {
+  const bodies: Array<[string, string]> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    bodies.push([String(input), typeof init?.body === 'string' ? init.body : '']);
+    return new Response(JSON.stringify({ error: 'stop here' }), { status: 500 });
+  };
+  try {
+    renderComponent(<ChatTab {...orchestratorProps({ selectedSession: { ...ORCHESTRATOR_SESSION, orchestratorRunId: null },
+      selectedSessionId: ORCHESTRATOR_SESSION.id,
+      runtimeHub: new ChatRuntimeHub(buildDefaultStore(ORCHESTRATOR_SESSION.id)
+        .apply({ kind: 'plan-inputs', sessionId: ORCHESTRATOR_SESSION.id, planRepoRootInput: ' ', planMaxTurnsInput: '' })) })} />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Run orchestrator' })); });
+    const start = bodies.find(([url]) => url === '/orchestrator');
+    assert.equal(JSON.parse(start?.[1] ?? '{}').repoRoot, 'C:/repo');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('orchestrator mode can start with only a typed folder', () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => { throw new Error(`Unexpected fetch ${String(input)}`); };
+  try {
+    renderComponent(<ChatTab {...orchestratorProps({
+      selectedSession: { ...ORCHESTRATOR_SESSION, orchestratorRunId: null, planRepoRoot: '' },
+      selectedSessionId: ORCHESTRATOR_SESSION.id,
+      runtimeHub: new ChatRuntimeHub(buildDefaultStore(ORCHESTRATOR_SESSION.id)
+        .apply({ kind: 'plan-inputs', sessionId: ORCHESTRATOR_SESSION.id, planRepoRootInput: 'C:/typed', planMaxTurnsInput: '' })) })} />);
+    assert.equal(screen.getByRole('button', { name: 'Run orchestrator' }).hasAttribute('disabled'), false);
   } finally { globalThis.fetch = originalFetch; }
 });
 

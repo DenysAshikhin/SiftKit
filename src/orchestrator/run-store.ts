@@ -44,7 +44,7 @@ const ThroughputRowsSchema = z.array(z.object({ throughput_json: z.string() }));
 const TERMINAL_PHASES_SQL = ORCHESTRATOR_TERMINAL_PHASES.map((phase) => `'${phase}'`).join(', ');
 
 /** Fields a transition may change; identity, plan, and attempts change only through their methods. */
-export type OrchestratorRunChanges = Partial<Pick<OrchestratorRunState, 'phase' | 'tasks' | 'approval' | 'failure' | 'parentRunIds'>>;
+export type OrchestratorRunChanges = Partial<Pick<OrchestratorRunState, 'phase' | 'tasks' | 'approval' | 'failure' | 'parentRunIds' | 'summary'>>;
 
 /** What an event says beyond the committed phase; the store stamps run, sequence, and time. */
 export type OrchestratorEventInput = {
@@ -82,7 +82,7 @@ export class OrchestratorRunStore {
       const now = new Date().toISOString();
       const state: StoredRunState = StoredRunStateSchema.parse({
         runId: randomUUID(), request, revision: 0, phase: 'preparing_plan', planPath: null, planHash: null, plan: null,
-        tasks: [], approaches: [], retiredTasks: [], statusLines: [], parentRunIds: [], approval: null, failure: null, createdAtUtc: now, updatedAtUtc: now,
+        tasks: [], approaches: [], retiredTasks: [], statusLines: [], parentRunIds: [], approval: null, failure: null, summary: null, createdAtUtc: now, updatedAtUtc: now,
       });
       this.database.prepare(`
         INSERT INTO orchestrator_runs (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc)

@@ -93,7 +93,8 @@ test('start-dev wires the assistant shell watcher into the dev stack', () => {
   assert.match(script, /decideAssistantShellAction/u);
   assert.match(script, /stageAssistantShell\(process\.cwd\(\)\)/u);
   assert.doesNotMatch(script, /startProcess\(shellPath/u);
-  assert.match(script, /\/config/u);
+  // A plain config read loads the model, and this one repeats every few seconds.
+  assert.match(script, /\/config\?skip_ready=1/u);
   assert.doesNotMatch(script, /4765/u);
   assert.match(script, /getStatusServerPort/u);
   assert.match(script, /ASSISTANT_SHELL_WATCH_INTERVAL_MS/u);

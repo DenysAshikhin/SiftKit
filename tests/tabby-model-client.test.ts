@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { JsonValueSchema, type JsonValue } from '../src/lib/json-types.ts';
 import { assertResidentMatches, TabbyModelClient } from '../src/status-server/tabby-model-client.ts';
-import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { listenOnEphemeralPort } from './helpers/test-endpoints.ts';
 import { FakeTabbyModelState } from './helpers/tabby-fake.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
 
@@ -47,8 +47,8 @@ test('Tabby model client loads and unloads through validated lifecycle packets',
     response.statusCode = 404;
     response.end();
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   const client = new TabbyModelClient('admin-secret');
   try {
     assert.equal(await client.isProcessReady(baseUrl, LOCAL_SERVER_TIMEOUT_MS), true);
@@ -91,8 +91,8 @@ test('Tabby model client omits authorization when no admin key is configured', a
     response.statusCode = 503;
     response.end('No models are currently loaded');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   const client = new TabbyModelClient('');
   try {
     assert.equal(await client.isProcessReady(baseUrl, LOCAL_SERVER_TIMEOUT_MS), true);
@@ -123,8 +123,8 @@ test('Tabby model client propagates operation-specific authorization failures', 
     response.statusCode = 403;
     response.end('unload denied');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   const client = new TabbyModelClient('admin-secret');
   try {
     await assert.rejects(
@@ -168,8 +168,8 @@ test('Tabby model client rejects successful load when the model is not resident'
     response.statusCode = 503;
     response.end('No models are currently loaded');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   try {
     await assert.rejects(new TabbyModelClient('').load(baseUrl, {
       model_name: 'model-a',
@@ -194,8 +194,8 @@ test('Tabby model client rejects a resident model whose applied parameters diver
     }
     model.respondCurrentModel(response);
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   const request = {
     model_name: 'model-a',
     max_seq_len: 150_000,
@@ -220,8 +220,8 @@ test('Tabby model client rejects a resident model that reports no applied parame
     response.setHeader('content-type', 'application/json');
     response.end('{"id":"model-a","parameters":null}');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   try {
     const card = await new TabbyModelClient('').getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS);
     assert.throws(() => assertResidentMatches(card, {
@@ -241,8 +241,8 @@ test('Tabby model client rejects a malformed upstream model response', async () 
     response.setHeader('content-type', 'application/json');
     response.end('{"id":42}');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   try {
     await assert.rejects(
       new TabbyModelClient('').getResidentModel(baseUrl, LOCAL_SERVER_TIMEOUT_MS),
@@ -263,8 +263,8 @@ test('Tabby model client rejects successful unload when a model remains resident
     response.setHeader('content-type', 'application/json');
     response.end('{"id":"model-a","parameters":{"max_seq_len":8192,"cache_size":8192,"chunk_size":512}}');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   try {
     await assert.rejects(
       new TabbyModelClient('').unload(baseUrl, LOCAL_SERVER_TIMEOUT_MS),
@@ -285,8 +285,8 @@ test('Tabby model client rejects a load stream without terminal completion', asy
     response.statusCode = 400;
     response.end();
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   try {
     await assert.rejects(new TabbyModelClient('').load(baseUrl, {
       model_name: 'model-a',

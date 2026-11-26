@@ -3,7 +3,8 @@ import { VAULT_OWNER_TAG, vaultKey, type VaultBacklink, type VaultGraphNode, typ
 
 import { contextGroups } from '../../lib/vault-edits.ts';
 import { MAX_RENDER_LINES } from '../../lib/vault-blocks.ts';
-import type { VaultNoteMode } from '../../lib/vault-tabs.ts';
+import { plural } from '../../lib/format.ts';
+import type { VaultDraft, VaultNoteMode } from '../../lib/vault-tabs.ts';
 import { ago, fmtTime } from '../../lib/vault-time.ts';
 import { NoteEditor } from './NoteEditor.tsx';
 import { NoteMarkdown, PillList } from './NoteMarkdown.tsx';
@@ -39,6 +40,7 @@ export interface NoteViewProps {
   readonly detail: VaultNoteDetail;
   readonly mode: VaultNoteMode;
   readonly full: boolean;
+  readonly draft: VaultDraft | null;
   readonly colors: ReadonlyMap<string, string>;
   readonly entries: readonly VaultGraphNode[];
   readonly nowMs: number;
@@ -55,7 +57,7 @@ export function NoteView(props: NoteViewProps) {
     if (draft.trim() !== note.title) actions.rename(note.id, draft.trim());
   };
   const showContext = note.kind !== 'capture' && note.kind !== 'daily' && !note.tags.includes(VAULT_OWNER_TAG);
-  const revisions = `${note.revision} revision${note.revision === 1 ? '' : 's'}`;
+  const revisions = plural(note.revision, 'revision');
 
   return (
     <article className="v-note">
@@ -84,7 +86,7 @@ export function NoteView(props: NoteViewProps) {
           {note.aliases.length > ALIASES_SHOWN && ` and ${note.aliases.length - ALIASES_SHOWN} more`}
         </div>
       )}
-      {mode === 'edit' ? <NoteEditor key={note.revision} note={note} entries={entries} actions={actions} /> : (
+      {mode === 'edit' ? <NoteEditor note={note} draft={props.draft} entries={entries} actions={actions} /> : (
         <>
           <NoteMarkdown
             body={note.body} unresolved={new Set(detail.outgoing.unresolved.map(vaultKey))} colors={colors}

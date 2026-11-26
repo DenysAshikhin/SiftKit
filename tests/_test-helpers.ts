@@ -15,7 +15,8 @@ import type { ThroughputAuditIdentity, ThroughputAuditOperation } from '@siftkit
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.ts';
 import type { TaskResult } from '../src/repo-search/engine/task-loop-support.ts';
 import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.ts';
-import { asObject, getAddressInfo } from './helpers/dashboard-http.ts';
+import { asObject } from './helpers/dashboard-http.ts';
+import { listenOnEphemeralPort } from './helpers/test-endpoints.ts';
 import { EnvBackup } from './helpers/env-backup.ts';
 import { writeSseResult } from './helpers/sse-http.ts';
 import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
@@ -491,9 +492,8 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const port = await listenOnEphemeralPort(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
   return {
     server,
     state,

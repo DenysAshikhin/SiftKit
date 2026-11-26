@@ -119,7 +119,7 @@ async function syncAssistantShell(): Promise<void> {
   let currentEnabled: boolean;
   try {
     const config = await httpClient.requestJson(
-      { url: `http://${host}:${port}/config`, method: 'GET', timeoutMs: 5000 },
+      { url: `http://${host}:${port}/config?skip_ready=1`, method: 'GET', timeoutMs: 5000 },
       AssistantShellConfigSchema,
     );
     currentEnabled = config.Assistant.Enabled;

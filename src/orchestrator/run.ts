@@ -117,7 +117,7 @@ type PendingUserDecision = { approvalId: string; resolve(decision: RepoAgentDeci
 
 /** How the orchestrator's finish ended; null until a finish is accepted. */
 type FinishOutcome =
-  | { status: 'completed' }
+  | { status: 'completed'; summary: string }
   | { status: 'blocked'; reason: string }
   | { status: 'budget_exhausted'; findings: string[] };
 
@@ -286,8 +286,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       Math.max(0, budgetDeadlineMs(this.state) - Date.now()));
     let failure: Error | null = null;
     try {
-      await this.converse();
-      this.commit({ phase: 'cleaning' }, 'Cleaning run scratch files.');
+      const summary = await this.converse();
+      this.commit({ phase: 'cleaning', summary }, 'Cleaning run scratch files.');
       const cleanupProblem = this.cleanupRunScratch();
       if (cleanupProblem !== null) throw fail('cleanup_failed', cleanupProblem);
       this.commit({ phase: 'completed', failure: null }, 'Run completed.');
@@ -309,8 +309,8 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     this.settleFailure(failure, cleanupProblem === null ? null : `Scratch cleanup also failed: ${cleanupProblem}`);
   }
 
-  /** The one parent conversation; its accepted finish decides how the run ends. */
-  private async converse(): Promise<void> {
+  /** The one parent conversation; its accepted finish decides how the run ends. Returns the accepted summary. */
+  private async converse(): Promise<string> {
     const preset = PresetCatalog.fromPresets(this.config.Presets).requireById(this.request.presetId);
     const systemContext = new PresetSystemContextBuilder(this.request.repoRoot).build(preset);
     const suppliedPlan = this.request.planPath === null ? null : readSuppliedPlan(this.request.repoRoot, this.request.planPath);
@@ -349,6 +349,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       throw fail('budget_exhausted',
         `Final verification still fails and the dispatch budget is spent (${dispatches} of ${dispatches}): ${finish.findings.join(' ')}`);
     }
+    return finish.summary;
   }
 
   private settleFailure(error: Error, cleanupProblem: string | null): void {
@@ -894,7 +895,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     this.commit({ phase: 'executing' }, 'Final verification finished.');
     const failing = checks.filter((check) => orchestratorCheckFailure(check) !== null);
     if (failing.length === 0) {
-      this.finishOutcome = { status: 'completed' };
+      this.finishOutcome = { status: 'completed', summary: finish.summary };
       return { kind: 'accept', output: answer };
     }
     const findings = failing.map((check) => orchestratorCheckFailure(check) ?? '');

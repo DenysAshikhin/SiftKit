@@ -38,7 +38,7 @@ import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl.tsx';
 import { OrchestratorRunPanel } from '../components/OrchestratorRunPanel.tsx';
 import { StatusUpdates } from '../components/StatusUpdates.tsx';
 import { useOrchestratorRun } from '../hooks/useOrchestratorRun.ts';
-import { PlanMaxTurnsOverrideSchema } from '../lib/chat-composer-inputs.ts';
+import { PlanMaxTurnsOverrideSchema, resolveRepoRoot } from '../lib/chat-composer-inputs.ts';
 import type { LastTurnTelemetry } from '../lib/format.ts';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image.ts';
 import { extractClipboardImageFiles } from '../lib/clipboard-images.ts';
@@ -255,7 +255,7 @@ export function ChatTab({
   const ownsActiveOperation = runtime?.activity.kind === 'local';
   const invalidRepoAgentTurns = chatMode === 'repo-agent'
     && !PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success;
-  const savedRepoRoot = selectedSession?.planRepoRoot.trim() ?? '';
+  const repoRoot = resolveRepoRoot(planRepoRootInput, selectedSession?.planRepoRoot.trim() ?? '');
   // The board shows the run this session records, never whichever run the folder happens to have.
   const orchestrator = useOrchestratorRun(chatMode === 'orchestrator' ? selectedSession?.orchestratorRunId ?? null : null);
   const [orchestratorApproval, setOrchestratorApproval] = React.useState<ApprovalMode>('auto');
@@ -273,9 +273,9 @@ export function ChatTab({
   React.useEffect(() => {
     if (orchestratorRevision !== null) void onRefreshSelectedSession();
   }, [orchestratorRevision]);
-  // The orchestrator needs a saved repository and accepts a task, a plan path, or both.
+  // The orchestrator needs a folder and accepts a task, a plan path, or both.
   const sendBlocked = sessionPreferencesSaving || (chatMode === 'orchestrator'
-    ? savedRepoRoot === '' || orchestratorLive || selectedChatPreset === null || !orchestratorBudget.success
+    ? repoRoot === '' || orchestratorLive || selectedChatPreset === null || !orchestratorBudget.success
       || (!draft.trim() && !orchestratorPlanPath.trim())
     : recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0));
 
@@ -334,12 +334,12 @@ export function ChatTab({
   }
 
   function startOrchestratorRun(): void {
-    if (sendBlocked || !orchestratorBudget.success || selectedChatPreset === null || selectedSession === null || savedRepoRoot === '') return;
+    if (sendBlocked || !orchestratorBudget.success || selectedChatPreset === null || selectedSession === null || repoRoot === '') return;
     const task = draft.trim();
     const planPath = orchestratorPlanPath.trim();
     void orchestrator.start({
       sessionId: selectedSession.id,
-      repoRoot: savedRepoRoot,
+      repoRoot,
       presetId: selectedChatPreset.id,
       approval: orchestratorApproval,
       budget: orchestratorBudget.data,

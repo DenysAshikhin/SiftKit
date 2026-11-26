@@ -286,6 +286,8 @@ export const OrchestratorRunStateSchema = z.object({
   attempts: z.array(OrchestratorAttemptSchema), parentRunIds: z.array(z.string().uuid()),
   statusLines: z.array(OrchestratorStatusLineSchema).max(ORCHESTRATOR_STATUS_LINE_LIMIT),
   approval: OrchestratorPendingApprovalSchema.nullable(), failure: OrchestratorFailureSchema.nullable(),
+  /** The orchestrator's accepted finish summary; null until then, and for a run that ended another way. */
+  summary: z.string().min(1).nullable(),
   createdAtUtc: z.string().datetime(), updatedAtUtc: z.string().datetime(),
 }).strict();
 export type OrchestratorRunState = z.infer<typeof OrchestratorRunStateSchema>;

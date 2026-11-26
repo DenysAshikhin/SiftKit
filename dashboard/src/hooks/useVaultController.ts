@@ -20,7 +20,7 @@ import type {
 import { linkFirstMention, toggleTask } from '../lib/vault-edits.ts';
 import { folderColors, type Point } from '../lib/vault-force.ts';
 import {
-  closeTab, openNoteTab, openSpecialTab, setActiveNoteTab, type VaultTab, type VaultTabsState,
+  closeTab, noteDraft, openNoteTab, openSpecialTab, setActiveNoteTab, setNoteDraft, settleNoteDraft, type VaultTab, type VaultTabsState,
 } from '../lib/vault-tabs.ts';
 
 const SEARCH_LIMIT = 150;
@@ -167,18 +167,23 @@ export function useVaultController(visible: boolean): VaultTabProps {
     await refreshVault(auth, showStubs);
   }
 
-  async function recoverConflict(auth: string, noteId: string): Promise<void> {
-    await loadDetail(auth, noteId);
+  /** Loads the latest revision after a conflict and returns it. */
+  async function recoverConflict(auth: string, noteId: string): Promise<number> {
+    const { note } = await loadDetail(auth, noteId);
     notify('This note changed elsewhere; the latest revision is loaded.', true);
+    return note.revision;
   }
 
-  async function writeBody(auth: string, note: VaultNote, body: string, message: string): Promise<void> {
+  /** The saved note's revision, or after a conflict the latest one. */
+  async function writeBody(auth: string, note: Pick<VaultNote, 'id' | 'revision'>, body: string, message: string): Promise<{ saved: boolean; revision: number }> {
     try {
-      await afterWrite(auth, await updateVaultNote(auth, note.id, { body }, note.revision));
+      const saved = await updateVaultNote(auth, note.id, { body }, note.revision);
+      await afterWrite(auth, saved);
       notify(message);
+      return { saved: true, revision: saved.revision };
     } catch (caught) {
       if (!(caught instanceof VaultRequestError && caught.code === 'conflict')) throw caught;
-      await recoverConflict(auth, note.id);
+      return { saved: false, revision: await recoverConflict(auth, note.id) };
     }
   }
 
@@ -208,7 +213,7 @@ export function useVaultController(visible: boolean): VaultTabProps {
           ...(daily[0] ? [{ note: daily[0], owner: false }] : []),
         ];
         setStarred(pinned);
-        setTabs({ tabs: [{ kind: 'graph' }, ...pinned.map(({ note }): VaultTab => ({ kind: 'note', noteId: note.id, mode: 'read', full: false }))], active: 0 });
+        setTabs({ tabs: [{ kind: 'graph' }, ...pinned.map(({ note }): VaultTab => ({ kind: 'note', noteId: note.id, mode: 'read', full: false, draft: null }))], active: 0 });
         setToken(auth);
       } catch (caught) {
         if (live) setError(caught instanceof Error ? caught.message : String(caught));
@@ -309,10 +314,17 @@ export function useVaultController(visible: boolean): VaultTabProps {
       window.requestAnimationFrame(() => document.getElementById(`v-h-${line}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     },
     setMode: (mode) => setTabs((current) => setActiveNoteTab(current, { mode })),
-    saveBody: (noteId, body) => authed(async (auth) => {
-      const detail = details.get(noteId) ?? await loadDetail(auth, noteId);
-      if (body !== detail.note.body) await writeBody(auth, detail.note, body, 'Saved as a new revision.');
-      setTabs((current) => setActiveNoteTab(current, { mode: 'read' }));
+    setDraft: (noteId, draft) => setTabs((current) => setNoteDraft(current, noteId, draft)),
+    saveDraft: (noteId) => authed(async (auth) => {
+      const draft = noteDraft(tabs, noteId);
+      if (draft === null) { setTabs((current) => setActiveNoteTab(current, { mode: 'read' })); return; }
+      const written = await writeBody(auth, { id: noteId, revision: draft.revision }, draft.body, 'Saved as a new revision.');
+      if (written.saved) { setTabs((current) => settleNoteDraft(current, noteId, draft.body, written.revision)); return; }
+      setTabs((current) => {
+        const kept = noteDraft(current, noteId);
+        return kept === null ? current : setNoteDraft(current, noteId, { ...kept, revision: written.revision });
+      });
+      notify('This note changed elsewhere. Your text is kept; save again to replace the latest revision.', true);
     }),
     rename: (noteId, title) => authed(async (auth) => {
       const { note } = details.get(noteId) ?? await loadDetail(auth, noteId);

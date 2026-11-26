@@ -55,7 +55,7 @@ function CenterView(props: VaultTabProps) {
   if (detail === undefined) return <Loading />;
   return (
     <NoteView
-      key={tab.noteId} detail={detail} mode={tab.mode} full={tab.full} colors={props.noteColors}
+      key={tab.noteId} detail={detail} mode={tab.mode} full={tab.full} draft={tab.draft} colors={props.noteColors}
       entries={props.index.nodes} nowMs={props.nowMs} actions={actions}
     />
   );

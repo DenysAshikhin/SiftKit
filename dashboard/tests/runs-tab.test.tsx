@@ -92,11 +92,22 @@ test('the Engine chip shows only the Engine section', () => {
 });
 
 test('a run with cache breaks shows a badge, and its detail lists each break', () => {
+  const single = makeRun({ promptCacheBreakCount: 1 });
+  const singleDetail: RunDetailResponse = { run: single, events: [
+    { kind: 'prompt_cache_break', at: null, payload: { kind: 'prompt_cache_break', turn: 4, promptTokens: 9_100, previousPromptTokens: 9_000, promptEvalTokens: 9_000, promptCacheTokens: null } },
+  ] };
+  const singleMarkup = renderToStaticMarkup(<RunsTab {...PROPS} groupedRuns={{ ...PROPS.groupedRuns, repo_search: [single] }} selectedRunDetail={singleDetail} />);
+  assert.match(singleMarkup, /⚠ cache ×1/u);
+  assert.match(singleMarkup, /Prompt cache broke on 1 turn/u);
+  assert.match(singleMarkup, /Turn 4 re-prefilled 9,000 tokens; the prompt grew 100/u);
+
   const broken = makeRun({ promptCacheBreakCount: 2 });
   const detail: RunDetailResponse = { run: broken, events: [
     { kind: 'prompt_cache_break', at: null, payload: { kind: 'prompt_cache_break', turn: 4, promptTokens: 9_100, previousPromptTokens: 9_000, promptEvalTokens: 9_000, promptCacheTokens: null } },
+    { kind: 'prompt_cache_break', at: null, payload: { kind: 'prompt_cache_break', turn: 7, promptTokens: 12_400, previousPromptTokens: 9_100, promptEvalTokens: 9_000, promptCacheTokens: null } },
   ] };
   const markup = renderToStaticMarkup(<RunsTab {...PROPS} groupedRuns={{ ...PROPS.groupedRuns, repo_search: [broken] }} selectedRunDetail={detail} />);
   assert.match(markup, /⚠ cache ×2/u);
+  assert.match(markup, /Prompt cache broke on 2 turns/u);
   assert.match(markup, /Turn 4 re-prefilled 9,000 tokens; the prompt grew 100/u);
 });

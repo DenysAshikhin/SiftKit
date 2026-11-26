@@ -1,5 +1,5 @@
 import type { VaultLocalGraphDepth, VaultTriageAction } from '@siftkit/contracts';
-import type { VaultNoteMode } from '../../lib/vault-tabs.ts';
+import type { VaultDraft, VaultNoteMode } from '../../lib/vault-tabs.ts';
 
 export type VaultSide = 'files' | 'search';
 export type VaultRightTab = 'links' | 'outline' | 'graph' | 'history' | 'vault';
@@ -27,7 +27,9 @@ export interface VaultActions {
   showFull(): void;
   jumpTo(line: number): void;
   setMode(mode: VaultNoteMode): void;
-  saveBody(noteId: string, body: string): void;
+  setDraft(noteId: string, draft: VaultDraft | null): void;
+  /** Saves the note's draft; without one there is nothing to save and the note just reads. */
+  saveDraft(noteId: string): void;
   rename(noteId: string, title: string): void;
   linkMention(sourceId: string, title: string): void;
   openDiff(noteId: string, revision: number): void;

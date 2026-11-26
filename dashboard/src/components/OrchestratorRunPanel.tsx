@@ -11,6 +11,7 @@ import {
 import { useNow } from '../hooks/useNow.ts';
 import { usePaneFollow } from '../hooks/usePaneFollow.ts';
 import { approachLabel, budgetSummary, endedApproaches, formatElapsed, orchestratorSteps, phaseTone, runElapsedMs, taskCounts } from '../orchestrator-view.ts';
+import { MarkdownContent } from './MarkdownContent.tsx';
 import { OrchestratorConversation, OrchestratorConversationHeader } from './OrchestratorConversation.tsx';
 import { OrchestratorRunLine } from './OrchestratorRunLine.tsx';
 import { OrchestratorTaskRow } from './OrchestratorTaskRow.tsx';
@@ -79,6 +80,12 @@ export function OrchestratorRunPanel({ state, activity, workPhase, lastMessage, 
       </ol>
       {state.approval ? <ApprovalRequest key={state.approval.approvalId} pending={state.approval} onDecide={onDecide} /> : null}
       {state.failure ? <div className="err-banner"><span>{state.failure.message}</span></div> : null}
+      {state.summary === null ? null : (
+        <section className="orch-summary" aria-label="Final answer" tabIndex={0}>
+          <header className="orch-title">Final answer</header>
+          <div className="markdown-body"><MarkdownContent content={state.summary} /></div>
+        </section>
+      )}
       <div className="orch-panes">
         <section className="orch-pane" aria-label="Orchestrator" tabIndex={0}
           ref={conversation.paneRef} onScroll={conversation.onScroll} onClick={conversation.onClick}>

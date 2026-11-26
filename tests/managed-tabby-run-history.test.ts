@@ -6,7 +6,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
 import { listInferenceRuns, readInferenceRunLogTextByStream } from '../src/state/inference-runs.ts';
-import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
+import { TEST_MANAGED_STARTUP_TIMEOUT_MS, acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
 import { writeFakeEngineHost } from './helpers/tabby-fake.ts';
 
 const ENTRYPOINT = 'tabby-main.py';
@@ -45,6 +45,8 @@ async function createManagedTabbyRun(root: string, leaseName: string) {
       SpeculativeEnabled: true,
       SpeculativeType: 'draft-mtp' as const,
       HealthcheckIntervalMs: 10,
+      // The same 30s per-test timeout bounds this file: a never-ready engine must fail its own deadline.
+      StartupTimeoutMs: TEST_MANAGED_STARTUP_TIMEOUT_MS,
     },
     entrypointPath: ENTRYPOINT,
     async [Symbol.asyncDispose]() {

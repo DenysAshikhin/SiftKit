@@ -10,9 +10,10 @@ import { requiredRamDiskBytes } from '../src/inference-presets/cache-sizing.ts';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
 import { serverLogger } from '../src/status-server/server-logger.ts';
+import { buildNodeTestArgs } from '../src/test-runner/test-targets.ts';
 
-import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
-import { getAddressInfo } from './helpers/dashboard-http.ts';
+import { TEST_MANAGED_STARTUP_TIMEOUT_MS, acquireChildPortLease, withTempEnv } from './_runtime-helpers.ts';
+import { listenOnEphemeralPort } from './helpers/test-endpoints.ts';
 import { FakeTabbyModelState, writeFakeEngineHost } from './helpers/tabby-fake.ts';
 import { launchEngineVariables, NEVER_LAUNCHING_ENGINE_HOST, type FakeTabbyOptions } from './helpers/in-process-tabby.ts';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.ts';
@@ -22,21 +23,14 @@ const FIXTURE_ENTRYPOINT = 'tabby-main.py';
 // The default fake rejects /v1/model/load and announces MTP drafting on stdout at once.
 const DEFAULT_FAKE_OPTIONS: Omit<FakeTabbyOptions, 'port'> = { rejectLoads: true, mtpAnnouncement: { stream: 'stdout', delayMs: 0 } };
 
-async function createManagedTabbyFixture(
-  root: string,
-  leaseName: string,
-  environment: Record<string, string> = {},
-  fakeOptions: Omit<FakeTabbyOptions, 'port'> = DEFAULT_FAKE_OPTIONS,
-  hostOptions: { gpuMemory?: GpuMemoryProbe; shutdownTimeoutMs?: number } = {},
-) {
-  const portLease = await acquireChildPortLease(leaseName);
-  const fakeTabby = writeFakeEngineHost(root, { port: portLease.port, ...fakeOptions }, hostOptions.gpuMemory);
+/** The fixture's managed EXL3 preset; its startup deadline must fit the runner per-test timeout (asserted in this file). */
+function fixturePresetFor(root: string, port: number) {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
-  const exl3Preset = {
+  return {
     ...preset,
     Backend: 'exl3' as const,
-    BaseUrl: `http://127.0.0.1:${portLease.port}`,
+    BaseUrl: `http://127.0.0.1:${port}`,
     Model: 'model-a',
     ModelPath: path.join(root, 'model-a'),
     NumCtx: 30_000,
@@ -47,7 +41,38 @@ async function createManagedTabbyFixture(
     SpeculativeEnabled: true,
     SpeculativeDraftMax: 5,
     HealthcheckIntervalMs: 10,
+    // These tests do not exercise tight startup timing; a never-ready engine must fail its own
+    // deadline well inside the runner's 30s per-test timeout, not the 10-minute production default.
+    StartupTimeoutMs: TEST_MANAGED_STARTUP_TIMEOUT_MS,
   };
+}
+
+/** The concurrency test's stand-in preset; like the fixture's, its startup deadline must fit the per-test timeout. */
+function standInPresetFor(root: string, port: number) {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  return {
+    ...preset,
+    id: 'exl3-a',
+    Backend: 'exl3' as const,
+    BaseUrl: `http://127.0.0.1:${port}`,
+    Model: 'model-a',
+    ModelPath: path.join(root, 'model-a'),
+    HealthcheckIntervalMs: 10,
+    StartupTimeoutMs: TEST_MANAGED_STARTUP_TIMEOUT_MS,
+  };
+}
+
+async function createManagedTabbyFixture(
+  root: string,
+  leaseName: string,
+  environment: Record<string, string> = {},
+  fakeOptions: Omit<FakeTabbyOptions, 'port'> = DEFAULT_FAKE_OPTIONS,
+  hostOptions: { gpuMemory?: GpuMemoryProbe; shutdownTimeoutMs?: number } = {},
+) {
+  const portLease = await acquireChildPortLease(leaseName);
+  const fakeTabby = writeFakeEngineHost(root, { port: portLease.port, ...fakeOptions }, hostOptions.gpuMemory);
+  const exl3Preset = fixturePresetFor(root, portLease.port);
   const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
   const runtime = new ManagedTabbyRuntime({
     Managed: true,
@@ -176,18 +201,8 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
       response.statusCode = 404;
       response.end();
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    const exl3Preset = {
-      ...preset,
-      id: 'exl3-a',
-      Backend: 'exl3' as const,
-      BaseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`,
-      Model: 'model-a',
-      ModelPath: path.join(root, 'model-a'),
-      HealthcheckIntervalMs: 10,
-    };
+    const port = await listenOnEphemeralPort(server);
+    const exl3Preset = standInPresetFor(root, port);
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: false,
@@ -371,6 +386,61 @@ test('managed Tabby still fails at the startup deadline when the engine never an
     );
     assert.equal(fixture.runtime.getProcessState(), 'failed');
   });
+});
+
+test('managed Tabby fails the startup deadline when the endpoint answers but never reports the expected model', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-wrong-model');
+    // The stand-in answers every probe, but its card names a different model: readiness can only run out the deadline.
+    const standIn = new FakeTabbyModelState();
+    standIn.applyResidentModel('model-b', 30_000, 30_208, 1_024);
+    const server = http.createServer((request, response) => {
+      if (request.url === '/v1/models') {
+        response.setHeader('content-type', 'application/json');
+        response.end('{"object":"list","data":[]}');
+        return;
+      }
+      if (request.url === '/v1/model') {
+        standIn.respondCurrentModel(response);
+        return;
+      }
+      response.statusCode = 404;
+      response.end();
+    });
+    const port = await listenOnEphemeralPort(server);
+    try {
+      await assert.rejects(fixture.runtime.ensurePresetReady({
+        ...fixture.exl3Preset,
+        BaseUrl: `http://127.0.0.1:${port}`,
+        StartupTimeoutMs: 500,
+      }), /Timed out waiting for the TabbyAPI process\. Preset 'default' never reported its expected resident model 'model-a'\./u);
+      assert.equal(fixture.runtime.getProcessState(), 'failed');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+// Read the same way tests/process/temp-env-handoff.test.ts reads it, so a runner change re-anchors this bound.
+test('every managed-Tabby preset this file builds starts up inside the runner per-test timeout', () => {
+  const timeoutArg = buildNodeTestArgs(process.cwd(), []).find((arg) => arg.startsWith('--test-timeout='));
+  if (timeoutArg === undefined) {
+    throw new Error('buildNodeTestArgs did not set a per-test timeout');
+  }
+  const perTestTimeoutMs = Number.parseInt(timeoutArg.split('=')[1] ?? '', 10);
+  if (!Number.isFinite(perTestTimeoutMs) || perTestTimeoutMs <= 0) {
+    throw new Error(`unexpected per-test timeout: ${timeoutArg}`);
+  }
+  for (const preset of [
+    fixturePresetFor('C:\\siftkit-tests', 9_099),
+    standInPresetFor('C:\\siftkit-tests', 9_099),
+    externalPresetFor('C:\\siftkit-tests', 'http://127.0.0.1:9099'),
+  ]) {
+    assert.ok(
+      preset.StartupTimeoutMs < perTestTimeoutMs,
+      `preset '${preset.id}' startup deadline ${preset.StartupTimeoutMs}ms must stay under the per-test timeout ${perTestTimeoutMs}ms`,
+    );
+  }
 });
 
 test('managed Tabby fails the residency check at the startup deadline when the engine stops answering after ready', async () => {
@@ -593,7 +663,7 @@ async function withExternalTabby(
     response.statusCode = 404;
     response.end();
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = await listenOnEphemeralPort(server);
   const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
   const runtime = new ManagedTabbyRuntime({
     Managed: true,
@@ -607,7 +677,7 @@ async function withExternalTabby(
     RamDisk: { DriveLetter: 'S' },
   }, flushQueue, fakeTabby.host);
   try {
-    await fn(runtime, externalPresetFor(root, `http://127.0.0.1:${getAddressInfo(server).port}`), fakeTabby.launcher);
+    await fn(runtime, externalPresetFor(root, `http://127.0.0.1:${port}`), fakeTabby.launcher);
   } finally {
     await runtime.stopProcess();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -626,6 +696,7 @@ function externalPresetFor(root: string, baseUrl: string) {
     BaseUrl: baseUrl,
     Model: 'model-a',
     ModelPath: path.join(root, 'model-a'),
+    StartupTimeoutMs: TEST_MANAGED_STARTUP_TIMEOUT_MS,
   };
 }
 
@@ -901,6 +972,28 @@ test('stopping the engine, or the process-exit path, leaves the RAM disk to the 
     fixture.runtime.stopForProcessExitSync();
     assert.deepEqual(fixture.ramDisk.calls, calls);
     assert.notEqual(fixture.ramDisk.disk, null);
+  });
+});
+
+test('overlapping starts make one RAM disk; a declined one fails them all, leaves the process failed, and only a new load asks again', async () => {
+  await withTempEnv(async (root) => {
+    writeRamDiskModelConfig(root);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-ram-disk-declined');
+    const preset = { ...fixture.exl3Preset, ...RAM_DISK, id: 'next' };
+    fixture.runtime.replaceModelPresets([preset]);
+    const creates = () => fixture.ramDisk.calls.filter((call) => call.startsWith('create')).length;
+    fixture.ramDisk.failNext = 'create';
+    const declined = await Promise.allSettled([1, 2, 3].map(() => fixture.runtime.ensurePresetReady(preset)));
+    assert.deepEqual(declined.map((result) => result.status === 'rejected' && String(result.reason)),
+      Array.from({ length: 3 }, () => 'Error: create failed: The operation was canceled by the user.'));
+    assert.equal(creates(), 1);
+    assert.equal(fixture.launcher.launches.length, 0);
+    // GET /config retries nothing while the process reads failed.
+    assert.equal(fixture.runtime.getProcessState(), 'failed');
+    await Promise.all([1, 2].map(() => fixture.runtime.ensurePresetReady(preset)));
+    assert.equal(creates(), 2);
+    assert.equal(fixture.launcher.launches.length, 1);
+    assert.equal(fixture.runtime.getProcessState(), 'ready');
   });
 });
 

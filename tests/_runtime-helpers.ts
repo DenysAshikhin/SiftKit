@@ -15,7 +15,7 @@ import { normalizeConfigObject } from '../src/config/normalization.ts';
 import { mockSiftConfig } from './helpers/mock-config.ts';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.ts';
 import { EnvBackup } from './helpers/env-backup.ts';
-import { acquireChildPortLease } from './helpers/test-endpoints.ts';
+import { acquireChildPortLease, listenOnEphemeralPort } from './helpers/test-endpoints.ts';
 import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.ts';
 import {
   createManagedTempDir,
@@ -1007,9 +1007,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
-  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
-  const address = server.address();
-  const port = typeof address === 'object' && address ? address.port : 0;
+  const port = await listenOnEphemeralPort(server);
   const stubBaseUrl = `http://127.0.0.1:${port}`;
   if (state.config.Server.ModelPresets.Presets.length === 0) {
     const defaultPreset = getDefaultConfig().Server.ModelPresets.Presets[0];
@@ -1033,10 +1031,28 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
   };
 }
 
-let tempEnvQueue: Promise<void> = Promise.resolve();
+// The handoff bound must outlast the longest bounded engine wait, so a holder that is still
+// working is never claimed from by a neighbour that reaches the bound first.
+const DEFAULT_TEMP_ENV_HANDOFF_MS = 20_000;
+const TEST_MANAGED_STARTUP_TIMEOUT_MS = 10_000;
+
+// Parsed like the runner's run budget: an unparseable or non-positive override must not become
+// the bound, or setTimeout would coerce it to zero and every handoff would fail at once.
+function readTempEnvHandoffMs(): number {
+  const parsed = Number.parseInt(String(process.env.SIFTKIT_TEST_TEMP_ENV_HANDOFF_MS || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TEMP_ENV_HANDOFF_MS;
+}
+
+type TempEnvHolder = { tempRoot: string; superseded: boolean };
+
+let tempEnvRelease: Promise<void> = Promise.resolve();
+let tempEnvHolder: TempEnvHolder | null = null;
 
 function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
   const tempRoot = createManagedTempDir('siftkit-node-test-');
+  // The holder records its own temp root so a timed-out waiter can name it in the handoff error.
+  const holder: TempEnvHolder = { tempRoot, superseded: false };
+  tempEnvHolder = holder;
   const previousCwd = process.cwd();
   const envBackup = new EnvBackup([
     'USERPROFILE',
@@ -1081,14 +1097,21 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
   process.chdir(tempRoot);
 
   const cleanup = async () => {
-    // Deferred run-log writes land after the request promise resolves; let them finish before
-    // the database closes, or the late write reopens runtime.sqlite inside the temp root.
-    await awaitRepoSearchRunPersistence();
-    process.chdir(previousCwd);
-    closeAllRuntimeDatabases();
-    envBackup.restore();
+    // A superseded holder no longer owns the process state: the test that took over the handoff
+    // already moved the cwd and env, so restoring them would yank them out from under that test.
+    if (!holder.superseded) {
+      // Deferred run-log writes land after the request promise resolves; let them finish before
+      // the database closes, or the late write reopens runtime.sqlite inside the temp root.
+      await awaitRepoSearchRunPersistence();
+      process.chdir(previousCwd);
+      closeAllRuntimeDatabases();
+      envBackup.restore();
+    }
     if (!await removeDirectoryWithRetries(tempRoot)) {
       reportUndeletableTempDirectories([tempRoot]);
+    }
+    if (tempEnvHolder === holder) {
+      tempEnvHolder = null;
     }
   };
 
@@ -1098,9 +1121,56 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
 }
 
 function withTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
-  const queued = tempEnvQueue.then(() => runWithTempEnv(fn), () => runWithTempEnv(fn));
-  tempEnvQueue = queued.then(() => undefined, () => undefined);
-  return queued;
+  const handoffMs = readTempEnvHandoffMs();
+  const previousHolder = tempEnvHolder;
+  const previousRelease = tempEnvRelease;
+  // Claim this caller's own tail synchronously, before any await: every caller arriving after
+  // this one queues behind it, so two temp environments can never overlap on the shared cwd.
+  let release: () => void = () => undefined;
+  const tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  tempEnvRelease = tail;
+
+  return new Promise<R>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const takeHandoff = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      // Settle this tail only after fn and its cleanup finish, so the next caller waits for it.
+      runWithTempEnv(fn).then(
+        (value) => {
+          release();
+          resolve(value);
+        },
+        (error) => {
+          release();
+          reject(error);
+        },
+      );
+    };
+    // unref: only a still-running test needs the bound to fire, and node:test keeps that process
+    // alive, so an abandoned timer must not hold the event loop open after the file's tests end.
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      // Mark the holder superseded so its cleanup skips the process-global steps, and release
+      // this tail at once so the next caller does not also wait out the bound.
+      if (previousHolder !== null) {
+        previousHolder.superseded = true;
+      }
+      release();
+      reject(new Error(
+        `temp environment handoff timed out after ${handoffMs}ms (SIFTKIT_TEST_TEMP_ENV_HANDOFF_MS): `
+        + `the previous test is still holding the temp environment at `
+        + `${previousHolder?.tempRoot ?? 'an unknown temp directory'}, but node:test has already `
+        + 'timed that test out and cannot cancel it',
+      ));
+    }, handoffMs).unref();
+    previousRelease.then(takeHandoff, takeHandoff);
+  });
 }
 
 function seedRuntimeConfigFromJson(configPath: string): void {
@@ -1592,7 +1662,7 @@ export {
   // Local helpers
   TEST_USE_EXISTING_SERVER, EXISTING_SERVER_STATUS_URL, EXISTING_SERVER_CONFIG_URL,
   RUN_LIVE_INFERENCE_TOKENIZE_TESTS, LIVE_INFERENCE_BASE_URL, LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_WAIT_MS,
+  FAST_LEASE_WAIT_MS, DEFAULT_TEMP_ENV_HANDOFF_MS, TEST_MANAGED_STARTUP_TIMEOUT_MS,
   deriveServiceUrl, getDefaultConfig, clone, getChatRequestText, setPresetBaseUrl,
   mergeConfig, extractPromptSection, buildOversizedTransitionsInput,
   buildOversizedRunnerStateHistoryInput, getRuntimeRootFromStatusPath,

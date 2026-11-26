@@ -34,7 +34,8 @@ export function powerShellFileArguments(scriptPath: string, jobPath: string): st
  * Reading `Handle` first keeps the exit code readable once the process has exited.
  */
 export function startAndWait(startArguments: string): string {
-  return `$p = Start-Process ${startArguments} -PassThru; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode`;
+  // Stop: a declined UAC prompt leaves $p null, and `exit $null` would report success.
+  return `$ErrorActionPreference = 'Stop'; $p = Start-Process ${startArguments} -PassThru; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode`;
 }
 
 /** The -Command that starts `scriptPath` elevated through UAC and exits with the script's exit code. */
