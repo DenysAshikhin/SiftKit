@@ -12,6 +12,8 @@ const TabbyModelCardSchema = z.object({
     max_seq_len: z.number(),
     cache_size: z.number(),
     chunk_size: z.number(),
+    /** Absent on TabbyAPI builds whose card omits it; identity then reports the KV mode as unverified. */
+    cache_mode: z.string().nullish(),
   }).nullish(),
 });
 export type TabbyModelCard = z.infer<typeof TabbyModelCardSchema>;

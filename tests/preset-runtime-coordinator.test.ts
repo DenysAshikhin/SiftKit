@@ -168,7 +168,7 @@ test('a load hands the runtime only the presets in use: the active one, those ta
     await coordinator.initialize();
     assert.deepEqual(runtime.replacedPresetIds, ['exl3-main', 'exl3-alt'], 'unused presets do not size the RAM disk');
 
-    await coordinator.ensureRequestPresetReady(extra, true);
+    await coordinator.ensureRequestPresetReady(extra, 'saved');
     assert.deepEqual(runtime.replacedPresetIds, ['exl3-main', 'exl3-alt', 'exl3-extra'], 'a preset outside the set joins it when it loads');
   } finally {
     await disposeCoordinator(fixture);
@@ -207,7 +207,7 @@ test('a request for another model during the startup load waits for it, then swi
     const startup = coordinator.initialize();
     await runtime.transitionStarted.promise;
     assert.equal(coordinator.canGrantModelRequest(), false, 'no request is admitted while the startup load runs');
-    const request = coordinator.ensureRequestPresetReady(alt, true);
+    const request = coordinator.ensureRequestPresetReady(alt, 'saved');
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(events, [], 'the switch does not touch the runtime until the startup load ends');
     runtime.releaseTransition();
@@ -526,7 +526,7 @@ test('an automatic request switch remains selected after readiness is checked ag
     const target = readConfig(fixture.configPath).Server.ModelPresets.Presets
       .find(preset => preset.id === 'exl3-alt');
     assert.ok(target);
-    await fixture.coordinator.ensureRequestPresetReady(target, true);
+    await fixture.coordinator.ensureRequestPresetReady(target, 'saved');
     fixture.events.length = 0;
     await fixture.coordinator.ensureActivePresetReady();
     assert.equal(fixture.coordinator.getStatus().activePresetId, target.id);
@@ -548,7 +548,7 @@ test('a same-residency request updates the applied profile without lifecycle cal
     const target = { ...current, label: 'Renamed main' };
     events.length = 0;
 
-    await coordinator.ensureRequestPresetReady(target, true);
+    await coordinator.ensureRequestPresetReady(target, 'saved');
 
     assert.deepEqual(events, []);
     assert.equal(coordinator.getStatus().activePresetLabel, 'Renamed main');
@@ -571,7 +571,7 @@ test('a same-id request with a changed loading key performs one ordered transiti
     const target = { ...current, Model: 'changed-model' };
     events.length = 0;
 
-    await coordinator.ensureRequestPresetReady(target, true);
+    await coordinator.ensureRequestPresetReady(target, 'saved');
 
     assert.deepEqual(events, ['unload:exl3', 'load:exl3-main']);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
@@ -593,7 +593,7 @@ test('a failed requested switch rolls back the previous model and releases the a
     const target = { ...broken, Model: 'broken-model' }; // changed loading key forces a real transition
     events.length = 0;
 
-    await assert.rejects(coordinator.ensureRequestPresetReady(target, true), /load failed: broken-exl3/u);
+    await assert.rejects(coordinator.ensureRequestPresetReady(target, 'saved'), /load failed: broken-exl3/u);
 
     assert.deepEqual(events, ['unload:exl3', 'load:broken-exl3', 'unload:exl3', 'load:exl3-main']);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
@@ -633,7 +633,7 @@ test('a settings save landing while a requested switch is blocked is preserved',
     runtime.setBlockedTransition('ensure');
     events.length = 0;
 
-    const ready = coordinator.ensureRequestPresetReady(target, true);
+    const ready = coordinator.ensureRequestPresetReady(target, 'saved');
     await runtime.transitionStarted.promise;
     assert.equal(coordinator.canGrantModelRequest(), false);
     persistActivePreset(configPath, 'external-exl3'); // newer save lands mid-transition
@@ -660,7 +660,7 @@ test('a readiness check joining a requested switch sees the new selection and ne
     runtime.setBlockedTransition('ensure');
     events.length = 0;
 
-    const requested = coordinator.ensureRequestPresetReady(target, true);
+    const requested = coordinator.ensureRequestPresetReady(target, 'saved');
     await runtime.transitionStarted.promise;
     const readiness = coordinator.ensureActivePresetReady(); // what GET /config does
     runtime.setBlockedTransition(null);
@@ -684,7 +684,7 @@ for (const sameResidency of [true, false]) {
       const current = getActiveModelPreset(config);
       const target = { ...current, id: 'removed-model', Model: sameResidency ? current.Model : 'removed-weights' };
       fixture.events.length = 0;
-      await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target, true), /does not exist/u);
+      await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target, 'saved'), /does not exist/u);
       assert.deepEqual(fixture.events, []);
       assert.equal(fixture.appliedState.getPreset().id, current.id);
       assert.equal(fixture.coordinator.canGrantModelRequest(), true);
@@ -704,7 +704,7 @@ test('a failed target and failed rollback release admission for a later request'
     assert.ok(target);
     failures.add(target.id);
     failures.add('exl3-main');
-    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target, true), /load failed: broken-exl3/u);
+    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target, 'saved'), /load failed: broken-exl3/u);
     assert.equal(fixture.coordinator.canGrantModelRequest(), true);
     await fixture.coordinator.waitForCurrentAdmissionBlocker();
     assert.match(fixture.coordinator.getStatus().rollback ?? '', /load failed: exl3-main/u);
@@ -758,6 +758,100 @@ test('an administrative selection reuses equivalent residency and updates profil
     assert.equal(fixture.appliedState.getPreset().id, equivalent.id);
     assert.equal(fixture.appliedState.getPreset().Temperature, 0.125);
     assert.equal(fixture.runtime.preparedPreset?.Temperature, 0.125);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a transient request switches the model without saving the selection, and a config read keeps it', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, appliedState, events, configPath } = fixture;
+  const presets = readConfig(configPath).Server.ModelPresets.Presets;
+  const main = presets.find((preset) => preset.id === 'exl3-main');
+  const alt = presets.find((preset) => preset.id === 'exl3-alt');
+  assert.ok(main);
+  assert.ok(alt);
+  try {
+    await coordinator.initialize();
+    await coordinator.ensureRequestPresetReady(alt, 'transient');
+    assert.deepEqual(events, ['start:exl3', 'load:exl3-main', 'unload:exl3', 'load:exl3-alt']);
+    assert.equal(appliedState.getPreset().id, 'exl3-alt');
+    assert.equal(appliedState.isTransient(), true);
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+
+    await coordinator.ensureActivePresetReady();
+    assert.equal(appliedState.getPreset().id, 'exl3-alt', 'a config read does not revert a benchmark preset');
+    assert.equal(events.length, 4);
+
+    await coordinator.ensureRequestPresetReady(main, 'saved');
+    assert.equal(appliedState.getPreset().id, 'exl3-main');
+    assert.equal(appliedState.isTransient(), false);
+    assert.deepEqual(events.slice(4), ['unload:exl3', 'load:exl3-main']);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a failed switch away from a transient preset restores the saved selection and writes no preset body', async () => {
+  const fixture = createCoordinator(new Set(['broken-exl3']));
+  const { coordinator, appliedState, configPath } = fixture;
+  const presets = readConfig(configPath).Server.ModelPresets.Presets;
+  const alt = presets.find((preset) => preset.id === 'exl3-alt');
+  const broken = presets.find((preset) => preset.id === 'broken-exl3');
+  assert.ok(alt);
+  assert.ok(broken);
+  const savedPresets = JSON.stringify(presets);
+  try {
+    await coordinator.initialize();
+    await coordinator.ensureRequestPresetReady({ ...alt, NumCtx: alt.NumCtx + 1024 }, 'transient');
+    await assert.rejects(coordinator.ensureRequestPresetReady(broken, 'saved'), /load failed: broken-exl3/u);
+    assert.equal(appliedState.getPreset().id, 'exl3-main');
+    assert.equal(appliedState.isTransient(), false);
+    const after = readConfig(configPath).Server.ModelPresets;
+    assert.equal(after.ActivePresetId, 'exl3-main');
+    assert.equal(JSON.stringify(after.Presets), savedPresets);
+    assert.match(coordinator.getStatus().rollback ?? '', /Restored preset 'exl3-main'/u);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a transient request for the already applied preset leaves the applied state untouched', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, appliedState, events, configPath } = fixture;
+  const main = readConfig(configPath).Server.ModelPresets.Presets.find((preset) => preset.id === 'exl3-main');
+  assert.ok(main);
+  try {
+    await coordinator.initialize();
+    await coordinator.ensureRequestPresetReady(main, 'transient');
+    assert.equal(appliedState.isTransient(), false, 'the saved selection stays the saved selection');
+    assert.deepEqual(events, ['start:exl3', 'load:exl3-main']);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a transient request for the applied preset clears the error a rolled-back switch left behind', async () => {
+  const fixture = createCoordinator(new Set(['broken-exl3']));
+  const { coordinator, appliedState, events, configPath } = fixture;
+  const presets = readConfig(configPath).Server.ModelPresets.Presets;
+  const main = presets.find((preset) => preset.id === 'exl3-main');
+  const broken = presets.find((preset) => preset.id === 'broken-exl3');
+  assert.ok(main);
+  assert.ok(broken);
+  try {
+    await coordinator.initialize();
+    await assert.rejects(coordinator.ensureRequestPresetReady(broken, 'saved'), /load failed: broken-exl3/u);
+    assert.notEqual(coordinator.getStatus().error, null);
+    assert.equal(appliedState.getPreset().id, 'exl3-main');
+    events.length = 0;
+
+    await coordinator.ensureRequestPresetReady(main, 'transient');
+
+    assert.equal(coordinator.getStatus().error, null);
+    assert.equal(coordinator.getStatus().errorPhase, null);
+    assert.equal(appliedState.isTransient(), false);
+    assert.deepEqual(events, [], 'a transient request for the applied preset performs no extra load');
   } finally {
     await disposeCoordinator(fixture);
   }

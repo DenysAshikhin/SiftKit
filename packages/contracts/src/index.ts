@@ -11,6 +11,7 @@ export * from './chat-transcript-reducer.ts';
 export * from './chat-recovery.ts';
 export * from './chat-projection.ts';
 export * from './benchmark.ts';
+export * from './bench.ts';
 export * from './system.ts';
 export * from './config.ts';
 export * from './model-profile.ts';

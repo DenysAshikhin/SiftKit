@@ -51,6 +51,7 @@ const FakeEngineSteeringSchema = z.object({
   usage: JsonObjectSchema.nullable().optional(),
   padding_chars: z.number().optional(),
   finish_delay_ms: z.number().optional(),
+  error_status: z.number().optional(),
 }).loose();
 
 const ForwardedRequestSchema = z.object({
@@ -92,7 +93,7 @@ export function countFakeTokens(text: string, charsPerToken: number): number {
   return text.trim() ? Math.max(1, Math.ceil(text.length / charsPerToken)) : 0;
 }
 
-type ModelCard = { id: string; parameters: { max_seq_len: number; cache_size: number; chunk_size: number } };
+type ModelCard = { id: string; parameters: { max_seq_len: number; cache_size: number; chunk_size: number; cache_mode?: string } };
 
 // Self-consistent Tabby usage: reported rates equal count / time, so the audit stays quiet.
 const DEFAULT_USAGE = buildTabbyUsage({ promptTokens: 3, completionTokens: 1 });
@@ -299,6 +300,7 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
         max_seq_len: this.options.appliedMaxSeqLen ?? Number(environment.TABBY_MODEL_MAX_SEQ_LEN),
         cache_size: Number(environment.TABBY_MODEL_CACHE_SIZE),
         chunk_size: Number(environment.TABBY_MODEL_CHUNK_SIZE),
+        ...(environment.TABBY_MODEL_CACHE_MODE ? { cache_mode: environment.TABBY_MODEL_CACHE_MODE } : {}),
       },
     };
   }
@@ -377,8 +379,12 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
     if (request.method === 'POST' && url === '/v1/chat/completions') {
       const bodyText = await readBody(request);
       const forwardedRequest = ForwardedRequestSchema.catch({}).parse(parseBody(bodyText));
-      // Caller steers the fake via fake_engine: usage (null omits it), padding_chars, finish_delay_ms.
+      // Caller steers the fake via fake_engine: usage (null omits it), padding_chars, finish_delay_ms, error_status.
       const steering = forwardedRequest.fake_engine ?? {};
+      if (steering.error_status !== undefined) {
+        sendJson(response, steering.error_status, { detail: 'fake engine rejected the request' });
+        return;
+      }
       const usage = steering.usage === undefined ? DEFAULT_USAGE : steering.usage;
       if (forwardedRequest.stream === true) {
         response.writeHead(200, { 'Content-Type': 'text/event-stream' });

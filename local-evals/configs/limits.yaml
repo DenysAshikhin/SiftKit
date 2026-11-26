@@ -1,0 +1,4 @@
+max_wall_minutes: 120
+max_retries: 1
+request_timeout_seconds: 900
+allow_cloud: false

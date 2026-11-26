@@ -1,10 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import http from 'node:http';
-import { acquireChildPortLease, writeManagedEngineHost } from './_runtime-helpers.ts';
-import type { ManagedEngineHostFixture } from './helpers/managed-engine-fixtures.ts';
 import {
   countFakeTokens,
   renderFakeChatTemplate,
@@ -13,240 +8,15 @@ import {
   type FakeTabbyOptions,
 } from './helpers/in-process-tabby.ts';
 import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../src/config/constants.ts';
-import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.ts';
 import { OutputCapture } from './helpers/stdout-capture.ts';
-
-import { startStatusServer } from '../src/status-server/index.ts';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.ts';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.ts';
-import { getConfigPath, type ModelRuntimePreset } from '../src/config/index.ts';
+import type { ModelRuntimePreset } from '../src/config/index.ts';
 import { parseJsonValueText } from '../src/lib/json.ts';
 import type { JsonObject, JsonValue } from '../src/lib/json-types.ts';
-import { asObject, getAddressInfo, requestRawText, type JsonResponse, type RawTextResponse } from './helpers/dashboard-http.ts';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.ts';
-import { testHttpAgent } from './helpers/http-agent.ts';
+import { asObject, requestJson, requestRawText, type RawTextResponse } from './helpers/dashboard-http.ts';
 import { buildTabbyUsage } from './helpers/streaming-client.ts';
 import { tabbyTokenEncodeResponse } from './helpers/tabby-token-encode.ts';
 import { PASSTHROUGH_MESSAGE_DRIFT_TOKENS } from '../src/status-server/passthrough-chat-prompt.ts';
-
-// Healthcheck timeout must stay well above realistic localhost round-trip latency under
-// full-suite CPU contention; a sub-100ms timeout made every probe to the freshly-spawned
-// fake engine time out, mis-reading it as offline until the startup deadline expired (503).
-// These tests exercise wake-on-demand and request translation, not tight healthcheck timing.
-const PASSTHROUGH_TIMEOUTS = {
-  StartupTimeoutMs: 10_000,
-  HealthcheckTimeoutMs: 2_000,
-  HealthcheckIntervalMs: 100,
-} as const;
-
-function writeManagedConfig(
-  managed: ManagedEngineHostFixture,
-  presetOverrides: Partial<ModelRuntimePreset>,
-): void {
-  const config = getDefaultConfig();
-  const preset = config.Server.ModelPresets.Presets[0];
-  config.Server.ModelPresets.Presets[0] = {
-    ...preset,
-    Backend: 'exl3',
-    Model: managed.modelId,
-    BaseUrl: managed.baseUrl,
-    NumCtx: 32000,
-    ModelPath: managed.modelPath,
-    ...PASSTHROUGH_TIMEOUTS,
-    ...presetOverrides,
-  };
-  config.Server.Engines.Exl3 = managed.engine;
-  writeConfig(getConfigPath(), config);
-}
-
-function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: 'GET',
-        agent: testHttpAgent,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            body: responseText ? asObject(parseJsonValueText(responseText)) : {},
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(timeoutMs, () => {
-      request.destroy(new Error('request timeout'));
-    });
-    request.end();
-  });
-}
-
-function requestJsonPost(
-  url: string,
-  body: JsonValue,
-  timeoutMs = 5000,
-  headers: Record<string, string> = {},
-): Promise<JsonResponse> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const payload = JSON.stringify(body);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: 'POST',
-        agent: testHttpAgent,
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        },
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            body: responseText ? asObject(parseJsonValueText(responseText)) : {},
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(timeoutMs, () => {
-      request.destroy(new Error('request timeout'));
-    });
-    request.write(payload);
-    request.end();
-  });
-}
-
-interface PassthroughServerOptions {
-  tempPrefix: string;
-  modelId: string;
-  engine?: Omit<FakeTabbyOptions, 'port' | 'modelId'>;
-  presetOverrides?: Partial<ModelRuntimePreset>;
-  disableManagedEngineStartup?: boolean;
-}
-
-const ENV_KEYS = [
-  'sift_kit_status',
-  'SIFTKIT_STATUS_PATH',
-  'SIFTKIT_CONFIG_PATH',
-  'SIFTKIT_STATUS_HOST',
-  'SIFTKIT_STATUS_PORT',
-] as const;
-
-/** A status server in its own temp workspace, proxying to a fake managed engine; disposal restores the process. */
-class PassthroughServer implements AsyncDisposable {
-  readonly baseUrl: string;
-  readonly managed: ManagedEngineHostFixture;
-  private readonly server: http.Server;
-  private readonly portLease: AsyncDisposable;
-  private readonly tempRoot: string;
-  private readonly previousCwd: string;
-  private readonly envBackup: Map<string, string | undefined>;
-
-  private constructor(fields: {
-    server: http.Server;
-    managed: ManagedEngineHostFixture;
-    portLease: AsyncDisposable;
-    tempRoot: string;
-    previousCwd: string;
-    envBackup: Map<string, string | undefined>;
-  }) {
-    this.server = fields.server;
-    this.managed = fields.managed;
-    this.portLease = fields.portLease;
-    this.tempRoot = fields.tempRoot;
-    this.previousCwd = fields.previousCwd;
-    this.envBackup = fields.envBackup;
-    this.baseUrl = `http://127.0.0.1:${getAddressInfo(fields.server).port}`;
-  }
-
-  static async start(options: PassthroughServerOptions): Promise<PassthroughServer> {
-    const tempRoot = createManagedTempDir(options.tempPrefix);
-    const previousCwd = process.cwd();
-    fs.writeFileSync(
-      path.join(tempRoot, 'package.json'),
-      JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-      'utf8',
-    );
-    process.chdir(tempRoot);
-    const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-    const envBackup = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
-    process.env.sift_kit_status = statusPath;
-    process.env.SIFTKIT_STATUS_PATH = statusPath;
-    process.env.SIFTKIT_CONFIG_PATH = configPath;
-    process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-    process.env.SIFTKIT_STATUS_PORT = '0';
-
-    const portLease = await acquireChildPortLease('inference-passthrough-status-server');
-    const managed = writeManagedEngineHost(tempRoot, portLease.port, options.modelId, options.engine);
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    writeManagedConfig(managed, options.presetOverrides ?? {});
-
-    const server = startStatusServer({
-      disableManagedEngineStartup: Boolean(options.disableManagedEngineStartup),
-      managedEngineHost: managed.host,
-      gpuMemoryProbe: new FixedGpuMemoryProbe(null),
-    });
-    await server.startupPromise;
-    return new PassthroughServer({ server, managed, portLease, tempRoot, previousCwd, envBackup });
-  }
-
-  get launcher(): FakeTabbyLauncher {
-    return this.managed.launcher;
-  }
-
-  postChat(body: JsonValue, headers: Record<string, string> = {}): Promise<JsonResponse> {
-    return requestJsonPost(`${this.baseUrl}/v1/chat/completions`, body, 30_000, headers);
-  }
-
-  /** The body the fake engine received for a chat that must succeed. */
-  async forwardedChat(body: JsonValue, headers: Record<string, string> = {}): Promise<JsonObject> {
-    const response = await this.postChat(body, headers);
-    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
-    return asObject(response.body.forwardedRequest);
-  }
-
-  async [Symbol.asyncDispose](): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      this.server.close((error) => (error ? reject(error) : resolve()));
-    });
-    await this.managed.launcher.stopAll();
-    process.chdir(this.previousCwd);
-    closeAllRuntimeDatabases();
-    for (const [key, value] of this.envBackup) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(this.tempRoot);
-    await this.portLease[Symbol.asyncDispose]();
-  }
-}
+import { PassthroughServer } from './helpers/status-server-fixture.ts';
 
 test('models passthrough reports the configured model without waking the managed engine', async () => {
   await using server = await PassthroughServer.start({
@@ -256,7 +26,7 @@ test('models passthrough reports the configured model without waking the managed
   });
   assert.equal(server.launcher.serving, false);
 
-  const response = await requestJson(`${server.baseUrl}/v1/models`, 30_000);
+  const response = await requestJson(`${server.baseUrl}/v1/models`, { timeoutMs: 30_000 });
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-model', object: 'model' }] });
@@ -272,7 +42,7 @@ test('managed engine startup waits through unloaded model probes without timing 
     engine: { initialUnloadedModelProbeCount: 2 },
   });
 
-  const response = await requestJson(`${server.baseUrl}/v1/models`, 30_000);
+  const response = await requestJson(`${server.baseUrl}/v1/models`, { timeoutMs: 30_000 });
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model', object: 'model' }] });
@@ -410,8 +180,8 @@ test('tokenize passthrough exposes only the EXL3 token endpoint', async () => {
   });
 
   // 16 characters at 4 chars/token => 4 tokens.
-  const response = await requestJsonPost(`${server.baseUrl}/v1/token/encode`, { text: 'abcdefghijklmnop' });
-  const removedRoute = await requestJsonPost(`${server.baseUrl}/tokenize`, { content: 'abcdefghijklmnop' });
+  const response = await requestJson(`${server.baseUrl}/v1/token/encode`, { method: 'POST', body: JSON.stringify({ text: 'abcdefghijklmnop' }), timeoutMs: 5000 });
+  const removedRoute = await requestJson(`${server.baseUrl}/tokenize`, { method: 'POST', body: JSON.stringify({ content: 'abcdefghijklmnop' }), timeoutMs: 5000 });
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.body, tabbyTokenEncodeResponse(4));
@@ -583,7 +353,7 @@ test('chat passthrough fails the request when the engine cannot tokenize it', as
 test('chat passthrough answers 503, not an upstream failure, while the model is manually unloaded', async () => {
   await using server = await startCountingServer();
   await server.forwardedChat({ messages: [{ role: 'user', content: 'hi' }] });
-  assert.equal((await requestJsonPost(`${server.baseUrl}/runtime/model/unload`, {}, 30_000)).statusCode, 200);
+  assert.equal((await requestJson(`${server.baseUrl}/runtime/model/unload`, { method: 'POST', body: JSON.stringify({}), timeoutMs: 30_000 })).statusCode, 200);
 
   const response = await server.postChat({ messages: [{ role: 'user', content: 'hi again' }] });
 

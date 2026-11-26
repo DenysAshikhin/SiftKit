@@ -23,8 +23,14 @@ export class ModelManuallyUnloadedError extends Error {
   }
 }
 
-/** Administrative switches apply a saved selection; requested ones persist theirs inside the switch; restarts force a new process. */
-type SwitchKind = 'administrative' | 'requested' | 'restart';
+/**
+ * How a model request readies its preset: `saved` persists the selection, `no-wake` also leaves a
+ * manual unload alone, `transient` (benchmark) loads without saving anything.
+ */
+export type RequestPresetMode = 'saved' | 'no-wake' | 'transient';
+
+/** Administrative switches apply a saved selection; requested ones persist theirs; transient ones never persist; restarts force a new process. */
+type SwitchKind = 'administrative' | 'requested' | 'transient' | 'restart';
 
 export class PresetRuntimeCoordinator {
   private pendingSwitch: { target: ModelRuntimePreset; kind: SwitchKind } | null = null;
@@ -87,7 +93,7 @@ export class PresetRuntimeCoordinator {
       && this.pendingSwitch === null
       && this.runtime.getModelState() === 'ready'
     ) {
-      this.publishReadyPreset(target);
+      this.publishReadyPreset(target, false);
       return 'ready';
     }
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
@@ -98,21 +104,26 @@ export class PresetRuntimeCoordinator {
   }
 
   // Keep the target frozen while joining existing lifecycle work and preserve newer config saves.
-  async ensureRequestPresetReady(target: ModelRuntimePreset, wakesManualUnload: boolean): Promise<void> {
+  async ensureRequestPresetReady(target: ModelRuntimePreset, mode: RequestPresetMode): Promise<void> {
     const requested = structuredClone(target);
     while (!this.canGrantModelRequest()) {
       if (this.switchPromise !== null) await this.switchPromise;
       else await this.waitForCurrentAdmissionBlocker();
     }
     if (this.manuallyUnloaded) {
-      if (!wakesManualUnload) throw new ModelManuallyUnloadedError();
+      if (mode === 'no-wake') throw new ModelManuallyUnloadedError();
       this.manuallyUnloaded = false;
     }
     const currentConfig = readConfig(this.configPath);
     this.findPreset(currentConfig, requested.id);
     if (this.appliedModelPresetState.isApplied(requested)) {
       if (this.runtime.getModelState() !== 'ready') await this.restoreAppliedPreset(requested);
-      this.publishReadyPreset(requested);
+      // A transient request for what is already applied changes neither the flag nor saved config.
+      if (mode === 'transient') {
+        this.clearError();
+        return;
+      }
+      this.publishReadyPreset(requested, false);
       persistAppliedModelSelection(this.configPath, currentConfig, requested);
       return;
     }
@@ -121,7 +132,7 @@ export class PresetRuntimeCoordinator {
         `${this.activeModelRequests.size} model request(s) are in progress; a requested model switch must wait for them to complete.`,
       );
     }
-    this.setPendingSwitch(requested, 'requested');
+    this.setPendingSwitch(requested, mode === 'transient' ? 'transient' : 'requested');
     await this.startPendingSwitch();
   }
 
@@ -148,6 +159,8 @@ export class PresetRuntimeCoordinator {
   /** Readies the configured preset for a config read; a manual unload is left alone. */
   async ensureActivePresetReady(): Promise<void> {
     if (this.manuallyUnloaded) return;
+    // A benchmark's transient preset is not the saved selection; a config read must not revert it.
+    if (this.appliedModelPresetState.isTransient()) return;
     // Join a running switch and re-check, since config can be re-saved mid-switch. A queued switch is
     // not joined: it waits on in-flight model requests, which may be the caller (or a minutes-long run).
     for (;;) {
@@ -157,8 +170,7 @@ export class PresetRuntimeCoordinator {
       if (await this.applyPreset(configuredPreset.id) === 'queued') break;
     }
     if (this.runtime.getModelState() === 'ready') {
-      this.errorPhase = null;
-      this.error = null;
+      this.clearError();
       return;
     }
     await this.restoreAppliedPreset(this.appliedModelPresetState.getPreset());
@@ -169,8 +181,7 @@ export class PresetRuntimeCoordinator {
     this.beginResidencyAction();
     try {
       await this.readyRuntime(preset);
-      this.errorPhase = null;
-      this.error = null;
+      this.clearError();
     } catch (error) {
       this.fail('model-load', error instanceof Error ? error.message : String(error));
       throw error;
@@ -261,8 +272,7 @@ export class PresetRuntimeCoordinator {
     this.beginResidencyAction();
     try {
       await this.readyRuntime(preset);
-      this.errorPhase = null;
-      this.error = null;
+      this.clearError();
       return { status: 'done' };
     } catch (error) {
       this.fail('model-load', error instanceof Error ? error.message : String(error));
@@ -378,6 +388,7 @@ export class PresetRuntimeCoordinator {
 
   private async executeSwitch(target: ModelRuntimePreset, kind: SwitchKind, expected: SiftConfig): Promise<void> {
     const previous = this.appliedModelPresetState.getPreset();
+    const previousTransient = this.appliedModelPresetState.isTransient();
     const runtime = this.runtime;
     const forceRestart = kind === 'restart';
     const reuseResidency = !forceRestart && this.hasReadyResidency(target);
@@ -389,7 +400,7 @@ export class PresetRuntimeCoordinator {
         previousEngine = runtime.replaceEngineConfig(expected.Server.Engines.Exl3);
       }
       await this.readyRuntime(target);
-      this.publishReadyPreset(target);
+      this.publishReadyPreset(target, kind === 'transient');
       // Persist before admission reopens so a joined readiness check never sees the old selection; compare-and-set keeps a newer save.
       if (kind === 'requested') persistAppliedModelSelection(this.configPath, expected, target);
     } catch (error) {
@@ -410,13 +421,17 @@ export class PresetRuntimeCoordinator {
         }
         if (previousEngine !== null) runtime.replaceEngineConfig(previousEngine);
         // Restore the previous selection only while the config is unchanged; a newer save keeps its intent.
-        const restored = restorePreviousModelSelection(this.configPath, expected, previous);
-        await this.readyRuntime(previous);
-        this.appliedModelPresetState.applyPreset(previous);
+        // A transient preset was never saved, so its rollback target is the saved selection and no body is written.
+        const fallback = previousTransient
+          ? this.findPreset(expected, expected.Server.ModelPresets.ActivePresetId)
+          : previous;
+        const restored = previousTransient || restorePreviousModelSelection(this.configPath, expected, previous);
+        await this.readyRuntime(fallback);
+        this.appliedModelPresetState.applyPreset(fallback);
         const warning = cleanupError ? ` Target cleanup warning: ${cleanupError}` : '';
         this.rollback = restored
-          ? `Restored preset '${previous.id}'.${warning}`
-          : `Kept the newer saved selection; running preset is '${previous.id}'.${warning}`;
+          ? `Restored preset '${fallback.id}'.${warning}`
+          : `Kept the newer saved selection; running preset is '${fallback.id}'.${warning}`;
       } catch (rollbackError) {
         this.rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
       }
@@ -446,8 +461,13 @@ export class PresetRuntimeCoordinator {
         === this.runtime.getPresetResidencyKey(this.appliedModelPresetState.getPreset());
   }
 
-  private publishReadyPreset(target: ModelRuntimePreset): void {
-    this.appliedModelPresetState.applyPreset(target);
+  private publishReadyPreset(target: ModelRuntimePreset, transient: boolean): void {
+    if (transient) this.appliedModelPresetState.applyTransientPreset(target);
+    else this.appliedModelPresetState.applyPreset(target);
+    this.clearError();
+  }
+
+  private clearError(): void {
     this.errorPhase = null;
     this.error = null;
   }

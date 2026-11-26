@@ -1,0 +1,24 @@
+# Provenance SiftKit cannot know, keyed by model preset id. Unknown values stay null; do not guess.
+endpoints:
+  siftkit-local:
+    base_url: http://127.0.0.1:4765/bench/v1
+    api_key_env: null
+models:
+  exl3-3-8-27b-5bpw:
+    base_checkpoint: null
+    hf_repo: null
+    hf_revision: null
+    quant_format: exl3
+    nominal_bpw: 5.0
+    quantizer_revision: null
+    calibration: null
+    tokenizer: null
+  exl3-3-8-next-4-18bpw-f16:
+    base_checkpoint: null
+    hf_repo: null
+    hf_revision: null
+    quant_format: exl3
+    nominal_bpw: 4.18
+    quantizer_revision: null
+    calibration: null
+    tokenizer: null

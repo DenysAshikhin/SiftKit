@@ -1,0 +1,6 @@
+# The custom structured-output task alone; needs no dataset download.
+name: structured
+tasks:
+  - task: local_evals/structured_output
+    limit: null
+    max_tokens: 4096

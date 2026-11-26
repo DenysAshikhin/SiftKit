@@ -22,7 +22,7 @@ import {
   type ModelRequestCandidate,
 } from './model-request-selection.ts';
 import type { SiftConfig } from '../config/types.ts';
-import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.ts';
+import type { PresetRuntimeCoordinator, RequestPresetMode } from './preset-runtime-coordinator.ts';
 import { getActiveModelPreset } from '../config/getters.ts';
 import {
   STATUS_TRUE,
@@ -709,7 +709,7 @@ async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
   }
   try {
     if (coordinator) {
-      await coordinator.ensureRequestPresetReady(selection.context.modelPreset, waiter.kind !== INFERENCE_PASSTHROUGH_REQUEST_KIND);
+      await coordinator.ensureRequestPresetReady(selection.context.modelPreset, requestPresetMode(waiter.kind));
     } else {
       admitCompatibleProfileWithoutCoordinator(ctx, config, selection);
     }
@@ -929,6 +929,14 @@ export function resumeModelRequestAdmission(ctx: ServerContext): void {
 
 /** OpenAI-compatible passthrough requests; they never reload a manually unloaded model. */
 export const INFERENCE_PASSTHROUGH_REQUEST_KIND = 'inference_passthrough';
+
+/** Benchmark-route requests; their preset is applied transiently and never saved as the selection. */
+export const BENCH_REQUEST_KIND = 'bench';
+
+function requestPresetMode(kind: string): RequestPresetMode {
+  if (kind === BENCH_REQUEST_KIND) return 'transient';
+  return kind === INFERENCE_PASSTHROUGH_REQUEST_KIND ? 'no-wake' : 'saved';
+}
 
 /** Background assistant work talks to the model directly, so it is stopped before a manual unload. */
 export async function unloadModelManually(ctx: ServerContext, coordinator: PresetRuntimeCoordinator): Promise<ModelLifecycleActionResult> {

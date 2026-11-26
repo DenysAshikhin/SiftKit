@@ -1,0 +1,9 @@
+# Proves connectivity, parsing and logging. Never a quality measurement.
+name: smoke
+tasks:
+  - task: inspect_evals/gsm8k
+    limit: 5
+    max_tokens: 8192
+  - task: local_evals/structured_output
+    limit: null
+    max_tokens: 4096

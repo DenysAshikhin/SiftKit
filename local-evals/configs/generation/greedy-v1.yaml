@@ -1,0 +1,8 @@
+name: greedy-v1
+temperature: 0.0
+top_p: 1.0
+top_k: null
+min_p: null
+seed: 42
+enable_thinking: true
+reasoning_effort: xhigh

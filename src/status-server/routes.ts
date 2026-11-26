@@ -9,6 +9,7 @@ import { handleChatRoute } from './routes/chat.ts';
 import { handleCoreRoute } from './routes/core.ts';
 import type { ServerContext } from './server-types.ts';
 import { handleInferencePassthroughRoute } from './routes/inference-passthrough.ts';
+import { handleBenchRoute } from './routes/bench.ts';
 import { handleAssistantRoute } from './routes/assistant.ts';
 
 async function dispatch(ctx: ServerContext, req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -18,6 +19,7 @@ async function dispatch(ctx: ServerContext, req: IncomingMessage, res: ServerRes
   if (await handleAssistantRoute(ctx, req, res, pathname)) return;
   if (await handleDashboardRoute(ctx, req, res, pathname, requestUrl)) return;
   if (await handleChatRoute(ctx, req, res, pathname)) return;
+  if (await handleBenchRoute(ctx, req, res, pathname)) return;
   if (await handleInferencePassthroughRoute(ctx, req, res, pathname)) return;
   if (await handleCoreRoute(ctx, req, res, pathname)) return;
 

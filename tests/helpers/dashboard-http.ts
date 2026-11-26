@@ -18,6 +18,7 @@ export type RequestOptions = {
   timeoutMs?: number;
   headers?: Readonly<Record<string, string>>;
 };
+export type HeaderedJsonResponse = { statusCode: number; headers: http.IncomingHttpHeaders; body: Dict };
 
 // Narrowing helpers shared by the HTTP-driven E2E tests: every endpoint returns
 // JSON, so response bodies and SSE payloads are JsonValue at the boundary and are
@@ -100,7 +101,8 @@ function setIdleTimeout(request: http.ClientRequest, timeoutMs: number): void {
   request.setTimeout(timeoutMs, () => request.destroy(new Error('request timeout')));
 }
 
-export function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
+/** One JSON request that also returns the response headers. */
+export function requestJsonWithHeaders(url: string, options: RequestOptions = {}): Promise<HeaderedJsonResponse> {
   return new Promise((resolve, reject) => {
     const request = openRequest(url, options);
     request.on('response', (response) => {
@@ -112,6 +114,7 @@ export function requestJson(url: string, options: RequestOptions = {}): Promise<
       response.on('end', () => {
         resolve({
           statusCode: response.statusCode || 0,
+          headers: response.headers,
           body: responseText ? asObject(parseJsonValueText(responseText)) : {},
         });
       });
@@ -119,6 +122,10 @@ export function requestJson(url: string, options: RequestOptions = {}): Promise<
     request.on('error', reject);
     setIdleTimeout(request, options.timeoutMs ?? 4000);
   });
+}
+
+export function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
+  return requestJsonWithHeaders(url, options).then(({ statusCode, body }) => ({ statusCode, body }));
 }
 
 export type BinaryResponse = { statusCode: number; contentType: string; body: Buffer };

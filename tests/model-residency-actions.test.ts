@@ -282,7 +282,7 @@ test('request-triggered cold reload blocks competing residency actions', async (
     assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
     fixture.exl3Runtime.setBlockedTransition('ensure');
-    const ensurePromise = fixture.coordinator.ensureRequestPresetReady(fixture.preset, true);
+    const ensurePromise = fixture.coordinator.ensureRequestPresetReady(fixture.preset, 'saved');
     await fixture.exl3Runtime.transitionStarted.promise;
 
     assert.equal(fixture.coordinator.canGrantModelRequest(), false);
@@ -356,7 +356,7 @@ test('an interactive request cold loads after a manual unload and ends the stick
     await fixture.coordinator.ensureActivePresetReady();
     assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
-    await fixture.coordinator.ensureRequestPresetReady(fixture.preset, true);
+    await fixture.coordinator.ensureRequestPresetReady(fixture.preset, 'saved');
     assert.deepEqual(fixture.events, ['load:exl3-main']);
     assert.equal(await fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'unload'), true);
     await fixture.coordinator.ensureActivePresetReady();
@@ -373,7 +373,7 @@ test('a manual unload is sticky: config reads and passthrough requests do not re
     assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
     await fixture.coordinator.ensureActivePresetReady();
-    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(fixture.preset, false), /unloaded manually/);
+    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(fixture.preset, 'no-wake'), /unloaded manually/);
     assert.deepEqual(fixture.events, []);
     assert.equal(fixture.coordinator.getStatus().modelState, 'unloaded');
   } finally {

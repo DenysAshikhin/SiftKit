@@ -1,0 +1,18 @@
+# Only tasks listed here can run. Add an entry after checking the task against the pinned evaluator release.
+tasks:
+  - id: inspect_evals/gsm8k
+    evaluator: inspect
+    sandbox: false
+    judge: false
+    extras: []
+    dataset: openai/gsm8k
+    license: null
+    verified_with: inspect-evals==0.30.0
+  - id: local_evals/structured_output
+    evaluator: inspect
+    sandbox: false
+    judge: false
+    extras: []
+    dataset: null
+    license: null
+    verified_with: inspect-ai==0.3.292

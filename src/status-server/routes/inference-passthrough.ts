@@ -34,6 +34,8 @@ import {
   InferenceClient,
   TABBY_TOKEN_ENCODE_PATH,
   TabbyTokenEncodeResponseSchema,
+  type TabbyTokenEncodeResponse,
+  type TokenEncodeBody,
   type TokenEncodeTarget,
 } from '../../llm-protocol/inference-client.ts';
 import type { PromptTokenCounter } from '../../providers/prompt-token-counter.ts';
@@ -53,7 +55,8 @@ import {
 } from '../server-ops.ts';
 import type { ModelRequestLock, ServerContext } from '../server-types.ts';
 
-const CHAT_PATH = '/v1/chat/completions';
+/** The engine's chat path, and the path this route serves it on. */
+export const CHAT_PATH = '/v1/chat/completions';
 const MODELS_PATH = '/v1/models';
 const TokenizeRequestSchema = z.object({ text: z.string() }).loose();
 const inferenceClient = new InferenceClient();
@@ -107,7 +110,7 @@ function buildThinkingKwargs(preset: ModelRuntimePreset): JsonObject {
 }
 
 /** Parses a request body against its schema; a mismatch reads as the request's fault. */
-function parseRequestBody<T>(bodyText: string, schema: z.ZodType<T>): T {
+export function parseRequestBody<T>(bodyText: string, schema: z.ZodType<T>): T {
   const parsed = schema.safeParse(parseJsonValueText(bodyText));
   if (!parsed.success) throw new Error(z.prettifyError(parsed.error));
   return parsed.data;
@@ -116,7 +119,7 @@ function parseRequestBody<T>(bodyText: string, schema: z.ZodType<T>): T {
 type TranslatedChatBody = { text: string; usageOptIn: boolean };
 
 /** A caller expects usage on a non-streaming response or when it asked for a usage frame. */
-function readUsageOptIn(body: PassthroughChatBody): boolean {
+export function readUsageOptIn(body: Pick<PassthroughChatBody, 'stream' | 'stream_options'>): boolean {
   return body.stream !== true || body.stream_options?.include_usage === true;
 }
 
@@ -228,9 +231,9 @@ class PassthroughUsageObserver {
   }
 }
 
-type PassthroughAudit = { identity: ThroughputAuditIdentity; usageOptIn: boolean };
+export type PassthroughAudit = { identity: ThroughputAuditIdentity; usageOptIn: boolean };
 
-async function proxyStreamingRequest(
+export async function proxyStreamingRequest(
   ctx: ServerContext,
   req: IncomingMessage,
   res: ServerResponse,
@@ -238,6 +241,8 @@ async function proxyStreamingRequest(
   upstreamPath: string,
   bodyText: string,
   audit: PassthroughAudit,
+  /** Headers added to the downstream response on top of the upstream's own. */
+  extraResponseHeaders: OutgoingHttpHeaders,
 ): Promise<void> {
   if (isSelfBaseUrl(ctx, baseUrl)) throw new Error('The active preset BaseUrl points at the SiftKit passthrough server.');
   const upstreamUrl = new URL(upstreamPath, `${baseUrl.replace(/\/$/u, '')}/`);
@@ -256,7 +261,7 @@ async function proxyStreamingRequest(
       const observer = new PassthroughUsageObserver(
         statusCode < 300 ? usageObserverKind(upstreamResponse.headers['content-type']) : 'none',
       );
-      res.writeHead(statusCode, buildResponseHeaders(upstreamResponse.headers));
+      res.writeHead(statusCode, { ...buildResponseHeaders(upstreamResponse.headers), ...extraResponseHeaders });
       upstreamResponse.on('data', (chunk: Buffer) => observer.push(chunk));
       upstreamResponse.pipe(res);
       upstreamResponse.on('end', () => {
@@ -277,14 +282,19 @@ async function proxyStreamingRequest(
   });
 }
 
-async function proxyTokenizeRequest(res: ServerResponse, target: TokenEncodeTarget, text: string): Promise<void> {
-  const response = await inferenceClient.postTokenEncode(target, { text });
+/** Asks the engine to tokenize; an engine error is passed through to `res` and null is returned. */
+export async function requestTokenEncode(
+  res: ServerResponse,
+  target: TokenEncodeTarget,
+  body: TokenEncodeBody,
+): Promise<TabbyTokenEncodeResponse | null> {
+  const response = await inferenceClient.postTokenEncode(target, body);
   if (response.statusCode >= 400) {
     res.writeHead(response.statusCode, { 'content-type': 'application/json' });
     res.end(response.rawText);
-    return;
+    return null;
   }
-  sendJson(res, 200, TabbyTokenEncodeResponseSchema.parse(response.body));
+  return TabbyTokenEncodeResponseSchema.parse(response.body);
 }
 
 // Deliberately no-wake. It reports the configured preset because that is the preset a
@@ -350,9 +360,10 @@ class WorkloadEndpoint implements RouteEndpoint {
             presetId: currentPreset.id,
           },
           usageOptIn: translated.usageOptIn,
-        });
+        }, {});
       } else if (tokenizeText !== null) {
-        await proxyTokenizeRequest(res, target, tokenizeText);
+        const encoded = await requestTokenEncode(res, target, { text: tokenizeText });
+        if (encoded !== null) sendJson(res, 200, encoded);
       }
       ctx.idleSummary.pending = true;
     } catch (error) {

@@ -206,6 +206,14 @@ If you want the status server without managed startup (e.g., you launch `llama-s
 
 Choose `EXL3 (TabbyAPI)` on an individual preset in Dashboard Settings. Fields without a per-preset Tabby equivalent remain visible but disabled. SiftKit supplies Tabby's missing idle unload/reload lifecycle: workload routes wake the configured model, including requests from another SiftKit instance, while `GET /v1/models` reports the configured model without waking it. See [EXL3 setup](docs/exl3-backend-setup.md) and [validation evidence](docs/exl3-backend-validation.md).
 
+### Benchmark route
+
+`/bench/v1/*` on the status server serves evaluation harnesses. `model` is a model preset id. Unlike
+`/v1/chat/completions`, it forwards the caller's sampling, `max_tokens` and thinking settings unchanged,
+requires `max_tokens`, and loads the preset transiently: the saved active preset is not changed, and the
+next ordinary request switches back. `POST /bench/v1/identity` reports what is resident and what the
+server could verify. See [local-evals](local-evals/README.md).
+
 ### Status protocol
 The published status file uses a simple boolean-like activity signal:
 

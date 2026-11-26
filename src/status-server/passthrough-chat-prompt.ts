@@ -23,12 +23,16 @@ const ChatMessageSchema = z.object({
 }).catchall(JsonValueSchema);
 type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
+/** The streaming fields the chat body schemas share; the usage opt-in rule reads exactly these. */
+export const ChatStreamField = z.boolean().nullish();
+export const ChatStreamOptionsField = z.object({ include_usage: z.boolean().nullish() }).loose().nullish();
+
 /** An OpenAI chat body as the passthrough forwards it; unknown fields pass through untouched. */
 export const PassthroughChatBodySchema = z.object({
   messages: z.array(ChatMessageSchema),
   tools: z.array(JsonObjectSchema).nullish(),
-  stream: z.boolean().nullish(),
-  stream_options: z.object({ include_usage: z.boolean().nullish() }).loose().nullish(),
+  stream: ChatStreamField,
+  stream_options: ChatStreamOptionsField,
 }).catchall(JsonValueSchema);
 export type PassthroughChatBody = z.infer<typeof PassthroughChatBodySchema>;
 
