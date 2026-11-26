@@ -87,7 +87,9 @@ IDENTITY = Identity.model_validate(
 )
 
 
-def make_environment(identity: Identity | None, mocked: bool) -> Environment:
+def make_environment(
+    identity: Identity | None, mocked: bool, unavailable: dict[str, str] | None = None
+) -> Environment:
     return Environment(
         started_at_utc="2026-11-26T12:00:00Z",
         os="Windows-11",
@@ -98,6 +100,7 @@ def make_environment(identity: Identity | None, mocked: bool) -> Environment:
         siftkit=None,
         tabbyapi=None,
         exllamav3_version=None,
+        unavailable=unavailable or {},
         identity=identity,
         scrubbed_env=[],
         mocked=mocked,
@@ -133,6 +136,41 @@ def test_markdown_states_identity_verification_and_mock_status() -> None:
     )
     assert "MOCKED RUN" in mocked and "no model was called" in mocked
     assert "- Identity: not verified" in mocked
+    assert "Environment not captured" not in mocked
+
+
+def test_markdown_lists_environment_fields_that_could_not_be_captured() -> None:
+    text = render_markdown(
+        [],
+        make_environment(None, mocked=True, unavailable={"gpu": "nvidia-smi could not be started: x"}),
+        run_id="r",
+        model="m",
+        generation="g",
+        digest="d",
+        issues=[],
+    )
+    assert "- Environment not captured: gpu (nvidia-smi could not be started: x)" in text
+
+    two = render_markdown(
+        [],
+        make_environment(
+            None,
+            mocked=True,
+            unavailable={
+                "tabbyapi": "git exited with code 128",
+                "gpu": "nvidia-smi could not be started: x",
+            },
+        ),
+        run_id="r",
+        model="m",
+        generation="g",
+        digest="d",
+        issues=[],
+    )
+    assert (
+        "- Environment not captured: gpu (nvidia-smi could not be started: x); "
+        "tabbyapi (git exited with code 128)" in two
+    )
 
 
 def test_markdown_lists_tasks_that_did_not_produce_samples() -> None:
@@ -152,5 +190,7 @@ def test_markdown_lists_tasks_that_did_not_produce_samples() -> None:
 
 def test_csv_has_one_row_per_task_and_blank_for_unknown() -> None:
     lines = render_csv(summarize([record("1", "infra_error")], {"task/a": 2})).strip().splitlines()
-    assert lines[0].startswith("task,planned,completed,correct,accuracy_completed,accuracy_planned")
-    assert lines[1].startswith("task/a,2,0,0,,0.0")
+    header = lines[0].split(",")
+    assert header[:6] == ["task", "planned", "completed", "accuracy_completed", "accuracy_planned", "correct"]
+    assert len(header) == len(set(header))
+    assert lines[1].startswith("task/a,2,0,,0.0,0,")

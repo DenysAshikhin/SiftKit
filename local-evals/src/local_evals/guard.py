@@ -32,12 +32,6 @@ def assert_loopback(url: str) -> None:
         )
 
 
-def assert_local_model(model: str, provider: str) -> None:
-    if model.startswith("mockllm/") or model.startswith(f"openai-api/{provider}/"):
-        return
-    raise CloudEndpointError(f"Model {model!r} is not served by the local '{provider}' endpoint.")
-
-
 def scrub_cloud_keys(environ: MutableMapping[str, str]) -> list[str]:
     """Removes cloud credentials from `environ` and returns the names removed, never the values."""
     removed = [name for name in CLOUD_KEY_VARS if name in environ]

@@ -21,6 +21,11 @@ def test_models_identity_and_token_count() -> None:
     assert identity.resident.matches is True
     assert identity.resident.card is not None and identity.resident.card.cache_mode == "8,8"
     assert identity.residency.keyHash == RESIDENCY
+    assert identity.requested.settings.NumCtx == 32000
+    assert identity.requested.settings.KvCacheQuantization == "q8_0"
+    assert (
+        identity.model_dump(mode="json")["requested"]["settings"]["ModelPath"] == "C:\\models\\served-model"
+    )
     assert client.identity("preset-b").resident.card is None
     assert client.count_tokens("preset-a", "abcdefgh") == 2
     assert all(request.url.path.startswith("/bench/v1/") for request in fake.requests)

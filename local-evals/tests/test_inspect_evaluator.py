@@ -6,7 +6,7 @@ import pytest
 from inspect_ai.model import ModelOutput
 
 from local_evals.config import GenerationProfile
-from local_evals.evaluators.base import EvaluatorError, RawLogRef, TaskRunRequest
+from local_evals.evaluators.base import EvaluatorError, MockModel, RawLogRef, TaskRunRequest
 from local_evals.evaluators.inspect_eval import InspectEvaluator
 from local_evals.paths import FIXTURES
 from local_evals.tasks.structured import load_cases
@@ -32,8 +32,7 @@ def request(log_dir: Path, outputs: list[str | ModelOutput], limit: int | None =
     return TaskRunRequest(
         task=TASK,
         task_args={},
-        model="mockllm/model",
-        model_args={"custom_outputs": custom},
+        model=MockModel(evaluator_args={"custom_outputs": custom}),
         sample_ids=None,
         limit=limit,
         generation=GENERATION,
@@ -95,6 +94,9 @@ def test_unknown_local_task_and_unreadable_log_are_evaluator_errors(tmp_path: Pa
     broken.write_bytes(b"not a log")
     with pytest.raises(EvaluatorError, match="broken.eval"):
         list(evaluator.read_samples(RawLogRef("inspect", broken, TASK)))
+    missing = tmp_path / "missing.eval"
+    with pytest.raises(EvaluatorError, match="missing.eval"):
+        list(evaluator.read_samples(RawLogRef("inspect", missing, TASK)))
 
 
 def test_two_runs_into_one_log_directory_each_return_their_own_log(tmp_path: Path) -> None:

@@ -2710,7 +2710,7 @@ Expected: 13 passed.
 
 ### Task 13: Inspect adapter and task binding
 
-> **As built (differs from the code below):** `InspectEvaluator.run` takes the log from what `inspect_ai.eval` returns (`Path(logs[0].location)`), never by globbing the directory. The adapter maps `stop_reason == "model_length"` to `input_too_long` and `"max_tokens"` to `output_truncated`. The file's first line is `# pyright: reportUnknownVariableType=false`. `tests/capture_server.py` uses `JsonValue` and `JSON_OBJECT`, no `Any`.
+> **As built (differs from the code below):** `InspectEvaluator.run` takes the log from what `inspect_ai.eval` returns (`Path(logs[0].location)`), never by globbing the directory. The adapter maps `stop_reason == "model_length"` to `input_too_long` and `"max_tokens"` to `output_truncated`. The file's first line is `# pyright: reportUnknownVariableType=false`. `tests/capture_server.py` uses `JsonValue` and `JSON_OBJECT`, no `Any`. The adapter alone owns Inspect's model addressing: it defines `PROVIDER`, builds `openai-api/siftbench/<preset>` or `mockllm/model` from the request's `ModelRef`, and passes the base URL and key to `inspect_ai.eval` explicitly (`model_base_url`, `model_args["api_key"]`). `read_samples` catches `(OSError, ValueError)` only.
 
 **Files:**
 - Create: `local-evals/src/local_evals/tasks/inspect_bindings.py`
@@ -3120,7 +3120,7 @@ If `top_k`, `min_p` or `chat_template_kwargs` are absent from the request, this 
 
 ### Task 14: Environment capture and suite runner
 
-> **As built (differs from the code below):** `environment.py` defines frozen models `GitState`, `Gpu` and `Environment`; `collect_environment(identity, repo_root, started_at, *, scrubbed_env, mocked) -> Environment`. Readers do `Environment.model_validate(store.read_json("environment.json"))`. `LiveTarget` has only `client` and `api_key`; live-target tests pass a stub that satisfies the `Evaluator` protocol instead of overriding the model. `errors.jsonl` rows are `TaskIssue` (`records.py`: task, category, detail).
+> **As built (differs from the code below):** `environment.py` defines frozen models `GitState`, `Gpu` and `Environment`; `collect_environment(identity, repo_root, started_at, *, scrubbed_env, mocked) -> Environment`. Readers do `Environment.model_validate(store.read_json("environment.json"))`. `LiveTarget` has only `client` and `api_key`; live-target tests pass a stub that satisfies the `Evaluator` protocol instead of overriding the model. `errors.jsonl` rows are `TaskIssue` (`records.py`: task, category, detail). `TaskRunRequest.model` is a `ModelRef` from `evaluators/base.py`: `LiveModel(preset, endpoint, api_key)` or `MockModel(evaluator_args)`; the runner has no `PROVIDER`, no `target_model` and writes no environment variables, and `guard.assert_local_model` no longer exists. Probes return `Unavailable(reason)` instead of `None`, and `Environment.unavailable` maps field name to reason.
 
 **Files:**
 - Create: `local-evals/src/local_evals/environment.py`
@@ -3488,7 +3488,7 @@ Expected: 6 passed.
 
 ### Task 15: Summary and report
 
-> **As built (differs from the code below):** `identity_lines(identity: Identity | None)`; `render_markdown(summaries, environment: Environment, *, run_id, model, generation, digest, issues: Sequence[TaskIssue])`. A non-empty `issues` adds a `## Tasks that did not produce samples` section. There is no `_dig`.
+> **As built (differs from the code below):** `identity_lines(identity: Identity | None)`; `render_markdown(summaries, environment: Environment, *, run_id, model, generation, digest, issues: Sequence[TaskIssue])`. A non-empty `issues` adds a `## Tasks that did not produce samples` section. There is no `_dig`. The CSV has no separate `correct` column; the status columns carry it. A non-empty `environment.unavailable` adds an `Environment not captured` line.
 
 **Files:**
 - Create: `local-evals/src/local_evals/report.py`
@@ -3702,6 +3702,8 @@ Expected: 4 passed.
 ---
 
 ### Task 16: Doctor
+
+> **As built (differs from the code below):** responses are parsed with `parse_completion` into `ChatCompletion` models from `siftkit.py`; there are no `_obj`, `_choice` or `_message` helpers. `check_overflow` passes only on a 4xx answer, fails on 5xx, and sizes its probe to about 1.1 times the context from a token-count measurement. `RequestedIdentity.settings` is a `RequestedSettings` model (`NumCtx`, `KvCacheQuantization`, other preset fields kept).
 
 **Files:**
 - Create: `local-evals/src/local_evals/doctor.py`
@@ -3986,6 +3988,8 @@ Expected: 5 passed.
 ---
 
 ### Task 17: CLI
+
+> **As built (differs from the code below):** `config.load_endpoint` / `Registry.endpoint` hold the endpoint lookup. `run` executes with stdout redirected to stderr so `--json` output is one JSON document. A suite with a dataset-backed task is refused with `ConfigError` (exit 2) unless `--allow-dataset-download` is given, on every run, including `--mock`. `--check-overflow` without an integer `NumCtx` appends a `skipped` check.
 
 **Files:**
 - Create: `local-evals/src/local_evals/cli.py`

@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,7 +17,7 @@ from local_evals.config import (
     resolve_manifest,
 )
 from local_evals.environment import Environment
-from local_evals.evaluators.base import EvaluatorError, RawLogRef, TaskRunRequest
+from local_evals.evaluators.base import EvaluatorError, LiveModel, RawLogRef, TaskRunRequest
 from local_evals.evaluators.inspect_eval import InspectEvaluator
 from local_evals.paths import FIXTURES, PROJECT_ROOT, REPO_ROOT
 from local_evals.records import EvaluatedSample, SampleRecord, TaskIssue
@@ -92,7 +93,7 @@ def canned_sample() -> EvaluatedSample:
 
 
 def test_mock_run_writes_samples_environment_and_completed_state(tmp_path: Path) -> None:
-    target = MockTarget(mock_outputs([json.dumps(CASES[0].expected), "not json"]))
+    target = MockTarget(evaluator_args=mock_outputs([json.dumps(CASES[0].expected), "not json"]))
     store = run_suite(structured_manifest(2), CATALOG, EVALUATORS, target, tmp_path, REPO_ROOT, NOW)
 
     records = [SampleRecord.model_validate(row) for row in store.read_jsonl("samples.jsonl")]
@@ -124,8 +125,7 @@ def test_live_target_warms_verifies_identity_and_brackets_the_task_with_generati
     assert warm["model"] == "preset-a" and warm["max_tokens"] == 1
     (request,) = stub.requests
     task = manifest.suite.tasks[0]
-    assert request.model == "openai-api/siftbench/preset-a"
-    assert dict(request.model_args) == {}
+    assert request.model == LiveModel(preset="preset-a", endpoint=manifest.endpoint, api_key=None)
     assert (request.limit, request.max_tokens) == (task.limit, task.max_tokens)
     assert request.generation == manifest.generation
     record = SampleRecord.model_validate(store.read_jsonl("samples.jsonl")[0])
@@ -133,6 +133,26 @@ def test_live_target_warms_verifies_identity_and_brackets_the_task_with_generati
     environment = Environment.model_validate(store.read_json("environment.json"))
     assert environment.mocked is False
     assert "OPENAI_API_KEY" in environment.scrubbed_env
+
+
+def test_live_run_does_not_set_siftbench_environment_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SIFTBENCH_BASE_URL", raising=False)
+    monkeypatch.delenv("SIFTBENCH_API_KEY", raising=False)
+    fake = FakeBench(generation=9)
+    target = LiveTarget(client=BenchClient(ENDPOINT, None, transport=fake.transport()), api_key=None)
+    run_suite(
+        structured_manifest(1),
+        CATALOG,
+        {"inspect": StubEvaluator([canned_sample()])},
+        target,
+        tmp_path,
+        REPO_ROOT,
+        NOW,
+    )
+    assert "SIFTBENCH_BASE_URL" not in os.environ
+    assert "SIFTBENCH_API_KEY" not in os.environ
 
 
 def test_identity_mismatch_and_failed_warm_up_abort_before_any_run_directory_exists(tmp_path: Path) -> None:
@@ -161,7 +181,7 @@ def test_a_failing_task_is_recorded_and_the_run_continues(tmp_path: Path) -> Non
         ],
     )
     manifest = structured_manifest(1).model_copy(update={"suite": suite})
-    target = MockTarget(mock_outputs([json.dumps(CASES[0].expected)]))
+    target = MockTarget(evaluator_args=mock_outputs([json.dumps(CASES[0].expected)]))
 
     store = run_suite(manifest, CATALOG, EVALUATORS, target, tmp_path, REPO_ROOT, NOW)
 

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from local_evals.config import GenerationProfile
-from local_evals.evaluators.base import TaskRunRequest
+from local_evals.config import Endpoint, GenerationProfile
+from local_evals.evaluators.base import LiveModel, TaskRunRequest
 from local_evals.evaluators.inspect_eval import InspectEvaluator
 from tests.capture_server import capture_server
 
@@ -23,15 +23,19 @@ def test_the_generation_profile_and_output_budget_reach_the_endpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with capture_server() as server:
-        monkeypatch.setenv("SIFTBENCH_BASE_URL", server.base_url)
-        monkeypatch.setenv("SIFTBENCH_API_KEY", "local")
+        monkeypatch.delenv("SIFTBENCH_BASE_URL", raising=False)
+        monkeypatch.delenv("SIFTBENCH_API_KEY", raising=False)
+        model = LiveModel(
+            preset="preset-a",
+            endpoint=Endpoint(base_url=server.base_url, api_key_env=None),
+            api_key="local",
+        )
         evaluator = InspectEvaluator()
         log = evaluator.run(
             TaskRunRequest(
                 task="local_evals/structured_output",
                 task_args={},
-                model="openai-api/siftbench/preset-a",
-                model_args={},
+                model=model,
                 sample_ids=["so-001"],
                 limit=None,
                 generation=GENERATION,

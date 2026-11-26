@@ -7,7 +7,7 @@ from typing import Protocol
 
 from pydantic import JsonValue
 
-from local_evals.config import GenerationProfile
+from local_evals.config import Endpoint, GenerationProfile
 from local_evals.records import EvaluatedSample, SampleStatus
 
 
@@ -16,11 +16,28 @@ class EvaluatorError(Exception):
 
 
 @dataclass(frozen=True)
+class LiveModel:
+    """A model preset served by the benchmark route at a validated loopback endpoint."""
+
+    preset: str
+    endpoint: Endpoint
+    api_key: str | None
+
+
+@dataclass(frozen=True)
+class MockModel:
+    # Arguments for the evaluator's own mock model; their meaning belongs to that evaluator.
+    evaluator_args: Mapping[str, object]
+
+
+ModelRef = LiveModel | MockModel
+
+
+@dataclass(frozen=True)
 class TaskRunRequest:
     task: str
     task_args: Mapping[str, JsonValue]
-    model: str
-    model_args: Mapping[str, object]
+    model: ModelRef
     # None runs the task's own sample order, capped by `limit`.
     sample_ids: Sequence[str] | None
     limit: int | None

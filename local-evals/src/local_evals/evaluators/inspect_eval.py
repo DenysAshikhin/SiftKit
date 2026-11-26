@@ -13,14 +13,19 @@ from pydantic import JsonValue
 from local_evals.config import GenerationProfile
 from local_evals.evaluators.base import (
     EvaluatorError,
+    LiveModel,
     RawLogRef,
     TaskRunRequest,
     classify_status,
 )
 from local_evals.records import EvaluatedSample, SampleStatus
 from local_evals.tasks.inspect_bindings import structured_output
+from local_evals.tasks.structured import DEFAULT_FIXTURE
 
 LOCAL_PREFIX = "local_evals/"
+
+# Inspect's conventions for model strings live here, behind the LiveModel/MockModel boundary.
+PROVIDER = "siftbench"
 
 
 def _resolve_task(task: str, task_args: Mapping[str, JsonValue]) -> Task | str:
@@ -28,7 +33,7 @@ def _resolve_task(task: str, task_args: Mapping[str, JsonValue]) -> Task | str:
     if not task.startswith(LOCAL_PREFIX):
         return task
     if task == "local_evals/structured_output":
-        fixture = task_args.get("fixture", "structured/v1.jsonl")
+        fixture = task_args.get("fixture", DEFAULT_FIXTURE)
         if not isinstance(fixture, str):
             raise EvaluatorError("structured_output: task_args.fixture must be a string.")
         return structured_output(fixture)
@@ -62,12 +67,21 @@ class InspectEvaluator:
     def run(self, request: TaskRunRequest) -> RawLogRef:
         task = _resolve_task(request.task, request.task_args)
         request.log_dir.mkdir(parents=True, exist_ok=True)
+        if isinstance(request.model, LiveModel):
+            model = f"openai-api/{PROVIDER}/{request.model.preset}"
+            base_url: str | None = request.model.endpoint.base_url
+            model_args: dict[str, object] = {"api_key": request.model.api_key or "local"}
+        else:
+            model = "mockllm/model"
+            base_url = None
+            model_args = dict(request.model.evaluator_args)
         logs = inspect_eval(
             tasks=task,
             # Local tasks receive their arguments when built; upstream tasks receive them here.
             task_args={} if isinstance(task, Task) else dict(request.task_args),
-            model=request.model,
-            model_args=dict(request.model_args),
+            model=model,
+            model_base_url=base_url,
+            model_args=model_args,
             sample_id=list(request.sample_ids) if request.sample_ids is not None else None,
             limit=request.limit,
             log_dir=str(request.log_dir),
@@ -92,7 +106,7 @@ class InspectEvaluator:
     def read_samples(self, log: RawLogRef) -> Iterator[EvaluatedSample]:
         try:
             eval_log = read_eval_log(str(log.path))
-        except Exception as error:
+        except (OSError, ValueError) as error:
             raise EvaluatorError(f"Cannot read {log.path}: {error}") from error
         if eval_log.samples is None:
             raise EvaluatorError(f"{log.path} holds no samples (status {eval_log.status}).")

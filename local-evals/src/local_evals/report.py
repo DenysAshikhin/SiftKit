@@ -59,7 +59,7 @@ def identity_lines(identity: Identity | None) -> list[str]:
     if identity is None:
         return ["- Identity: not verified"]
     card = identity.resident.card
-    configured_kv = identity.requested.settings.get("KvCacheQuantization")
+    configured_kv = identity.requested.settings.KvCacheQuantization
     context = f"- Context: {card.max_seq_len} (verified)" if card is not None else "- Context: unverified"
     if card is not None and card.cache_mode is not None:
         kv = f"- KV cache: {card.cache_mode} (verified)"
@@ -88,6 +88,9 @@ def render_markdown(
         f"- Manifest digest: {digest}",
         *identity_lines(environment.identity),
     ]
+    if environment.unavailable:
+        entries = "; ".join(f"{name} ({reason})" for name, reason in sorted(environment.unavailable.items()))
+        lines.append(f"- Environment not captured: {entries}")
     reloaded = [summary.task for summary in summaries if summary.reloaded]
     if reloaded:
         lines.append(f"- Model reloaded during: {', '.join(reloaded)}")
@@ -125,7 +128,6 @@ def render_csv(summaries: Sequence[TaskSummary]) -> str:
             "task",
             "planned",
             "completed",
-            "correct",
             "accuracy_completed",
             "accuracy_planned",
             *STATUS_ORDER,
@@ -138,7 +140,6 @@ def render_csv(summaries: Sequence[TaskSummary]) -> str:
                 summary.task,
                 summary.planned,
                 summary.completed,
-                summary.correct,
                 "" if summary.accuracy_completed is None else summary.accuracy_completed,
                 "" if summary.accuracy_planned is None else summary.accuracy_planned,
                 *(summary.counts[status] for status in STATUS_ORDER),

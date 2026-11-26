@@ -10,14 +10,17 @@ from pathlib import Path
 
 from local_evals.config import ResolvedManifest, TaskCatalog
 from local_evals.environment import collect_environment
-from local_evals.evaluators.base import Evaluator, EvaluatorError, TaskRunRequest
-from local_evals.guard import assert_local_model, scrub_cloud_keys
+from local_evals.evaluators.base import (
+    Evaluator,
+    EvaluatorError,
+    LiveModel,
+    MockModel,
+    TaskRunRequest,
+)
+from local_evals.guard import scrub_cloud_keys
 from local_evals.records import EvaluatedSample, SampleRecord, TaskIssue, TaskIssueCategory
 from local_evals.runstore import RunStore
 from local_evals.siftkit import BenchClient, Identity
-
-# Inspect reads SIFTBENCH_BASE_URL and SIFTBENCH_API_KEY for the model string openai-api/siftbench/<preset>.
-PROVIDER = "siftbench"
 
 
 class RunError(Exception):
@@ -32,7 +35,7 @@ class LiveTarget:
 
 @dataclass(frozen=True)
 class MockTarget:
-    model_args: Mapping[str, object]
+    evaluator_args: Mapping[str, object]
 
 
 Target = LiveTarget | MockTarget
@@ -59,15 +62,7 @@ def prepare_target(target: Target, manifest: ResolvedManifest) -> Identity | Non
         raise RunError(
             f"The resident model does not match preset {manifest.model!r}; refusing to label a run with it."
         )
-    os.environ[f"{PROVIDER.upper()}_BASE_URL"] = manifest.endpoint.base_url
-    os.environ[f"{PROVIDER.upper()}_API_KEY"] = target.api_key or "local"
     return identity
-
-
-def target_model(target: Target, manifest: ResolvedManifest) -> tuple[str, Mapping[str, object]]:
-    if isinstance(target, MockTarget):
-        return "mockllm/model", target.model_args
-    return f"openai-api/{PROVIDER}/{manifest.model}", {}
 
 
 def read_generation(target: Target, model: str) -> int | None:
@@ -116,8 +111,11 @@ def run_suite(
     now: datetime,
 ) -> RunStore:
     removed = scrub_cloud_keys(os.environ)
-    model, model_args = target_model(target, manifest)
-    assert_local_model(model, PROVIDER)
+    model_ref = (
+        MockModel(target.evaluator_args)
+        if isinstance(target, MockTarget)
+        else LiveModel(manifest.model, manifest.endpoint, target.api_key)
+    )
     for suite_task in manifest.suite.tasks:
         catalog.get(suite_task.task)
     identity = prepare_target(target, manifest)
@@ -154,8 +152,7 @@ def run_suite(
                 TaskRunRequest(
                     task=suite_task.task,
                     task_args=suite_task.task_args,
-                    model=model,
-                    model_args=model_args,
+                    model=model_ref,
                     sample_ids=None,
                     limit=suite_task.limit,
                     generation=manifest.generation,

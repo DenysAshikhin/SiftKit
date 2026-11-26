@@ -1,6 +1,7 @@
 """Command line. Parses arguments, wires the modules together, and maps errors to exit codes."""
 
 import argparse
+import contextlib
 import dataclasses
 import json
 import os
@@ -84,8 +85,8 @@ def _doctor(args: argparse.Namespace) -> int:
     client, _ = open_client(args.config_dir, args.endpoint)
     checks = run_doctor(client, args.model)
     if args.check_overflow and not has_failure(checks):
-        context = client.identity(args.model).requested.settings.get("NumCtx")
-        if isinstance(context, int):
+        context = client.identity(args.model).requested.settings.NumCtx
+        if context is not None:
             checks.append(check_overflow(client, args.model, context))
         else:
             checks.append(
@@ -163,6 +164,22 @@ def write_report(store: RunStore, manifest: ResolvedManifest) -> None:
     store.write_text("report.csv", render_csv(summaries))
 
 
+def _refuse_dataset_download(manifest: ResolvedManifest, catalog: TaskCatalog) -> None:
+    """Raises before a run wastes a model load on a dataset that cannot be fetched offline."""
+    tasks: list[str] = []
+    datasets: list[str] = []
+    for suite_task in manifest.suite.tasks:
+        dataset = catalog.get(suite_task.task).dataset
+        if dataset is not None and suite_task.task not in tasks:
+            tasks.append(suite_task.task)
+            datasets.append(dataset)
+    if tasks:
+        raise ConfigError(
+            f"{', '.join(tasks)} load Hugging Face dataset(s) {', '.join(datasets)}; "
+            "re-run with --allow-dataset-download to permit access to huggingface.co."
+        )
+
+
 def _run(args: argparse.Namespace) -> int:
     manifest = resolve_manifest(
         args.config_dir,
@@ -177,25 +194,28 @@ def _run(args: argparse.Namespace) -> int:
         emit(args.json, plan, json.dumps(plan, indent=2))
         return EXIT_OK
     if not args.allow_dataset_download:
-        # Evaluators then fail fast on a dataset that is not already cached instead of fetching it.
+        _refuse_dataset_download(manifest, catalog)
+        # Offline so a task without a dataset cannot reach the hub by accident.
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["HF_DATASETS_OFFLINE"] = "1"
     target: Target
-    if args.mock:
-        target = MockTarget({})
-    else:
-        client, api_key = open_client(args.config_dir, args.endpoint)
-        target = LiveTarget(client=client, api_key=api_key)
-    store = run_suite(
-        manifest,
-        catalog,
-        {"inspect": InspectEvaluator()},
-        target,
-        args.runs_dir,
-        REPO_ROOT,
-        datetime.now(UTC),
-    )
-    write_report(store, manifest)
+    with contextlib.redirect_stdout(sys.stderr):
+        # Libraries print progress to stdout; only the final emit may write there.
+        if args.mock:
+            target = MockTarget(evaluator_args={})
+        else:
+            client, api_key = open_client(args.config_dir, args.endpoint)
+            target = LiveTarget(client=client, api_key=api_key)
+        store = run_suite(
+            manifest,
+            catalog,
+            {"inspect": InspectEvaluator()},
+            target,
+            args.runs_dir,
+            REPO_ROOT,
+            datetime.now(UTC),
+        )
+        write_report(store, manifest)
     emit(
         args.json,
         {"run_id": store.run_id, "directory": str(store.directory)},

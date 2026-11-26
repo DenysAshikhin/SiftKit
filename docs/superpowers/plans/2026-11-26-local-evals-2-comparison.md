@@ -460,7 +460,7 @@ def test_variant_overrides_reach_the_endpoint_as_a_header(tmp_path: Path, monkey
         monkeypatch.setenv("SIFTBENCH_BASE_URL", server.base_url)
         monkeypatch.setenv("SIFTBENCH_API_KEY", "local")
         InspectEvaluator().run(TaskRunRequest(
-            task="local_evals/structured_output", task_args={}, model="openai-api/siftbench/preset-a", model_args={},
+            task="local_evals/structured_output", task_args={}, model=LiveModel(preset="preset-a", endpoint=ENDPOINT, api_key=None),  # as built: a ModelRef, not a string
             sample_ids=["so-001"], limit=None, generation=GENERATION, max_tokens=256, max_retries=1,
             timeout_seconds=60, log_dir=tmp_path / "log", primary_metric=None,
             extra_headers={"x-siftkit-bench-overrides": '{"NumCtx":32768}'},

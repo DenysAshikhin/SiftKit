@@ -33,9 +33,18 @@ class ResidentCard(_Wire):
     cache_mode: str | None
 
 
+class RequestedSettings(BaseModel):
+    """The requested model preset; fields this package does not read are kept for the record."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    NumCtx: int | None = None
+    KvCacheQuantization: str | None = None
+
+
 class RequestedIdentity(_Wire):
     presetId: str
-    settings: dict[str, JsonValue]
+    settings: RequestedSettings
 
 
 class ResidentIdentity(_Wire):

@@ -18,8 +18,10 @@ python -m pip install -e ".[dev]" --no-deps
 ```
 
 On Linux use `python3 -m venv .venv` and `source .venv/bin/activate`; the remaining commands are the same.
-The first run of a dataset-backed task downloads its dataset from Hugging Face and needs
-`--allow-dataset-download`. No model weights are ever downloaded.
+A suite with a dataset-backed task needs `--allow-dataset-download` on every run, not only the first:
+tasks pin a dataset revision, and the evaluator contacts Hugging Face to resolve it even when the data
+is cached. Without the flag such a suite is refused before anything is loaded (exit code 2). No model
+weights are ever downloaded.
 
 Never install into the EXL3 runtime interpreter that SiftKit launches TabbyAPI with.
 
@@ -54,6 +56,10 @@ outcomes are never counted as wrong answers.
 
 A task that produced no samples at all (skipped by the wall-clock cap, unavailable, or failed) is
 written to `errors.jsonl` and listed in the report under "Tasks that did not produce samples".
+
+`environment.json` records the machine, package versions, repository commits and the identity SiftKit
+vouched for. A value that could not be read is null and its reason is listed under `unavailable`; the
+report repeats those reasons.
 
 ## How a model is identified
 
@@ -97,20 +103,20 @@ Filled in from the gate checks and `doctor` on this machine. A row that was not 
 | Pyright strict on the Inspect-facing modules | strict; `reportUnknownVariableType` is off in `evaluators/inspect_eval.py` only, because `inspect_ai.eval` has a partially unknown type | 2026-11-26 |
 | Mock model consumes outputs in sample order | ok | 2026-11-26 |
 | Generation profile reaches the wire (`extra_body`) | ok: `top_k`, `min_p` and `chat_template_kwargs` arrive in the request body | 2026-11-26 |
-| Bench route reachable, identity matches | blocked: the running SiftKit server predates the benchmark route (HTTP 404); restart it | 2026-11-26 |
-| Reasoning returned separately | blocked: same | 2026-11-26 |
-| Seed honoured | blocked: same | 2026-11-26 |
-| Native tool calls | blocked: same | 2026-11-26 |
-| KV cache mode reported by the model card | blocked: same | 2026-11-26 |
-| Context overflow rejected by the engine | blocked: same | 2026-11-26 |
-| Real smoke run | blocked: same | 2026-11-26 |
+| Bench route reachable, identity matches | ok: `Qwen3.8-27B-exl3-SCP_5.00bpw`, context 165000, chunk 1024 | 2026-11-26 |
+| Backend prefill and decode timing in `usage` | ok | 2026-11-26 |
+| Reasoning returned separately | ok: `reasoning_content` is separate from `content` | 2026-11-26 |
+| Seed honoured | unsupported: two identical seeded requests returned different text; use repeats for variance | 2026-11-26 |
+| Native tool calls | unsupported: the model writes the call as `<tool_call>` text in `content`; the engine returns `tool_calls: null` | 2026-11-26 |
+| KV cache mode reported by the model card | ok: applied mode `8,8` | 2026-11-26 |
+| Drafting confirmed at load | ok | 2026-11-26 |
+| Context overflow rejected by the engine | ok: HTTP 400 for a 181,398-token prompt against a 165,000-token context | 2026-11-26 |
+| Docker sandbox | unsupported: Docker is not installed | 2026-11-26 |
+| Dataset-backed suite without `--allow-dataset-download` | refused before any load, exit code 2 | 2026-11-26 |
+| Real smoke run | ok: run `20261126T200923Z-b4d08b`, 11 of 11 samples completed (a pipeline check, not a quality measurement) | 2026-11-26 |
 
-To fill the blocked rows, restart SiftKit so it serves `/bench/v1`, then run:
+Preset checked: `exl3-3-8-27b-5bpw`. Re-run `local-evals --json doctor --model <preset> --check-overflow`
+after changing the engine, the preset or the pinned evaluator, and update this table.
 
-```powershell
-local-evals --json doctor --model exl3-3-8-27b-5bpw --check-overflow
-local-evals run --suite smoke --model exl3-3-8-27b-5bpw --allow-dataset-download
-```
-
-The smoke run downloads the `openai/gsm8k` dataset on first use and runs five of its samples plus the
-six structured-output cases.
+Per-sample `reasoning_tokens` is null on this engine: its `usage` does not report reasoning tokens
+separately, so they are included in `output_tokens`.

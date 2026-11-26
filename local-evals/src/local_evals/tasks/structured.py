@@ -8,7 +8,10 @@ from jsonschema import Draft202012Validator, validate
 from jsonschema.exceptions import ValidationError as JsonSchemaError
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
+from local_evals.jsonio import JSON_OBJECT
 from local_evals.records import SampleStatus
+
+DEFAULT_FIXTURE = "structured/v1.jsonl"
 
 INSTRUCTION = (
     "Respond with only a JSON object that validates against the JSON Schema below. "
@@ -52,11 +55,9 @@ def render_prompt(case: StructuredCase) -> str:
 
 def score_structured(output: str, case: StructuredCase) -> TaskScore:
     try:
-        parsed: JsonValue = json.loads(output.strip())
-    except json.JSONDecodeError as error:
-        return TaskScore(0.0, "invalid_format", f"Output is not a single JSON value: {error.msg}.")
-    if not isinstance(parsed, dict):
-        return TaskScore(0.0, "invalid_format", "Output is JSON but not an object.")
+        parsed = JSON_OBJECT.validate_json(output.strip())
+    except ValidationError:
+        return TaskScore(0.0, "invalid_format", "Output is not a single JSON object.")
     try:
         validate(parsed, case.schema_, cls=Draft202012Validator)
     except JsonSchemaError as error:

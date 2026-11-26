@@ -1,9 +1,20 @@
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from local_evals.environment import Environment, GitState, Gpu, exllamav3_version, git_state
+import local_evals.environment as environment
+from local_evals.environment import (
+    Environment,
+    GitState,
+    Gpu,
+    Unavailable,
+    collect_environment,
+    exllamav3_version,
+    git_state,
+)
 from local_evals.paths import REPO_ROOT
 from local_evals.siftkit import Identity
 
@@ -12,13 +23,32 @@ def test_exllamav3_version_is_read_from_site_packages_without_running_the_interp
     python = tmp_path / "venv" / "Scripts" / "python.exe"
     (tmp_path / "venv" / "Lib" / "site-packages" / "exllamav3-1.6.5.dist-info").mkdir(parents=True)
     assert exllamav3_version(python) == "1.6.5"
-    assert exllamav3_version(tmp_path / "elsewhere" / "Scripts" / "python.exe") is None
+    missing = exllamav3_version(tmp_path / "elsewhere" / "Scripts" / "python.exe")
+    assert isinstance(missing, Unavailable)
+    assert f"under {tmp_path / 'elsewhere' / 'Lib' / 'site-packages'}" in missing.reason
 
 
-def test_git_state_reports_commit_and_dirty_flag_or_none_outside_a_repository(tmp_path: Path) -> None:
+def test_git_state_outside_a_repository_is_unavailable_and_names_the_failure(tmp_path: Path) -> None:
     state = git_state(REPO_ROOT)
-    assert state is not None and len(state.commit) == 40 and isinstance(state.dirty, bool)
-    assert git_state(tmp_path) is None
+    assert isinstance(state, GitState) and len(state.commit) == 40 and isinstance(state.dirty, bool)
+    missing = git_state(tmp_path)
+    assert isinstance(missing, Unavailable)
+    assert re.fullmatch(r"git exited with code \d+: .+", missing.reason) is not None
+
+
+def test_run_reports_unavailable_when_the_command_cannot_be_started() -> None:
+    result = environment.run_probe(["definitely-not-a-real-command", "--version"])
+    assert isinstance(result, Unavailable)
+    assert "definitely-not-a-real-command could not be started" in result.reason
+
+
+def test_mock_run_environment_does_not_list_inapplicable_fields_as_unavailable() -> None:
+    environment = collect_environment(
+        None, REPO_ROOT, datetime(2026, 11, 26, 12, tzinfo=UTC), scrubbed_env=[], mocked=True
+    )
+    assert environment.tabbyapi is None and environment.exllamav3_version is None
+    assert "tabbyapi" not in environment.unavailable
+    assert "exllamav3_version" not in environment.unavailable
 
 
 def test_environment_round_trips_and_rejects_unknown_keys() -> None:
@@ -56,6 +86,7 @@ def test_environment_round_trips_and_rejects_unknown_keys() -> None:
         siftkit=GitState(commit="a" * 40, dirty=True),
         tabbyapi=None,
         exllamav3_version="1.6.5",
+        unavailable={"gpu": "nvidia-smi could not be started: x"},
         identity=identity,
         scrubbed_env=["OPENAI_API_KEY"],
         mocked=False,

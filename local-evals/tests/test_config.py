@@ -1,9 +1,11 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from local_evals.config import (
     ConfigError,
+    Endpoint,
     GenerationProfile,
     Limits,
     Registry,
@@ -15,6 +17,13 @@ from local_evals.config import (
 from local_evals.paths import PROJECT_ROOT
 
 CONFIGS = PROJECT_ROOT / "configs"
+
+
+def test_endpoint_refuses_a_non_loopback_base_url() -> None:
+    # The only guard on where a live model points: a LiveModel can only hold an Endpoint.
+    for base_url in ("https://api.openai.com/v1", "http://192.168.1.20:4765/bench/v1"):
+        with pytest.raises(ValidationError, match="loopback"):
+            Endpoint(base_url=base_url, api_key_env=None)
 
 
 def test_shipped_configs_load_and_resolve() -> None:
