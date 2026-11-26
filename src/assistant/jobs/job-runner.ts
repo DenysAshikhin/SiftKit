@@ -48,11 +48,13 @@ type JobRunOutcome =
   | { readonly kind: 'completed' }
   | { readonly kind: 'failed'; readonly error: string }
   | { readonly kind: 'preempted'; readonly block: AssistantBackgroundWorkBlock }
-  | { readonly kind: 'blocked'; readonly block: AssistantBackgroundWorkBlock };
+  | { readonly kind: 'blocked'; readonly block: AssistantBackgroundWorkBlock }
+  | { readonly kind: 'lease_lost' };
 
 function outcomeDetail(outcome: JobRunOutcome): string | null {
   switch (outcome.kind) {
     case 'completed': return null;
+    case 'lease_lost': return null;
     case 'failed': return outcome.error;
     case 'preempted':
     case 'blocked': return outcome.block.reason;
@@ -145,6 +147,8 @@ export class AssistantJobRunner {
         completed += 1;
       } else if (outcome.kind === 'failed') {
         failed += 1;
+      } else if (outcome.kind === 'lease_lost') {
+        continue;
       } else {
         if (outcome.kind === 'preempted') preempted += 1;
         this.recordBlock(ownerId, outcome.block);
@@ -174,7 +178,7 @@ export class AssistantJobRunner {
   private async runClaimed(ownerId: string, job: JobRow, modelWork: BackgroundWorkAdmissionDecision): Promise<JobRunOutcome> {
     const modelBacked = isModelBackedJobType(job.job_type);
     if (modelBacked && modelWork.kind === 'blocked') {
-      this.options.jobs.requeuePreempted(job.id);
+      if (this.options.jobs.requeuePreempted(job.id, this.options.leaseOwner) === null) return { kind: 'lease_lost' };
       return { kind: 'blocked', block: modelWork };
     }
     const controller = new AbortController();
@@ -183,23 +187,27 @@ export class AssistantJobRunner {
     let shouldRecordGpuUse = modelBacked;
     try {
       await this.execute(ownerId, job, controller.signal);
-      this.options.jobs.complete(job.id);
+      if (this.options.jobs.complete(job.id, this.options.leaseOwner) === null) {
+        return { kind: 'lease_lost' };
+      }
       return { kind: 'completed' };
     } catch (error) {
       // Only a call that threw is replayed: a writer that already committed must not run twice.
       if (this.preemptionRequested) {
-        this.options.jobs.requeuePreempted(job.id);
+        if (this.options.jobs.requeuePreempted(job.id, this.options.leaseOwner) === null) return { kind: 'lease_lost' };
         return { kind: 'preempted', block: { reason: 'preemption_requested', details: {} } };
       }
       if (modelBacked && !this.options.residencyGate.isModelResident()) {
         // The model went to sleep under the call. That is residency, not a bad job: give the
         // attempt back and stop until the model is resident again.
-        this.options.jobs.requeuePreempted(job.id);
         shouldRecordGpuUse = false;
+        if (this.options.jobs.requeuePreempted(job.id, this.options.leaseOwner) === null) return { kind: 'lease_lost' };
         return { kind: 'preempted', block: { reason: 'model_not_resident', details: {} } };
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.options.jobs.fail(job.id, message);
+      if (this.options.jobs.fail(job.id, this.options.leaseOwner, message) === null) {
+        return { kind: 'lease_lost' };
+      }
       return { kind: 'failed', error: message };
     } finally {
       if (shouldRecordGpuUse) {

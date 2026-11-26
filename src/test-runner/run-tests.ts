@@ -57,13 +57,15 @@ const watchdog = setTimeout(() => {
     + 'ends at the file that hung.\n',
   );
   // The runner's per-file children are what actually hang, and they outlive a signal aimed at
-  // their parent, so the whole tree goes.
-  terminateProcessTree(child.pid ?? 0);
+  // their parent, so the whole tree goes; the kill's promise owns the exit so its snapshot
+  // finishes instead of being truncated by the child's own 'exit' handler.
+  void terminateProcessTree(child.pid ?? 0).then(() => { process.exit(TIMEOUT_EXIT_CODE); });
 }, RUN_BUDGET_MS);
 watchdog.unref();
 
 child.on('error', (error) => { throw error; });
 child.on('exit', (code) => {
   clearTimeout(watchdog);
-  process.exit(timedOut ? TIMEOUT_EXIT_CODE : code ?? 1);
+  if (timedOut) return;
+  process.exit(code ?? 1);
 });

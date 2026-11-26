@@ -549,7 +549,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     if (transition.next.plan === null) throw new Error('A plan transition produced no plan.');
     let plan: OrchestratorPlan;
     try {
-      plan = validateOrchestratorPlan(transition.next.plan, this.config, this.request.repoRoot);
+      plan = validateOrchestratorPlan(transition.next.plan, this.config, this.request.repoRoot, orchestratorScratchDir(this.runId));
     } catch (error) {
       return [toError(error).message];
     }
@@ -598,37 +598,77 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
     const wording = findStatusTextProblem(args.update);
     if (wording !== null) return this.refuse([`Rewrite update: ${wording}. Say in one or two plain sentences where the whole run is and what comes next.`]);
     this.activity.setSchedule(describeSchedule(this.workers, plan, this.state.tasks));
-    await this.startChild(task, { kind: args.purpose, planPath, planHash, task, instruction: args.instruction }, args.update);
+    const startProblem = await this.startChild(task, { kind: args.purpose, planPath, planHash, task, instruction: args.instruction }, args.update);
+    if (startProblem !== null) return this.refuse([startProblem]);
     return this.waitForChild();
   }
 
-  private async startChild(task: OrchestratorTask, work: OrchestratorAttempt['work'], update: string): Promise<void> {
+  /**
+   * Starts one child under the exclusive repository lease. A start that fails before supervision hands the
+   * repository and the task back and settles the reserved attempt, returning why instead of throwing.
+   */
+  private async startChild(task: OrchestratorTask, work: OrchestratorAttempt['work'], update: string): Promise<string | null> {
+    const previousStatus = this.state.tasks.find((entry) => entry.taskId === task.id)?.status ?? 'pending';
     const repository = await this.acquireRepository();
-    const attempt = this.ctx.orchestratorRunStore.reserveAttempt(this.runId, this.state.revision, task.id, work, update);
-    this.publish(this.ctx.orchestratorRunStore.read(this.runId));
-    this.setTaskStatus(task.id, 'running');
-    // The child changes the tree, so a check that passed before it proves nothing about its work.
-    this.passedRunChecks = [];
-    this.finishNeedsChange = false;
-    const baseline = await captureWorkspace(this.request.repoRoot);
-    const instruction = buildChildInstruction({ work, attempt: attempt.attempt, repoRoot: this.request.repoRoot,
-      scratchPath: orchestratorScratchDir(this.runId),
-      preexistingDirtyPaths: [...baseline.keys()] });
-    const submission = new WorkerSubmission(this);
-    const session = startOrchestratorChild(this.ctx, this.config, {
-      runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
-      workerPresetId: task.workerPresetId, repoRoot: this.request.repoRoot, work, instruction,
-    }, submission, this.request.sessionId !== null);
-    const source = { taskId: task.id, childRunId: attempt.childRunId };
-    const detachWarnings = session.attach({ wantsLiveText: false, writeProgress: (event) => this.recordWarning(event, source) });
-    const child: LiveChild = { attempt, task, baseline, repository, submission, session, detachWarnings };
-    this.child = child;
-    this.activity.track(session, source);
-    this.publish(this.ctx.orchestratorRunStore.markAttemptRunning(this.runId, this.state.revision, attempt.childRunId));
-    this.superviseChild(child, session).catch((error) => {
-      this.childFailure ??= toError(error);
-      this.wake();
-    });
+    let attempt: OrchestratorAttempt | null = null;
+    let started: LiveChild | null = null;
+    try {
+      attempt = this.ctx.orchestratorRunStore.reserveAttempt(this.runId, this.state.revision, task.id, work, update);
+      this.publish(this.ctx.orchestratorRunStore.read(this.runId));
+      this.setTaskStatus(task.id, 'running');
+      // The child changes the tree, so a check that passed before it proves nothing about its work.
+      this.passedRunChecks = [];
+      this.finishNeedsChange = false;
+      const baseline = await captureWorkspace(this.request.repoRoot);
+      const instruction = buildChildInstruction({ work, attempt: attempt.attempt, repoRoot: this.request.repoRoot,
+        scratchPath: orchestratorScratchDir(this.runId),
+        preexistingDirtyPaths: [...baseline.keys()] });
+      const submission = new WorkerSubmission(this);
+      const session = startOrchestratorChild(this.ctx, this.config, {
+        runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
+        workerPresetId: task.workerPresetId, repoRoot: this.request.repoRoot, work, instruction,
+      }, submission, this.request.sessionId !== null);
+      const source = { taskId: task.id, childRunId: attempt.childRunId };
+      const detachWarnings = session.attach({ wantsLiveText: false, writeProgress: (event) => this.recordWarning(event, source) });
+      const child: LiveChild = { attempt, task, baseline, repository, submission, session, detachWarnings };
+      started = child;
+      this.activity.track(session, source);
+      this.publish(this.ctx.orchestratorRunStore.markAttemptRunning(this.runId, this.state.revision, attempt.childRunId));
+      // Registering the child and starting supervision transfer ownership of the repository lease:
+      // nothing before them may leave a live child behind.
+      this.child = child;
+      this.superviseChild(child, session).catch((error) => {
+        this.childFailure ??= toError(error);
+        this.wake();
+      });
+      return null;
+    } catch (error) {
+      if (started === null) {
+        repository.release();
+      } else {
+        started.session.abort();
+        await Promise.allSettled([started.session.settled]);
+        this.detachChild(started);
+      }
+      this.setTaskStatus(task.id, previousStatus);
+      if (attempt !== null) {
+        this.publish(this.ctx.orchestratorRunStore.recordAttemptResult(this.runId, this.state.revision, {
+          taskId: task.id, purpose: attempt.purpose, attempt: attempt.attempt, childRunId: attempt.childRunId,
+          workerStatus: 'aborted', workerOutput: '', report: null, outcome: 'not_submitted', submissions: 0,
+          passed: false, checks: [], findings: [`The child never started: ${toError(error).message}`],
+          changedPaths: [], changeDigest: null,
+        }));
+      }
+      return `Task '${task.id}' could not start: ${toError(error).message}`;
+    }
+  }
+
+  /** Hands the repository back and stops observing a child that has settled. */
+  private detachChild(child: LiveChild): void {
+    child.repository.release();
+    this.child = null;
+    this.activity.untrack(child.attempt.childRunId);
+    child.detachWarnings();
   }
 
   /** Follows one child to its end, answering its escalated approvals, then records its result. */
@@ -652,10 +692,7 @@ export class OrchestratorRun implements OrchestratorLiveRun, OrchestratorToolHos
       await session.settled;
       throw error;
     } finally {
-      child.repository.release();
-      this.child = null;
-      this.activity.untrack(child.attempt.childRunId);
-      child.detachWarnings();
+      this.detachChild(child);
       this.wake();
     }
   }

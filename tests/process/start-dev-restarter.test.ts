@@ -57,6 +57,7 @@ class RestarterProcess {
       buffer = parts.pop() ?? '';
       this.lines.push(...parts.flatMap((line) => {
         if (line.trim() === 'started' || line.trim() === 'graceful-stop') return [line.trim()];
+        if (line.includes('was read, not edited')) return ['quiet-rescan'];
         return line.includes('restart waits until it is idle') ? [line.trim()] : [];
       }));
     });
@@ -86,13 +87,19 @@ class RestarterProcess {
     return restarter;
   }
 
+  /** Polls until `lines` starts with `expected`; trailing informational tokens cannot defeat the wait. */
   async waitForLines(expected: string[]): Promise<void> {
     const deadline = Date.now() + WAIT_TIMEOUT_MS;
-    while (this.lines.length < expected.length) {
+    while (!this.startsWith(expected)) {
       if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${JSON.stringify(expected)}; saw ${JSON.stringify(this.lines)}`);
       await delay(25);
     }
-    assert.deepEqual(this.lines, expected);
+    assert.deepEqual(this.lines.slice(0, expected.length), expected);
+  }
+
+  private startsWith(expected: string[]): boolean {
+    if (this.lines.length < expected.length) return false;
+    return expected.every((token, index) => this.lines[index] === token);
   }
 
   stop(): void {
@@ -105,11 +112,12 @@ test('a last-access touch does not restart the server; a real edit restarts it a
   t.after(() => { restarter.stop(); });
 
   fs.utimesSync(restarter.sourceFile, FIXED_TIME_S + 3_600, FIXED_TIME_S);
-  await delay(QUIET_PERIOD_MS);
-  assert.deepEqual(restarter.lines, ['started'], 'an access-time stamp is not an edit');
+  // 'quiet-rescan' only appears after the restarter has rescanned and judged the touch not an edit, so no sleep is needed.
+  await restarter.waitForLines(['started', 'quiet-rescan']);
+  assert.deepEqual(restarter.lines, ['started', 'quiet-rescan'], 'an access-time stamp is not an edit');
 
   fs.writeFileSync(restarter.sourceFile, 'export const value = 2;\n');
-  await restarter.waitForLines(['started', 'graceful-stop', 'started']);
+  await restarter.waitForLines(['started', 'quiet-rescan', 'graceful-stop', 'started']);
 });
 
 test('an edit while the server reports live work waits, and restarts once the server is idle', async (t) => {

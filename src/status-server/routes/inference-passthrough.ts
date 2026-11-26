@@ -47,6 +47,7 @@ import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.
 import { ModelManuallyUnloadedError } from '../preset-runtime-coordinator.ts';
 import {
   INFERENCE_PASSTHROUGH_REQUEST_KIND,
+  MODEL_QUEUE_TIMEOUT_MESSAGE,
   acquireModelRequestWithWait,
   releaseModelRequest,
 } from '../server-ops.ts';
@@ -315,7 +316,11 @@ class WorkloadEndpoint implements RouteEndpoint {
       sendJson(res, error instanceof ModelManuallyUnloadedError ? 503 : 502, { error: toError(error).message });
       return;
     }
-    if (!lock) return;
+    if (!lock) {
+      // The bounded queue wait expired (or the client went away); answer so the request is never left hanging.
+      if (!res.writableEnded && !res.destroyed) sendJson(res, 503, { error: MODEL_QUEUE_TIMEOUT_MESSAGE });
+      return;
+    }
     try {
       // Forward to the model admission granted, not whatever the config names now.
       const { modelPreset: currentPreset } = lock.context;

@@ -128,9 +128,9 @@ function formatNonCodeSummaries(nonCodeCounts: Map<string, Map<string, number>>)
   }
 
   const lines: string[] = [];
-  const sortedDirs = [...aggregated.keys()].sort();
-  for (const dir of sortedDirs) {
-    const extCounts = aggregated.get(dir)!;
+  // Map keys are unique, so byte order needs no equal case.
+  const sortedEntries = [...aggregated].sort(([left], [right]) => (left < right ? -1 : 1));
+  for (const [dir, extCounts] of sortedEntries) {
     const parts: string[] = [];
     const sortedExts = [...extCounts.entries()].sort((a, b) => b[1] - a[1]);
     for (const [ext, count] of sortedExts) {

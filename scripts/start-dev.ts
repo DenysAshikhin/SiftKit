@@ -57,7 +57,7 @@ async function shutdown(signalName: 'SIGINT' | 'SIGTERM'): Promise<void> {
   if (shuttingDown) {
     // A second Ctrl-C stops waiting for the graceful shutdown.
     if (signalName === 'SIGINT') {
-      for (const child of [statusProcess, dashboardProcess, assistantShellProcess]) stopChildProcessTree(child);
+      await Promise.all([statusProcess, dashboardProcess, assistantShellProcess].map((child) => stopChildProcessTree(child)));
       process.exit(130);
     }
     return;
@@ -66,9 +66,7 @@ async function shutdown(signalName: 'SIGINT' | 'SIGTERM'): Promise<void> {
   if (assistantShellWatcher !== null) {
     clearInterval(assistantShellWatcher);
   }
-  for (const child of [dashboardProcess, assistantShellProcess]) {
-    stopChildProcessTree(child);
-  }
+  await Promise.all([dashboardProcess, assistantShellProcess].map((child) => stopChildProcessTree(child)));
   if (statusProcess !== null) await stopStatusChild(statusProcess, signalName);
   process.exit(signalName === 'SIGINT' ? 130 : 0);
 }
@@ -149,10 +147,10 @@ async function syncAssistantShell(): Promise<void> {
     }
     process.stdout.write('[start-dev] Assistant enabled; starting the desktop shell.\n');
     assistantShellProcess = startProcess(runPath, []);
-    raiseChildTreePriority(assistantShellProcess, 'desktop shell');
+    await raiseChildTreePriority(assistantShellProcess, 'desktop shell');
   } else if (action === 'stop') {
     process.stdout.write('[start-dev] Assistant disabled; stopping the desktop shell.\n');
-    stopChildProcessTree(assistantShellProcess);
+    await stopChildProcessTree(assistantShellProcess);
     assistantShellProcess = null;
   }
 }
@@ -216,7 +214,7 @@ void (async () => {
   const { host: dashboardHost, port: dashboardPort } = portChecks.dashboard;
   void waitForPortListening(dashboardHost, dashboardPort, DASHBOARD_LISTEN_TIMEOUT_MS).then((listening) => {
     // Once it listens, npm, Vite and esbuild are all running and are swept together
-    if (listening) raiseChildTreePriority(dashboard, 'dashboard');
+    if (listening) void raiseChildTreePriority(dashboard, 'dashboard');
     else process.stderr.write(`[start-dev] The dashboard never listened on ${dashboardHost}:${dashboardPort}; its priority was not raised.\n`);
   });
   dashboardProcess.on('exit', (code) => {

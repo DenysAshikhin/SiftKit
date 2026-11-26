@@ -121,6 +121,11 @@ export function useBenchmarkController(deps: {
     return () => { cancelled = true; };
   }, [deps.tab, deps.refreshToken]);
 
+  // Clear the live log when the viewed session changes; a data refresh (refreshToken) must keep a running session's lines.
+  useEffect(() => {
+    setBenchmarkLiveLogLines((previous) => (previous.length > 0 ? [] : previous));
+  }, [selectedBenchmarkSessionId]);
+
   useEffect(() => {
     if (!selectedBenchmarkSessionId) {
       setSelectedBenchmarkSession(null);

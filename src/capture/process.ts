@@ -11,16 +11,16 @@ export type InvokeProcessResult = {
 };
 
 export function invokeProcess(command: string, argumentList: string[] = []): InvokeProcessResult {
-  const runChild = (executable: string, shell: boolean) => spawnSync(executable, argumentList, {
+  const runChild = (executable: string) => spawnSync(executable, argumentList, {
     encoding: 'utf8',
-    shell,
+    shell: false,
     windowsHide: true,
     cwd: process.cwd(),
   });
-  let result = runChild(command, false);
+  let result = runChild(command);
   if (result.error && /ENOENT/iu.test(result.error.message || '')) {
     try {
-      result = runChild(resolveExternalCommand(command), false);
+      result = runChild(resolveExternalCommand(command));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -30,9 +30,6 @@ export function invokeProcess(command: string, argumentList: string[] = []): Inv
         Combined: message,
       };
     }
-  }
-  if (result.error && /EPERM|EACCES/iu.test(result.error.message || '')) {
-    result = runChild(command, true);
   }
 
   const stdout = result.stdout || '';
@@ -115,20 +112,12 @@ export function captureWithTranscript(
   commandPath: string,
   argumentList: string[],
 ): TranscriptCaptureResult {
-  let result = spawnSync(commandPath, argumentList, {
+  const result = spawnSync(commandPath, argumentList, {
     encoding: 'utf8',
     shell: false,
     windowsHide: true,
     cwd: process.cwd(),
   });
-  if (result.error && /EPERM|EACCES/iu.test(result.error.message || '')) {
-    result = spawnSync(commandPath, argumentList, {
-      encoding: 'utf8',
-      shell: true,
-      windowsHide: true,
-      cwd: process.cwd(),
-    });
-  }
   const stdout = result.stdout || '';
   const stderr = `${result.stderr || ''}${result.error ? `${result.stderr ? '\n' : ''}${result.error.message}` : ''}`;
   return {

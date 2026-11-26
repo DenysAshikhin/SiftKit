@@ -30,20 +30,22 @@ function configWithCustomWorkers(): SiftConfig {
 const WRITE_TASK = makeOrchestratorTask({ id: 'edit', title: 'Edit source', dependsOn: ['inspect'],
   workerPresetId: 'repo-agent', writePaths: ['src/feature.ts'] });
 
+const SCRATCH_DIR = '.siftkit/orchestrator/00000000-0000-4000-8000-000000000001/scratch';
+
 test('an acyclic two-task plan validates and normalizes path keys', () => {
   const repoRoot = createRepo();
   const plan = makeOrchestratorPlan([
     makeOrchestratorTask({ readPaths: ['.\\README.md'] }),
     WRITE_TASK,
   ]);
-  const validated = validateOrchestratorPlan(plan, getDefaultServerConfig(), repoRoot);
+  const validated = validateOrchestratorPlan(plan, getDefaultServerConfig(), repoRoot, SCRATCH_DIR);
   assert.deepEqual(validated.tasks[0]?.readPaths, ['README.md']);
   assert.deepEqual(validated.tasks[1]?.writePaths, ['src/feature.ts']);
 });
 
 test('a custom repo-agent worker preset that can change files is accepted', () => {
   const plan = makeOrchestratorPlan([makeOrchestratorTask({ workerPresetId: 'careful-writer' })]);
-  assert.doesNotThrow(() => validateOrchestratorPlan(plan, configWithCustomWorkers(), createRepo()));
+  assert.doesNotThrow(() => validateOrchestratorPlan(plan, configWithCustomWorkers(), createRepo(), SCRATCH_DIR));
 });
 
 for (const [name, tasks, pattern] of [
@@ -66,7 +68,7 @@ for (const [name, tasks, pattern] of [
   ['an absolute path', [makeOrchestratorTask({ readPaths: [path.resolve('/elsewhere/file.md')] })], /escapes the repository/u],
 ] as const) {
   test(`plan validation rejects ${name}`, () => {
-    assert.throws(() => validateOrchestratorPlan(makeOrchestratorPlan([...tasks]), configWithCustomWorkers(), createRepo()), pattern);
+    assert.throws(() => validateOrchestratorPlan(makeOrchestratorPlan([...tasks]), configWithCustomWorkers(), createRepo(), SCRATCH_DIR), pattern);
   });
 }
 
@@ -75,7 +77,7 @@ test('plan validation rejects a path that escapes through a junction', () => {
   const outside = createManagedTempDir('siftkit-orchestrator-outside-');
   fs.symlinkSync(outside, path.join(repoRoot, 'linked'), 'junction');
   const plan = makeOrchestratorPlan([makeOrchestratorTask({ readPaths: ['linked/secret.md'] })]);
-  assert.throws(() => validateOrchestratorPlan(plan, getDefaultServerConfig(), repoRoot), /path 'linked\/secret.md' escapes the repository/u);
+  assert.throws(() => validateOrchestratorPlan(plan, getDefaultServerConfig(), repoRoot, SCRATCH_DIR), /path 'linked\/secret.md' escapes the repository/u);
 });
 
 test('verification commands and evidence paths are repository scoped too', () => {
@@ -83,7 +85,24 @@ test('verification commands and evidence paths are repository scoped too', () =>
   const plan = makeOrchestratorPlan([makeOrchestratorTask({
     verification: [{ kind: 'command', command: 'npm test', cwd: '../elsewhere', expectedExitCode: 0 }],
   })]);
-  assert.throws(() => validateOrchestratorPlan(plan, getDefaultServerConfig(), repoRoot), /path '..\/elsewhere' escapes the repository/u);
+  assert.throws(() => validateOrchestratorPlan(plan, getDefaultServerConfig(), repoRoot, SCRATCH_DIR), /path '..\/elsewhere' escapes the repository/u);
+});
+
+test('a temporary path outside the run scratch is refused when the plan is saved', () => {
+  const plan = makeOrchestratorPlan([makeOrchestratorTask({ temporaryPaths: ['tmp/probe.bin'] })]);
+  assert.throws(() => validateOrchestratorPlan(plan, getDefaultServerConfig(), createRepo(), SCRATCH_DIR),
+    new RegExp(`temporary path 'tmp/probe\\.bin' must live in the run scratch '${SCRATCH_DIR.replace(/\./gu, '\\.')}', which the run deletes at completion`));
+});
+
+test('a temporary path inside the run scratch validates and comes back unchanged', () => {
+  const plan = makeOrchestratorPlan([makeOrchestratorTask({ temporaryPaths: [`${SCRATCH_DIR}/probe.bin`] })]);
+  const validated = validateOrchestratorPlan(plan, getDefaultServerConfig(), createRepo(), SCRATCH_DIR);
+  assert.deepEqual(validated.tasks[0]?.temporaryPaths, [`${SCRATCH_DIR}/probe.bin`]);
+});
+
+test('a temporary path that escapes the repository is refused as before', () => {
+  const plan = makeOrchestratorPlan([makeOrchestratorTask({ temporaryPaths: ['../outside.bin'] })]);
+  assert.throws(() => validateOrchestratorPlan(plan, getDefaultServerConfig(), createRepo(), SCRATCH_DIR), /escapes the repository/u);
 });
 
 test('a changed test file outside the writePaths of its task is out of scope; source files and in-scope tests are not', () => {

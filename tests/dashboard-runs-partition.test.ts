@@ -9,8 +9,9 @@ import {
   upsertRunArtifactPayload,
   upsertRunLog,
 } from '../src/status-server/dashboard-runs/artifact-upserts.ts';
-import { deleteDashboardRunLogs } from '../src/status-server/dashboard-runs/deletion.ts';
-import { countPromptCacheBreaksByRun, insertEngineEvent } from '../src/state/engine-events.ts';
+import { deleteDashboardRunLogs, previewDashboardRunLogDeletion } from '../src/status-server/dashboard-runs/deletion.ts';
+import { countPromptCacheBreaksByRun, insertEngineEvent, listEngineEvents } from '../src/state/engine-events.ts';
+import { z } from '../src/lib/zod.ts';
 import { queryDashboardRunDetailFromDb, queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.ts';
 import { normalizeRunRecordFromDbRow } from '../src/status-server/dashboard-runs/run-records.ts';
 import type { RunLogDbRow, RunLogUpsertRow } from '../src/status-server/dashboard-runs/types.ts';
@@ -29,6 +30,12 @@ function withDatabase(callback: (database: DatabaseInstance) => void): void {
   } finally {
     closeAllRuntimeDatabases();
   }
+}
+
+const CountRowSchema = z.object({ count: z.number() });
+
+function countRows(database: DatabaseInstance, sql: string, ...params: string[]): number {
+  return Number(CountRowSchema.parse(database.prepare(sql).get(...params)).count || 0);
 }
 
 function buildRunLogRow(overrides: Partial<RunLogDbRow> = {}): RunLogDbRow {
@@ -157,6 +164,50 @@ test('dashboard deletion module deletes oldest matching run logs directly', () =
     assert.deepEqual([...countPromptCacheBreaksByRun(database, ['repo-1', 'repo-2'])], [['repo-2', 1]]);
     assert.equal(remaining[0]?.promptCacheBreakCount, 1);
     assert.equal(queryDashboardRunDetailFromDb(database, 'repo-2')?.run.promptCacheBreakCount, 1);
+  });
+});
+
+test('before-date full wipe deletes recorder events with their inference runs', () => {
+  withDatabase((database) => {
+    upsertRunLog(database, buildRunLogUpsertRow({
+      runId: 'wipe-run-1',
+      requestId: 'wipe-run-1',
+      startedAtUtc: '2026-05-01T10:00:00.000Z',
+      finishedAtUtc: '2026-05-01T10:00:02.000Z',
+      flushedAtUtc: '2026-05-01T10:00:02.000Z',
+    }));
+    upsertRunLog(database, buildRunLogUpsertRow({
+      runId: 'wipe-run-2',
+      requestId: 'wipe-run-2',
+      startedAtUtc: '2026-05-05T10:00:00.000Z',
+      finishedAtUtc: '2026-05-05T10:00:02.000Z',
+      flushedAtUtc: '2026-05-05T10:00:02.000Z',
+    }));
+    const insertInferenceRun = database.prepare(`
+      INSERT INTO inference_runs (
+        id, backend, purpose, entrypoint_path, base_url, status, exit_code, error_message,
+        started_at_utc, finished_at_utc, updated_at_utc
+      ) VALUES (?, 'exl3', 'startup', NULL, NULL, ?, NULL, NULL, ?, ?, ?)
+    `);
+    insertInferenceRun.run('wipe-inf-1', 'stopped', '2026-05-01T10:00:00.000Z', '2026-05-01T10:00:05.000Z', '2026-05-01T10:00:05.000Z');
+    insertInferenceRun.run('wipe-inf-2', 'stopped', '2026-05-05T10:00:00.000Z', '2026-05-05T10:00:05.000Z', '2026-05-05T10:00:05.000Z');
+    insertEngineEvent(database, { kind: 'engine_error', inferenceRunId: 'wipe-inf-1', runId: null, turn: null, summary: 'engine error', detail: 'boom' });
+    insertEngineEvent(database, { kind: 'engine_exit', inferenceRunId: 'wipe-inf-2', runId: null, turn: null, summary: 'engine exit', detail: 'clean' });
+    insertEngineEvent(database, { kind: 'prompt_cache_break', inferenceRunId: null, runId: 'wipe-run-1', turn: 1, summary: 'break', detail: 'detail' });
+
+    const preview = previewDashboardRunLogDeletion(database, { mode: 'before_date', type: 'all', beforeDate: '2026-05-02' });
+    const result = deleteDashboardRunLogs(database, { mode: 'before_date', type: 'all', beforeDate: '2026-05-02' });
+
+    assert.deepEqual(result.deletedRunIds, ['wipe-run-1']);
+    assert.equal(result.deletedCount, preview.matchCount);
+    assert.equal(countRows(database, 'SELECT COUNT(*) AS count FROM run_logs WHERE run_id = ?', 'wipe-run-1'), 0);
+    assert.equal(countRows(database, 'SELECT COUNT(*) AS count FROM inference_runs WHERE id = ?', 'wipe-inf-1'), 0);
+    const events = listEngineEvents(database, 100);
+    assert.equal(events.filter((event) => event.inferenceRunId === 'wipe-inf-1').length, 0);
+    assert.equal(events.filter((event) => event.runId === 'wipe-run-1').length, 0);
+    assert.equal(events.filter((event) => event.inferenceRunId === 'wipe-inf-2').length, 1);
+    assert.equal(countRows(database, 'SELECT COUNT(*) AS count FROM run_logs WHERE run_id = ?', 'wipe-run-2'), 1);
+    assert.equal(countRows(database, 'SELECT COUNT(*) AS count FROM inference_runs WHERE id = ?', 'wipe-inf-2'), 1);
   });
 });
 

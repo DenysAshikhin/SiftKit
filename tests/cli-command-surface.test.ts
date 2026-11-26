@@ -58,3 +58,15 @@ test('argv-probe echoes argv as JSON for shim quote verification', async () => {
   assert.equal(stderr.read(), '');
   assert.deepEqual(JSON.parse(stdout.read()), { argv: ['quote-probe "with quotes"', 'trailing\slash '] });
 });
+
+test('--arg without a trailing value is rejected instead of pushing undefined', () => {
+  assert.throws(() => parseArguments(['--arg']), /Missing value for option: --arg/u);
+  assert.throws(() => parseArguments(['run', 'echo', '--arg']), /Missing value for option: --arg/u);
+  assert.deepEqual(parseArguments(['run', 'cargo', '--arg', '--features']).argList, ['--features']);
+});
+
+test('every value option throws when it is the last token', () => {
+  for (const option of ['--question', '--file', '--op', '--request-file', '--preset', '--max-turns']) {
+    assert.throws(() => parseArguments([option]), new RegExp(`Missing value for option: ${option}`, 'u'));
+  }
+});

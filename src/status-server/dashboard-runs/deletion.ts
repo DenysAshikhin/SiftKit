@@ -192,14 +192,18 @@ function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: Dashboar
   `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`)).map((row) => String(row.run_id || ''));
 }
 
+const INFERENCE_RUN_WIPE_WHERE = "status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?";
+
+const ENGINE_EVENTS_WIPE_SQL = `DELETE FROM engine_events WHERE inference_run_id IN (SELECT id FROM inference_runs WHERE ${INFERENCE_RUN_WIPE_WHERE})`;
+
 const AUX_RUN_HISTORY_DELETE_STATEMENTS: { countSql: string; deleteSql: string }[] = [
   {
     countSql: "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE created_at_utc < ? AND artifact_kind != 'benchmark_run'",
     deleteSql: "DELETE FROM runtime_artifacts WHERE created_at_utc < ? AND artifact_kind != 'benchmark_run'",
   },
   {
-    countSql: "SELECT COUNT(*) AS count FROM inference_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
-    deleteSql: "DELETE FROM inference_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
+    countSql: `SELECT COUNT(*) AS count FROM inference_runs WHERE ${INFERENCE_RUN_WIPE_WHERE}`,
+    deleteSql: `DELETE FROM inference_runs WHERE ${INFERENCE_RUN_WIPE_WHERE}`,
   },
   {
     countSql: 'SELECT COUNT(*) AS count FROM idle_summary_snapshots WHERE emitted_at_utc < ?',
@@ -309,6 +313,9 @@ export function deleteDashboardRunLogs(
     }
     if (isFullHistoryDateWipe(criteria)) {
       const cutoff = `${criteria.beforeDate}T00:00:00.000Z`;
+      // Must run before the AUX loop while the inference_runs rows still exist for the subquery;
+      // uncounted like deleteEngineEventsForRuns so the count matches the preview.
+      database.prepare(ENGINE_EVENTS_WIPE_SQL).run(cutoff);
       for (const { deleteSql } of AUX_RUN_HISTORY_DELETE_STATEMENTS) {
         const result = database.prepare(deleteSql).run(cutoff);
         deletedCount += Number(result.changes) || 0;

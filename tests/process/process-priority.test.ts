@@ -29,7 +29,7 @@ async function spawnTree(prefix: string): Promise<{ parent: ChildProcess; parent
 }
 
 async function stopTree(parentPid: number): Promise<void> {
-  terminateProcessTree(parentPid);
+  await terminateProcessTree(parentPid);
   await waitForProcessExit(parentPid);
 }
 
@@ -45,7 +45,7 @@ test('a process tree is raised to High, the grandchild included', windowsOnly, a
   const { parentPid, grandchildPid } = await spawnTree('siftkit-priority-tree-');
   try {
     assert.equal(os.getPriority(grandchildPid), NORMAL);
-    assert.equal(raiseProcessTreePriority(parentPid), null);
+    assert.equal(await raiseProcessTreePriority(parentPid), null);
     assert.equal(os.getPriority(parentPid), HIGH);
     assert.equal(os.getPriority(grandchildPid), HIGH);
   } finally {
@@ -55,8 +55,8 @@ test('a process tree is raised to High, the grandchild included', windowsOnly, a
 
 test('a tree whose processes cannot be listed is reported, and its root is still raised', windowsOnly, () => {
   const script = `import os from 'node:os'; import { raiseProcessTreePriority } from ${JSON.stringify(MODULE_URL)};`
-    + ' const problem = raiseProcessTreePriority(process.pid);'
-    + ' process.stdout.write(JSON.stringify({ pid: process.pid, problem, priority: os.getPriority() }));';
+    + ' void raiseProcessTreePriority(process.pid).then((problem) => {'
+    + ' process.stdout.write(JSON.stringify({ pid: process.pid, problem, priority: os.getPriority() })); });';
   // With PATH on an empty directory the snapshot's powershell.exe cannot be found
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     encoding: 'utf8', windowsHide: true, env: { SystemRoot: process.env.SystemRoot, PATH: createManagedTempDir('siftkit-priority-path-') },
@@ -72,14 +72,14 @@ test('a process that already exited is reported, not thrown', windowsOnly, async
   await stopTree(parentPid);
   // Only the dead parent held a handle to the grandchild, so it is gone once it exits
   await waitForProcessExit(grandchildPid);
-  assert.equal(raiseProcessTreePriority(grandchildPid), `Could not raise every process to High priority: processes ${grandchildPid} could not be raised.`);
+  assert.equal(await raiseProcessTreePriority(grandchildPid), `Could not raise every process to High priority: processes ${grandchildPid} could not be raised.`);
 });
 
 test('start-dev raises a launched child tree without reporting anything', windowsOnly, async (t) => {
   const writes = t.mock.method(process.stderr, 'write');
   const { parent, parentPid, grandchildPid } = await spawnTree('siftkit-priority-start-dev-');
   try {
-    raiseChildTreePriority(parent, 'fixture');
+    await raiseChildTreePriority(parent, 'fixture');
     assert.equal(os.getPriority(parentPid), HIGH);
     assert.equal(os.getPriority(grandchildPid), HIGH);
     assert.equal(writes.mock.callCount(), 0);
@@ -92,14 +92,14 @@ test('start-dev skips a child that never started', async (t) => {
   const child = spawn(path.join(os.tmpdir(), 'siftkit-missing-executable.exe'), [], { stdio: 'ignore', windowsHide: true });
   const spawnFailed = new Promise((resolve) => child.once('error', resolve));
   const writes = t.mock.method(process.stderr, 'write');
-  raiseChildTreePriority(child, 'missing');
+  await raiseChildTreePriority(child, 'missing');
   assert.equal(writes.mock.callCount(), 0);
   await spawnFailed;
 });
 
-test('priorities are left alone off Windows', { skip: process.platform === 'win32' ? 'Windows raises them' : false }, () => {
+test('priorities are left alone off Windows', { skip: process.platform === 'win32' ? 'Windows raises them' : false }, async () => {
   const before = os.getPriority();
   raiseOwnPriority();
   assert.equal(os.getPriority(), before);
-  assert.equal(raiseProcessTreePriority(process.pid), null);
+  assert.equal(await raiseProcessTreePriority(process.pid), null);
 });

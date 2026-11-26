@@ -16,22 +16,22 @@ type KillableChild = {
 };
 
 /** Raises a started child and the processes it started so far to High, reporting what it could not raise. */
-export function raiseChildTreePriority(child: ChildProcess, name: string): void {
+export async function raiseChildTreePriority(child: ChildProcess, name: string): Promise<void> {
   if (child.pid === undefined) return;
-  const problem = raiseProcessTreePriority(child.pid);
+  const problem = await raiseProcessTreePriority(child.pid);
   if (problem !== null) process.stderr.write(`[start-dev] ${name}: ${problem}\n`);
 }
 
 /** Windows kills the child's verified process tree; elsewhere the child gets SIGINT and stops its own. */
-export function stopChildProcessTree(
+export async function stopChildProcessTree(
   child: KillableChild | null,
   options: TerminateProcessTreeOptions = {},
-): boolean {
+): Promise<boolean> {
   if (!child || child.killed) {
     return false;
   }
   if ((options.processObject ?? process).platform === 'win32' && child.pid !== undefined) {
-    return terminateProcessTree(child.pid, options);
+    return await terminateProcessTree(child.pid, options);
   }
   try {
     return child.kill('SIGINT');
@@ -48,7 +48,7 @@ export async function stopStatusChild(child: ChildProcess, signal: 'SIGINT' | 'S
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, 'exit');
   if (signal === 'SIGTERM' && child.connected) child.send(SHUTDOWN_MESSAGE);
-  const fallback = setTimeout(() => { stopChildProcessTree(child); }, DEV_CHILD_STOP_TIMEOUT_MS);
+  const fallback = setTimeout(() => { void stopChildProcessTree(child); }, DEV_CHILD_STOP_TIMEOUT_MS);
   await exited;
   clearTimeout(fallback);
 }

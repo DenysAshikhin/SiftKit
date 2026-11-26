@@ -18,14 +18,13 @@ test('commandReadsStdin: stdin-consuming commands without inline input', () => {
   assert.equal(commandReadsStdin(['summary', '--question', 'q']), true);
   assert.equal(commandReadsStdin(['--question', 'q']), true);
   assert.equal(commandReadsStdin(['run', '--preset', 'p', '--question', 'q']), true);
-  assert.equal(commandReadsStdin(['internal', '--op', 'summary']), true);
+  assert.equal(commandReadsStdin(['internal', '--op', 'summary']), false);
 });
 
-test('commandReadsStdin: inline --text/--file/--request-file suppress stdin', () => {
+test('commandReadsStdin: inline --text/--file suppress stdin', () => {
   assert.equal(commandReadsStdin(['summary', '--text', 't', '--question', 'q']), false);
   assert.equal(commandReadsStdin(['summary', '--file', 'f', '--question', 'q']), false);
   assert.equal(commandReadsStdin(['run', '--preset', 'p', '--text', 't']), false);
-  assert.equal(commandReadsStdin(['internal', '--op', 'x', '--request-file', 'r']), false);
 });
 
 test('commandReadsStdin: non-consuming commands never read stdin', () => {
@@ -35,6 +34,8 @@ test('commandReadsStdin: non-consuming commands never read stdin', () => {
   assert.equal(commandReadsStdin(['run', 'echo', 'hi']), false);
   assert.equal(commandReadsStdin(['help']), false);
   assert.equal(commandReadsStdin([]), false);
+  assert.equal(commandReadsStdin(['summary', '--request-file', 'r', '--question', 'q']), true);
+  assert.equal(commandReadsStdin(['internal', '--op', 'x', '--request-file', 'r']), false);
 });
 
 test('readStdinToEnd: concatenates chunks until end', async () => {

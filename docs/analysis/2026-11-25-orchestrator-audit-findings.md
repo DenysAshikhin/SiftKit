@@ -41,3 +41,14 @@ bdaa258c has the SiftKit path; what was typed is not recorded, so this being the
 | ORC-2 | Not valid as written | The child's first wait sees the stop already requested and aborts the child |
 | SHM-1 | Untested | Depends on what PowerShell reports for an installed module |
 | Q1, Q2 | Not bugs | Open questions (npm publish contents, a POSIX-only check) |
+
+## Orchestrator run ba44c0a8 (2026-11-26)
+
+Fixed test-first, each with a regression test: CLI-1, CLI-2, CLI-3, ORC-1, ORC-3, AGT-1, HTTP-1, HTTP-2, INF-2, INF-3, AST-3,
+STS-3, STS-4, DSH-2, SHM-4, TST-1, PKG-1, PKG-2, PKG-3, PKG-4, REM-2, C1, C2, C3, C4. Uncommitted.
+
+SHM-3 did not reproduce: through the shim, `"a b"` arrived as one argument, also via a spaced install path and from PowerShell
+5.1. `bin/siftkit.cmd` is unchanged; tests/process/install.test.ts now pins that spaced values pass intact. The run's final
+summary wrongly lists SHM-3 as fixed.
+
+Not changed (out of scope): INF-1, AST-2, STS-1, STS-2, AGT-2, ORC-2, SHM-1, Q1, Q2.

@@ -67,3 +67,4 @@ export function deleteEngineEventsForRuns(database: RuntimeDatabase, runIds: rea
 export function deleteEngineEventsForInferenceRun(database: RuntimeDatabase, inferenceRunId: string): number {
   return Number(database.prepare('DELETE FROM engine_events WHERE inference_run_id = ?').run(inferenceRunId).changes);
 }
+

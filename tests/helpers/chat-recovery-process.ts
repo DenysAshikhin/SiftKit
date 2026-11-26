@@ -224,7 +224,7 @@ export class ChatRecoveryProcess {
     if (this.child.exitCode !== null || this.child.signalCode !== null) return;
     const pid = this.child.pid;
     if (pid === undefined) throw new Error('Test child has no process identity.');
-    terminateProcessTree(pid);
+    await terminateProcessTree(pid);
     await this.exited;
   }
   private fail(error: Error): void { this.failure = error; this.waiting?.reject(error); this.waiting = null; }

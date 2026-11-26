@@ -19,13 +19,6 @@ export function readCliTextInput(options: {
 
   if (options.file) {
     if (!existsSync(options.file)) {
-      if (options.stdinText !== undefined) {
-        return normalizeCliInputText(
-          Buffer.isBuffer(options.stdinText)
-            ? decodeTextBuffer(options.stdinText)
-            : options.stdinText,
-        );
-      }
       throw new Error(`Input file not found: ${options.file}`);
     }
     return normalizeCliInputText(decodeTextBuffer(readFileSync(options.file)));

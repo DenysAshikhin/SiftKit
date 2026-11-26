@@ -1571,21 +1571,21 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
   const events: JsonObject[] = [];
   await using portLease = await acquireChildPortLease('mock-repo-search-loop');
   const port = portLease.port;
-  let delayedServer: http.Server | null = null;
   let plannerRequestCount = 0;
-  const delayedStart = setTimeout(() => {
-    delayedServer = http.createServer((req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      plannerRequestCount += 1;
-      sendChatCompletionSse(res, {
-        choices: [{ message: { content: 'done' } }],
-        usage: DONT_CARE_TABBY_USAGE,
-      });
+  // Created up front but not listening: the port binds only when the timeout fires.
+  const delayedServer = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    plannerRequestCount += 1;
+    sendChatCompletionSse(res, {
+      choices: [{ message: { content: 'done' } }],
+      usage: DONT_CARE_TABBY_USAGE,
     });
+  });
+  const delayedStart = setTimeout(() => {
     delayedServer.listen(port, '127.0.0.1');
   }, 300);
   const notFound = await startNotFoundServer();
@@ -1623,9 +1623,8 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
     assert.match(String(asObject(retryEvents[0]?.error).message || ''), /ECONNREFUSED/u);
   } finally {
     clearTimeout(delayedStart);
-    if (delayedServer) {
-      await new Promise<void>((resolve) => delayedServer!.close(() => resolve()));
-    }
+    // Closing a server that never listened is safe: the callback still fires.
+    await new Promise<void>((resolve) => delayedServer.close(() => resolve()));
     await notFound.close();
   }
 });

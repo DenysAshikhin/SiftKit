@@ -80,7 +80,7 @@ The orchestrator takes a task, a Markdown plan, or both. It works in this order:
 ```powershell
 siftkit orchestrator "add a greeting endpoint with tests"
 siftkit orchestrator --plan docs/plan.md --approval interactive
-siftkit orchestrator --minutes 240 --dispatches 30 "make the import twice as fast; npm run bench:import is the measure"
+siftkit orchestrator --minutes 240 --dispatches 30 "make the import twice as fast; npm run benchmark is the measure"
 siftkit orchestrator attach <runId> --after 12
 siftkit orchestrator status <runId>
 siftkit orchestrator decide <runId> <approvalId> deny --reason "out of scope"
@@ -256,15 +256,14 @@ Lines are `HH:MM:SS  <scope> <id8>  <event>  <fields>`, where scope is `rs` (rep
 - `siftkit repo-agent` — agent-style code changes with resumable JSON boundaries
 - `siftkit orchestrator` — planned, verified multi-step changes delegated to workers
 - `siftkit preset list` — list available presets
+- `siftkit assistant` — inspect and control the background assistant (status, pause, resume, export, backup, restore, factory-reset)
 - `siftkit run` — execute a command or a preset
-- `siftkit install` — bootstrap runtime folders and verify the server
-- `siftkit install-global` — install PowerShell shims user-scoped
-- `siftkit config-get` / `siftkit config-set` — live config edit via the server
 - `siftkit find-files` — local fuzzy file finder (no server required)
-- `siftkit codex-policy` — local-only codex policy helper
-- `siftkit eval` / `siftkit test` / `siftkit capture-internal` — development/eval harness
+- `siftkit internal` — run one internal operation from a JSON request file (`--op <op> --request-file <path>`)
+- `siftkit argv-probe` — echo its argv as JSON so the shim smoke checks can prove quotes survive shell argument passing
+- `siftkit help` — print the command synopsis
 
-Local-only commands (`find-files`, `codex-policy`, `install-global`) do not require the external server.
+Local-only commands (`repo-agent`, `run`, `find-files`, `internal`, `argv-probe`) do not require the external server.
 
 ## Install and usage
 
@@ -306,16 +305,10 @@ Verify the whole client flow end-to-end (assumes the server is already running):
 npm run verify:client
 ```
 
-Verify the live `llama.cpp` smoke flow:
+Install the global npm link:
 
 ```powershell
-npm run verify:llama-live
-```
-
-Bootstrap local runtime folders and verify the external server:
-
-```powershell
-siftkit install
+npm run refresh-global
 ```
 
 Install the PowerShell shims globally:

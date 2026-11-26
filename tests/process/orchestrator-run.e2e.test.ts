@@ -314,6 +314,40 @@ test('a fifth invalid response in a row ends the orchestrator conversation', asy
   assert.equal(state.summary, null);
 });
 
+test('a child start that loses the repository settles the attempt and hands the gate back, so the retry dispatch completes the run', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-start-failure-');
+  const { engine } = context;
+  const gitDir = path.join(context.repo, '.git');
+  const gitHidden = path.join(context.repo, '.git-unavailable');
+  engine.parent.push([
+    savePlan(),
+    () => {
+      fs.renameSync(gitDir, gitHidden);
+      assert.ok(fs.existsSync(gitHidden) && !fs.existsSync(gitDir), 'the first child start must face no git directory');
+      return dispatch({ taskId: 'greeting' });
+    },
+    () => {
+      fs.renameSync(gitHidden, gitDir);
+      assert.ok(fs.existsSync(gitDir), 'the retry dispatch must face the repository again');
+      return dispatch({ taskId: 'greeting' });
+    },
+    review('greeting', 'pass'),
+    COMPLETE,
+  ]);
+  engine.children.push(WRITER);
+
+  const { state } = await followRun(context, (await startRun(context, 'off')).runId);
+
+  assertCompleted(state, engine);
+  const refused = engine.parentToolOutputs()[1] ?? '';
+  assert.match(refused, /^Not done:\n- .*git status failed/u, 'the failed start is a refusal the parent reads, not a crash');
+  assert.deepEqual(state.attempts.map((attempt) => [attempt.purpose, attempt.attempt, attempt.status, attempt.result?.outcome]),
+    [['implementation', 1, 'settled', 'not_submitted'], ['implementation', 2, 'settled', 'passed']],
+    'the failed start settles its attempt, and the retry works only if the gate was handed back');
+  assert.match(state.attempts[0]?.result?.findings[0] ?? '', /git status failed/u, 'the settled attempt names why the child never started');
+  assert.equal(fs.readFileSync(path.join(context.repo, TARGET), 'utf8'), GREETING);
+});
+
 test('a dispatch whose update names a path is refused and records no line; the next one is recorded', async (t) => {
   const context = await startHarness(t, 'siftkit-orchestrator-update-');
   const { engine } = context;

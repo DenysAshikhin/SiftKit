@@ -21,6 +21,7 @@ const FORBIDDEN_REFERENCE = /(?<!ex)llama|gguf/iu;
 const ALLOWED_PATHS = new Set([
   'tests/process/no-llama-references.test.ts',
   'tests/helpers/legacy-backend-fixtures.ts',
+  'tests/readme-command-surface.test.ts',
 ]);
 
 function listGitOwnedPaths(repoRoot: string): string[] {

@@ -69,7 +69,9 @@ export function superviseWithRestarts(options: RestarterOptions): void {
   let restartInFlight = false;
   let restartQueued = false;
   let restartTimer: NodeJS.Timeout | null = null;
+  let quietTimer: NodeJS.Timeout | null = null;
   let lastChanged = '';
+  let lastQuiet = '';
 
   const startChild = (): ChildProcess => {
     const next = spawn(process.execPath, [options.entry, ...options.args], { stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
@@ -122,7 +124,21 @@ export function superviseWithRestarts(options: RestarterOptions): void {
     const changed = isSourceChange(stamps.get(filePath), current, watchStartedAtMs);
     if (current === null) stamps.delete(filePath);
     else stamps.set(filePath, current);
-    if (!changed) return;
+    if (!changed) {
+      // Windows stamps last-access on reads; reporting the ignored event makes its processing observable
+      // to the guard test and to a watching developer.
+      if (current !== null && restartTimer === null) {
+        lastQuiet = filename;
+        if (quietTimer !== null) clearTimeout(quietTimer);
+        quietTimer = setTimeout(() => {
+          quietTimer = null;
+          process.stdout.write(`[start-dev] ${lastQuiet} was read, not edited; no restart.\n`);
+        }, RESTART_DEBOUNCE_MS);
+      }
+      return;
+    }
+    if (quietTimer !== null) clearTimeout(quietTimer);
+    quietTimer = null;
     if (restartTimer !== null) clearTimeout(restartTimer);
     restartTimer = setTimeout(() => {
       restartTimer = null;
@@ -140,6 +156,7 @@ export function superviseWithRestarts(options: RestarterOptions): void {
     stopping = true;
     for (const watcher of watchers) watcher.close();
     if (restartTimer !== null) clearTimeout(restartTimer);
+    if (quietTimer !== null) clearTimeout(quietTimer);
     await stopStatusChild(child, signal);
     process.exit(signal === 'SIGINT' ? 130 : 0);
   };
@@ -153,7 +170,7 @@ export function superviseWithRestarts(options: RestarterOptions): void {
       void stopAll('SIGINT');
       return;
     }
-    stopChildProcessTree(child);
-    process.exit(130);
+    // The kill's promise owns the exit so the tree kill finishes before the process goes.
+    void stopChildProcessTree(child).then(() => { process.exit(130); });
   });
 }

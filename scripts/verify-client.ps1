@@ -40,9 +40,9 @@ try {
     }
 
     Invoke-Step -Label 'Run Node test suite' -Action {
-        & node --test --test-isolation=none .\tests\runtime.test.js
+        & node .\src\test-runner\run-tests.ts
         if ($LASTEXITCODE -ne 0) {
-            throw "Node runtime tests failed with exit code $LASTEXITCODE."
+            throw "Node test suite failed with exit code $LASTEXITCODE."
         }
     }
 

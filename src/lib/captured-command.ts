@@ -116,7 +116,7 @@ export class CapturedCommand {
   terminate(): void {
     const { pid } = this.child;
     if (this.options.termination === 'tree' && typeof pid === 'number' && pid > 0) {
-      terminateProcessTree(pid);
+      void terminateProcessTree(pid);
       return;
     }
     this.child.kill();

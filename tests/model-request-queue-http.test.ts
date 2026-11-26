@@ -7,6 +7,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.ts';
+import { MODEL_QUEUE_TIMEOUT_MESSAGE } from '../src/status-server/server-ops.ts';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.ts';
 import type { ModelRequestQueueDiagnostics } from '../src/lib/operation-stream.ts';
 import { readStatusModelRequests } from './helpers/model-request-status.ts';
@@ -302,6 +303,33 @@ test('webui repo-agent run waits in the queue without a deadline and is admitted
     assertStreamCompleted(await stream, sessionId);
     await harness.waitForModelQueueIdle();
   } finally {
+    await harness.close();
+  }
+});
+
+test('passthrough chat answers a queue timeout with 503 instead of hanging', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-http-queue-timeout-', { parallelSlots: 1 });
+  await harness.start();
+  const previousQueueTimeoutMs = process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS;
+  const holder = harness.holdModelLock('active request', 400);
+  await harness.waitForActiveRequests('repo_search');
+  try {
+    process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = '300';
+    const response = await requestJson(`${harness.getBaseUrl()}/v1/chat/completions`, {
+      method: 'POST',
+      timeoutMs: 3_000,
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(response.statusCode, 503);
+    assert.deepEqual(response.body, { error: MODEL_QUEUE_TIMEOUT_MESSAGE });
+  } finally {
+    if (previousQueueTimeoutMs === undefined) {
+      delete process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS;
+    } else {
+      process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = previousQueueTimeoutMs;
+    }
+    await holder;
+    await harness.waitForModelQueueIdle();
     await harness.close();
   }
 });

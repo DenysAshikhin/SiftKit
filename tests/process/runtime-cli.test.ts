@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 
 import { ActiveStatusRunSchema } from '@siftkit/contracts';
 import { z } from '../../src/lib/zod.ts';
@@ -150,4 +151,45 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       running: false,
     });
   });
+});
+
+test('non-interactive internal op with an idle stdin pipe exits instead of hanging', async () => {
+  const cliPath = path.join(repoRoot, 'src', 'cli', 'main.ts');
+  // child.stdin stays an open pipe nothing writes to or ends: the original hang case.
+  const child = spawn(process.execPath, [cliPath, 'internal', '--op', 'summary'], {
+    cwd: repoRoot,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stderrText = '';
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderrText += chunk.toString();
+  });
+  child.stdout.resume();
+  let timer: NodeJS.Timeout | undefined;
+  const exitPromise = new Promise<number | null>((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) => { resolve(code); });
+  });
+  try {
+    // The red run hangs on the idle pipe, so bound the wait and fail loudly on the kill.
+    const outcome = await Promise.race([
+      exitPromise.then((code) => ({ kind: 'exited' as const, code })),
+      new Promise<{ kind: 'timed-out' }>((resolve) => {
+        timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          resolve({ kind: 'timed-out' });
+        }, 15_000);
+      }),
+    ]);
+    assert.equal(outcome.kind, 'exited', 'siftkit internal hung on an idle stdin pipe');
+    if (outcome.kind === 'exited') {
+      assert.equal(outcome.code, 1);
+      assert.match(stderrText, /--request-file is required/u);
+    }
+  } finally {
+    clearTimeout(timer);
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
+  }
 });

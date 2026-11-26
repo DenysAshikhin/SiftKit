@@ -490,4 +490,35 @@ Invoke-SiftSummary -Question 'summarize this' -Text (('A' * 25000)) -Backend 'mo
 
         $runtimePath | Should Be (Resolve-Path (Join-Path $PSScriptRoot '..\src\cli\main.ts')).Path
     }
+
+    It 'reads BOM-less UTF-8 text through -InputFile' {
+        # Built from code points so this file stays ASCII on hosts that read non-ASCII literals as ANSI.
+        $expected = "h$([char]0xE9)llo w$([char]0xF6)rld"
+        $inputPath = New-TestScriptPath -Prefix 'input' -Extension 'txt'
+        Save-Utf8NoBom -Path $inputPath -Content $expected
+        $module = Get-Module SiftKit
+        try {
+            $text = & ($module.NewBoundScriptBlock({ param($file) Get-SiftInputText -InputFile $file })) $inputPath
+
+            $text | Should Be $expected
+
+            # A relative -InputFile must resolve against PowerShell's location, not the .NET current directory.
+            Push-Location -LiteralPath (Split-Path -Parent $inputPath)
+            try {
+                $relativeText = & ($module.NewBoundScriptBlock({ param($file) Get-SiftInputText -InputFile $file })) (Split-Path -Leaf $inputPath)
+
+                $relativeText | Should Be $expected
+            }
+            finally {
+                Pop-Location
+            }
+        }
+        finally {
+            if (Test-Path -LiteralPath $inputPath) {
+                Remove-Item -LiteralPath $inputPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        { & ($module.NewBoundScriptBlock({ param($file) Get-SiftInputText -InputFile $file })) (Join-Path $script:TestHome 'no-such-input.txt') } | Should Throw 'Input file not found'
+    }
 }

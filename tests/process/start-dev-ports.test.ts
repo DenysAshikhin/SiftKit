@@ -4,12 +4,12 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-import { isBackendReadyStatusCode } from '../scripts/start-dev-health.ts';
-import { buildStartupPortChecks, getStatusServerPort, waitForPortListening } from '../scripts/start-dev-ports.ts';
-import { stopChildProcessTree } from '../scripts/start-dev-process.ts';
-import { readPackageJson } from './helpers/package-json.ts';
-import { makeProcessObject, makeSpawnSyncImpl, STALE_PARENT_SNAPSHOT } from './helpers/process-tree-stubs.ts';
-import { createManagedTempDir } from './helpers/temp-dirs.ts';
+import { isBackendReadyStatusCode } from '../../scripts/start-dev-health.ts';
+import { buildStartupPortChecks, getStatusServerPort, waitForPortListening } from '../../scripts/start-dev-ports.ts';
+import { stopChildProcessTree } from '../../scripts/start-dev-process.ts';
+import { readPackageJson } from '../helpers/package-json.ts';
+import { makeProcessObject, makeSpawnImpl, STALE_PARENT_SNAPSHOT } from '../helpers/process-tree-stubs.ts';
+import { createManagedTempDir } from '../helpers/temp-dirs.ts';
 
 test('start-dev preflights both status and dashboard ports before spawning services', () => {
   const tempRoot = createManagedTempDir('siftkit-start-dev-');
@@ -49,10 +49,10 @@ test('start-dev waits for successful backend health, not degraded startup health
   assert.equal(isBackendReadyStatusCode(503), false);
 });
 
-test('start-dev shutdown kills child process trees on Windows, skipping stale-parent processes', () => {
+test('start-dev shutdown kills child process trees on Windows, skipping stale-parent processes', async () => {
   const killedPids: number[] = [];
   let childKillCalled = false;
-  const stopped = stopChildProcessTree(
+  const stopped = await stopChildProcessTree(
     {
       pid: 1234,
       killed: false,
@@ -63,7 +63,7 @@ test('start-dev shutdown kills child process trees on Windows, skipping stale-pa
     },
     {
       processObject: makeProcessObject('win32', (pid) => { killedPids.push(pid); }),
-      spawnSyncImpl: makeSpawnSyncImpl(() => ({ status: 0, stdout: STALE_PARENT_SNAPSHOT })),
+      spawnImpl: makeSpawnImpl(() => ({ kind: 'exits', stdout: STALE_PARENT_SNAPSHOT, exitCode: 0 })),
     },
   );
 

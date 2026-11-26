@@ -26,6 +26,7 @@ const fixtureNames = [
   'explicit-any.ts',
   'explicit-unknown.ts',
   'broad-json-union.ts',
+  'non-null-assertion.ts',
   'declaration.d.ts',
   'clean.ts',
   'unused-var.ts',
@@ -98,6 +99,12 @@ test('eslint gate flags broad JsonValue unions', () => {
   const result = lintFixture('broad-json-union.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, 'no-restricted-syntax');
+});
+
+test('eslint gate flags non-null assertions', () => {
+  const result = lintFixture('non-null-assertion.ts');
+  assert.equal(result.errorCount, 1);
+  assert.equal(result.messages[0]?.ruleId, '@typescript-eslint/no-non-null-assertion');
 });
 
 test('eslint gate lints project declaration files', () => {

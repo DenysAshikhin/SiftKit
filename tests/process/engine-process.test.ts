@@ -67,11 +67,11 @@ test('the child-process launcher raises an engine and the processes it started t
   if (enginePid === undefined) throw new Error('The engine process did not expose a PID.');
   try {
     const grandchildPid = await fixture.waitForGrandchildPid();
-    assert.equal(launcher.raisePriority(engineProcess), null);
+    assert.equal(await launcher.raisePriority(engineProcess), null);
     assert.equal(os.getPriority(enginePid), os.constants.priority.PRIORITY_HIGH);
     assert.equal(os.getPriority(grandchildPid), os.constants.priority.PRIORITY_HIGH);
   } finally {
-    launcher.terminate(engineProcess);
+    await launcher.terminate(engineProcess);
     await exited;
   }
 });
@@ -87,7 +87,7 @@ test('the child-process launcher terminates an engine that never exits on its ow
   });
   const exited = waitForExit(engineProcess);
   await new Promise<void>((resolve) => engineProcess.stdout?.once('data', () => resolve()));
-  launcher.terminate(engineProcess);
+  await launcher.terminate(engineProcess);
   await exited;
   assert.notEqual(engineProcess.exitCode, null);
 });

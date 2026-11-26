@@ -10,10 +10,10 @@ export function raiseOwnPriority(): void {
   if (process.platform === 'win32') os.setPriority(HIGH);
 }
 
-/** Raises `rootPid` and its live descendants; returns what could not be raised, or null when all were. */
-export function raiseProcessTreePriority(rootPid: number): string | null {
+/** Raises `rootPid` and its live descendants; resolves what could not be raised, or null when all were. */
+export async function raiseProcessTreePriority(rootPid: number): Promise<string | null> {
   if (process.platform !== 'win32') return null;
-  const descendants = listWindowsDescendantPids(rootPid);
+  const descendants = await listWindowsDescendantPids(rootPid);
   const failed = [rootPid, ...(descendants ?? [])].filter((pid) => {
     try {
       os.setPriority(pid, HIGH);

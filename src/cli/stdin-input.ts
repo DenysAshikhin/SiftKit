@@ -7,7 +7,7 @@ import { CLI_COMMAND_CATALOG } from './command-catalog.ts';
 // forever when the caller leaves an open, idle stdin pipe (the common case when
 // an agent spawns `siftkit` non-interactively). Reading lazily — only when the
 // resolved command will actually use the bytes — removes that hang.
-const STDIN_CONSUMING_COMMANDS = new Set(['summary', 'run', 'internal']);
+const STDIN_CONSUMING_COMMANDS = new Set(['summary', 'run']);
 
 // Mirrors the help short-circuit in `runCli`: these never resolve to a command.
 const HELP_TOKENS = new Set(['help', '--help', '--h', '-h', '-help']);
@@ -16,9 +16,9 @@ export type StdinReadResult = { text: string; stdinWaitMs: number };
 
 /**
  * Decides whether the entrypoint should read stdin for the given argv. Inline
- * input (`--text`/`--file`/`--request-file`) always supersedes stdin, so we
- * never block waiting for a pipe we would not read. `run` only consumes stdin
- * via the `--preset` path; the raw `run <command>` form does not.
+ * input (`--text`/`--file`) always supersedes stdin, so we never block waiting
+ * for a pipe we would not read. `run` only consumes stdin via the `--preset`
+ * path; the raw `run <command>` form does not.
  */
 export function commandReadsStdin(argv: string[]): boolean {
   if (argv.length === 0 || HELP_TOKENS.has(argv[0])) {
@@ -30,7 +30,7 @@ export function commandReadsStdin(argv: string[]): boolean {
     return false;
   }
   const parsed = parseArguments(invocation.args);
-  if (parsed.text || parsed.file || parsed.requestFile) {
+  if (parsed.text || parsed.file) {
     return false;
   }
   if (commandName === 'run') {

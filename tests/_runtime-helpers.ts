@@ -1453,7 +1453,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
   ]).catch(async (error) => {
     if (child.exitCode === null && !child.killed) {
       if (process.platform === 'win32' && child.pid) {
-        terminateProcessTree(child.pid);
+        await terminateProcessTree(child.pid);
       } else {
         child.kill('SIGTERM');
       }
@@ -1501,7 +1501,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
       }
 
       if (process.platform === 'win32' && child.pid) {
-        assert.equal(terminateProcessTree(child.pid), true);
+        assert.equal(await terminateProcessTree(child.pid), true);
         await Promise.race([
           closePromise,
           sleepUnref(5000).then(() => {
@@ -1520,7 +1520,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
         return;
       }
       if (child.exitCode === null && !child.killed && process.platform === 'win32' && child.pid) {
-        terminateProcessTree(child.pid);
+        await terminateProcessTree(child.pid);
       } else if (child.exitCode === null && !child.killed) {
         child.kill('SIGTERM');
       }

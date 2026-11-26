@@ -121,7 +121,7 @@ test('managed engine readiness cleanup releases its worker and every failed engi
   } finally {
     for (const pid of managedProcessIds) {
       if (isProcessAlive(pid)) {
-        terminateProcessTree(pid);
+        await terminateProcessTree(pid);
       }
     }
   }

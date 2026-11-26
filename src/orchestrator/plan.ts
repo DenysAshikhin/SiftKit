@@ -65,6 +65,15 @@ function scopePath(repoRoot: string, owner: string, rawPath: string): string {
   return resolved.relativePath || '.';
 }
 
+/** Temporary paths are removed from the run scratch at completion, so the run must be able to delete them. */
+function scopeTemporaryPath(owner: string, repoRoot: string, scratchDir: string, rawPath: string): string {
+  const scoped = scopePath(repoRoot, owner, rawPath);
+  if (!scoped.startsWith(`${scratchDir}/`)) {
+    throw new Error(`${owner} temporary path '${rawPath.replace(/\\/gu, '/')}' must live in the run scratch '${scratchDir}', which the run deletes at completion.`);
+  }
+  return scoped;
+}
+
 function scopeChecks(repoRoot: string, owner: string, checks: OrchestratorVerificationCheck[]): OrchestratorVerificationCheck[] {
   return checks.map((check) => (check.kind === 'command'
     ? { ...check, cwd: scopePath(repoRoot, owner, check.cwd) }
@@ -98,10 +107,11 @@ function assertDependencies(tasks: OrchestratorTask[]): void {
 }
 
 /**
- * Structural and capability validation: dependency graph, worker kinds and tools, and repository
- * containment of every path. Returns the plan with repository-relative POSIX path keys.
+ * Structural and capability validation: dependency graph, worker kinds and tools, repository
+ * containment of every path, and temporary paths inside the run scratch. Returns the plan with
+ * repository-relative POSIX path keys.
  */
-export function validateOrchestratorPlan(plan: OrchestratorPlan, config: SiftConfig, repoRoot: string): OrchestratorPlan {
+export function validateOrchestratorPlan(plan: OrchestratorPlan, config: SiftConfig, repoRoot: string, scratchDir: string): OrchestratorPlan {
   assertDependencies(plan.tasks);
   const tasks = plan.tasks.map((task) => {
     requireOrchestratorWorkerPreset(config, task);
@@ -111,7 +121,7 @@ export function validateOrchestratorPlan(plan: OrchestratorPlan, config: SiftCon
       ...task,
       readPaths: task.readPaths.map((entry) => scopePath(repoRoot, owner, entry)),
       writePaths: task.writePaths.map((entry) => scopePath(repoRoot, owner, entry)),
-      temporaryPaths: task.temporaryPaths.map((entry) => scopePath(repoRoot, owner, entry)),
+      temporaryPaths: task.temporaryPaths.map((entry) => scopeTemporaryPath(owner, repoRoot, scratchDir, entry)),
       verification: scopeChecks(repoRoot, owner, task.verification),
     };
   });

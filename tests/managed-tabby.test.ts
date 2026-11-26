@@ -7,6 +7,7 @@ import { z } from 'zod';
 
 import { getDefaultConfigObject } from '../src/config/defaults.ts';
 import { requiredRamDiskBytes } from '../src/inference-presets/cache-sizing.ts';
+import { toError } from '../src/lib/errors.ts';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.ts';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.ts';
 import { serverLogger } from '../src/status-server/server-logger.ts';
@@ -386,6 +387,35 @@ test('managed Tabby still fails at the startup deadline when the engine never an
     );
     assert.equal(fixture.runtime.getProcessState(), 'failed');
   });
+});
+
+test('a failed cleanup stop never replaces a managed startup failure', async (t) => {
+  const warnings = t.mock.method(serverLogger, 'warning', () => {});
+  await withTempEnv(async (root) => {
+    // The engine never answers its model probe (startup failure) and holds VRAM through the stop.
+    const gpu = new ScriptedGpuMemory([2_000, 20_000]);
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-startup-stop-failed', {},
+      { ...DEFAULT_FAKE_OPTIONS, modelProbeDelaysMs: Array.from({ length: 50 }, () => 1_000) },
+      { gpuMemory: gpu, shutdownTimeoutMs: 600 });
+    let startupError: Error | null = null;
+    try {
+      await fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, HealthcheckTimeoutMs: 100, StartupTimeoutMs: 500 });
+    } catch (error) {
+      startupError = toError(error);
+    }
+    // The startup error, not the stop's VRAM failure, is what the caller must see.
+    assert.ok(startupError instanceof Error, 'the hung startup must fail at its own deadline');
+    assert.match(startupError.message, /Timed out waiting for the TabbyAPI process/u);
+    assert.doesNotMatch(startupError.message, /GPU memory/u);
+    assert.equal(fixture.runtime.getProcessState(), 'failed');
+    gpu.settle(2_000); // lets the fixture's disposal stop cleanly
+  });
+  const stopWarnings = warnings.mock.calls
+    .map((call) => call.arguments[0])
+    .filter((event) => event?.scope === 'exl3' && event.event === 'startup_stop_failed');
+  assert.equal(stopWarnings.length, 1);
+  assert.equal(typeof stopWarnings[0]?.alert, 'string');
+  assert.match(stopWarnings[0]?.alert ?? '', /GPU memory was not released within 600 ms/u);
 });
 
 test('managed Tabby fails the startup deadline when the endpoint answers but never reports the expected model', async () => {
@@ -972,6 +1002,17 @@ test('stopping the engine, or the process-exit path, leaves the RAM disk to the 
     fixture.runtime.stopForProcessExitSync();
     assert.deepEqual(fixture.ramDisk.calls, calls);
     assert.notEqual(fixture.ramDisk.disk, null);
+  });
+});
+
+test('the process-exit path terminates the engine before it returns', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-exit-sync');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    fixture.runtime.stopForProcessExitSync();
+    // Nothing is awaited: an exit handler gets no later turn of the event loop.
+    assert.equal(fixture.launcher.events.at(-1), 'terminate-sync');
+    assert.equal(fixture.launcher.liveProcessCount, 0);
   });
 });
 

@@ -444,3 +444,49 @@ test('a forced run of a job that is not queued is not found, and an empty queue 
     await assert.rejects(jobRunner.runNow(context.ownerId, null), (error) => error instanceof AssistantConflictError && error.code === 'no_queued_job');
   });
 });
+
+test('a runner that loses its lease mid-run reports the loss instead of claiming completion', async () => {
+  await withAssistantContextAsync(async (context) => {
+    class LeaseLosingInference extends ScriptedAgentInference {
+      override async chat(): Promise<never> {
+        // While the job executes: lapse its lease, let recovery re-queue it, and take it over.
+        context.clock.advanceSeconds(121);
+        context.graph.jobs.recoverExpiredLeases(context.ownerId);
+        context.graph.jobs.claimNext({ ownerId: context.ownerId, leaseOwner: 'runner_other', leaseSeconds: 120, modelWorkAllowed: true });
+        throw new Error('The model went away.');
+      }
+    }
+    const { jobRunner, enqueue } = setup(context, { inference: new LeaseLosingInference([]) });
+    const chat = enqueueChat(enqueue);
+    assert.ok(chat !== null);
+    const result = await jobRunner.runNow(context.ownerId, chat.id);
+    assert.equal(result.outcome, 'lease_lost');
+    assert.equal(result.detail, null);
+    const stored = context.graph.jobs.getJob(chat.id);
+    assert.equal(stored?.status, 'running', 'the zombie write must not touch the live claim');
+    assert.equal(stored?.lease_owner, 'runner_other');
+  });
+});
+
+test('a runner whose job succeeds after losing its lease reports lease_lost and leaves the live claim alone', async () => {
+  await withAssistantContextAsync(async (context) => {
+    class LeaseLosingInference extends ScriptedAgentInference {
+      override async chat(...args: Parameters<ScriptedAgentInference['chat']>) {
+        // While the job executes: lapse its lease, let recovery re-queue it, and take it over.
+        context.clock.advanceSeconds(121);
+        context.graph.jobs.recoverExpiredLeases(context.ownerId);
+        context.graph.jobs.claimNext({ ownerId: context.ownerId, leaseOwner: 'runner_other', leaseSeconds: 120, modelWorkAllowed: true });
+        return super.chat(...args);
+      }
+    }
+    const { jobRunner, enqueue } = setup(context, { inference: new LeaseLosingInference([NO_OPERATIONS]) });
+    const chat = enqueueChat(enqueue);
+    assert.ok(chat !== null);
+    const result = await jobRunner.runNow(context.ownerId, chat.id);
+    assert.equal(result.outcome, 'lease_lost');
+    assert.equal(result.detail, null);
+    const stored = context.graph.jobs.getJob(chat.id);
+    assert.equal(stored?.status, 'running', 'the zombie write must not touch the live claim');
+    assert.equal(stored?.lease_owner, 'runner_other');
+  });
+});

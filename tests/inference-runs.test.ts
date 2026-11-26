@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
+  deleteInferenceRun,
   deleteInferenceRunLogChunksOlderThan,
   flushInferenceRunLogChunks,
   getInferenceRunPendingLogChunkStats,
@@ -12,6 +13,7 @@ import {
   readInferenceRunLogTextByStream,
   readInferenceRunLogTextStatsByStream,
 } from '../src/state/inference-runs.ts';
+import { insertEngineEvent } from '../src/state/engine-events.ts';
 import { getRuntimeDatabase } from '../src/state/runtime-db.ts';
 import { JsonRecordReader } from '../src/lib/json-record-reader.ts';
 import type { JsonObject } from '../src/lib/json-types.ts';
@@ -152,6 +154,28 @@ test('deleteInferenceRunLogChunksOlderThan prunes old non-running chunks only', 
 
     const runCount = asRow(database.prepare('SELECT COUNT(*) AS count FROM inference_runs').get());
     assert.equal(Number(runCount.count || 0), 5);
+  });
+});
+
+test('deleteInferenceRun applies the event and run deletes atomically', async () => {
+  await withTestEnvAndServer(async () => {
+    const database = getRuntimeDatabase();
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'atomic-delete' });
+    insertEngineEvent(database, { kind: 'engine_error', inferenceRunId: run.id, runId: null, turn: null, summary: 'engine error', detail: 'boom' });
+
+    database.exec("CREATE TRIGGER test_abort_inference_run_delete BEFORE DELETE ON inference_runs BEGIN SELECT RAISE(ABORT, 'test'); END");
+    try {
+      assert.throws(() => deleteInferenceRun(run.id));
+    } finally {
+      database.exec('DROP TRIGGER test_abort_inference_run_delete');
+    }
+
+    const eventCount = asRow(database.prepare(`
+      SELECT COUNT(*) AS count FROM engine_events WHERE inference_run_id = ?
+    `).get(run.id));
+    assert.equal(Number(eventCount.count || 0), 1);
+    const runCount = asRow(database.prepare('SELECT COUNT(*) AS count FROM inference_runs WHERE id = ?').get(run.id));
+    assert.equal(Number(runCount.count || 0), 1);
   });
 });
 

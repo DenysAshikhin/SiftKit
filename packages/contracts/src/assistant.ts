@@ -72,11 +72,11 @@ export type AssistantBackgroundDecisionHistoryResponse = z.infer<
 /** Runs one queued job now, past the idle and resource gates; without `jobId`, the next one. */
 export const AssistantRunJobRequestSchema = z.object({ jobId: z.string().min(1).optional() }).strict();
 
-/** `detail` is the error of a failed job or the block reason of a preempted or blocked one. */
+/** `detail` is the error of a failed job or the block reason of a preempted or blocked one. `lease_lost`: another runner owns the job now and its outcome. */
 export const AssistantRunJobResponseSchema = z.object({
   jobId: z.string(),
   jobType: z.string(),
-  outcome: z.enum(['completed', 'failed', 'preempted', 'blocked']),
+  outcome: z.enum(['completed', 'failed', 'preempted', 'blocked', 'lease_lost']),
   detail: z.string().nullable(),
 }).strict();
 export type AssistantRunJobResponse = z.infer<typeof AssistantRunJobResponseSchema>;

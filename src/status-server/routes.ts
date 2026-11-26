@@ -19,7 +19,7 @@ async function dispatch(ctx: ServerContext, req: IncomingMessage, res: ServerRes
   if (await handleDashboardRoute(ctx, req, res, pathname, requestUrl)) return;
   if (await handleChatRoute(ctx, req, res, pathname)) return;
   if (await handleInferencePassthroughRoute(ctx, req, res, pathname)) return;
-  if (await handleCoreRoute(ctx, req, res)) return;
+  if (await handleCoreRoute(ctx, req, res, pathname)) return;
 
   sendJson(res, 404, { error: 'Not found' });
 }

@@ -5,18 +5,7 @@
   },
   "include": [
     "src/types/better-sqlite3.d.ts",
-    "scripts/build-clean.ts",
-    "scripts/recover-web-chat.ts",
-    "scripts/build-exllamav3-wheel.ts",
-    "scripts/promote-exllamav3-wheel.ts",
-    "scripts/dashboard-stamp.ts",
-    "scripts/start-dev.ts",
-    "scripts/start-dev-status.ts",
-    "scripts/purge-temp-dirs.ts",
-    "scripts/purge-temp-dirs-main.ts",
-    "scripts/extract-invalid-action-corpus.ts",
-    "scripts/report-invalid-action-rate.ts",
-    "scripts/verify-inference-throughput.ts",
+    "scripts/*.ts",
     "scripts/approval-red-team/**/*.ts"
   ]
 }

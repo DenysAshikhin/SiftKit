@@ -3442,3 +3442,58 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     await removeDirectoryWithRetries(tempRoot);
   }
 });
+
+test('core routes match by pathname regardless of query string', async () => {
+  const tempRoot = createManagedTempDir('siftkit-core-route-query-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, 'false', 'utf8');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const server = startStatusServer({ disableManagedEngineStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const status = await requestJson(`${baseUrl}/status?x=1`);
+    assert.equal(status.statusCode, 200);
+
+    const config = await requestJson(`${baseUrl}/config?x=1`);
+    assert.equal(config.statusCode, 200);
+
+    // A validation error proves the route matched without executing it.
+    const summary = await requestJson(`${baseUrl}/summary?x=1`, {
+      method: 'POST',
+      body: '[1,2]',
+    });
+    assert.equal(summary.statusCode, 400);
+
+    const configUpdate = await requestJson(`${baseUrl}/config?x=1`, {
+      method: 'PUT',
+      body: '{not json',
+    });
+    assert.equal(configUpdate.statusCode, 400);
+
+    // The regex route keeps serving its query after the table drops query-tolerant regexes.
+    const runId = randomUUID();
+    const withoutQuery = await requestJson(`${baseUrl}/repo-agent/status?runId=${runId}`);
+    const withQuery = await requestJson(`${baseUrl}/repo-agent/status?runId=${runId}&x=1`);
+    assert.equal(withQuery.statusCode, 404);
+    assert.deepEqual(withQuery.body, withoutQuery.body);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});

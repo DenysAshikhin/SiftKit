@@ -86,3 +86,32 @@ test('siftkit.cmd exits with the exit code of what it runs, through PowerShell a
     await removeDirectoryWithRetries(tempRoot);
   }
 });
+
+// This test pins argument fidelity at the cmd boundary for the shapes this platform delivers.
+test('siftkit.cmd passes a quoted spaced argument through intact, through PowerShell and node', async () => {
+  const tempRoot = createManagedTempDir('siftkit-cmd-args-');
+  try {
+    const bin = path.join(tempRoot, 'bin');
+    fs.mkdirSync(bin);
+    fs.mkdirSync(path.join(tempRoot, 'src', 'cli'), { recursive: true });
+    fs.copyFileSync(path.resolve('bin', 'siftkit.cmd'), path.join(bin, 'siftkit.cmd'));
+    // The spaced value is one spawn argument; node quotes it so cmd sees "a b".
+    const shimArgs = ['summarize', '--question', 'a b', '--flag'];
+    const expectedLines = ['ARG=summarize', 'ARG=--question', 'ARG=a b', 'ARG=--flag'];
+    const argLines = (stdout: string) => stdout.split(/\r?\n/u).filter((line) => line.length > 0);
+    const runShim = () => spawnProcess('cmd.exe', ['/d', '/c', path.join(bin, 'siftkit.cmd'), ...shimArgs], { cwd: bin, env: process.env });
+
+    // PowerShell branch: a probe ps1 prints one ARG line per argument it receives.
+    fs.writeFileSync(path.join(bin, 'siftkit.ps1'), 'foreach ($a in $args) { Write-Output "ARG=$a" }\r\nexit 0\r\n');
+    const ps = await runShim();
+    assert.deepEqual(argLines(ps.stdout), expectedLines, ps.stdout);
+
+    // Node branch: with no ps1 sibling the shim falls through to a probe main.ts.
+    fs.rmSync(path.join(bin, 'siftkit.ps1'));
+    fs.writeFileSync(path.join(tempRoot, 'src', 'cli', 'main.ts'), 'for (const a of process.argv.slice(2)) { console.log(`ARG=${a}`); }\n');
+    const nodeRun = await runShim();
+    assert.deepEqual(argLines(nodeRun.stdout), expectedLines, nodeRun.stdout);
+  } finally {
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});

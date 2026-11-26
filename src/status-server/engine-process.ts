@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import type { Exl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
 import { InterpreterExl3PackageLocator } from '../inference-presets/exl3-model-capabilities.ts';
 import { raiseProcessTreePriority } from '../lib/process-priority.ts';
-import { terminateProcessTree } from '../lib/process-tree.ts';
+import { terminateProcessTree, terminateProcessTreeSync } from '../lib/process-tree.ts';
 import { ArsenalRamDiskDriver, SystemPowerShellRunner, vendoredAimLlPath } from './arsenal-ram-disk-driver.ts';
 import { NvidiaSmiGpuMemoryProbe, type GpuMemoryProbe } from './gpu-memory.ts';
 import type { RamDiskDriver } from './ram-disk-cache.ts';
@@ -28,10 +28,12 @@ export interface EngineProcess {
 
 export interface EngineProcessLauncher {
   launch(spec: EngineLaunchSpec): EngineProcess;
-  /** Stops the whole process tree; completion is observed through the process's `exit` event. */
-  terminate(engineProcess: EngineProcess): void;
-  /** Raises the engine and the processes it started so far to High; returns what could not be raised, or null. */
-  raisePriority(engineProcess: EngineProcess): string | null;
+  /** Stops the whole process tree; the promise settles once termination has been issued. */
+  terminate(engineProcess: EngineProcess): Promise<void>;
+  /** Blocking tree kill for process-exit handlers, which get no later event-loop turn. */
+  terminateSync(engineProcess: EngineProcess): void;
+  /** Raises the engine and the processes it started so far to High; resolves what could not be raised, or null. */
+  raisePriority(engineProcess: EngineProcess): Promise<string | null>;
 }
 
 /** Everything a managed engine needs from the host machine: its interpreter and its processes. */
@@ -54,12 +56,16 @@ export class ChildProcessEngineLauncher implements EngineProcessLauncher {
     });
   }
 
-  terminate(engineProcess: EngineProcess): void {
-    if (engineProcess.pid) terminateProcessTree(engineProcess.pid);
+  async terminate(engineProcess: EngineProcess): Promise<void> {
+    if (engineProcess.pid) await terminateProcessTree(engineProcess.pid);
   }
 
-  raisePriority(engineProcess: EngineProcess): string | null {
-    return engineProcess.pid ? raiseProcessTreePriority(engineProcess.pid) : null;
+  terminateSync(engineProcess: EngineProcess): void {
+    if (engineProcess.pid) terminateProcessTreeSync(engineProcess.pid);
+  }
+
+  async raisePriority(engineProcess: EngineProcess): Promise<string | null> {
+    return engineProcess.pid ? await raiseProcessTreePriority(engineProcess.pid) : null;
   }
 }
 

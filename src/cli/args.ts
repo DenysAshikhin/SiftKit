@@ -104,6 +104,12 @@ export function validateRepoSearchTokens(tokens: string[]): void {
   }
 }
 
+function readOptionValue(tokens: readonly string[], index: number, option: string): string {
+  const value = tokens[index];
+  if (value === undefined) throw new Error(`Missing value for option: ${option}`);
+  return value;
+}
+
 export function parseArguments(tokens: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
     positionals: [],
@@ -113,100 +119,100 @@ export function parseArguments(tokens: string[]): ParsedArgs {
     const token = tokens[index];
     switch (token) {
       case '--question':
-        parsed.question = tokens[++index];
+        parsed.question = readOptionValue(tokens, ++index, token);
         break;
       case '--text':
-        parsed.text = tokens[++index];
+        parsed.text = readOptionValue(tokens, ++index, token);
         break;
       case '--file':
-        parsed.file = tokens[++index];
+        parsed.file = readOptionValue(tokens, ++index, token);
         break;
       case '--provider':
-        parsed.provider = parseOptionalSummaryProvider(tokens[++index]);
+        parsed.provider = parseOptionalSummaryProvider(readOptionValue(tokens, ++index, token));
         break;
       case '--model':
-        parsed.model = tokens[++index];
+        parsed.model = readOptionValue(tokens, ++index, token);
         break;
       case '--profile':
-        parsed.profile = tokens[++index];
+        parsed.profile = readOptionValue(tokens, ++index, token);
         break;
       case '--format':
-        parsed.format = tokens[++index];
+        parsed.format = readOptionValue(tokens, ++index, token);
         break;
       case '--path':
-        parsed.path = tokens[++index];
+        parsed.path = readOptionValue(tokens, ++index, token);
         break;
       case '--full-path':
         parsed.fullPath = true;
         break;
       case '--key':
-        parsed.key = tokens[++index];
+        parsed.key = readOptionValue(tokens, ++index, token);
         break;
       case '--value':
-        parsed.value = tokens[++index];
+        parsed.value = readOptionValue(tokens, ++index, token);
         break;
       case '--command':
-        parsed.command = tokens[++index];
+        parsed.command = readOptionValue(tokens, ++index, token);
         break;
       case '--arg':
         parsed.argList ??= [];
-        parsed.argList.push(tokens[++index]);
+        parsed.argList.push(readOptionValue(tokens, ++index, token));
         break;
       case '--risk':
-        parsed.risk = normalizeCliRiskLevel(tokens[++index]);
+        parsed.risk = normalizeCliRiskLevel(readOptionValue(tokens, ++index, token));
         break;
       case '--reducer':
-        parsed.reducer = normalizeCliReducerProfile(tokens[++index]);
+        parsed.reducer = normalizeCliReducerProfile(readOptionValue(tokens, ++index, token));
         break;
       case '--fixture-root':
-        parsed.fixtureRoot = tokens[++index];
+        parsed.fixtureRoot = readOptionValue(tokens, ++index, token);
         break;
       case '--codex-home':
-        parsed.codexHome = tokens[++index];
+        parsed.codexHome = readOptionValue(tokens, ++index, token);
         break;
       case '--bin-dir':
-        parsed.binDir = tokens[++index];
+        parsed.binDir = readOptionValue(tokens, ++index, token);
         break;
       case '--module-root':
-        parsed.moduleRoot = tokens[++index];
+        parsed.moduleRoot = readOptionValue(tokens, ++index, token);
         break;
       case '--startup-dir':
-        parsed.startupDir = tokens[++index];
+        parsed.startupDir = readOptionValue(tokens, ++index, token);
         break;
       case '--status-path':
-        parsed.statusPath = tokens[++index];
+        parsed.statusPath = readOptionValue(tokens, ++index, token);
         break;
       case '--request-file':
-        parsed.requestFile = tokens[++index];
+        parsed.requestFile = readOptionValue(tokens, ++index, token);
         break;
       case '--response-format': {
-        const responseFormatValue = tokens[++index];
+        const responseFormatValue = readOptionValue(tokens, ++index, token);
         parsed.responseFormat = responseFormatValue === 'json' || responseFormatValue === 'text'
           ? responseFormatValue
           : undefined;
         break;
       }
       case '--op':
-        parsed.op = tokens[++index];
+        parsed.op = readOptionValue(tokens, ++index, token);
         break;
       case '--prompt':
       case '-prompt':
-        parsed.prompt = tokens[++index];
+        parsed.prompt = readOptionValue(tokens, ++index, token);
         break;
       case '--log-file':
-        parsed.logFile = tokens[++index];
+        parsed.logFile = readOptionValue(tokens, ++index, token);
         break;
       case '--preset':
-        parsed.preset = tokens[++index];
+        parsed.preset = readOptionValue(tokens, ++index, token);
         break;
       case '--repo-root':
-        parsed.repoRoot = tokens[++index];
+        parsed.repoRoot = readOptionValue(tokens, ++index, token);
         break;
       case '--max-turns':
-        parsed.maxTurns = Number.parseInt(tokens[++index] || '', 10);
+        parsed.maxTurns = Number.parseInt(readOptionValue(tokens, ++index, token), 10);
         break;
       case '--shell':
-        parsed.shell = tokens[++index];
+        parsed.shell = readOptionValue(tokens, ++index, token);
         break;
       case '--wait':
         parsed.wait = true;
@@ -217,14 +223,9 @@ export function parseArguments(tokens: string[]): ParsedArgs {
       case '--progress':
         parsed.progress = true;
         break;
-      case '--image': {
-        const value = tokens[++index];
-        if (value === undefined) {
-          throw new Error('Missing value for option: --image');
-        }
-        parsed.images = [...(parsed.images ?? []), value];
+      case '--image':
+        parsed.images = [...(parsed.images ?? []), readOptionValue(tokens, ++index, token)];
         break;
-      }
       default:
         parsed.positionals.push(token);
         break;

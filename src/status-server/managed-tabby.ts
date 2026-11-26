@@ -49,6 +49,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private residentResidencyKey: string | null = null;
   private startPromise: Promise<void> | null = null;
   private loadPromise: Promise<void> | null = null;
+  private exitSettle: Promise<void> | null = null;
   private vramBaselineUsedBytes: number | null = null;
   private adapter: Exl3PresetAdapter;
   private readonly capabilities: Exl3ModelCapabilities;
@@ -98,13 +99,16 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       }
       await this.waitForProcess(preset, processSignature);
       // Ready means the model is loaded, so its CPU worker processes exist and are swept with the rest
-      const priorityProblem = this.child ? this.host.launcher.raisePriority(this.child) : null;
+      const priorityProblem = this.child ? await this.host.launcher.raisePriority(this.child) : null;
       if (priorityProblem !== null) {
         serverLogger.warning({ scope: 'exl3', id: preset.id, event: 'engine_priority_partial', fields: '', alert: priorityProblem });
       }
     } catch (error) {
       try {
         await this.stopProcess();
+      } catch (stopError) {
+        // The startup failure is what callers need; a failed cleanup stop must never replace it.
+        serverLogger.warning({ scope: 'exl3', id: preset.id, event: 'startup_stop_failed', fields: '', alert: toError(stopError).message });
       } finally {
         this.transitionProcessTo('failed');
       }
@@ -215,12 +219,14 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     // One budget covers both the exit and the VRAM release; it starts once the flush is done.
     const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
     if (child && child.exitCode === null) {
-      this.host.launcher.terminate(child);
+      await this.host.launcher.terminate(child);
       while (child.exitCode === null && Date.now() < deadline) await delay(25);
       if (child.exitCode === null) {
         this.transitionProcessTo('failed');
         throw new Error('Timed out stopping TabbyAPI.');
       }
+      // The exit handler owns the recorder finalization; a stop is not done until it has run.
+      if (this.exitSettle !== null) await this.exitSettle;
     }
     this.child = null;
     this.recorder = null;
@@ -276,7 +282,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   stopForProcessExitSync(): void {
     const child = this.child;
     this.stopping = true;
-    if (child && child.exitCode === null) this.host.launcher.terminate(child);
+    if (child && child.exitCode === null) this.host.launcher.terminateSync(child);
     this.child = null;
     this.recorder = null;
     this.processBaseUrl = null;
@@ -335,7 +341,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       this.transitionProcessTo('failed');
     });
     child.once('exit', (code, signal) => {
-      void this.settleExit(child, recorder, this.stopping, code, signal);
+      this.exitSettle = this.settleExit(child, recorder, this.stopping, code, signal);
     });
   }
 

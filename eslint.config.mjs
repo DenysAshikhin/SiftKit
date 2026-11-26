@@ -1,20 +1,11 @@
 import tseslint from 'typescript-eslint';
 
-// Directories NOT YET cleaned. Each cleanup phase deletes its entries.
-// When this array is empty, the gate is hard-fail repo-wide (P8).
-// P7 (test-suite zero-cast cleanup) is still outstanding: the test files below
-// retain casts / explicit `unknown` / namespace imports. They are ratcheted off
-// so the gate stays green for the rest of the repo (P1-P6 + bench/scripts/eval
-// are clean and stay enforced). Remove these entries as P7 lands.
-const RATCHET_DIRTY = [];
-
-const CLEAN_FIXTURES = ['tests/fixtures/eslint-gate/**'];
-
 const TYPING_RULES = {
   '@typescript-eslint/consistent-type-assertions': [
     'error', { assertionStyle: 'never' },
   ],
   '@typescript-eslint/no-explicit-any': 'error',
+  '@typescript-eslint/no-non-null-assertion': 'error',
   // tsc's noUnusedLocals is off (it would fail the editor mid-edit), so nothing else
   // catches an import or binding a refactor stopped using. Dead references keep
   // deleted concepts looking alive; a refactor must leave none behind.
@@ -62,6 +53,7 @@ export default tseslint.config(
       'tests/fixtures/eslint-gate/explicit-any.ts',
       'tests/fixtures/eslint-gate/explicit-unknown.ts',
       'tests/fixtures/eslint-gate/broad-json-union.ts',
+      'tests/fixtures/eslint-gate/non-null-assertion.ts',
       'tests/fixtures/eslint-gate/unused-var.ts',
       'tests/fixtures/eslint-gate/declaration.d.ts',
     ],
@@ -71,23 +63,6 @@ export default tseslint.config(
   tseslint.configs.base,
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
-    rules: TYPING_RULES,
-  },
-  // Ratchet: silence the typing rules for not-yet-cleaned dirs so CI stays green.
-  // Empty once every phase is done (P8): the gate is then hard-fail repo-wide.
-  ...(RATCHET_DIRTY.length > 0
-    ? [{
-      files: RATCHET_DIRTY,
-      rules: {
-        '@typescript-eslint/consistent-type-assertions': 'off',
-        '@typescript-eslint/no-explicit-any': 'off',
-        'no-restricted-syntax': 'off',
-      },
-    }]
-    : []),
-  // Gate fixtures must stay clean even while tests/** is ratcheted until P7.
-  {
-    files: CLEAN_FIXTURES,
     rules: TYPING_RULES,
   },
   // src/** runs as native ESM (root package.json is type:module). CommonJS globals are

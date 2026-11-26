@@ -685,9 +685,11 @@ export function deleteInferenceRun(id: string, databasePath?: string): boolean {
   }
   clearPendingChunksForRun(runId);
   const database = getDatabase(databasePath);
-  deleteEngineEventsForInferenceRun(database, runId);
-  const result = database.prepare('DELETE FROM inference_runs WHERE id = ?').run(runId);
-  return Number(result.changes) > 0;
+  return database.transaction(() => {
+    deleteEngineEventsForInferenceRun(database, runId);
+    const result = database.prepare('DELETE FROM inference_runs WHERE id = ?').run(runId);
+    return Number(result.changes) > 0;
+  }).immediate();
 }
 
 export function deleteInferenceRunLogChunksOlderThan(options: {

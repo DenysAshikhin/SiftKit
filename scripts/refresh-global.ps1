@@ -4,24 +4,6 @@ param()
 $ErrorActionPreference = 'Stop'
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
-function ConvertTo-ProcessArgumentString {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$ArgumentList
-    )
-
-    $escaped = foreach ($argument in $ArgumentList) {
-        if ($argument -match '[\s"]') {
-            '"' + ($argument -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
-        }
-        else {
-            $argument
-        }
-    }
-
-    $escaped -join ' '
-}
-
 function Resolve-CommandFilePath {
     param(
         [Parameter(Mandatory = $true)]

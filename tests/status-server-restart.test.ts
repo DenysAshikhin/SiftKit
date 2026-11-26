@@ -52,11 +52,15 @@ class CpuRejectingLauncher implements EngineProcessLauncher {
     return this.delegate.launch(spec);
   }
 
-  terminate(process: EngineProcess): void {
-    this.delegate.terminate(process);
+  terminate(process: EngineProcess): Promise<void> {
+    return this.delegate.terminate(process);
   }
 
-  raisePriority(process: EngineProcess): string | null {
+  terminateSync(process: EngineProcess): void {
+    this.delegate.terminateSync(process);
+  }
+
+  raisePriority(process: EngineProcess): Promise<string | null> {
     return this.delegate.raisePriority(process);
   }
 }

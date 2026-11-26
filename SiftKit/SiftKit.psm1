@@ -418,7 +418,7 @@ function Get-SiftInputText {
             throw "Input file not found: $InputFile"
         }
 
-        return (Normalize-SiftInputText -Text (Get-Content -LiteralPath $InputFile -Raw))
+        return (Normalize-SiftInputText -Text (Get-Content -LiteralPath $InputFile -Raw -Encoding UTF8))
     }
 
     if ($PipelineBuffer -and $PipelineBuffer.Count -gt 0) {

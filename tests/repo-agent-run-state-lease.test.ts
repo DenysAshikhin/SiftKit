@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,10 @@ import { join } from 'node:path';
 import test, { after, before } from 'node:test';
 
 import type { ProcessInspector } from '../src/lib/process-inspector.ts';
-import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.ts';
+import {
+  STALE_RECOVERY_CLAIM_MS,
+  RepoAgentRunStateLease,
+} from '../src/repo-agent/run-state-lease.ts';
 
 const TEMP_ROOT = join(tmpdir(), `siftkit-lease-tests-${process.pid}`);
 
@@ -80,6 +84,66 @@ test('an active recovery claim fails closed', () => {
     /state transition is already active/iu,
   );
   assert.equal(existsSync(lockPath), false);
+});
+
+test('a stale recovery claim from a dead owner is cleared', () => {
+  const lockPath = makeLockPath();
+  writeFileSync(`${lockPath}.recovery`, `${JSON.stringify({
+    pid: 424242,
+    createdAtUtc: new Date().toISOString(),
+  })}\n`, 'utf8');
+  const lease = new RepoAgentRunStateLease(
+    lockPath,
+    new FixedProcessInspector(false),
+  );
+
+  lease.acquire();
+  lease.release();
+
+  assert.equal(existsSync(lockPath), false);
+  assert.equal(existsSync(`${lockPath}.recovery`), false);
+});
+
+test('an unreadable recovery claim fails closed while young and clears when stale', () => {
+  const lockPath = makeLockPath();
+  const recoveryPath = `${lockPath}.recovery`;
+  writeFileSync(recoveryPath, '', 'utf8');
+  const lease = new RepoAgentRunStateLease(
+    lockPath,
+    new FixedProcessInspector(false),
+  );
+
+  assert.throws(
+    () => lease.acquire(),
+    /state transition is already active/iu,
+  );
+  assert.equal(existsSync(recoveryPath), true);
+
+  const staleTime = new Date(Date.now() - STALE_RECOVERY_CLAIM_MS - 1000);
+  utimesSync(recoveryPath, staleTime, staleTime);
+  lease.acquire();
+  lease.release();
+
+  assert.equal(existsSync(lockPath), false);
+  assert.equal(existsSync(recoveryPath), false);
+});
+
+test('a live recovery owner fails closed and keeps its claim', () => {
+  const lockPath = makeLockPath();
+  writeFileSync(`${lockPath}.recovery`, `${JSON.stringify({
+    pid: 424242,
+    createdAtUtc: new Date().toISOString(),
+  })}\n`, 'utf8');
+  const lease = new RepoAgentRunStateLease(
+    lockPath,
+    new FixedProcessInspector(true),
+  );
+
+  assert.throws(
+    () => lease.acquire(),
+    /state transition is already active/iu,
+  );
+  assert.equal(existsSync(`${lockPath}.recovery`), true);
 });
 
 test('filesystem errors other than contention are surfaced', () => {

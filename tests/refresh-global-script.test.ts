@@ -26,3 +26,9 @@ test('global refresh never resolves packages or crates from the network', () => 
   assert.match(script, /Invoke-RetryableCommand[^\r\n]+@\('i', '-g', \$script:RepoRoot,[^\r\n]*'--offline'[^\r\n]*\)/u);
   assert.match(script, /\$env:CARGO_NET_OFFLINE = 'true'[\s\S]+'desktop:build'/u);
 });
+
+test('global refresh keeps no dead process-argument escaping helper', () => {
+  const script = fs.readFileSync(scriptPath, 'utf8');
+
+  assert.doesNotMatch(script, /ConvertTo-ProcessArgumentString/u);
+});

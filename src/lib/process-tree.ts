@@ -10,8 +10,7 @@
  * terminated deepest-first before the root. Windows never clears a dead parent's id and reuses ids,
  * so a child counts only when it started after its parent; `taskkill /T` skips that check.
  */
-import { spawnSync } from 'node:child_process';
-import type { SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { parseJsonValueText } from './json.ts';
 import { z } from './zod.ts';
 
@@ -27,10 +26,14 @@ const WindowsProcessSnapshotSchema = z.array(WindowsProcessEntrySchema);
 
 export type WindowsProcessEntry = z.infer<typeof WindowsProcessEntrySchema>;
 
+/** The one spawn shape the snapshot needs; `spawn` satisfies it, and tests pass a real-child spawner. */
+export type SnapshotSpawn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+
 export type TerminateProcessTreeOptions = {
   processObject?: { platform: string; kill: (pid: number, signal?: string) => boolean };
-  spawnSyncImpl?: typeof spawnSync;
+  spawnImpl?: SnapshotSpawn;
 };
+type ProcessObject = NonNullable<TerminateProcessTreeOptions['processObject']>;
 
 /**
  * Orders the descendants reachable from `rootPid` deepest-first (each child after its own
@@ -200,25 +203,60 @@ $processes = [SiftKitProcessSnapshot]::EnumerateProcesses() |
 ConvertTo-Json -Compress @($processes)
 `;
 
-/** The descendants of `rootPid` alive now, deepest first, from one Toolhelp32 snapshot; null when it fails. Windows only. */
-export function listWindowsDescendantPids(rootPid: number, spawnSyncImpl: typeof spawnSync = spawnSync): number[] | null {
-  let result: SpawnSyncReturns<Buffer>;
+const TOOLHELP_SNAPSHOT_ARGS = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', TOOLHELP_SNAPSHOT_COMMAND];
+
+/** Non-blocking Toolhelp32 snapshot: the captured stdout text, or null when the spawn throws, fails, or is killed at the bound. */
+function captureToolhelpSnapshot(spawnImpl: SnapshotSpawn): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let child: ChildProcess;
+    try {
+      child = spawnImpl(
+        'powershell.exe',
+        TOOLHELP_SNAPSHOT_ARGS,
+        { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true },
+      );
+    } catch {
+      resolve(null);
+      return;
+    }
+    let stdout = '';
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      stdout += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk;
+    });
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill();
+      resolve(null);
+    }, TOOLHELP_SNAPSHOT_TIMEOUT_MS);
+    child.once('close', (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(code === 0 ? stdout.trim() : null);
+    });
+    child.once('error', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
+/** Blocking twin of captureToolhelpSnapshot for exit handlers, which get no later event-loop turn. */
+function captureToolhelpSnapshotSync(): string | null {
   try {
-    result = spawnSyncImpl(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', TOOLHELP_SNAPSHOT_COMMAND],
-      { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: TOOLHELP_SNAPSHOT_TIMEOUT_MS },
-    );
+    const result = spawnSync('powershell.exe', TOOLHELP_SNAPSHOT_ARGS,
+      { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: TOOLHELP_SNAPSHOT_TIMEOUT_MS });
+    return result.error === undefined && result.status === 0 ? result.stdout.toString('utf8').trim() : null;
   } catch {
     return null;
   }
-  if (result.error !== undefined || (result.status ?? 1) !== 0) {
-    return null;
-  }
-  const stdout = result.stdout?.toString('utf8').trim() ?? '';
-  if (stdout === '') {
-    return null;
-  }
+}
+
+function descendantsFromSnapshot(rootPid: number, stdout: string | null): number[] | null {
+  if (stdout === null || stdout === '') return null;
   try {
     const snapshot = WindowsProcessSnapshotSchema.safeParse(parseJsonValueText(stdout));
     return snapshot.success ? orderDescendantProcessIds(rootPid, snapshot.data) : null;
@@ -227,18 +265,17 @@ export function listWindowsDescendantPids(rootPid: number, spawnSyncImpl: typeof
   }
 }
 
-function terminateWindowsTree(
-  rootPid: number,
-  processObject: NonNullable<TerminateProcessTreeOptions['processObject']>,
-  spawnSyncImpl: typeof spawnSync,
-): boolean {
+/** The descendants of `rootPid` alive now, deepest first, from one Toolhelp32 snapshot; null when it fails. Windows only. */
+export async function listWindowsDescendantPids(rootPid: number, spawnImpl: SnapshotSpawn = spawn): Promise<number[] | null> {
+  return descendantsFromSnapshot(rootPid, await captureToolhelpSnapshot(spawnImpl));
+}
+
+/** Kills the descendants deepest-first, then the root; without a snapshot only the root. */
+function killTree(rootPid: number, descendants: readonly number[] | null, processObject: ProcessObject): boolean {
   let terminated = false;
-  // Without a snapshot only the root is left to terminate
-  for (const pid of [...(listWindowsDescendantPids(rootPid, spawnSyncImpl) ?? []), rootPid]) {
+  for (const pid of [...(descendants ?? []), rootPid]) {
     try {
-      if (processObject.kill(pid, 'SIGTERM')) {
-        terminated = true;
-      }
+      if (processObject.kill(pid, 'SIGTERM')) terminated = true;
     } catch {
       // The process already exited; keep terminating the rest of the tree.
     }
@@ -246,21 +283,23 @@ function terminateWindowsTree(
   return terminated;
 }
 
-export function terminateProcessTree(pid: number | string, options: TerminateProcessTreeOptions = {}): boolean {
-  const processObject = options.processObject || process;
-  const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
+function toRootPid(pid: number | string): number | null {
   const numericPid = Number(pid);
-  if (!Number.isFinite(numericPid) || numericPid <= 0) {
-    return false;
-  }
-  const rootPid = Math.trunc(numericPid);
-  if (processObject.platform === 'win32') {
-    return terminateWindowsTree(rootPid, processObject, spawnSyncImpl);
-  }
-  try {
-    processObject.kill(rootPid, 'SIGTERM');
-    return true;
-  } catch {
-    return false;
-  }
+  return Number.isFinite(numericPid) && numericPid > 0 ? Math.trunc(numericPid) : null;
+}
+
+export async function terminateProcessTree(pid: number | string, options: TerminateProcessTreeOptions = {}): Promise<boolean> {
+  const rootPid = toRootPid(pid);
+  if (rootPid === null) return false;
+  const processObject = options.processObject ?? process;
+  const descendants = processObject.platform === 'win32' ? await listWindowsDescendantPids(rootPid, options.spawnImpl ?? spawn) : [];
+  return killTree(rootPid, descendants, processObject);
+}
+
+/** For exit handlers that cannot await: blocks on the bounded snapshot, then kills the tree. */
+export function terminateProcessTreeSync(pid: number | string, processObject: ProcessObject = process): boolean {
+  const rootPid = toRootPid(pid);
+  if (rootPid === null) return false;
+  const descendants = processObject.platform === 'win32' ? descendantsFromSnapshot(rootPid, captureToolhelpSnapshotSync()) : [];
+  return killTree(rootPid, descendants, processObject);
 }

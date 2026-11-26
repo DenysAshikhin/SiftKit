@@ -83,7 +83,7 @@ test('completing a job frees the idempotency key', () => {
     assert.notEqual(graph.jobs.enqueue(ownerId, capture('vatt_1'), PRIORITIES), null);
     const claimed = graph.jobs.claimNext({ ownerId, ...claim() });
     assert.notEqual(claimed, null);
-    graph.jobs.complete(claimed?.id ?? '');
+    graph.jobs.complete(claimed?.id ?? '', 'runner_a');
     assert.equal(graph.jobs.countByStatus(ownerId, 'completed'), 1);
     assert.notEqual(graph.jobs.enqueue(ownerId, capture('vatt_1'), PRIORITIES), null);
   });
@@ -95,7 +95,8 @@ test('failure re-queues with backoff until max attempts, then dead-letters', () 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const claimed = graph.jobs.claimNext({ ownerId, ...claim() });
       assert.notEqual(claimed, null, `attempt ${attempt} should claim`);
-      const failed = graph.jobs.fail(claimed?.id ?? '', `boom ${attempt}`);
+      const failed = graph.jobs.fail(claimed?.id ?? '', 'runner_a', `boom ${attempt}`);
+      assert.ok(failed, `attempt ${attempt} still holds its lease, so the fail lands`);
       if (attempt < 3) {
         assert.equal(failed.status, 'queued');
         assert.equal(failed.last_error, `boom ${attempt}`);
@@ -112,7 +113,7 @@ test('a backed-off job is not claimable until its available time', () => {
   withAssistantContext(({ graph, ownerId, clock }) => {
     graph.jobs.enqueue(ownerId, maintenance, PRIORITIES);
     const claimed = graph.jobs.claimNext({ ownerId, ...claim() });
-    graph.jobs.fail(claimed?.id ?? '', 'boom');
+    graph.jobs.fail(claimed?.id ?? '', 'runner_a', 'boom');
     assert.equal(graph.jobs.claimNext({ ownerId, ...claim() }), null);
     clock.advanceSeconds(31);
     assert.notEqual(graph.jobs.claimNext({ ownerId, ...claim() }), null);
@@ -124,7 +125,8 @@ test('preemption re-queues immediately and does not consume an attempt', () => {
     graph.jobs.enqueue(ownerId, capture('vatt_1'), PRIORITIES);
     const claimed = graph.jobs.claimNext({ ownerId, ...claim() });
     assert.equal(claimed?.attempts, 1);
-    const requeued = graph.jobs.requeuePreempted(claimed?.id ?? '');
+    const requeued = graph.jobs.requeuePreempted(claimed?.id ?? '', 'runner_a');
+    assert.ok(requeued, 'the claim owner can refund its own attempt');
     assert.equal(requeued.status, 'queued');
     assert.equal(requeued.attempts, 0);
     assert.equal(requeued.lease_owner, null);
@@ -140,6 +142,52 @@ test('expired leases return to the queue on recovery', () => {
     clock.advanceSeconds(61);
     assert.equal(graph.jobs.recoverExpiredLeases(ownerId), 1);
     assert.equal(graph.jobs.claimNext({ ownerId, ...claim() })?.attempts, 2, 'the crashed attempt still counts');
+  });
+});
+
+test('a zombie runner cannot write terminal state over the live lease owner', () => {
+  withAssistantContext(({ graph, ownerId, clock }) => {
+    const job = graph.jobs.enqueue(ownerId, capture('vatt_1'), PRIORITIES);
+    assert.ok(job);
+    graph.jobs.claimNext({ ownerId, ...claim('runner_a') });
+    clock.advanceSeconds(61);
+    assert.equal(graph.jobs.recoverExpiredLeases(ownerId), 1, 'the lapsed lease returns to the queue');
+    assert.equal(graph.jobs.claimNext({ ownerId, ...claim('runner_b') })?.lease_owner, 'runner_b');
+
+    assert.equal(graph.jobs.complete(job.id, 'runner_a'), null, 'a lost lease is refused, not a completion');
+    assert.equal(graph.jobs.fail(job.id, 'runner_a', 'zombie error'), null, 'a lost lease is refused, not a failure');
+    assert.equal(graph.jobs.requeuePreempted(job.id, 'runner_a'), null, 'a lost lease is refused, not a re-queue');
+    const afterZombie = graph.jobs.getJob(job.id);
+    assert.equal(afterZombie?.status, 'running');
+    assert.equal(afterZombie?.lease_owner, 'runner_b');
+    assert.equal(afterZombie?.last_error, null, 'the zombie writes must not touch the live job');
+
+    assert.equal(graph.jobs.complete(job.id, 'runner_b')?.status, 'completed', 'the live runner still finishes the job');
+  });
+});
+
+test('a late fail after lease recovery is refused even before any re-claim', () => {
+  withAssistantContext(({ graph, ownerId, clock }) => {
+    const job = graph.jobs.enqueue(ownerId, capture('vatt_2'), PRIORITIES);
+    assert.ok(job);
+    graph.jobs.claimNext({ ownerId, ...claim('runner_a') });
+    clock.advanceSeconds(61);
+    assert.equal(graph.jobs.recoverExpiredLeases(ownerId), 1);
+    assert.equal(graph.jobs.fail(job.id, 'runner_a', 'late error'), null, 'the recovered lease is gone');
+    const row = graph.jobs.getJob(job.id);
+    assert.equal(row?.status, 'queued');
+    assert.equal(row?.lease_owner, null);
+    assert.equal(row?.last_error, null);
+  });
+});
+
+test('a user cancel of a queued job works without a lease owner', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    const job = graph.jobs.enqueue(ownerId, review(), PRIORITIES);
+    assert.ok(job);
+    const cancelled = graph.jobs.cancel(job.id);
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.lease_owner, null);
   });
 });
 
@@ -163,7 +211,7 @@ test('a stored payload that no longer matches its type fails loudly when read', 
 test('live capture write attachments are listed from queued and running jobs only', () => {
   withAssistantContext(({ graph, ownerId }) => {
     graph.jobs.enqueue(ownerId, capture('vatt_done'), PRIORITIES);
-    graph.jobs.complete(graph.jobs.claimNext({ ownerId, ...claim() })?.id ?? '');
+    graph.jobs.complete(graph.jobs.claimNext({ ownerId, ...claim() })?.id ?? '', 'runner_a');
     graph.jobs.enqueue(ownerId, capture('vatt_running'), PRIORITIES);
     graph.jobs.claimNext({ ownerId, ...claim() });
     graph.jobs.enqueue(ownerId, capture('vatt_queued'), PRIORITIES);
@@ -178,13 +226,13 @@ test('pruneTerminal deletes old terminal jobs and keeps live and recent ones', (
     const oldJob = graph.jobs.enqueue(ownerId, maintenance, PRIORITIES);
     assert.ok(oldJob);
     graph.jobs.claimNext({ ownerId, ...claim() });
-    graph.jobs.complete(oldJob.id);
+    graph.jobs.complete(oldJob.id, 'runner_a');
 
     clock.advanceSeconds(1);
     const recentJob = graph.jobs.enqueue(ownerId, maintenance, PRIORITIES);
     assert.ok(recentJob);
     graph.jobs.claimNext({ ownerId, ...claim() });
-    graph.jobs.complete(recentJob.id);
+    graph.jobs.complete(recentJob.id, 'runner_a');
     const liveJob = graph.jobs.enqueue(ownerId, maintenance, PRIORITIES);
     assert.ok(liveJob);
 

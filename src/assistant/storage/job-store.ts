@@ -22,6 +22,11 @@ const RETRY_BACKOFF_SECONDS = 30;
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 
+const SET_TERMINAL_SQL = `
+  UPDATE assistant_jobs
+  SET status = ?, lease_owner = NULL, lease_expires_at_utc = NULL, last_error = ?, updated_at_utc = ?
+  WHERE id = ?`;
+
 /**
  * Owns `assistant_jobs`. Claiming is a single conditional update so two runners can never hold
  * one job, and `attempts` is consumed at claim time so a crash loop terminates (§12.2).
@@ -106,45 +111,45 @@ export class JobStore {
     return updated.changes === 1 ? this.requireJob(jobId) : null;
   }
 
-  complete(jobId: string): JobRow {
-    this.setTerminal(jobId, 'completed', null);
-    return this.requireJob(jobId);
+  /** Finishes the claim; `null` when the lease was lost and another runner owns the job now. */
+  complete(jobId: string, leaseOwner: string): JobRow | null {
+    return this.setTerminal(jobId, leaseOwner, 'completed', null);
   }
 
+  /** User intent beats a lease: a queued job (lease_owner NULL) must stay cancellable. */
   cancel(jobId: string): JobRow {
-    this.setTerminal(jobId, 'cancelled', null);
+    this.database.prepare(SET_TERMINAL_SQL).run('cancelled', null, this.clock.nowUtc(), jobId);
     return this.requireJob(jobId);
   }
 
-  /** Re-queues with backoff, or dead-letters once the attempt budget is spent. */
-  fail(jobId: string, errorMessage: string): JobRow {
+  /** Re-queues with backoff, or dead-letters once the attempt budget is spent; `null` on a lost lease. */
+  fail(jobId: string, leaseOwner: string, errorMessage: string): JobRow | null {
     const job = this.requireJob(jobId);
     if (job.attempts >= job.max_attempts) {
-      this.setTerminal(jobId, 'dead_letter', errorMessage);
-      return this.requireJob(jobId);
+      return this.setTerminal(jobId, leaseOwner, 'dead_letter', errorMessage);
     }
     const availableAtUtc = new Date(
       this.clock.nowEpochMs() + job.attempts * RETRY_BACKOFF_SECONDS * 1000,
     ).toISOString();
-    this.database.prepare(`
+    const updated = this.database.prepare(`
       UPDATE assistant_jobs
       SET status = 'queued', lease_owner = NULL, lease_expires_at_utc = NULL,
           available_at_utc = ?, last_error = ?, updated_at_utc = ?
-      WHERE id = ?
-    `).run(availableAtUtc, errorMessage, this.clock.nowUtc(), jobId);
-    return this.requireJob(jobId);
+      WHERE id = ? AND lease_owner = ?
+    `).run(availableAtUtc, errorMessage, this.clock.nowUtc(), jobId, leaseOwner);
+    return updated.changes === 1 ? this.requireJob(jobId) : null;
   }
 
-  /** Preemption is not failure (§12.3): the attempt this claim consumed is given back. */
-  requeuePreempted(jobId: string): JobRow {
+  /** Preemption is not failure (§12.3): the attempt this claim consumed is given back; `null` on a lost lease. */
+  requeuePreempted(jobId: string, leaseOwner: string): JobRow | null {
     const nowUtc = this.clock.nowUtc();
-    this.database.prepare(`
+    const updated = this.database.prepare(`
       UPDATE assistant_jobs
       SET status = 'queued', attempts = MAX(attempts - 1, 0), lease_owner = NULL,
           lease_expires_at_utc = NULL, available_at_utc = ?, updated_at_utc = ?
-      WHERE id = ?
-    `).run(nowUtc, nowUtc, jobId);
-    return this.requireJob(jobId);
+      WHERE id = ? AND lease_owner = ?
+    `).run(nowUtc, nowUtc, jobId, leaseOwner);
+    return updated.changes === 1 ? this.requireJob(jobId) : null;
   }
 
   /** Returns how many expired-lease jobs were returned to the queue. */
@@ -221,12 +226,14 @@ export class JobStore {
     return row === undefined || row === null ? null : JobRowSchema.parse(row);
   }
 
-  private setTerminal(jobId: string, status: JobStatus, errorMessage: string | null): void {
-    this.database.prepare(`
-      UPDATE assistant_jobs
-      SET status = ?, lease_owner = NULL, lease_expires_at_utc = NULL,
-          last_error = ?, updated_at_utc = ?
-      WHERE id = ?
-    `).run(status, errorMessage, this.clock.nowUtc(), jobId);
+  /**
+   * Terminal writes are fenced by the claim's lease owner, so a job re-claimed after a lapsed
+   * lease keeps the live runner's outcome; a lost lease changes zero rows and yields null.
+   */
+  private setTerminal(jobId: string, leaseOwner: string, status: JobStatus, errorMessage: string | null): JobRow | null {
+    const updated = this.database.prepare(`${SET_TERMINAL_SQL} AND lease_owner = ?`).run(
+      status, errorMessage, this.clock.nowUtc(), jobId, leaseOwner,
+    );
+    return updated.changes === 1 ? this.requireJob(jobId) : null;
   }
 }

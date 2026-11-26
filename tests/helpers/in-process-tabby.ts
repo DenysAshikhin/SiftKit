@@ -151,18 +151,16 @@ class FakeTabbyProcess extends EventEmitter implements EngineProcess {
     if (this.exitCode !== null) return;
     const server = this.server;
     this.server = null;
-    const finish = (): void => {
-      this.exitCode = code;
-      this.stdout.end();
-      this.stderr.end();
-      this.emit('exit', code, null);
-    };
-    if (server === null) {
-      setImmediate(finish);
-      return;
+    // Death is immediate, like a killed child: exitCode and 'exit' land together, so the exit
+    // handler's recorder finalization runs before the stop path moves on.
+    this.exitCode = code;
+    if (server !== null) {
+      server.closeAllConnections();
+      server.close();
     }
-    server.closeAllConnections();
-    server.close(() => finish());
+    this.stdout.end();
+    this.stderr.end();
+    this.emit('exit', code, null);
   }
 
   /** Exits before stderr drains: 'exit' fires, then `stderrLine` is written and the streams end. */
@@ -188,7 +186,7 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
   modelProbeCount = 0;
   /** Every `/v1/token/encode` body and its authorization header, in arrival order. */
   readonly encodeRequests: { body: z.infer<typeof EncodeRequestSchema>; authorization: string | undefined }[] = [];
-  /** 'unload' and 'terminate' in the order they happened. */
+  /** 'unload', 'terminate', and 'terminate-sync' in the order they happened. */
   readonly events: string[] = [];
   /** Every engine process raised to High priority, in order. */
   readonly priorityRaises: EngineProcess[] = [];
@@ -231,12 +229,17 @@ export class FakeTabbyLauncher implements EngineProcessLauncher {
     return process;
   }
 
-  terminate(engineProcess: EngineProcess): void {
+  async terminate(engineProcess: EngineProcess): Promise<void> {
     this.events.push('terminate');
     for (const process of this.processes) if (process === engineProcess) process.exit(0);
   }
 
-  raisePriority(engineProcess: EngineProcess): string | null {
+  terminateSync(engineProcess: EngineProcess): void {
+    this.events.push('terminate-sync');
+    for (const process of this.processes) if (process === engineProcess) process.exit(0);
+  }
+
+  async raisePriority(engineProcess: EngineProcess): Promise<string | null> {
     this.priorityRaises.push(engineProcess);
     return this.priorityProblem;
   }
@@ -420,6 +423,9 @@ export const NEVER_LAUNCHING_ENGINE_HOST: ManagedEngineHost = {
       throw new Error(`Unexpected managed engine launch: ${spec.command}`);
     },
     terminate() {
+      throw new Error('Unexpected managed engine termination.');
+    },
+    terminateSync() {
       throw new Error('Unexpected managed engine termination.');
     },
     raisePriority() {
